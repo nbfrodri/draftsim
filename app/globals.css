@@ -1,0 +1,266 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --panel-w: clamp(160px, 18vw, 260px);
+}
+
+html,
+body {
+  background-color: #010a13;
+  color: #f0e6d2;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-body), system-ui, sans-serif;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% -10%, rgba(10, 200, 185, 0.10), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 50% 110%, rgba(232, 64, 87, 0.10), transparent 60%),
+    radial-gradient(ellipse 100% 80% at 50% 50%, rgba(200, 170, 110, 0.04), transparent 70%),
+    linear-gradient(180deg, #010a13 0%, #02111d 50%, #010a13 100%);
+  background-attachment: fixed;
+  min-height: 100svh;
+}
+
+/* Hex grid overlay — adds "rift" atmosphere */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image:
+    linear-gradient(90deg, rgba(200, 170, 110, 0.4) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(200, 170, 110, 0.4) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 0%, transparent 90%);
+  z-index: 0;
+}
+
+.font-display {
+  font-family: var(--font-display), serif;
+  letter-spacing: 0.02em;
+}
+
+/* Gold-framed slot used for picks and bans */
+.slot-frame {
+  position: relative;
+  border: 1px solid rgba(200, 170, 110, 0.35);
+  background: linear-gradient(180deg, #0a1628 0%, #04101c 100%);
+  transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s;
+}
+
+/* Ornate corners */
+.slot-frame::before,
+.slot-frame::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgba(200, 170, 110, 0.7);
+  background: #010a13;
+  z-index: 2;
+}
+
+.slot-frame::before {
+  top: -4px;
+  left: -4px;
+  transform: rotate(45deg);
+}
+
+.slot-frame::after {
+  bottom: -4px;
+  right: -4px;
+  transform: rotate(45deg);
+}
+
+/* Large picks get four corners */
+.slot-frame.four-corners > .slot-corner {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgba(200, 170, 110, 0.7);
+  background: #010a13;
+  z-index: 2;
+  transform: rotate(45deg);
+}
+.slot-frame.four-corners > .slot-corner.tr { top: -4px; right: -4px; }
+.slot-frame.four-corners > .slot-corner.bl { bottom: -4px; left: -4px; }
+
+.slot-frame.active {
+  border-color: #c8aa6e;
+}
+
+.slot-frame.banned img {
+  filter: grayscale(0.85) brightness(0.7) contrast(0.95);
+}
+
+/* Animated sweep overlay used on active slot */
+.slot-sweep {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.slot-sweep::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(200, 170, 110, 0.25) 50%,
+    transparent 100%
+  );
+  animation: sweep-x 2.2s ease-in-out infinite;
+  mix-blend-mode: overlay;
+}
+
+.slot-sweep.blue::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(10, 200, 185, 0.3) 50%,
+    transparent 100%
+  );
+}
+
+.slot-sweep.red::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(232, 64, 87, 0.3) 50%,
+    transparent 100%
+  );
+}
+
+/* Gold ornamental divider */
+.gold-divider {
+  position: relative;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(200, 170, 110, 0.5) 20%,
+    rgba(200, 170, 110, 0.9) 50%,
+    rgba(200, 170, 110, 0.5) 80%,
+    transparent 100%
+  );
+}
+.gold-divider::before,
+.gold-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  transform: translateY(-50%) rotate(45deg);
+  background: #c8aa6e;
+  box-shadow: 0 0 8px rgba(200, 170, 110, 0.6);
+}
+.gold-divider::before { left: calc(50% - 28px); }
+.gold-divider::after { left: calc(50% + 22px); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #04101c; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #785a28 0%, #c8aa6e 50%, #785a28 100%);
+  border-radius: 4px;
+}
+
+/* Phase banner styling */
+.phase-banner {
+  position: relative;
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(200, 170, 110, 0.18) 50%, transparent 100%);
+  border-top: 1px solid rgba(200, 170, 110, 0.3);
+  border-bottom: 1px solid rgba(200, 170, 110, 0.3);
+  overflow: hidden;
+}
+
+.phase-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(200, 170, 110, 0.05) 50%, transparent 100%);
+  animation: breath 3s ease-in-out infinite;
+}
+
+/* Ornament — horizontal rule with center dot cluster */
+.ornament {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.ornament::before,
+.ornament::after {
+  content: "";
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(200, 170, 110, 0.6), transparent);
+  flex: 1;
+}
+
+/* Button primary — gold with gradient sheen on hover */
+.btn-gold {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, #c8aa6e 0%, #9a7c3f 100%);
+  color: #010a13;
+  border: 1px solid #785a28;
+  box-shadow: 0 0 0 1px rgba(240, 230, 210, 0.3) inset, 0 2px 0 rgba(0,0,0,0.2);
+  transition: filter 0.2s, transform 0.1s;
+}
+.btn-gold:hover { filter: brightness(1.15); }
+.btn-gold:active { transform: translateY(1px); }
+.btn-gold:disabled { filter: grayscale(0.6) brightness(0.5); cursor: not-allowed; }
+
+.btn-gold::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -120%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(240, 230, 210, 0.45) 50%, transparent 100%);
+  transition: left 0.8s ease;
+  pointer-events: none;
+}
+.btn-gold:hover::after { left: 130%; }
+
+/* Hover reveal */
+.reveal {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.group:hover .reveal,
+.group:focus-visible .reveal {
+  opacity: 1;
+}
+
+/* Tabular numbers for timer */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Smooth timer bar — CSS animation keyed by action index */
+@keyframes timer-shrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+.timer-bar-fill {
+  transform-origin: left center;
+  animation: timer-shrink linear forwards;
+  will-change: transform;
+}
+
+/* Prevent iOS tap highlight flash */
+button { -webkit-tap-highlight-color: transparent; }

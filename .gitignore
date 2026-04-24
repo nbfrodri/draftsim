@@ -1,0 +1,8 @@
+node_modules
+.next
+.claude
+.sixth
+out
+.env*.local
+.DS_Store
+*.log
