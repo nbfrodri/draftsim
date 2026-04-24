@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" shape-rendering="geometricPrecision">
+  <defs>
+    <linearGradient id="blue" x1="4" y1="8" x2="32" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#005a82"/>
+      <stop offset="55%" stop-color="#0ac8b9"/>
+      <stop offset="100%" stop-color="#cdfafa"/>
+    </linearGradient>
+    <linearGradient id="red" x1="60" y1="8" x2="32" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7a1b2a"/>
+      <stop offset="55%" stop-color="#e84057"/>
+      <stop offset="100%" stop-color="#ff9aa4"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#785a28"/>
+      <stop offset="45%" stop-color="#c8aa6e"/>
+      <stop offset="55%" stop-color="#f0e6d2"/>
+      <stop offset="100%" stop-color="#785a28"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Dark rift backdrop diamond -->
+  <path d="M32 3 L61 32 L32 61 L3 32 Z" fill="#010a13"/>
+
+  <!-- Blue-side half -->
+  <path d="M32 7 L32 57 L7 32 Z" fill="url(#blue)"/>
+
+  <!-- Red-side half -->
+  <path d="M32 7 L57 32 L32 57 Z" fill="url(#red)"/>
+
+  <!-- Gold central divider (the draft line) -->
+  <line x1="32" y1="6" x2="32" y2="58" stroke="url(#gold)" stroke-width="2"/>
+
+  <!-- Gold outer frame -->
+  <path d="M32 3 L61 32 L32 61 L3 32 Z" stroke="url(#gold)" stroke-width="2.5" stroke-linejoin="miter" fill="none"/>
+
+  <!-- Ornate diamond accents at each vertex -->
+  <rect x="30" y="1"  width="4" height="4" fill="#f0e6d2" transform="rotate(45 32 3)"/>
+  <rect x="59" y="30" width="4" height="4" fill="#f0e6d2" transform="rotate(45 61 32)"/>
+  <rect x="30" y="59" width="4" height="4" fill="#f0e6d2" transform="rotate(45 32 61)"/>
+  <rect x="1"  y="30" width="4" height="4" fill="#f0e6d2" transform="rotate(45 3 32)"/>
+</svg>
