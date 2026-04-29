@@ -7,6 +7,8 @@ import { currentGame, maxGames, requiredWins, seriesScore } from "@/lib/series";
 import { currentAction } from "@/lib/draftEngine";
 import { phaseLabel, TOTAL_ACTIONS } from "@/lib/draftOrder";
 import Modal from "./Modal";
+import TierListView from "./TierListView";
+import SynergyView from "./SynergyView";
 
 export default function DraftHeader() {
   const series = useDraftStore((s) => s.series)!;
@@ -14,6 +16,10 @@ export default function DraftHeader() {
   const resetAll = useDraftStore((s) => s.resetAll);
   const soundEnabled = useDraftStore((s) => s.soundEnabled);
   const setSoundEnabled = useDraftStore((s) => s.setSoundEnabled);
+  const volume = useDraftStore((s) => s.volume);
+  const setVolume = useDraftStore((s) => s.setVolume);
+  const champions = useDraftStore((s) => s.champions);
+  const metaVersion = useDraftStore((s) => s.metaVersion);
   const game = currentGame(series);
   const action = currentAction(game);
   const score = seriesScore(series);
@@ -21,6 +27,8 @@ export default function DraftHeader() {
 
   const timerRef = useRef<HTMLDivElement | null>(null);
   const [exitOpen, setExitOpen] = useState(false);
+  const [tierListOpen, setTierListOpen] = useState(false);
+  const [synergyOpen, setSynergyOpen] = useState(false);
 
   useEffect(() => {
     if (!timerRef.current || secondsLeft == null) return;
@@ -91,25 +99,64 @@ export default function DraftHeader() {
         <div className="flex items-center gap-2 md:gap-4 justify-self-end shrink-0">
           <button
             type="button"
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            aria-label={soundEnabled ? "Mute sound effects" : "Unmute sound effects"}
-            title={soundEnabled ? "Mute sounds" : "Unmute sounds"}
-            className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center rounded-sm text-rift-muted hover:text-rift-goldbright hover:bg-rift-gold/10 transition-colors"
+            onClick={() => setTierListOpen(true)}
+            aria-label="View meta tier list"
+            title="Meta tier list"
+            className="hidden md:flex w-7 h-7 md:w-8 md:h-8 items-center justify-center rounded-sm text-rift-muted hover:text-rift-goldbright hover:bg-rift-gold/10 transition-colors"
           >
-            {soundEnabled ? (
-              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 md:w-5 md:h-5" aria-hidden>
-                <path d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM13 7a1 1 0 011.707-.707 5 5 0 010 7.414A1 1 0 0113 13a3 3 0 000-6zM15.243 4.343a1 1 0 011.414 0 9 9 0 010 12.728 1 1 0 11-1.414-1.414 7 7 0 000-9.9 1 1 0 010-1.414z" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 md:w-5 md:h-5" aria-hidden>
-                <path
-                  fillRule="evenodd"
-                  d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            )}
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 md:w-5 md:h-5" aria-hidden>
+              <path d="M3 4h14v2H3zM3 9h10v2H3zM3 14h6v2H3z" />
+              <path d="M15 11h2v2h-2zM12 14h5v2h-5z" opacity="0.6" />
+            </svg>
           </button>
+          <button
+            type="button"
+            onClick={() => setSynergyOpen(true)}
+            aria-label="View synergies"
+            title="Pair synergies"
+            className="hidden md:flex w-7 h-7 md:w-8 md:h-8 items-center justify-center rounded-sm text-rift-muted hover:text-rift-goldbright hover:bg-rift-gold/10 transition-colors"
+          >
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4 h-4 md:w-5 md:h-5" aria-hidden>
+              <circle cx="6" cy="10" r="3" />
+              <circle cx="14" cy="10" r="3" />
+              <path d="M9 10h2" strokeLinecap="round" />
+            </svg>
+          </button>
+          <div className="flex items-center gap-1.5 md:gap-2">
+            <button
+              type="button"
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              aria-label={soundEnabled ? "Mute sound effects" : "Unmute sound effects"}
+              title={soundEnabled ? "Mute sounds" : "Unmute sounds"}
+              className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center rounded-sm text-rift-muted hover:text-rift-goldbright hover:bg-rift-gold/10 transition-colors"
+            >
+              {soundEnabled && volume > 0 ? (
+                <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 md:w-5 md:h-5" aria-hidden>
+                  <path d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM13 7a1 1 0 011.707-.707 5 5 0 010 7.414A1 1 0 0113 13a3 3 0 000-6zM15.243 4.343a1 1 0 011.414 0 9 9 0 010 12.728 1 1 0 11-1.414-1.414 7 7 0 000-9.9 1 1 0 010-1.414z" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 md:w-5 md:h-5" aria-hidden>
+                  <path
+                    fillRule="evenodd"
+                    d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              )}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={Math.round(volume * 100)}
+              onChange={(e) => setVolume(Number(e.target.value) / 100)}
+              aria-label="Master volume"
+              title={`Volume: ${Math.round(volume * 100)}%`}
+              disabled={!soundEnabled}
+              className="hidden md:block w-20 accent-rift-gold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            />
+          </div>
           {action && (
             <div className="hidden sm:block text-right">
               <div className="text-[9px] md:text-[10px] uppercase tracking-[0.3em] text-rift-muted">
@@ -157,6 +204,19 @@ export default function DraftHeader() {
           resetAll();
         }}
         onCancel={() => setExitOpen(false)}
+      />
+
+      <TierListView
+        open={tierListOpen}
+        champions={champions}
+        overrideVersion={metaVersion}
+        onClose={() => setTierListOpen(false)}
+      />
+
+      <SynergyView
+        open={synergyOpen}
+        champions={champions}
+        onClose={() => setSynergyOpen(false)}
       />
 
       {/* Timer bar — CSS animation restarts on each new action via key */}

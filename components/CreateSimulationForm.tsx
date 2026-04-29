@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { useDraftStore } from "@/store/draftStore";
 import type { SeriesFormat } from "@/lib/types";
+import TierListView from "./TierListView";
+import MetaEditor from "./MetaEditor";
+import SynergyView from "./SynergyView";
 
 const FORMATS: { value: SeriesFormat; label: string; sub: string }[] = [
   { value: "bo1", label: "Best of 1", sub: "Single game" },
@@ -13,11 +16,22 @@ const FORMATS: { value: SeriesFormat; label: string; sub: string }[] = [
 
 export default function CreateSimulationForm() {
   const startSimulation = useDraftStore((s) => s.startSimulation);
+  const champions = useDraftStore((s) => s.champions);
+  const metaOverride = useDraftStore((s) => s.metaOverride);
+  const metaVersion = useDraftStore((s) => s.metaVersion);
+  const metaSource = useDraftStore((s) => s.metaSource);
+  const randomizeMetaTiers = useDraftStore((s) => s.randomizeMetaTiers);
+  const resetMetaTiers = useDraftStore((s) => s.resetMetaTiers);
+  const applyCustomMeta = useDraftStore((s) => s.applyCustomMeta);
   const [format, setFormat] = useState<SeriesFormat>("bo3");
   const [fearless, setFearless] = useState(false);
   const [timerEnabled, setTimerEnabled] = useState(true);
   const [blueTeam, setBlueTeam] = useState("Blue Side");
   const [redTeam, setRedTeam] = useState("Red Side");
+  const [tierListOpen, setTierListOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [synergyOpen, setSynergyOpen] = useState(false);
+  const isCustomized = metaOverride != null;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const titleRef = useRef<HTMLDivElement | null>(null);
@@ -172,12 +186,127 @@ export default function CreateSimulationForm() {
           >
             BEGIN DRAFT
           </button>
+
+          <div style={{ opacity: 1 }} className="grid grid-cols-2 gap-2 mt-3">
+            <button
+              type="button"
+              onClick={() => setTierListOpen(true)}
+              className="py-3 border border-rift-gold/60 bg-rift-gold/5 text-rift-goldbright hover:bg-rift-gold/15 hover:border-rift-gold font-display text-[11px] md:text-sm tracking-[0.3em] uppercase transition-all flex items-center justify-center gap-2"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 md:w-4 md:h-4" aria-hidden>
+                <path d="M3 4h14v2H3zM3 9h10v2H3zM3 14h6v2H3z" />
+                <path d="M15 11h2v2h-2zM12 14h5v2h-5z" opacity="0.6" />
+              </svg>
+              <span className="hidden md:inline">View Tier List</span>
+              <span className="md:hidden">Tier List</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSynergyOpen(true)}
+              className="py-3 border border-rift-gold/60 bg-rift-gold/5 text-rift-goldbright hover:bg-rift-gold/15 hover:border-rift-gold font-display text-[11px] md:text-sm tracking-[0.3em] uppercase transition-all flex items-center justify-center gap-2"
+            >
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5 md:w-4 md:h-4" aria-hidden>
+                <circle cx="6" cy="10" r="3" />
+                <circle cx="14" cy="10" r="3" />
+                <path d="M9 10h2" strokeLinecap="round" />
+              </svg>
+              <span className="hidden md:inline">View Synergies</span>
+              <span className="md:hidden">Synergies</span>
+            </button>
+          </div>
+
+          {/* Meta controls — three actions: randomize, edit (drag-and-drop),
+              or reset to default. Active meta is persisted in localStorage. */}
+          <div
+            style={{ opacity: 1 }}
+            className="grid grid-cols-3 gap-2 mt-2"
+          >
+            <button
+              type="button"
+              onClick={randomizeMetaTiers}
+              className="py-2.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60 hover:bg-rift-gold/5 font-display text-[10px] md:text-xs tracking-[0.25em] uppercase transition-all flex items-center justify-center gap-1.5"
+              title={isCustomized && metaSource === "randomized" ? "Re-randomize" : "Randomize meta"}
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="w-3.5 h-3.5" aria-hidden>
+                <path d="M2 4h7l-2-2M14 12H7l2 2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M2 12c0-3 3-4 5-4s5 1 5 4" strokeLinecap="round" />
+              </svg>
+              <span className="hidden md:inline">Randomize</span>
+              <span className="md:hidden">Random</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditorOpen(true)}
+              className="py-2.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60 hover:bg-rift-gold/5 font-display text-[10px] md:text-xs tracking-[0.25em] uppercase transition-all flex items-center justify-center gap-1.5"
+              title="Edit meta with drag and drop"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="w-3.5 h-3.5" aria-hidden>
+                <path d="M2 12l8-8 2 2-8 8H2v-2zM10 4l2 2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className="hidden md:inline">Custom Edit</span>
+              <span className="md:hidden">Edit</span>
+            </button>
+            <button
+              type="button"
+              onClick={resetMetaTiers}
+              disabled={!isCustomized}
+              className={`py-2.5 border font-display text-[10px] md:text-xs tracking-[0.25em] uppercase transition-all flex items-center justify-center gap-1.5 ${
+                isCustomized
+                  ? "border-rift-line text-rift-mutedbright hover:text-rift-redbright hover:border-rift-red/50 hover:bg-rift-red/5"
+                  : "border-rift-line/40 text-rift-muted/40 cursor-not-allowed"
+              }`}
+            >
+              Reset
+            </button>
+          </div>
+          <div
+            style={{ opacity: 1 }}
+            className="mt-2 text-center text-[9px] md:text-[10px] uppercase tracking-[0.35em]"
+          >
+            <span className="text-rift-muted">Active meta · </span>
+            <span
+              className={
+                metaSource === "custom"
+                  ? "text-rift-bluebright"
+                  : metaSource === "randomized"
+                  ? "text-rift-goldbright"
+                  : "text-rift-mutedbright"
+              }
+            >
+              {metaSource === "custom"
+                ? `Custom (v${metaVersion})`
+                : metaSource === "randomized"
+                ? `Randomized (v${metaVersion})`
+                : "Default · Patch 26.08"}
+            </span>
+          </div>
         </div>
 
         <div className="cs-stagger mt-6 text-center text-[10px] tracking-[0.3em] uppercase text-rift-muted">
           Data courtesy of CommunityDragon · Meraki Analytics
         </div>
       </form>
+
+      <TierListView
+        open={tierListOpen}
+        champions={champions}
+        overrideVersion={metaVersion}
+        onClose={() => setTierListOpen(false)}
+      />
+
+      <MetaEditor
+        open={editorOpen}
+        champions={champions}
+        initialOverride={metaOverride}
+        onSave={(override) => applyCustomMeta(override)}
+        onClose={() => setEditorOpen(false)}
+      />
+
+      <SynergyView
+        open={synergyOpen}
+        champions={champions}
+        onClose={() => setSynergyOpen(false)}
+      />
     </div>
   );
 }

@@ -15,10 +15,17 @@ interface Props {
 export default function DraftApp({ champions }: Props) {
   const series = useDraftStore((s) => s.series);
   const setChampions = useDraftStore((s) => s.setChampions);
+  const hydrateMetaFromStorage = useDraftStore((s) => s.hydrateMetaFromStorage);
 
   useEffect(() => {
     setChampions(champions);
   }, [champions, setChampions]);
+
+  useEffect(() => {
+    // Restore any saved meta override on first mount so the simulator and
+    // tier list use the user's previously-randomized meta.
+    hydrateMetaFromStorage();
+  }, [hydrateMetaFromStorage]);
 
   if (!series) return <CreateSimulationForm />;
 

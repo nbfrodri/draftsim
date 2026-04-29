@@ -5,6 +5,7 @@ import gsap from "gsap";
 import { useDraftStore } from "@/store/draftStore";
 import { currentGame } from "@/lib/series";
 import { assignLanesToPicks, currentAction } from "@/lib/draftEngine";
+import { getSynergy } from "@/lib/championMeta";
 import type { Champion, Lane, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
 
@@ -53,6 +54,26 @@ export default function TeamPanel({ champions, side }: Props) {
     () => assignLanesToPicks(picks, champions),
     [picks, champions],
   );
+
+  // Live champion-pair synergies — recomputed every time picks change so
+  // the moment a synergistic pair locks in, the badge appears in the panel.
+  const activeSynergies = useMemo(() => {
+    const aliases: string[] = [];
+    for (const id of picks) {
+      if (id == null) continue;
+      const c = byId.get(id);
+      if (c) aliases.push(c.alias);
+    }
+    const out: { tag: string; bonus: number }[] = [];
+    for (let i = 0; i < aliases.length; i++) {
+      for (let j = i + 1; j < aliases.length; j++) {
+        const s = getSynergy(aliases[i], aliases[j]);
+        if (s) out.push({ tag: s.tag, bonus: s.bonus });
+      }
+    }
+    out.sort((a, b) => b.bonus - a.bonus);
+    return out;
+  }, [picks, byId]);
 
   return (
     <aside
@@ -138,6 +159,30 @@ export default function TeamPanel({ champions, side }: Props) {
           );
         })}
       </div>
+
+      {/* Live synergies — shown only when at least one pair fires. */}
+      {activeSynergies.length > 0 && (
+        <div
+          className={`border-t ${sideConfig.borderColor} px-2 py-1.5 shrink-0 max-h-[120px] overflow-y-auto custom-scroll`}
+        >
+          <div
+            className={`text-[8px] md:text-[9px] uppercase tracking-[0.35em] ${sideConfig.textColor}/70 mb-1 text-center`}
+          >
+            Synergies · {activeSynergies.length}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {activeSynergies.map((s, i) => (
+              <span
+                key={`${s.tag}-${i}`}
+                className="text-[8px] md:text-[9px] uppercase tracking-[0.15em] px-1 py-px border border-rift-gold/50 bg-gradient-to-r from-rift-gold/10 to-rift-gold/5 text-rift-goldbright leading-tight"
+                title={`Bonus +${s.bonus}`}
+              >
+                ★ {s.tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

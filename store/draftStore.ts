@@ -17,6 +17,14 @@ import {
   startNextGame,
 } from "@/lib/series";
 import { playActionSound, sounds, SOUND } from "@/lib/sounds";
+import { setActiveMetaOverride, type MetaOverride } from "@/lib/championMeta";
+import {
+  randomizeMeta,
+  saveMetaOverride,
+  loadMetaOverride,
+  saveMetaSource,
+  loadMetaSource,
+} from "@/lib/metaRandomizer";
 import type {
   Champion,
   GameDraft,
@@ -27,15 +35,28 @@ import type {
 
 export const ACTION_SECONDS = 30;
 
+export type MetaSource = "default" | "randomized" | "custom";
+
 interface DraftStore {
   series: SeriesState | null;
   selectedChampionId: number | null;
   secondsLeft: number | null;
   champions: Champion[];
   soundEnabled: boolean;
+  volume: number;
+  metaOverride: MetaOverride | null;
+  // Bumps every time the override changes so React components keyed on this
+  // can invalidate memoized lookups that depend on module state.
+  metaVersion: number;
+  metaSource: MetaSource;
 
   setChampions: (champions: Champion[]) => void;
   setSoundEnabled: (v: boolean) => void;
+  setVolume: (v: number) => void;
+  randomizeMetaTiers: () => void;
+  resetMetaTiers: () => void;
+  applyCustomMeta: (override: MetaOverride) => void;
+  hydrateMetaFromStorage: () => void;
   startSimulation: (settings: SimulationSettings) => void;
   selectChampion: (id: number | null) => void;
   lockIn: () => void;
@@ -76,6 +97,10 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
   secondsLeft: null,
   champions: [],
   soundEnabled: true,
+  volume: 1.0,
+  metaOverride: null,
+  metaVersion: 0,
+  metaSource: "default" as MetaSource,
 
   setChampions: (champions) => {
     set({ champions });
@@ -86,6 +111,60 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
   setSoundEnabled: (v) => {
     sounds.enabled = v;
     set({ soundEnabled: v });
+  },
+
+  setVolume: (v) => {
+    const clamped = Math.max(0, Math.min(1, v));
+    sounds.volume = clamped;
+    set({ volume: clamped });
+  },
+
+  randomizeMetaTiers: () => {
+    const champions = get().champions;
+    const override = randomizeMeta(champions);
+    setActiveMetaOverride(override);
+    saveMetaOverride(override);
+    saveMetaSource("randomized");
+    set((s) => ({
+      metaOverride: override,
+      metaVersion: s.metaVersion + 1,
+      metaSource: "randomized",
+    }));
+  },
+
+  resetMetaTiers: () => {
+    setActiveMetaOverride(null);
+    saveMetaOverride(null);
+    saveMetaSource("default");
+    set((s) => ({
+      metaOverride: null,
+      metaVersion: s.metaVersion + 1,
+      metaSource: "default",
+    }));
+  },
+
+  applyCustomMeta: (override) => {
+    setActiveMetaOverride(override);
+    saveMetaOverride(override);
+    saveMetaSource("custom");
+    set((s) => ({
+      metaOverride: override,
+      metaVersion: s.metaVersion + 1,
+      metaSource: "custom",
+    }));
+  },
+
+  hydrateMetaFromStorage: () => {
+    const stored = loadMetaOverride();
+    const source = loadMetaSource();
+    if (stored) {
+      setActiveMetaOverride(stored);
+      set((s) => ({
+        metaOverride: stored,
+        metaVersion: s.metaVersion + 1,
+        metaSource: source,
+      }));
+    }
   },
 
   startSimulation: (settings) => {

@@ -17,15 +17,27 @@ export const SOUND = {
 // Lightweight global player. Creates a fresh Audio element per play so
 // rapid successive calls don't cut each other off. Caches a preloaded
 // element per URL purely to warm up network/decoding.
+//
+// Volume model: each call to play() passes a per-sound `mix` (the natural
+// loudness for that effect) which gets multiplied by the master volume the
+// user controls from the UI. `enabled = false` is a hard mute regardless.
 class SoundPlayer {
   private warm = new Map<string, HTMLAudioElement>();
   private _enabled = true;
+  private _volume = 1.0;
 
   get enabled() {
     return this._enabled;
   }
   set enabled(v: boolean) {
     this._enabled = v;
+  }
+
+  get volume() {
+    return this._volume;
+  }
+  set volume(v: number) {
+    this._volume = Math.max(0, Math.min(1, v));
   }
 
   preload(urls: readonly string[]) {
@@ -41,12 +53,12 @@ class SoundPlayer {
     }
   }
 
-  play(url: string, volume = 0.5) {
-    if (!this._enabled) return;
+  play(url: string, mix = 0.5) {
+    if (!this._enabled || this._volume === 0) return;
     if (typeof window === "undefined") return;
     try {
       const a = new Audio(url);
-      a.volume = volume;
+      a.volume = Math.max(0, Math.min(1, mix * this._volume));
       void a.play().catch(() => {
         // Autoplay blocked; silent no-op until user interacts.
       });

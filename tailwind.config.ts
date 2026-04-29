@@ -78,6 +78,10 @@ export default {
           "0%, 100%": { transform: "translateY(0) rotate(0deg)", opacity: "0.08" },
           "50%": { transform: "translateY(-8px) rotate(180deg)", opacity: "0.18" },
         },
+        "fadeSlide": {
+          "0%": { opacity: "0", transform: "translateX(-12px)" },
+          "100%": { opacity: "1", transform: "translateX(0)" },
+        },
       },
       animation: {
         "slot-pulse": "slot-pulse 1.6s ease-in-out infinite",
