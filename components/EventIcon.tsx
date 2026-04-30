@@ -203,5 +203,68 @@ export default function EventIcon({ type, size = 14, className = "" }: Props) {
           <path d="M8 1v14M2 8h12" strokeWidth="0.7" opacity="0.6" />
         </svg>
       );
+
+    // Invade — three arrows converging into the enemy jungle.
+    case "invade":
+      return (
+        <svg {...common} strokeWidth={1.5} strokeLinecap="round">
+          <circle cx="8" cy="8" r="2" fill="currentColor" fillOpacity="0.3" />
+          <path d="M2 2l4 4M14 2l-4 4M8 14V11" />
+          <path d="M3 5l3 1M13 5l-3 1" strokeWidth={1.1} />
+        </svg>
+      );
+
+    // Scuttle — crab silhouette (oval body, two pincers).
+    case "scuttle":
+      return (
+        <svg {...common} strokeWidth={1.3}>
+          <ellipse cx="8" cy="9" rx="4.5" ry="3" fill="currentColor" fillOpacity="0.25" />
+          <path d="M3.5 8L1.5 5M12.5 8l2-3" />
+          <path d="M5 11l-1.5 2M11 11l1.5 2" />
+          <circle cx="6.5" cy="8.5" r="0.5" fill="currentColor" />
+          <circle cx="9.5" cy="8.5" r="0.5" fill="currentColor" />
+        </svg>
+      );
+
+    // Roam — curved arrow swooping from one side to another.
+    case "roam":
+      return (
+        <svg {...common} strokeWidth={1.5} strokeLinecap="round">
+          <path d="M2 4c4 0 8 2 12 8" />
+          <path d="M11 9l3 3-3 1" />
+          <circle cx="2" cy="4" r="0.9" fill="currentColor" />
+        </svg>
+      );
+
+    // Buff steal — diamond gem outline (jungle buff icon vibe).
+    case "buff-steal":
+      return (
+        <svg {...common} strokeWidth={1.3}>
+          <path d="M8 2l4 4-4 8-4-8z" fill="currentColor" fillOpacity="0.25" />
+          <path d="M4 6h8" strokeWidth="0.9" />
+          <path d="M8 2v12" strokeWidth="0.7" opacity="0.6" />
+        </svg>
+      );
+
+    // Shutdown — coin / bounty bag with dollar slash.
+    case "shutdown":
+      return (
+        <svg {...common} strokeWidth={1.4}>
+          <circle cx="8" cy="8" r="5.5" fill="currentColor" fillOpacity="0.25" />
+          <path d="M8 4v8M6 6.5h3.5a1.5 1.5 0 010 3h-3a1.5 1.5 0 000 3H10" strokeWidth="1.1" />
+        </svg>
+      );
+
+    // Backdoor — small figure sneaking past a tower / door.
+    case "backdoor":
+      return (
+        <svg {...common} strokeWidth={1.3}>
+          <path d="M3 14h4V6h-4z" fill="currentColor" fillOpacity="0.25" />
+          <path d="M5.5 10v0.5" strokeWidth="0.9" />
+          <path d="M9 8l3 3M12 8l-3 3" strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="13" cy="13" r="0.6" fill="currentColor" />
+        </svg>
+      );
+
   }
 }

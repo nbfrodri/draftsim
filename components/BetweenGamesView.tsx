@@ -22,6 +22,10 @@ import {
 import type { Champion, Lane, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
 import EventIcon from "./EventIcon";
+import AIRationaleHistory from "./AIRationaleHistory";
+import TierListView from "./TierListView";
+import SynergyView from "./SynergyView";
+import Modal from "./Modal";
 
 interface Props {
   champions: Champion[];
@@ -32,6 +36,17 @@ export default function BetweenGamesView({ champions }: Props) {
   const declareWinner = useDraftStore((s) => s.declareWinner);
   const proceedToNextGame = useDraftStore((s) => s.proceedToNextGame);
   const swapPickSlots = useDraftStore((s) => s.swapPickSlots);
+  const aiRationaleHistory = useDraftStore((s) => s.aiRationaleHistory);
+  const resetAll = useDraftStore((s) => s.resetAll);
+  // Reference panels — same modals used in CreateSimulationForm. Useful
+  // post-draft when reviewing tier list / synergies in the context of
+  // the just-finished game.
+  const metaVersion = useDraftStore((s) => s.metaVersion);
+  const [tierListOpen, setTierListOpen] = useState(false);
+  const [synergyOpen, setSynergyOpen] = useState(false);
+  // Main-menu confirm modal — abandoning a series mid-flow loses all
+  // progress, so a confirmation guard is appropriate.
+  const [exitOpen, setExitOpen] = useState(false);
 
   const game = currentGame(series);
   const gameIndex = series.games.length - 1;
@@ -103,8 +118,30 @@ export default function BetweenGamesView({ champions }: Props) {
   return (
     <div
       ref={rootRef}
-      className="min-h-[100svh] overflow-y-auto flex items-start justify-center px-4 py-8 md:py-12"
+      className="min-h-[100svh] overflow-y-auto flex items-start justify-center px-4 py-8 md:py-12 relative"
     >
+      {/* Main-menu escape hatch — top-left, low-key. Confirms before
+          destroying series progress. */}
+      <button
+        type="button"
+        onClick={() => setExitOpen(true)}
+        className="absolute top-3 left-3 md:top-4 md:left-4 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em] z-20"
+        title="Return to main menu (loses series progress)"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className="w-3 h-3"
+          aria-hidden
+        >
+          <path d="M9 3l-5 5 5 5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M4 8h10" strokeLinecap="round" />
+        </svg>
+        Main Menu
+      </button>
+
       <div className="w-full max-w-5xl">
         <div className="bg-fade text-center mb-6 md:mb-8">
           <div className="text-[10px] md:text-xs uppercase tracking-[0.5em] text-rift-gold/70">
@@ -135,6 +172,49 @@ export default function BetweenGamesView({ champions }: Props) {
           </div>
         </div>
 
+        {/* Reference panels — tier list and synergies (same modals as the
+            create-simulation form). Useful for reviewing meta context
+            against the just-completed draft. */}
+        <div className="bg-fade flex items-center justify-center gap-2 md:gap-3 mb-4">
+          <button
+            type="button"
+            onClick={() => setTierListOpen(true)}
+            className="px-3 md:px-4 py-2 border border-rift-gold/50 bg-rift-gold/5 text-rift-goldbright hover:bg-rift-gold/15 hover:border-rift-gold font-display text-[10px] md:text-xs tracking-[0.3em] uppercase transition-all flex items-center gap-2"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="w-3.5 h-3.5 md:w-4 md:h-4"
+              aria-hidden
+            >
+              <path d="M3 4h14v2H3zM3 9h10v2H3zM3 14h6v2H3z" />
+              <path d="M15 11h2v2h-2zM12 14h5v2h-5z" opacity="0.6" />
+            </svg>
+            <span className="hidden sm:inline">Tier List</span>
+            <span className="sm:hidden">Tiers</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSynergyOpen(true)}
+            className="px-3 md:px-4 py-2 border border-rift-gold/50 bg-rift-gold/5 text-rift-goldbright hover:bg-rift-gold/15 hover:border-rift-gold font-display text-[10px] md:text-xs tracking-[0.3em] uppercase transition-all flex items-center gap-2"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              className="w-3.5 h-3.5 md:w-4 md:h-4"
+              aria-hidden
+            >
+              <circle cx="6" cy="10" r="3" />
+              <circle cx="14" cy="10" r="3" />
+              <path d="M9 10h2" strokeLinecap="round" />
+            </svg>
+            <span className="hidden sm:inline">Synergies</span>
+            <span className="sm:hidden">Syn</span>
+          </button>
+        </div>
+
         {/* Role swap hint */}
         <div className="bg-fade text-center mb-3 text-[10px] md:text-xs uppercase tracking-[0.3em] text-rift-muted">
           Tip · click two picks on the same team to swap their champions
@@ -162,6 +242,18 @@ export default function BetweenGamesView({ champions }: Props) {
             onPickClick={handlePickClick}
           />
         </div>
+
+        {/* AI decisions recap — only when at least one AI action was
+            recorded for the just-finished game. Skip-fast-forwarded actions
+            don't appear here (skip path bypasses rationale capture). */}
+        {aiRationaleHistory.length > 0 && (
+          <div className="bg-fade mb-6">
+            <AIRationaleHistory
+              history={aiRationaleHistory}
+              champions={champions}
+            />
+          </div>
+        )}
 
         {!winnerDeclared && simResult ? (
           <div className="bg-fade">
@@ -196,9 +288,24 @@ export default function BetweenGamesView({ champions }: Props) {
             <button
               type="button"
               onClick={handleSimulate}
-              className="w-full py-3 md:py-4 border border-rift-gold/40 bg-rift-gold/5 hover:bg-rift-gold/10 hover:border-rift-gold transition-all text-rift-goldbright font-display tracking-[0.3em] md:tracking-[0.4em] text-xs md:text-sm uppercase"
+              className="group relative w-full py-3 md:py-4 border border-rift-gold/40 bg-rift-gold/5 hover:bg-rift-gold/15 hover:border-rift-gold transition-all text-rift-goldbright font-display tracking-[0.3em] md:tracking-[0.4em] text-xs md:text-sm uppercase overflow-hidden"
             >
-              Simulate Match
+              {/* Animated sweep on hover — subtle "predicting" cue */}
+              <span className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-out bg-gradient-to-r from-transparent via-rift-gold/20 to-transparent" />
+              <span className="relative inline-flex items-center justify-center gap-2.5">
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  className="w-3.5 h-3.5 md:w-4 md:h-4"
+                  aria-hidden
+                >
+                  <circle cx="8" cy="8" r="6" />
+                  <path d="M8 4v4l2.5 1.5" strokeLinecap="round" />
+                </svg>
+                Simulate Match
+              </span>
             </button>
           </div>
         ) : (
@@ -240,6 +347,31 @@ export default function BetweenGamesView({ champions }: Props) {
           </div>
         )}
       </div>
+
+      <TierListView
+        open={tierListOpen}
+        champions={champions}
+        overrideVersion={metaVersion}
+        onClose={() => setTierListOpen(false)}
+      />
+      <SynergyView
+        open={synergyOpen}
+        champions={champions}
+        onClose={() => setSynergyOpen(false)}
+      />
+      <Modal
+        open={exitOpen}
+        title="Return to Main Menu"
+        message="Abandon this series and return to the main menu? Series progress will be lost."
+        confirmLabel="Return"
+        cancelLabel="Stay"
+        tone="danger"
+        onConfirm={() => {
+          setExitOpen(false);
+          resetAll();
+        }}
+        onCancel={() => setExitOpen(false)}
+      />
     </div>
   );
 }
@@ -356,10 +488,11 @@ function CompletedSide({
 type PlayMode = "playing" | "paused" | "finished";
 type PlaySpeed = 1 | 2 | 4;
 
-// Total real-time seconds to play through a match at 1x speed. Tuned so a
-// typical ~14-event timeline averages roughly one event every 1.2s — fast
-// enough to keep momentum, slow enough to actually read.
-const REAL_SECONDS_AT_1X = 18;
+// Each event reveals after at least this many real-time seconds at 1x speed.
+// Even closely-spaced in-game events get a breathing-room gap so users can
+// read each line. Total playback ≈ events.length * SECONDS_PER_EVENT_AT_1X.
+// For a typical ~16-event timeline that's ~80s at 1x, ~40s at 2x, ~20s at 4x.
+const SECONDS_PER_EVENT_AT_1X = 5;
 
 function matchPaceLabel(duration: number): string {
   if (duration < 26) return "Decisive";
@@ -414,26 +547,39 @@ function SimulationPanel({
     accumulatedRef.current = 0;
   }, [result]);
 
-  // Animation loop: advance the in-game clock toward `duration`. Pauses
-  // freeze elapsed time; speed changes recompute the start anchor so the
-  // visible clock doesn't jump.
+  // Animation loop: event-paced playback. Each event consumes a 5s real-time
+  // slot at 1x; within a slot the in-game clock interpolates from the prior
+  // event's minute up to the next event's minute. This guarantees ≥5s
+  // between event reveals even when their in-game timestamps are tight
+  // (e.g., first blood and grubs both early-game). Pauses freeze elapsed
+  // time; speed changes recompute the start anchor so the clock doesn't jump.
   useEffect(() => {
     if (mode !== "playing") return;
     let raf = 0;
     playStartRef.current = performance.now();
     const baseAccumulated = accumulatedRef.current;
+    const events = result.timeline.events;
+    const totalSec = events.length * SECONDS_PER_EVENT_AT_1X;
     const tick = () => {
       const now = performance.now();
       const elapsedSec =
         baseAccumulated + ((now - (playStartRef.current ?? now)) / 1000) * speed;
-      const matchMin = (elapsedSec / REAL_SECONDS_AT_1X) * duration;
-      if (matchMin >= duration) {
-        accumulatedRef.current = (duration / matchMin) * elapsedSec;
+      if (elapsedSec >= totalSec) {
+        accumulatedRef.current = totalSec;
         setCurrentMin(duration);
         setMode("finished");
         return;
       }
-      setCurrentMin(matchMin);
+      const slotIdx = Math.min(
+        events.length - 1,
+        Math.floor(elapsedSec / SECONDS_PER_EVENT_AT_1X),
+      );
+      const slotStart = slotIdx * SECONDS_PER_EVENT_AT_1X;
+      const slotProgress =
+        (elapsedSec - slotStart) / SECONDS_PER_EVENT_AT_1X;
+      const fromMin = slotIdx === 0 ? 0 : events[slotIdx - 1].minutes;
+      const toMin = events[slotIdx].minutes;
+      setCurrentMin(fromMin + (toMin - fromMin) * slotProgress);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -444,7 +590,7 @@ function SimulationPanel({
       accumulatedRef.current =
         baseAccumulated + ((now - (playStartRef.current ?? now)) / 1000) * speed;
     };
-  }, [mode, speed, duration]);
+  }, [mode, speed, duration, result.timeline.events]);
 
   // Reveal events as the clock crosses their timestamps.
   const revealedCount = useMemo(() => {
@@ -480,7 +626,8 @@ function SimulationPanel({
   const isFinished = mode === "finished";
 
   const handleSkip = () => {
-    accumulatedRef.current = REAL_SECONDS_AT_1X;
+    accumulatedRef.current =
+      result.timeline.events.length * SECONDS_PER_EVENT_AT_1X;
     setCurrentMin(duration);
     setMode("finished");
   };
@@ -766,14 +913,17 @@ function computeRunningStats(events: MatchEvent[], upTo: number): RunningStats {
   return stats;
 }
 
-// Live per-lane gold diff = lane phase passive (saturates at 14 min) +
-// event-driven contributions from revealed events.
+// Live per-lane gold diff = lane phase passive (saturates when laning
+// ends) + event-driven contributions from revealed events. Laning end is
+// dynamic — set by the simulator to the minute the first turret fell, or
+// 14 as a fallback if the lanes held that long.
 function computeLiveLaneGold(
   laneAdvantages: Record<Lane, number>,
   laneGoldEvent: Record<Lane, number>,
   currentMin: number,
+  laningEndMinute: number,
 ): Record<Lane, number> {
-  const lanePhaseTime = Math.min(currentMin, 14);
+  const lanePhaseTime = Math.min(currentMin, laningEndMinute);
   const out: Record<Lane, number> = { top: 0, jungle: 0, middle: 0, bottom: 0, support: 0 };
   for (const lane of LANE_ORDER) {
     out[lane] = laneAdvantages[lane] * lanePhaseTime + laneGoldEvent[lane];
@@ -801,9 +951,18 @@ function computeGold(
   };
 }
 
+// Used for big team-total displays (~30k-60k range) where the `k` shorthand
+// keeps the typography compact.
 function formatGold(g: number): string {
   if (g >= 10000) return `${(g / 1000).toFixed(1)}k`;
   return `${(g / 1000).toFixed(2)}k`;
+}
+
+// Used for the per-lane live delta where values are typically 50-2500g and
+// the user wants the actual integer (not "0.2k"). Commas group thousands
+// for readability when the lead crosses 1000g.
+function formatLaneGold(g: number): string {
+  return Math.round(g).toLocaleString("en-US");
 }
 
 function MatchTimelinePanel({
@@ -838,8 +997,14 @@ function MatchTimelinePanel({
     [timeline.events, revealedCount],
   );
   const laneGold = useMemo(
-    () => computeLiveLaneGold(laneAdvantages, stats.laneGoldEvent, currentMin),
-    [laneAdvantages, stats.laneGoldEvent, currentMin],
+    () =>
+      computeLiveLaneGold(
+        laneAdvantages,
+        stats.laneGoldEvent,
+        currentMin,
+        timeline.laningEndMinute,
+      ),
+    [laneAdvantages, stats.laneGoldEvent, currentMin, timeline.laningEndMinute],
   );
   // Team gold derives from lane sum so the totals match what's displayed
   // below in the Lane Gold strip — no off-by-N gold inconsistencies.
@@ -995,7 +1160,8 @@ function LaneGoldRow({
   const redAhead = leadSide === "red";
   // Always show the lead as +X (the leader's advantage). The colour conveys
   // which side is extracting gold from the rival; no minus signs.
-  const diffLabel = leadSide === "even" ? "EVEN" : `+${formatGold(absDiff)}`;
+  const diffLabel =
+    leadSide === "even" ? "EVEN" : `+${formatLaneGold(absDiff)}`;
   const diffCls =
     leadSide === "blue"
       ? "text-rift-bluebright"
@@ -1241,6 +1407,12 @@ const EVENT_LABEL: Record<EventType, string> = {
   ace: "Ace",
   elder: "Elder",
   nexus: "Nexus",
+  invade: "Invade",
+  scuttle: "Scuttle",
+  roam: "Roam",
+  "buff-steal": "Buff Steal",
+  shutdown: "Shutdown",
+  backdoor: "Backdoor",
 };
 
 // Events that deserve extra emphasis in the timeline (gold tinted, larger).
@@ -1249,6 +1421,8 @@ const EMPHASIS_EVENTS: ReadonlySet<EventType> = new Set([
   "elder",
   "ace",
   "nexus",
+  "shutdown",
+  "backdoor",
 ]);
 
 // Matchup tags that represent an advantage to *this* team. Anything not in
@@ -1259,6 +1433,13 @@ const POSITIVE_MATCHUP_TAGS: ReadonlySet<string> = new Set([
   "Engage vs No Frontline",
   "Dive into Backline",
   "Slippery vs Skillshots",
+  "Sustain vs Burst",
+  "Engage Cancel",
+  "Splitpush Pressure",
+  "Full Lockdown",
+  "DPS vs Soft Backline",
+  "Tank Wall vs No DPS",
+  "Mixed Damage Pressure",
 ]);
 
 function TimelineRow({

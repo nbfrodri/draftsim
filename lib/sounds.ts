@@ -12,6 +12,10 @@ export const SOUND = {
   banBlue: `${BASE}sfx-cs-draft-ban-your-team.ogg`,
   banRed: `${BASE}sfx-cs-draft-ban-enemy-team.ogg`,
   selectChampion: `${BASE}sfx-cs-button-thumbnail-click.ogg`,
+  // Final-5 countdown tick from the actual Riot client. Plays once per
+  // second when the action timer drops to ≤ 5s — the same audio cue the
+  // user would hear in real champion select.
+  timerTick: `${BASE}sfx-cs-timer-tick.ogg`,
 } as const;
 
 // Lightweight global player. Creates a fresh Audio element per play so
@@ -80,4 +84,11 @@ export function playActionSound(kind: "pick" | "ban", side: "blue" | "red") {
 
 export function playSelectSound() {
   sounds.play(SOUND.selectChampion, 0.4);
+}
+
+// Plays the countdown tick. Called once per second when the action timer
+// is in its last 5 seconds. Mix is louder than ambient clicks so it cuts
+// through — it's an urgency cue, not background.
+export function playTimerTick() {
+  sounds.play(SOUND.timerTick, 0.7);
 }

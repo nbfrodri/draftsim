@@ -4,10 +4,13 @@ import { useMemo, useRef, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { currentGame, fearlessLockedSet } from "@/lib/series";
 import { isChampionAvailable, currentAction } from "@/lib/draftEngine";
+import { isAITurn } from "@/lib/draftAI";
 import { LANES } from "@/lib/lanes";
 import { playSelectSound } from "@/lib/sounds";
+import { getMetaTier, type MetaTier } from "@/lib/championMeta";
 import type { Champion, Lane } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
+import AIRationalePanel from "./AIRationalePanel";
 
 type LaneFilter = "all" | Lane;
 
@@ -20,6 +23,7 @@ export default function ChampionGrid({ champions }: Props) {
   const selectedId = useDraftStore((s) => s.selectedChampionId);
   const selectChampion = useDraftStore((s) => s.selectChampion);
   const lockIn = useDraftStore((s) => s.lockIn);
+  const triggerAIAction = useDraftStore((s) => s.triggerAIAction);
 
   const [query, setQuery] = useState("");
   const [lane, setLane] = useState<LaneFilter>("all");
@@ -28,6 +32,15 @@ export default function ChampionGrid({ champions }: Props) {
   const game = currentGame(series);
   const action = currentAction(game);
   const locked = fearlessLockedSet(series);
+  // While the AI is on the clock, the lock-in button is repurposed: it
+  // commits the AI's chosen pick (passed via the rationale's championId).
+  // No auto-advance — the user clicks to control draft pacing.
+  const aiOnClock = isAITurn(game, series.mode, series.aiSide);
+  const aiRationale = useDraftStore((s) => s.aiRationale);
+  // Once the rationale is computed, the AI is "ready to lock". Before that
+  // (very brief window, normally instantaneous), the button shows a
+  // thinking state.
+  const aiReady = aiOnClock && aiRationale != null;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -49,14 +62,41 @@ export default function ChampionGrid({ champions }: Props) {
     : undefined;
 
   const isBan = action?.kind === "ban";
-  const buttonLabel = isBan ? "LOCK BAN" : "LOCK IN";
+  const buttonLabel = aiOnClock
+    ? aiReady
+      ? isBan
+        ? "LOCK AI BAN"
+        : "LOCK AI PICK"
+      : "AI THINKING…"
+    : isBan
+    ? "LOCK BAN"
+    : "LOCK IN";
   const buttonTheme = (() => {
-    if (selectedId == null) return "bg-rift-line text-rift-muted cursor-not-allowed border-rift-line";
-    if (isBan) return "bg-gradient-to-b from-rift-red to-rift-reddeep text-white border-rift-red shadow-glow-red hover:brightness-110";
+    // AI ready to commit — themed by side so the user can quickly tell
+    // who's about to lock; otherwise the disabled grey state.
+    if (aiReady) {
+      if (isBan)
+        return "bg-gradient-to-b from-rift-red to-rift-reddeep text-white border-rift-red shadow-glow-red hover:brightness-110";
+      return action?.side === "blue"
+        ? "bg-gradient-to-b from-rift-blue to-rift-bluedeep text-rift-bg border-rift-blue shadow-glow-blue hover:brightness-110"
+        : "bg-gradient-to-b from-rift-red to-rift-reddeep text-rift-bg border-rift-red shadow-glow-red hover:brightness-110";
+    }
+    if (aiOnClock || selectedId == null)
+      return "bg-rift-line text-rift-muted cursor-not-allowed border-rift-line";
+    if (isBan)
+      return "bg-gradient-to-b from-rift-red to-rift-reddeep text-white border-rift-red shadow-glow-red hover:brightness-110";
     return action?.side === "blue"
       ? "bg-gradient-to-b from-rift-blue to-rift-bluedeep text-rift-bg border-rift-blue shadow-glow-blue hover:brightness-110"
       : "bg-gradient-to-b from-rift-red to-rift-reddeep text-rift-bg border-rift-red shadow-glow-red hover:brightness-110";
   })();
+
+  const handleLockClick = () => {
+    if (aiReady && aiRationale) {
+      triggerAIAction(aiRationale.championId);
+      return;
+    }
+    lockIn();
+  };
 
   return (
     <section className="flex-1 flex flex-col min-w-0 min-h-0 border border-rift-gold/25 bg-rift-panel/30 backdrop-blur-sm overflow-hidden">
@@ -128,8 +168,39 @@ export default function ChampionGrid({ champions }: Props) {
       {/* Grid — the only scrolling area */}
       <div className="flex-1 min-h-0 overflow-y-auto p-2 md:p-3">
         {filtered.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-rift-muted text-sm">
-            No champions match your filters.
+          <div className="h-full flex flex-col items-center justify-center gap-3 text-rift-muted text-sm px-4 text-center">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              className="w-10 h-10 opacity-40"
+              aria-hidden
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="M16.5 16.5L21 21" strokeLinecap="round" />
+              <path d="M8 11h6" strokeLinecap="round" opacity="0.6" />
+            </svg>
+            <div>
+              <div className="font-display tracking-wider uppercase text-[11px]">
+                No matches
+              </div>
+              <div className="text-[11px] mt-1 max-w-xs">
+                Try clearing the search box or selecting a different lane filter above.
+              </div>
+            </div>
+            {(query || lane !== "all") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setLane("all");
+                }}
+                className="mt-1 text-[10px] uppercase tracking-[0.3em] px-3 py-1.5 border border-rift-gold/40 text-rift-goldbright hover:bg-rift-gold/10 transition-colors"
+              >
+                Clear filters
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(52px,1fr))] md:grid-cols-[repeat(auto-fill,minmax(64px,1fr))] gap-1.5">
@@ -137,6 +208,7 @@ export default function ChampionGrid({ champions }: Props) {
               const available = isChampionAvailable(c.id, game, locked);
               const isSelected = selectedId === c.id;
               const lockedByFearless = locked.has(c.id);
+              const tier = bestTierFor(c, lane);
               return (
                 <ChampionCell
                   key={c.id}
@@ -144,6 +216,7 @@ export default function ChampionGrid({ champions }: Props) {
                   available={available}
                   lockedByFearless={lockedByFearless}
                   isSelected={isSelected}
+                  tier={tier}
                   onClick={() => {
                     if (!available) return;
                     if (selectedId !== c.id) playSelectSound();
@@ -159,7 +232,14 @@ export default function ChampionGrid({ champions }: Props) {
       {/* Lock-in bar */}
       <div className="border-t border-rift-gold/25 px-3 md:px-4 py-2 md:py-2.5 bg-rift-bgdeep/60 flex items-center gap-3 md:gap-4 shrink-0">
         <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
-          {selectedChamp ? (
+          {aiOnClock && aiRationale ? (
+            <AIRationalePanel
+              key={`${aiRationale.kind}-${aiRationale.championId}-${game.actionIndex}`}
+              rationale={aiRationale}
+              champions={champions}
+              selectedChamp={selectedChamp ?? null}
+            />
+          ) : selectedChamp ? (
             <>
               <div className="slot-frame w-9 h-9 md:w-10 md:h-10 overflow-hidden shrink-0">
                 <img
@@ -179,14 +259,20 @@ export default function ChampionGrid({ champions }: Props) {
             </>
           ) : (
             <div className="text-xs md:text-sm text-rift-muted">
-              Select a champion from the grid
+              {aiOnClock
+                ? "AI is choosing…"
+                : "Select a champion from the grid"}
             </div>
           )}
         </div>
         <button
           type="button"
-          disabled={selectedId == null || !action}
-          onClick={lockIn}
+          disabled={
+            !action ||
+            (aiOnClock && !aiReady) ||
+            (!aiOnClock && selectedId == null)
+          }
+          onClick={handleLockClick}
           className={`relative px-5 md:px-10 py-2.5 md:py-3 font-display tracking-[0.25em] md:tracking-[0.35em] text-xs md:text-sm border transition-all overflow-hidden ${buttonTheme}`}
         >
           {buttonLabel}
@@ -211,10 +297,11 @@ function LaneChip({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 text-[10px] md:text-xs uppercase tracking-[0.15em] border transition-colors ${
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 text-[10px] md:text-xs uppercase tracking-[0.15em] border transition-all ${
         active
-          ? "border-rift-gold bg-rift-gold/10 text-rift-goldbright"
-          : "border-rift-line text-rift-mutedbright hover:border-rift-gold/50 hover:text-rift-goldbright"
+          ? "border-rift-gold bg-rift-gold/10 text-rift-goldbright shadow-[inset_0_-2px_0_0_rgba(200,170,110,0.6)]"
+          : "border-rift-line text-rift-mutedbright hover:border-rift-gold/50 hover:text-rift-goldbright hover:bg-rift-gold/[0.04]"
       }`}
     >
       {icon}
@@ -223,25 +310,154 @@ function LaneChip({
   );
 }
 
+// Return the meta tier the user should "see" for this champion in the
+// current grid view. When filtering by lane, show the tier in that lane.
+// When viewing all, show the champion's BEST tier across their playable
+// lanes — the at-a-glance signal of their meta strength.
+const TIER_RANK: Record<MetaTier, number> = {
+  "S+": 6,
+  S: 5,
+  A: 4,
+  B: 3,
+  C: 2,
+  D: 1,
+};
+
+function bestTierFor(champ: Champion, lane: LaneFilter): MetaTier | null {
+  if (lane !== "all") {
+    return getMetaTier(champ.alias, lane) ?? null;
+  }
+  let best: MetaTier | null = null;
+  for (const l of champ.lanes) {
+    const t = getMetaTier(champ.alias, l);
+    if (!t) continue;
+    if (!best || TIER_RANK[t] > TIER_RANK[best]) best = t;
+  }
+  return best;
+}
+
+// Tier badge — esports-rank-stamp style. Each tier reads as a distinct
+// visual class so the user identifies "S+" vs "C" vs "D" without parsing
+// the letter:
+//   S+: gold gradient + halo + shine sweep (top of meta, premium)
+//   S:  solid gold + ring + shine (strong meta)
+//   A:  cyan gradient + ring (viable meta)
+//   B:  desaturated gold + outline (off-meta but playable)
+//   C:  amber/orange + outline (questionable pick)
+//   D:  red outline + slash overlay (hard off-meta — explicitly visible
+//       so the user sees the warning)
+//
+// Inner top highlight + outer drop shadow simulate a forged metal stamp.
+// All tiers render — D used to be hidden but that obscured legitimate
+// "this pick is bad" signal.
+function TierBadge({ tier }: { tier: MetaTier }) {
+  const isPlus = tier === "S+";
+  const isSorPlus = tier === "S" || tier === "S+";
+
+  // Per-tier styling — every tier has bg, text, ring contrast tuned to
+  // be legible against typical champion-icon backgrounds (which can be
+  // dark, light, or mid-grey depending on splash art).
+  const styles =
+    tier === "S+"
+      ? {
+          bg: "bg-gradient-to-b from-rift-goldbright via-rift-gold to-rift-golddark",
+          text: "text-rift-bg",
+          ring: "ring-1 ring-rift-goldbright/60",
+          glow:
+            "shadow-[0_0_6px_rgba(240,230,210,0.55),inset_0_1px_0_rgba(255,255,255,0.45)]",
+        }
+      : tier === "S"
+      ? {
+          bg: "bg-gradient-to-b from-rift-gold to-rift-golddark",
+          text: "text-rift-bg",
+          ring: "ring-1 ring-rift-gold/60",
+          glow:
+            "shadow-[0_0_3px_rgba(200,170,110,0.55),inset_0_1px_0_rgba(255,255,255,0.3)]",
+        }
+      : tier === "A"
+      ? {
+          bg: "bg-gradient-to-b from-rift-bluebright to-rift-bluedeep",
+          text: "text-rift-bg",
+          ring: "ring-1 ring-rift-blue/60",
+          glow:
+            "shadow-[0_0_2px_rgba(10,200,185,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]",
+        }
+      : tier === "B"
+      ? {
+          // Desaturated gold — readable on dark and light splashes alike.
+          bg: "bg-gradient-to-b from-[#7a6b48] to-[#3a3220]",
+          text: "text-rift-goldbright",
+          ring: "ring-1 ring-rift-gold/40",
+          glow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]",
+        }
+      : tier === "C"
+      ? {
+          // Amber/orange — distinct from B's gold and D's red. Reads as
+          // "questionable, not great" without screaming "bad".
+          bg: "bg-gradient-to-b from-[#8a5a2b] to-[#3a2510]",
+          text: "text-[#ffd9a8]",
+          ring: "ring-1 ring-[#a87738]/60",
+          glow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]",
+        }
+      : {
+          // D — explicit "off-meta warning" badge. Red ring + dim red bg.
+          bg: "bg-gradient-to-b from-[#5a1f28] to-[#2a0d12]",
+          text: "text-rift-redbright",
+          ring: "ring-1 ring-rift-red/60",
+          glow: "shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]",
+        };
+
+  return (
+    <div
+      className={`absolute top-0.5 right-0.5 z-10 inline-flex items-center justify-center min-w-[16px] h-[15px] md:min-w-[18px] md:h-[17px] px-[3px] ${styles.bg} ${styles.ring} ${styles.glow} ${
+        isSorPlus ? "animate-tier-shine" : ""
+      }`}
+      style={{
+        // Subtle chamfer on the bottom-left corner — gives the badge a
+        // pennant feel pointing toward the champion icon below it.
+        clipPath: "polygon(0 0, 100% 0, 100% 100%, 18% 100%, 0 60%)",
+      }}
+      aria-hidden
+    >
+      <span
+        className={`${styles.text} font-display italic font-bold leading-none text-[9px] md:text-[10px] tracking-tight tabular-nums relative z-[1]`}
+      >
+        {isPlus ? (
+          <>
+            S<sup className="text-[5.5px] md:text-[6.5px] -top-[1px] relative">+</sup>
+          </>
+        ) : (
+          tier
+        )}
+      </span>
+    </div>
+  );
+}
+
 function ChampionCell({
   champ,
   available,
   lockedByFearless,
   isSelected,
+  tier,
   onClick,
 }: {
   champ: Champion;
   available: boolean;
   lockedByFearless: boolean;
   isSelected: boolean;
+  tier: MetaTier | null;
   onClick: () => void;
 }) {
+  // Show every tier we have meta data for. Champions with no entry in
+  // CHAMPION_META still render no badge (genuinely unknown).
+  const showTier = tier !== null;
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={!available}
-      title={champ.name}
+      title={tier ? `${champ.name} · ${tier}` : champ.name}
       className={`group relative aspect-square overflow-hidden border transition-all ${
         !available
           ? "border-rift-line/40 cursor-not-allowed grayscale brightness-[0.35]"
@@ -256,6 +472,10 @@ function ChampionCell({
         loading="lazy"
         className="w-full h-full object-cover"
       />
+      {/* Tier badge — top-right corner. Renders for every tier (S+ → D)
+          whenever we have meta data. Hidden on greyed-out unavailable
+          champions to reduce visual noise. */}
+      {showTier && available && tier && <TierBadge tier={tier} />}
       {lockedByFearless && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/60 pointer-events-none">
           <div className="text-[8px] uppercase tracking-widest text-rift-gold font-display">

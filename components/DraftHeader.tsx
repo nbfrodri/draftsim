@@ -170,13 +170,15 @@ export default function DraftHeader() {
           {secondsLeft != null && (
             <div
               ref={timerRef}
-              className={`relative font-display text-2xl md:text-4xl tnum shrink-0 ${
+              className={`relative font-display text-2xl md:text-4xl tnum shrink-0 transition-colors ${
                 secondsLeft <= 5
-                  ? "text-rift-red drop-shadow-[0_0_10px_rgba(232,64,87,0.6)]"
+                  ? "text-rift-red drop-shadow-[0_0_10px_rgba(232,64,87,0.6)] animate-timer-pulse"
                   : secondsLeft <= 10
                   ? "text-rift-gold"
                   : "text-rift-goldbright"
               }`}
+              aria-live="polite"
+              aria-atomic="true"
             >
               {String(Math.max(0, secondsLeft)).padStart(2, "0")}
             </div>

@@ -187,6 +187,28 @@ export function loadMetaSource(): "default" | "randomized" | "custom" {
   return "default";
 }
 
+const ENABLED_KEY = "draftsim:metaEnabled:v1";
+
+export function saveMetaEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(ENABLED_KEY, enabled ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
+export function loadMetaEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const raw = localStorage.getItem(ENABLED_KEY);
+    if (raw === "0") return false;
+  } catch {
+    // ignore
+  }
+  return true;
+}
+
 export function saveMetaOverride(o: MetaOverride | null): void {
   if (typeof window === "undefined") return;
   try {

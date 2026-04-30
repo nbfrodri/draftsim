@@ -16,14 +16,27 @@ import {
   recordWinner,
   startNextGame,
 } from "@/lib/series";
+import {
+  chooseAIAction,
+  chooseAIActionWithRationale,
+  isAITurn,
+  seriesAIContextFrom,
+  type AIRationale,
+} from "@/lib/draftAI";
 import { playActionSound, sounds, SOUND } from "@/lib/sounds";
-import { setActiveMetaOverride, type MetaOverride } from "@/lib/championMeta";
+import {
+  setActiveMetaOverride,
+  setMetaEnabled,
+  type MetaOverride,
+} from "@/lib/championMeta";
 import {
   randomizeMeta,
   saveMetaOverride,
   loadMetaOverride,
   saveMetaSource,
   loadMetaSource,
+  saveMetaEnabled,
+  loadMetaEnabled,
 } from "@/lib/metaRandomizer";
 import type {
   Champion,
@@ -49,6 +62,19 @@ interface DraftStore {
   // can invalidate memoized lookups that depend on module state.
   metaVersion: number;
   metaSource: MetaSource;
+  // Master switch for the meta tier system. When false, getMetaTier
+  // returns null for everyone; AI scoring loses its meta-tier signal,
+  // simulator's metaStrengthScore flattens, and tier badges hide.
+  metaEnabled: boolean;
+  // Rationale of the AI's current decision — populated when an AI turn
+  // starts, cleared on lock or when control returns to a human. Read by the
+  // overlay UI to surface the AI's reasoning during the hover phase.
+  aiRationale: AIRationale | null;
+  // History of rationales for the current game. Each entry is the rationale
+  // captured at the moment the AI locked in. Cleared on game start. Used
+  // by the post-draft "AI decisions" recap. Skip-fast-forwarded actions
+  // are NOT recorded (skip prioritises speed over instrumentation).
+  aiRationaleHistory: Array<{ actionIndex: number; rationale: AIRationale }>;
 
   setChampions: (champions: Champion[]) => void;
   setSoundEnabled: (v: boolean) => void;
@@ -56,11 +82,27 @@ interface DraftStore {
   randomizeMetaTiers: () => void;
   resetMetaTiers: () => void;
   applyCustomMeta: (override: MetaOverride) => void;
+  setMetaEnabled: (enabled: boolean) => void;
   hydrateMetaFromStorage: () => void;
   startSimulation: (settings: SimulationSettings) => void;
   selectChampion: (id: number | null) => void;
   lockIn: () => void;
   timeout: () => void;
+  // Resolves the current AI action and applies it to the game state. No-op
+  // if it isn't actually the AI's turn (mode/aiSide guard) or the draft is
+  // already complete. The optional `preDecidedId` lets the caller pre-compute
+  // the AI's choice (for hover/preview) and pass it through, so the locked
+  // champion is guaranteed to match the previewed one — important because
+  // chooseAIAction has random jitter and recomputing would give a different
+  // result.
+  triggerAIAction: (preDecidedId?: number) => void;
+  // Fast-forward the rest of the draft by resolving every remaining AI
+  // action synchronously. Used by the "Skip Draft" button in AI vs AI mode.
+  // Stops as soon as it reaches a non-AI action, or the draft completes.
+  completeAIDraft: () => void;
+  // Set/clear the AI's current decision rationale. DraftView writes this
+  // when an AI turn begins so the lock-in panel can render the breakdown.
+  setAIRationale: (r: AIRationale | null) => void;
   tickTimer: () => void;
   declareWinner: (side: Side) => void;
   proceedToNextGame: (swapSides: boolean) => void;
@@ -101,6 +143,9 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
   metaOverride: null,
   metaVersion: 0,
   metaSource: "default" as MetaSource,
+  metaEnabled: true,
+  aiRationale: null,
+  aiRationaleHistory: [],
 
   setChampions: (champions) => {
     set({ champions });
@@ -154,15 +199,34 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
     }));
   },
 
+  setMetaEnabled: (enabled) => {
+    setMetaEnabled(enabled);
+    saveMetaEnabled(enabled);
+    set((s) => ({
+      metaEnabled: enabled,
+      // Bump version so any memoized component (TierListView, ChampionGrid
+      // tier badges) recomputes against the new effective tier set.
+      metaVersion: s.metaVersion + 1,
+    }));
+  },
+
   hydrateMetaFromStorage: () => {
     const stored = loadMetaOverride();
     const source = loadMetaSource();
+    const enabled = loadMetaEnabled();
+    setMetaEnabled(enabled);
     if (stored) {
       setActiveMetaOverride(stored);
       set((s) => ({
         metaOverride: stored,
         metaVersion: s.metaVersion + 1,
         metaSource: source,
+        metaEnabled: enabled,
+      }));
+    } else {
+      set((s) => ({
+        metaEnabled: enabled,
+        metaVersion: s.metaVersion + 1,
       }));
     }
   },
@@ -173,6 +237,8 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
       series,
       selectedChampionId: null,
       secondsLeft: settings.timerEnabled ? ACTION_SECONDS : null,
+      aiRationale: null,
+      aiRationaleHistory: [],
     });
   },
 
@@ -204,6 +270,124 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
         series.timerEnabled && finalized.status !== "complete"
           ? ACTION_SECONDS
           : null,
+    });
+  },
+
+  triggerAIAction: (preDecidedId) => {
+    const { series, champions, aiRationale, aiRationaleHistory } = get();
+    if (!series) return;
+    const game = currentGame(series);
+    const action = currentAction(game);
+    if (!action) return;
+    // Guard: only act when the action genuinely belongs to the AI under the
+    // current mode. Prevents a stale timer from firing into a human turn.
+    if (!isAITurn(game, series.mode, series.aiSide)) return;
+
+    playActionSound(action.kind, action.side);
+
+    const locked = fearlessLockedSet(series);
+    const championId =
+      preDecidedId ??
+      chooseAIAction(
+        game,
+        champions,
+        locked,
+        seriesAIContextFrom(series, action.side),
+      );
+    let updatedGame: GameDraft;
+    if (championId != null) {
+      updatedGame = applyLock(game, championId);
+    } else {
+      // No legal champion (extremely unlikely with a normal roster) — fall
+      // back to the timeout path so the draft still advances.
+      updatedGame = applyTimeout(game, allChampionIds(champions), locked);
+    }
+    const finalized = finalizeRoles(updatedGame, champions);
+    const games = [...series.games];
+    games[games.length - 1] = finalized;
+    const nextSeries: SeriesState = {
+      ...series,
+      status: finalized.status === "complete" ? "between-games" : "drafting",
+      games,
+    };
+    // Append the rationale we surfaced during the hover phase to the
+    // per-game history so the post-draft recap can replay it. We use the
+    // pre-action index (game.actionIndex) since after applyLock that field
+    // has already advanced.
+    const nextHistory =
+      aiRationale && aiRationale.championId === championId
+        ? [
+            ...aiRationaleHistory,
+            { actionIndex: game.actionIndex, rationale: aiRationale },
+          ]
+        : aiRationaleHistory;
+    set({
+      series: nextSeries,
+      selectedChampionId: null,
+      secondsLeft:
+        series.timerEnabled && finalized.status !== "complete"
+          ? ACTION_SECONDS
+          : null,
+      // AI's decision is committed — the rationale is no longer current.
+      aiRationale: null,
+      aiRationaleHistory: nextHistory,
+    });
+  },
+
+  completeAIDraft: () => {
+    const { series, champions, aiRationaleHistory } = get();
+    if (!series) return;
+    // Fearless locks come from prior completed games only — the current
+    // game's picks never affect them — so we compute once and reuse.
+    const locked = fearlessLockedSet(series);
+    const allIds = allChampionIds(champions);
+    let game = currentGame(series);
+    let action = currentAction(game);
+    // We accumulate rationales for every skipped action so the post-draft
+    // "AI Decisions" recap shows ALL decisions, not just the ones the user
+    // clicked through manually. Adds ~50ms per action × ~20 actions ≈ 1s
+    // worst case for a full skip — acceptable for a one-shot fast-forward.
+    const newHistory = [...aiRationaleHistory];
+    while (action && isAITurn(game, series.mode, series.aiSide)) {
+      // Recompute seriesCtx per iteration — `mySide` changes between blue
+      // and red turns, and the prior-picks set is keyed by side identity.
+      const seriesCtx = seriesAIContextFrom(series, action.side);
+      const decision = chooseAIActionWithRationale(
+        game,
+        champions,
+        locked,
+        seriesCtx,
+      );
+      if (decision == null) {
+        // Falls through to timeout if the roster is exhausted (extremely
+        // unlikely with a normal champion pool).
+        game = applyTimeout(game, allIds, locked);
+      } else {
+        newHistory.push({
+          actionIndex: game.actionIndex,
+          rationale: decision,
+        });
+        game = applyLock(game, decision.championId);
+      }
+      action = currentAction(game);
+    }
+    const finalized = finalizeRoles(game, champions);
+    const games = [...series.games];
+    games[games.length - 1] = finalized;
+    const nextSeries: SeriesState = {
+      ...series,
+      status: finalized.status === "complete" ? "between-games" : "drafting",
+      games,
+    };
+    set({
+      series: nextSeries,
+      selectedChampionId: null,
+      secondsLeft:
+        series.timerEnabled && finalized.status !== "complete"
+          ? ACTION_SECONDS
+          : null,
+      aiRationale: null,
+      aiRationaleHistory: newHistory,
     });
   },
 
@@ -265,6 +449,8 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
       series: next,
       selectedChampionId: null,
       secondsLeft: next.timerEnabled ? ACTION_SECONDS : null,
+      // Fresh game — clear last game's AI rationale history.
+      aiRationaleHistory: [],
     });
   },
 
@@ -277,10 +463,14 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
     set({ series: { ...series, games } });
   },
 
+  setAIRationale: (r) => set({ aiRationale: r }),
+
   resetAll: () =>
     set({
       series: null,
       selectedChampionId: null,
       secondsLeft: null,
+      aiRationale: null,
+      aiRationaleHistory: [],
     }),
 }));

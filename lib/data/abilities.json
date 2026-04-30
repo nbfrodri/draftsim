@@ -1,0 +1,1362 @@
+{
+  "Aatrox": {
+    "alias": "Aatrox",
+    "hardCCDuration": 3,
+    "ultCooldown": 120,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Ahri": {
+    "alias": "Ahri",
+    "hardCCDuration": 0,
+    "ultCooldown": 130,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Akali": {
+    "alias": "Akali",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Akshan": {
+    "alias": "Akshan",
+    "hardCCDuration": 0,
+    "ultCooldown": 100,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Alistar": {
+    "alias": "Alistar",
+    "hardCCDuration": 1,
+    "ultCooldown": 120,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Ambessa": {
+    "alias": "Ambessa",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 130,
+    "ultCastTime": 0.55,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Amumu": {
+    "alias": "Amumu",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 150,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Anivia": {
+    "alias": "Anivia",
+    "hardCCDuration": 0,
+    "ultCooldown": 4,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Annie": {
+    "alias": "Annie",
+    "hardCCDuration": 0,
+    "ultCooldown": 130,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Aphelios": {
+    "alias": "Aphelios",
+    "hardCCDuration": 1,
+    "ultCooldown": 120,
+    "ultCastTime": 0.6,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "Ashe": {
+    "alias": "Ashe",
+    "hardCCDuration": 0,
+    "ultCooldown": 100,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "AurelionSol": {
+    "alias": "AurelionSol",
+    "hardCCDuration": 1,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Aurora": {
+    "alias": "Aurora",
+    "hardCCDuration": 0,
+    "ultCooldown": 140,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Azir": {
+    "alias": "Azir",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0.5,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Bard": {
+    "alias": "Bard",
+    "hardCCDuration": 0,
+    "ultCooldown": 110,
+    "ultCastTime": 0.5,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Belveth": {
+    "alias": "Belveth",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 1,
+    "ultCastTime": 1,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Blitzcrank": {
+    "alias": "Blitzcrank",
+    "hardCCDuration": 1,
+    "ultCooldown": 60,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Brand": {
+    "alias": "Brand",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 110,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Braum": {
+    "alias": "Braum",
+    "hardCCDuration": 0.6,
+    "ultCooldown": 120,
+    "ultCastTime": 0.5,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Briar": {
+    "alias": "Briar",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 120,
+    "ultCastTime": 1,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Caitlyn": {
+    "alias": "Caitlyn",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 90,
+    "ultCastTime": 0.375,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "Camille": {
+    "alias": "Camille",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 140,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Cassiopeia": {
+    "alias": "Cassiopeia",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0.5,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Chogath": {
+    "alias": "Chogath",
+    "hardCCDuration": 1,
+    "ultCooldown": 80,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Corki": {
+    "alias": "Corki",
+    "hardCCDuration": 0,
+    "ultCooldown": 2,
+    "ultCastTime": 0.175,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Darius": {
+    "alias": "Darius",
+    "hardCCDuration": 3,
+    "ultCooldown": 120,
+    "ultCastTime": 0.3667,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Diana": {
+    "alias": "Diana",
+    "hardCCDuration": 0,
+    "ultCooldown": 100,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "DrMundo": {
+    "alias": "DrMundo",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Draven": {
+    "alias": "Draven",
+    "hardCCDuration": 0,
+    "ultCooldown": 100,
+    "ultCastTime": 0.5,
+    "hasResets": true,
+    "burstWindowSeconds": 8
+  },
+  "Ekko": {
+    "alias": "Ekko",
+    "hardCCDuration": 2.25,
+    "ultCooldown": 110,
+    "ultCastTime": 0.5,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Elise": {
+    "alias": "Elise",
+    "hardCCDuration": 0,
+    "ultCooldown": 3,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Evelynn": {
+    "alias": "Evelynn",
+    "hardCCDuration": 2,
+    "ultCooldown": 120,
+    "ultCastTime": 0.35,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Ezreal": {
+    "alias": "Ezreal",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 1,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Fiddlesticks": {
+    "alias": "Fiddlesticks",
+    "hardCCDuration": 1.25,
+    "ultCooldown": 140,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Fiora": {
+    "alias": "Fiora",
+    "hardCCDuration": 0,
+    "ultCooldown": 110,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Fizz": {
+    "alias": "Fizz",
+    "hardCCDuration": 1,
+    "ultCooldown": 100,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Galio": {
+    "alias": "Galio",
+    "hardCCDuration": 1.25,
+    "ultCooldown": 180,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Gangplank": {
+    "alias": "Gangplank",
+    "hardCCDuration": 0,
+    "ultCooldown": 170,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Garen": {
+    "alias": "Garen",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 120,
+    "ultCastTime": 0.435,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Gnar": {
+    "alias": "Gnar",
+    "hardCCDuration": 1.25,
+    "ultCooldown": 90,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Gragas": {
+    "alias": "Gragas",
+    "hardCCDuration": 1,
+    "ultCooldown": 100,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Graves": {
+    "alias": "Graves",
+    "hardCCDuration": 0,
+    "ultCooldown": 100,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "Gwen": {
+    "alias": "Gwen",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Hecarim": {
+    "alias": "Hecarim",
+    "hardCCDuration": 0.25,
+    "ultCooldown": 140,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Heimerdinger": {
+    "alias": "Heimerdinger",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 100,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Hwei": {
+    "alias": "Hwei",
+    "hardCCDuration": 0,
+    "ultCooldown": 140,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Illaoi": {
+    "alias": "Illaoi",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0.5,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Irelia": {
+    "alias": "Irelia",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 125,
+    "ultCastTime": 0.4,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Ivern": {
+    "alias": "Ivern",
+    "hardCCDuration": 0,
+    "ultCooldown": 140,
+    "ultCastTime": 0.5,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Janna": {
+    "alias": "Janna",
+    "hardCCDuration": 0.5,
+    "ultCooldown": 130,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "JarvanIV": {
+    "alias": "JarvanIV",
+    "hardCCDuration": 0.15,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Jax": {
+    "alias": "Jax",
+    "hardCCDuration": 1,
+    "ultCooldown": 110,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Jayce": {
+    "alias": "Jayce",
+    "hardCCDuration": 0,
+    "ultCooldown": 6,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "Jhin": {
+    "alias": "Jhin",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 1,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Jinx": {
+    "alias": "Jinx",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 85,
+    "ultCastTime": 0.6,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "KSante": {
+    "alias": "KSante",
+    "hardCCDuration": 0.8,
+    "ultCooldown": 120,
+    "ultCastTime": 0.4,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Kaisa": {
+    "alias": "Kaisa",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Kalista": {
+    "alias": "Kalista",
+    "hardCCDuration": 0,
+    "ultCooldown": 160,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "Karma": {
+    "alias": "Karma",
+    "hardCCDuration": 0,
+    "ultCooldown": 40,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Karthus": {
+    "alias": "Karthus",
+    "hardCCDuration": 0,
+    "ultCooldown": 200,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Kassadin": {
+    "alias": "Kassadin",
+    "hardCCDuration": 0,
+    "ultCooldown": 5,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Katarina": {
+    "alias": "Katarina",
+    "hardCCDuration": 0,
+    "ultCooldown": 75,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Kayle": {
+    "alias": "Kayle",
+    "hardCCDuration": 0,
+    "ultCooldown": 160,
+    "ultCastTime": 0.5,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Kayn": {
+    "alias": "Kayn",
+    "hardCCDuration": 1,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Kennen": {
+    "alias": "Kennen",
+    "hardCCDuration": 1.25,
+    "ultCooldown": 120,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Khazix": {
+    "alias": "Khazix",
+    "hardCCDuration": 0,
+    "ultCooldown": 100,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Kindred": {
+    "alias": "Kindred",
+    "hardCCDuration": 0,
+    "ultCooldown": 180,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "Kled": {
+    "alias": "Kled",
+    "hardCCDuration": 0,
+    "ultCooldown": 140,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "KogMaw": {
+    "alias": "KogMaw",
+    "hardCCDuration": 0,
+    "ultCooldown": 2,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Leblanc": {
+    "alias": "Leblanc",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 50,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "LeeSin": {
+    "alias": "LeeSin",
+    "hardCCDuration": 1,
+    "ultCooldown": 110,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Leona": {
+    "alias": "Leona",
+    "hardCCDuration": 1,
+    "ultCooldown": 90,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Lillia": {
+    "alias": "Lillia",
+    "hardCCDuration": 0,
+    "ultCooldown": 150,
+    "ultCastTime": 0.4,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Lissandra": {
+    "alias": "Lissandra",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 120,
+    "ultCastTime": 0.375,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Lucian": {
+    "alias": "Lucian",
+    "hardCCDuration": 4,
+    "ultCooldown": 110,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Lulu": {
+    "alias": "Lulu",
+    "hardCCDuration": 1,
+    "ultCooldown": 100,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Lux": {
+    "alias": "Lux",
+    "hardCCDuration": 2,
+    "ultCooldown": 60,
+    "ultCastTime": 1,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Malphite": {
+    "alias": "Malphite",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 130,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Malzahar": {
+    "alias": "Malzahar",
+    "hardCCDuration": 0,
+    "ultCooldown": 140,
+    "ultCastTime": 0.005,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Maokai": {
+    "alias": "Maokai",
+    "hardCCDuration": 0.5,
+    "ultCooldown": 130,
+    "ultCastTime": 0.5,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "MasterYi": {
+    "alias": "MasterYi",
+    "hardCCDuration": 0,
+    "ultCooldown": 85,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Mel": {
+    "alias": "Mel",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0.75,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Milio": {
+    "alias": "Milio",
+    "hardCCDuration": 1,
+    "ultCooldown": 160,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "MissFortune": {
+    "alias": "MissFortune",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Mordekaiser": {
+    "alias": "Mordekaiser",
+    "hardCCDuration": 0,
+    "ultCooldown": 140,
+    "ultCastTime": 0.5,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Morgana": {
+    "alias": "Morgana",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0.35,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Naafiri": {
+    "alias": "Naafiri",
+    "hardCCDuration": 0,
+    "ultCooldown": 110,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Nami": {
+    "alias": "Nami",
+    "hardCCDuration": 0.5,
+    "ultCooldown": 120,
+    "ultCastTime": 0.5,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Nasus": {
+    "alias": "Nasus",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0.2,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Nautilus": {
+    "alias": "Nautilus",
+    "hardCCDuration": 1,
+    "ultCooldown": 120,
+    "ultCastTime": 0.46,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Neeko": {
+    "alias": "Neeko",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 120,
+    "ultCastTime": 0.6,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Nidalee": {
+    "alias": "Nidalee",
+    "hardCCDuration": 0,
+    "ultCooldown": 3,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Nilah": {
+    "alias": "Nilah",
+    "hardCCDuration": 0,
+    "ultCooldown": 110,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Nocturne": {
+    "alias": "Nocturne",
+    "hardCCDuration": 0,
+    "ultCooldown": 140,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Nunu": {
+    "alias": "Nunu",
+    "hardCCDuration": 0,
+    "ultCooldown": 110,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Olaf": {
+    "alias": "Olaf",
+    "hardCCDuration": 0,
+    "ultCooldown": 100,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Orianna": {
+    "alias": "Orianna",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 110,
+    "ultCastTime": 0.5,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Ornn": {
+    "alias": "Ornn",
+    "hardCCDuration": 1.25,
+    "ultCooldown": 140,
+    "ultCastTime": 0.5,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Pantheon": {
+    "alias": "Pantheon",
+    "hardCCDuration": 1,
+    "ultCooldown": 180,
+    "ultCastTime": 0.1,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Poppy": {
+    "alias": "Poppy",
+    "hardCCDuration": 1,
+    "ultCooldown": 140,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Pyke": {
+    "alias": "Pyke",
+    "hardCCDuration": 0,
+    "ultCooldown": 100,
+    "ultCastTime": 0.5,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Qiyana": {
+    "alias": "Qiyana",
+    "hardCCDuration": 0.5,
+    "ultCooldown": 120,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Quinn": {
+    "alias": "Quinn",
+    "hardCCDuration": 0.5,
+    "ultCooldown": 3,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Rakan": {
+    "alias": "Rakan",
+    "hardCCDuration": 1,
+    "ultCooldown": 130,
+    "ultCastTime": 0.5,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Rammus": {
+    "alias": "Rammus",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 90,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "RekSai": {
+    "alias": "RekSai",
+    "hardCCDuration": 1,
+    "ultCooldown": 100,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Rell": {
+    "alias": "Rell",
+    "hardCCDuration": 0.8,
+    "ultCooldown": 120,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Renata": {
+    "alias": "Renata",
+    "hardCCDuration": 1,
+    "ultCooldown": 150,
+    "ultCastTime": 0.75,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Renekton": {
+    "alias": "Renekton",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 120,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Rengar": {
+    "alias": "Rengar",
+    "hardCCDuration": 0,
+    "ultCooldown": 110,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Riven": {
+    "alias": "Riven",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 120,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Rumble": {
+    "alias": "Rumble",
+    "hardCCDuration": 0,
+    "ultCooldown": 130,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Ryze": {
+    "alias": "Ryze",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 180,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Samira": {
+    "alias": "Samira",
+    "hardCCDuration": 0.5,
+    "ultCooldown": 5,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Sejuani": {
+    "alias": "Sejuani",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 130,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Senna": {
+    "alias": "Senna",
+    "hardCCDuration": 0,
+    "ultCooldown": 140,
+    "ultCastTime": 1,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "Seraphine": {
+    "alias": "Seraphine",
+    "hardCCDuration": 0,
+    "ultCooldown": 160,
+    "ultCastTime": 0.5,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Sett": {
+    "alias": "Sett",
+    "hardCCDuration": 1,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Shaco": {
+    "alias": "Shaco",
+    "hardCCDuration": 1.25,
+    "ultCooldown": 100,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Shen": {
+    "alias": "Shen",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 200,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Shyvana": {
+    "alias": "Shyvana",
+    "hardCCDuration": 0,
+    "ultCooldown": 90,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Singed": {
+    "alias": "Singed",
+    "hardCCDuration": 0,
+    "ultCooldown": 100,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Sion": {
+    "alias": "Sion",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 140,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Sivir": {
+    "alias": "Sivir",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "Skarner": {
+    "alias": "Skarner",
+    "hardCCDuration": 1.1,
+    "ultCooldown": 120,
+    "ultCastTime": 0.65,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Smolder": {
+    "alias": "Smolder",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0.75,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Sona": {
+    "alias": "Sona",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 140,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Soraka": {
+    "alias": "Soraka",
+    "hardCCDuration": 0,
+    "ultCooldown": 150,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Swain": {
+    "alias": "Swain",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 120,
+    "ultCastTime": 0.5,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Sylas": {
+    "alias": "Sylas",
+    "hardCCDuration": 0.5,
+    "ultCooldown": 80,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Syndra": {
+    "alias": "Syndra",
+    "hardCCDuration": 1.25,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "TahmKench": {
+    "alias": "TahmKench",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 120,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Taliyah": {
+    "alias": "Taliyah",
+    "hardCCDuration": 3,
+    "ultCooldown": 180,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Talon": {
+    "alias": "Talon",
+    "hardCCDuration": 0,
+    "ultCooldown": 100,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Taric": {
+    "alias": "Taric",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 180,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Teemo": {
+    "alias": "Teemo",
+    "hardCCDuration": 0,
+    "ultCooldown": 0.25,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Thresh": {
+    "alias": "Thresh",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 120,
+    "ultCastTime": 0.45,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Tristana": {
+    "alias": "Tristana",
+    "hardCCDuration": 4,
+    "ultCooldown": 100,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Trundle": {
+    "alias": "Trundle",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Tryndamere": {
+    "alias": "Tryndamere",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "TwistedFate": {
+    "alias": "TwistedFate",
+    "hardCCDuration": 0,
+    "ultCooldown": 180,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Twitch": {
+    "alias": "Twitch",
+    "hardCCDuration": 0,
+    "ultCooldown": 90,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Udyr": {
+    "alias": "Udyr",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 6,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Urgot": {
+    "alias": "Urgot",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 100,
+    "ultCastTime": 0.5,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Varus": {
+    "alias": "Varus",
+    "hardCCDuration": 2,
+    "ultCooldown": 100,
+    "ultCastTime": 0.2419,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Vayne": {
+    "alias": "Vayne",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 100,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Veigar": {
+    "alias": "Veigar",
+    "hardCCDuration": 0,
+    "ultCooldown": 100,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Velkoz": {
+    "alias": "Velkoz",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 100,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Vex": {
+    "alias": "Vex",
+    "hardCCDuration": 0,
+    "ultCooldown": 140,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Vi": {
+    "alias": "Vi",
+    "hardCCDuration": 1.3,
+    "ultCooldown": 140,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Viego": {
+    "alias": "Viego",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0.5,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Viktor": {
+    "alias": "Viktor",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 120,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Vladimir": {
+    "alias": "Vladimir",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Volibear": {
+    "alias": "Volibear",
+    "hardCCDuration": 1,
+    "ultCooldown": 160,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Warwick": {
+    "alias": "Warwick",
+    "hardCCDuration": 1.5,
+    "ultCooldown": 110,
+    "ultCastTime": 0.1,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "MonkeyKing": {
+    "alias": "MonkeyKing",
+    "hardCCDuration": 0.6,
+    "ultCooldown": 130,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Xayah": {
+    "alias": "Xayah",
+    "hardCCDuration": 1.25,
+    "ultCooldown": 140,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "Xerath": {
+    "alias": "Xerath",
+    "hardCCDuration": 0,
+    "ultCooldown": 130,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "XinZhao": {
+    "alias": "XinZhao",
+    "hardCCDuration": 0.75,
+    "ultCooldown": 120,
+    "ultCastTime": 0.35,
+    "hasResets": false,
+    "burstWindowSeconds": 4
+  },
+  "Yasuo": {
+    "alias": "Yasuo",
+    "hardCCDuration": 1,
+    "ultCooldown": 70,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 2.5
+  },
+  "Yone": {
+    "alias": "Yone",
+    "hardCCDuration": 1,
+    "ultCooldown": 120,
+    "ultCastTime": 0.75,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Yorick": {
+    "alias": "Yorick",
+    "hardCCDuration": 0.25,
+    "ultCooldown": 160,
+    "ultCastTime": 0.5,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Yuumi": {
+    "alias": "Yuumi",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Zac": {
+    "alias": "Zac",
+    "hardCCDuration": 1,
+    "ultCooldown": 120,
+    "ultCastTime": 0.3,
+    "hasResets": true,
+    "burstWindowSeconds": 4
+  },
+  "Zed": {
+    "alias": "Zed",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": true,
+    "burstWindowSeconds": 2.5
+  },
+  "Zeri": {
+    "alias": "Zeri",
+    "hardCCDuration": 0,
+    "ultCooldown": 80,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 8
+  },
+  "Ziggs": {
+    "alias": "Ziggs",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0.375,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Zilean": {
+    "alias": "Zilean",
+    "hardCCDuration": 0,
+    "ultCooldown": 120,
+    "ultCastTime": 0,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  },
+  "Zoe": {
+    "alias": "Zoe",
+    "hardCCDuration": 0,
+    "ultCooldown": 11,
+    "ultCastTime": 0.25,
+    "hasResets": true,
+    "burstWindowSeconds": 3
+  },
+  "Zyra": {
+    "alias": "Zyra",
+    "hardCCDuration": 1,
+    "ultCooldown": 110,
+    "ultCastTime": 0.25,
+    "hasResets": false,
+    "burstWindowSeconds": 3
+  }
+}

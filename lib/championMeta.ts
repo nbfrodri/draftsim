@@ -262,6 +262,12 @@ export function getChampionMeta(alias: string): ChampionMeta | null {
 export type MetaOverride = Record<string, Partial<Record<Lane, MetaTier>>>;
 
 let _activeOverride: MetaOverride | null = null;
+// Global "meta enabled" flag. When false, getMetaTier returns null for
+// everyone — effectively flattening the meta so the AI and simulator
+// treat all champions as equivalent in their playable lanes. Useful for
+// users who want to draft / sim without the meta tier list nudging
+// outcomes.
+let _metaEnabled = true;
 
 export function setActiveMetaOverride(o: MetaOverride | null): void {
   _activeOverride = o;
@@ -269,6 +275,14 @@ export function setActiveMetaOverride(o: MetaOverride | null): void {
 
 export function getActiveMetaOverride(): MetaOverride | null {
   return _activeOverride;
+}
+
+export function setMetaEnabled(b: boolean): void {
+  _metaEnabled = b;
+}
+
+export function getMetaEnabled(): boolean {
+  return _metaEnabled;
 }
 
 // Returns the active tier for (alias, lane). When an override is active and
@@ -281,6 +295,10 @@ export function getActiveMetaOverride(): MetaOverride | null {
 // If no override entry exists for the champion at all (e.g., default meta or
 // the champion wasn't part of the randomization), the baseline applies.
 export function getMetaTier(alias: string, lane: Lane): MetaTier | null {
+  // Meta disabled — treat the world as if no tier data exists. AI's
+  // bestLaneTierValue falls back to "C" baseline; simulator's
+  // metaStrengthScore averages out; UI hides the tier badges.
+  if (!_metaEnabled) return null;
   if (_activeOverride) {
     const overrideTiers = _activeOverride[alias];
     if (overrideTiers !== undefined) {
@@ -479,7 +497,6 @@ export const CHAMPION_SYNERGIES: Synergy[] = [
   { champs: ["Maokai", "Veigar"], bonus: 2, tag: "Root + Cage" },
   { champs: ["Sejuani", "Veigar"], bonus: 2, tag: "Slow + Cage" },
   { champs: ["Leona", "Veigar"], bonus: 2, tag: "Sun + Cage" },
-  { champs: ["Maokai", "Yasuo"], bonus: 2, tag: "Wave Wombo" },
 
   // ─── Pyke + Thresh hook chain ────────────────────────────────────────
   { champs: ["Pyke", "Thresh"], bonus: 2, tag: "Double Hook" },
@@ -495,7 +512,6 @@ export const CHAMPION_SYNERGIES: Synergy[] = [
   { champs: ["Jax", "Yuumi"], bonus: 2, tag: "Splitpush Attached" },
 
   // ─── Vayne extra peels ───────────────────────────────────────────────
-  { champs: ["TahmKench", "Twitch"], bonus: 2, tag: "Eat + Invisible" },
   { champs: ["Renata", "Vayne"], bonus: 2, tag: "Berserk + Hyper-Carry" },
 
   // ─── Lucian + alternate enchanter ────────────────────────────────────
@@ -563,7 +579,6 @@ export const CHAMPION_SYNERGIES: Synergy[] = [
   { champs: ["Akali", "Vi"], bonus: 2, tag: "Mid + JG Burst" },
   { champs: ["LeeSin", "Veigar"], bonus: 2, tag: "Cage on Insec" },
   { champs: ["Kassadin", "LeeSin"], bonus: 2, tag: "R Blink + Insec" },
-  { champs: ["Vi", "Yasuo"], bonus: 2, tag: "Coordinated Knockup" },
 
   // ─── Pick comp extras (Blitz, Pyke, Thresh) ─────────────────────────
   { champs: ["Blitzcrank", "Caitlyn"], bonus: 2, tag: "Hook + Trap" },
@@ -676,7 +691,6 @@ export const CHAMPION_SYNERGIES: Synergy[] = [
   // ─── Thresh hook + ADC variants ───────────────────────────────────────
   { champs: ["Ezreal", "Thresh"], bonus: 2, tag: "Lantern + Skillshot" },
   { champs: ["Kaisa", "Thresh"], bonus: 2, tag: "Hook + R Reset" },
-  { champs: ["Aphelios", "Thresh"], bonus: 3, tag: "Hook + Scaling Late" },
   { champs: ["Ashe", "Thresh"], bonus: 2, tag: "Slow + Hook Chain" },
 
   // ─── Blitzcrank hook + ADC ────────────────────────────────────────────

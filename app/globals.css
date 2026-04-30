@@ -264,3 +264,55 @@ body::before {
 
 /* Prevent iOS tap highlight flash */
 button { -webkit-tap-highlight-color: transparent; }
+
+/* AI rationale panel entry — subtle slide-fade so the breakdown doesn't
+   pop in jarringly when the AI's turn begins. */
+@keyframes rationale-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-rationale {
+  animation: rationale-in 280ms ease-out;
+}
+
+/* Timer pulse — draws the eye in the last 5 seconds. Subtle scale +
+   glow flicker. Combined with the existing color flip and drop-shadow,
+   gives a clear "you have to act NOW" cue without being obnoxious. */
+@keyframes timer-pulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 10px rgba(232,64,87,0.6)); }
+  50%      { transform: scale(1.08); filter: drop-shadow(0 0 16px rgba(232,64,87,0.9)); }
+}
+.animate-timer-pulse {
+  animation: timer-pulse 1s ease-in-out infinite;
+}
+
+/* Tier badge shine — gentle highlight sweep across S/S+ badges so they
+   read as "premium / meta" without being noisy. The ::after is positioned
+   absolutely against the parent badge, which already has `position:
+   absolute` from its tailwind class — so we DON'T add `position: relative`
+   here (doing so would override `absolute` and reflow the badge into the
+   document flow, which is the bug that hid S/S+ originally). */
+@keyframes tier-shine {
+  0%   { background-position: -120% 0; }
+  60%  { background-position: 220% 0; }
+  100% { background-position: 220% 0; }
+}
+.animate-tier-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: tier-shine 4s ease-in-out infinite;
+  /* Inherit the parent's clip-path so the shine stays inside the badge
+     silhouette (the chamfered pennant shape). */
+  clip-path: inherit;
+}

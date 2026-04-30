@@ -1,5 +1,12 @@
 import { createGame } from "./draftEngine";
-import type { GameDraft, SeriesFormat, SeriesState, Side } from "./types";
+import type {
+  AIDifficulty,
+  DraftMode,
+  GameDraft,
+  SeriesFormat,
+  SeriesState,
+  Side,
+} from "./types";
 
 export function requiredWins(format: SeriesFormat): number {
   if (format === "bo1") return 1;
@@ -19,6 +26,9 @@ export function createSeries(params: {
   timerEnabled: boolean;
   blueTeam: string;
   redTeam: string;
+  mode: DraftMode;
+  aiSide: Side | null;
+  aiDifficulty: AIDifficulty;
 }): SeriesState {
   return {
     id: `series-${Date.now()}`,
@@ -30,6 +40,9 @@ export function createSeries(params: {
     games: [createGame(1, params.blueTeam, params.redTeam)],
     status: "drafting",
     winner: null,
+    mode: params.mode,
+    aiSide: params.mode === "pvai" ? params.aiSide : null,
+    aiDifficulty: params.aiDifficulty,
   };
 }
 

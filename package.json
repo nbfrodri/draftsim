@@ -6,7 +6,10 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "refresh-data": "node scripts/refresh-meraki-data.mjs"
   },
   "dependencies": {
     "gsap": "3.12.7",

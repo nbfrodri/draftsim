@@ -151,9 +151,20 @@ export default function SeriesCompleteView({ champions }: Props) {
         <button
           type="button"
           onClick={resetAll}
-          className="sc-fade btn-gold w-full py-4 md:py-5 font-display text-base md:text-lg tracking-[0.3em] md:tracking-[0.4em]"
+          className="sc-fade btn-gold w-full py-4 md:py-5 font-display text-base md:text-lg tracking-[0.3em] md:tracking-[0.4em] inline-flex items-center justify-center gap-3"
         >
-          NEW SIMULATION
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            className="w-4 h-4 md:w-5 md:h-5"
+            aria-hidden
+          >
+            <path d="M9 3l-5 5 5 5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M4 8h10" strokeLinecap="round" />
+          </svg>
+          MAIN MENU
         </button>
       </div>
     </div>

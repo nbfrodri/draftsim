@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { useDraftStore } from "@/store/draftStore";
-import type { SeriesFormat } from "@/lib/types";
+import type {
+  AIDifficulty,
+  DraftMode,
+  SeriesFormat,
+  Side,
+} from "@/lib/types";
 import TierListView from "./TierListView";
 import MetaEditor from "./MetaEditor";
 import SynergyView from "./SynergyView";
@@ -14,6 +19,18 @@ const FORMATS: { value: SeriesFormat; label: string; sub: string }[] = [
   { value: "bo5", label: "Best of 5", sub: "First to 3 wins" },
 ];
 
+const MODES: { value: DraftMode; label: string; sub: string }[] = [
+  { value: "pvp", label: "PvP", sub: "Two human drafters" },
+  { value: "pvai", label: "vs AI", sub: "One side automated" },
+  { value: "aivai", label: "AI vs AI", sub: "Watch the bots draft" },
+];
+
+const DIFFICULTIES: { value: AIDifficulty; label: string; sub: string }[] = [
+  { value: "easy", label: "Easy", sub: "Wider sampling, no lookahead" },
+  { value: "normal", label: "Normal", sub: "Full feature set" },
+  { value: "hard", label: "Hard", sub: "Tight sampling, optimal play" },
+];
+
 export default function CreateSimulationForm() {
   const startSimulation = useDraftStore((s) => s.startSimulation);
   const champions = useDraftStore((s) => s.champions);
@@ -22,12 +39,19 @@ export default function CreateSimulationForm() {
   const metaSource = useDraftStore((s) => s.metaSource);
   const randomizeMetaTiers = useDraftStore((s) => s.randomizeMetaTiers);
   const resetMetaTiers = useDraftStore((s) => s.resetMetaTiers);
+  const metaEnabled = useDraftStore((s) => s.metaEnabled);
+  const setMetaEnabledStore = useDraftStore((s) => s.setMetaEnabled);
   const applyCustomMeta = useDraftStore((s) => s.applyCustomMeta);
   const [format, setFormat] = useState<SeriesFormat>("bo3");
   const [fearless, setFearless] = useState(false);
   const [timerEnabled, setTimerEnabled] = useState(true);
   const [blueTeam, setBlueTeam] = useState("Blue Side");
   const [redTeam, setRedTeam] = useState("Red Side");
+  const [mode, setMode] = useState<DraftMode>("pvp");
+  // For pvai: which side is the AI. Defaults to red so the human plays blue.
+  const [aiSide, setAiSide] = useState<Side>("red");
+  // AI difficulty — only meaningful when an AI is participating.
+  const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>("normal");
   const [tierListOpen, setTierListOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [synergyOpen, setSynergyOpen] = useState(false);
@@ -59,15 +83,25 @@ export default function CreateSimulationForm() {
   }, []);
 
   const fearlessDisabled = format === "bo1";
+  // AI vs AI runs without a human on the clock, so the action timer can't
+  // do anything useful. Surface that in the UI instead of silently flipping
+  // the toggle off in handleSubmit.
+  const timerDisabled = mode === "aivai";
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // AI vs AI runs without a human on the clock, so the action timer is
+    // meaningless — force it off so the watcher experience is uninterrupted.
+    const effectiveTimer = mode === "aivai" ? false : timerEnabled;
     startSimulation({
       format,
       fearless: fearlessDisabled ? false : fearless,
-      timerEnabled,
+      timerEnabled: effectiveTimer,
       blueTeam: blueTeam.trim() || "Blue Side",
       redTeam: redTeam.trim() || "Red Side",
+      mode,
+      aiSide: mode === "pvai" ? aiSide : null,
+      aiDifficulty,
     });
   };
 
@@ -145,6 +179,104 @@ export default function CreateSimulationForm() {
             </div>
           </div>
 
+          <div className="cs-stagger mb-6">
+            <label className="block text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-3">
+              Drafters
+            </label>
+            <div className="grid grid-cols-3 gap-2 md:gap-3">
+              {MODES.map((m) => {
+                const active = mode === m.value;
+                return (
+                  <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => setMode(m.value)}
+                    className={`group relative px-2 md:px-4 py-3 md:py-4 border text-center transition-all ${
+                      active
+                        ? "border-rift-gold bg-rift-gold/10 text-rift-goldbright"
+                        : "border-rift-line text-rift-mutedbright hover:border-rift-gold/60 hover:text-rift-goldbright hover:bg-rift-gold/5"
+                    }`}
+                  >
+                    {active && (
+                      <>
+                        <span className="absolute -top-1 -left-1 w-2 h-2 rotate-45 bg-rift-gold" />
+                        <span className="absolute -top-1 -right-1 w-2 h-2 rotate-45 bg-rift-gold" />
+                        <span className="absolute -bottom-1 -left-1 w-2 h-2 rotate-45 bg-rift-gold" />
+                        <span className="absolute -bottom-1 -right-1 w-2 h-2 rotate-45 bg-rift-gold" />
+                      </>
+                    )}
+                    <div className="font-display text-base md:text-xl">
+                      {m.label}
+                    </div>
+                    <div className="text-[9px] md:text-[10px] uppercase tracking-widest mt-1 text-rift-muted">
+                      {m.sub}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {mode === "pvai" && (
+              <div className="mt-3 grid grid-cols-2 gap-2 md:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAiSide("red")}
+                  className={`px-3 py-2 border text-center font-display text-[11px] md:text-sm tracking-[0.3em] uppercase transition-all ${
+                    aiSide === "red"
+                      ? "border-rift-blue bg-rift-blue/10 text-rift-bluebright"
+                      : "border-rift-line text-rift-mutedbright hover:border-rift-blue/60 hover:text-rift-bluebright hover:bg-rift-blue/5"
+                  }`}
+                  title="You draft for Blue side; AI drafts for Red"
+                >
+                  You: Blue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAiSide("blue")}
+                  className={`px-3 py-2 border text-center font-display text-[11px] md:text-sm tracking-[0.3em] uppercase transition-all ${
+                    aiSide === "blue"
+                      ? "border-rift-red bg-rift-red/10 text-rift-redbright"
+                      : "border-rift-line text-rift-mutedbright hover:border-rift-red/60 hover:text-rift-redbright hover:bg-rift-red/5"
+                  }`}
+                  title="You draft for Red side; AI drafts for Blue"
+                >
+                  You: Red
+                </button>
+              </div>
+            )}
+            {(mode === "pvai" || mode === "aivai") && (
+              <div className="mt-3">
+                <label className="block text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
+                  AI Difficulty
+                </label>
+                <div className="grid grid-cols-3 gap-1.5 md:gap-2">
+                  {DIFFICULTIES.map((d) => {
+                    const active = aiDifficulty === d.value;
+                    return (
+                      <button
+                        key={d.value}
+                        type="button"
+                        onClick={() => setAiDifficulty(d.value)}
+                        className={`px-2 py-1.5 md:py-2 border text-center transition-all ${
+                          active
+                            ? "border-rift-gold bg-rift-gold/10 text-rift-goldbright"
+                            : "border-rift-line text-rift-mutedbright hover:border-rift-gold/60 hover:text-rift-goldbright hover:bg-rift-gold/5"
+                        }`}
+                        title={d.sub}
+                      >
+                        <div className="font-display text-xs md:text-sm tracking-wider">
+                          {d.label}
+                        </div>
+                        <div className="text-[8px] md:text-[9px] uppercase tracking-widest mt-0.5 text-rift-muted/80">
+                          {d.sub}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="cs-stagger grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
             <TeamInput
               label="Blue Team"
@@ -174,8 +306,13 @@ export default function CreateSimulationForm() {
             />
             <ToggleRow
               label="Timer"
-              description="30 seconds per action. Bans skip, picks random-fill on timeout."
-              checked={timerEnabled}
+              description={
+                timerDisabled
+                  ? "Disabled in AI vs AI — there's no human on the clock"
+                  : "30 seconds per action. Bans skip, picks random-fill on timeout."
+              }
+              checked={!timerDisabled && timerEnabled}
+              disabled={timerDisabled}
               onChange={setTimerEnabled}
             />
           </div>
@@ -215,11 +352,54 @@ export default function CreateSimulationForm() {
             </button>
           </div>
 
+          {/* Meta master switch — turns off the entire tier system. When
+              off, AI scoring loses its meta-tier signal, simulator's
+              metaStrength flattens, and tier badges hide. State persists
+              in localStorage. */}
+          <button
+            type="button"
+            onClick={() => setMetaEnabledStore(!metaEnabled)}
+            className={`mt-2 w-full flex items-center justify-between px-4 py-2.5 border transition-all text-left ${
+              metaEnabled
+                ? "border-rift-gold/60 bg-rift-gold/5"
+                : "border-rift-line hover:border-rift-gold/40 hover:bg-rift-gold/[0.03]"
+            }`}
+            aria-pressed={metaEnabled}
+          >
+            <div>
+              <div className="font-display text-[11px] md:text-xs uppercase tracking-[0.3em] text-rift-goldbright">
+                Meta tiers
+              </div>
+              <div className="text-[9px] md:text-[10px] text-rift-muted mt-0.5">
+                {metaEnabled
+                  ? "ON — AI prefers S+ picks; sim weights tier strength"
+                  : "OFF — flat meta, every champion treated as neutral"}
+              </div>
+            </div>
+            <div
+              className={`relative w-10 h-5 rounded-full border transition-colors shrink-0 ml-3 ${
+                metaEnabled
+                  ? "bg-gradient-to-r from-rift-golddark to-rift-gold border-rift-gold"
+                  : "bg-rift-bg border-rift-line"
+              }`}
+            >
+              <div
+                className={`absolute top-0.5 w-3.5 h-3.5 rounded-full transition-all ${
+                  metaEnabled
+                    ? "left-[22px] bg-rift-goldbright shadow-[0_0_8px_rgba(240,230,210,0.7)]"
+                    : "left-0.5 bg-rift-muted"
+                }`}
+              />
+            </div>
+          </button>
+
           {/* Meta controls — three actions: randomize, edit (drag-and-drop),
               or reset to default. Active meta is persisted in localStorage. */}
           <div
             style={{ opacity: 1 }}
-            className="grid grid-cols-3 gap-2 mt-2"
+            className={`grid grid-cols-3 gap-2 mt-2 transition-opacity ${
+              metaEnabled ? "" : "opacity-40 pointer-events-none"
+            }`}
           >
             <button
               type="button"
