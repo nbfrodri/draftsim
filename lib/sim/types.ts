@@ -54,11 +54,36 @@ export type EventType =
   | "roam"
   | "buff-steal"
   | "shutdown"
-  | "backdoor";
+  | "backdoor"
+  // ─── Added events (gameplay flavor, no surrender events) ───────────────
+  // vision         — control ward / deep ward leading to a catch
+  // outplay        — solo player wins outnumbered (1v2 / 1v3)
+  // objective-trade — cross-map trade (drake-for-herald / tower-for-baron)
+  // wave-crash     — wave management converted into a plate or freeze
+  // power-spike    — key item completion ("Caitlyn completes Kraken Slayer")
+  | "vision"
+  | "outplay"
+  | "objective-trade"
+  | "wave-crash"
+  | "power-spike";
 
 export interface EventKills {
   blue: number;
   red: number;
+}
+
+// Per-lane K/D/A delta for one team in one event. Used by the live
+// scoreboard strip to render KDA next to each champion as the timeline
+// reveals — same accumulation pattern as laneGoldDelta.
+export interface LaneKDA {
+  k: number;
+  d: number;
+  a: number;
+}
+
+export interface EventKDA {
+  blue: Partial<Record<Lane, LaneKDA>>;
+  red: Partial<Record<Lane, LaneKDA>>;
 }
 
 export interface MatchEvent {
@@ -73,6 +98,11 @@ export interface MatchEvent {
   // Per-lane gold delta (positive = blue gains in that lane). UI sums these
   // across revealed events to render the live per-lane gold diff.
   laneGoldDelta: Partial<Record<Lane, number>>;
+  // Per-lane K/D/A attribution — kills/deaths/assists added by this event,
+  // bucketed by side and lane. UI sums across revealed events to render
+  // each champion's running KDA. Total kills here mirror `kills` (blue/red
+  // sums match) but carry lane attribution that `kills` doesn't.
+  kdaDelta: EventKDA;
   // Blue win probability *after* this event resolves. Drives the live
   // probability bar — comebacks visibly swing it. 0..1.
   winProbAfter: number;

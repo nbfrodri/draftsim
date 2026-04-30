@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  decodeMetaOverride,
+  encodeMetaOverride,
   getMetaTier,
+  getMetaTiers,
   TIER_ORDER,
   type MetaOverride,
   type MetaTier,
@@ -94,6 +97,29 @@ const ROLE_ACCENT: Record<Lane, string> = {
 // Build a fresh editor state seeded from the provided override, falling back
 // to the active meta lookups for any missing entries. Only champion+lane
 // combos that are valid (per Meraki lanes) get an entry.
+// Lanes a champion is editable in. The CommunityDragon/Meraki position
+// feed updates a few weeks AFTER a Riot release — so brand-new champions
+// (e.g. Zaahen, post-25.23) ship with empty `c.lanes` and disappear from
+// the editor. To work around that, we union Meraki's lanes with whatever
+// lanes our own CHAMPION_META has tiers for. As soon as Meraki catches
+// up the union becomes a no-op.
+const ALL_LANES: readonly Lane[] = [
+  "top",
+  "jungle",
+  "middle",
+  "bottom",
+  "support",
+];
+
+function playableLanesFor(c: Champion): Lane[] {
+  const set = new Set<Lane>(c.lanes);
+  const metaTiers = getMetaTiers(c.alias);
+  for (const lane of ALL_LANES) {
+    if (metaTiers[lane] != null) set.add(lane);
+  }
+  return ALL_LANES.filter((l) => set.has(l));
+}
+
 function buildInitialEditing(
   champions: Champion[],
   initialOverride: MetaOverride | null,
@@ -102,7 +128,9 @@ function buildInitialEditing(
   const result: MetaOverride = {};
   for (const c of champions) {
     result[c.alias] = {};
-    for (const lane of c.lanes) {
+    // Iterate the union of Meraki lanes + our own meta-data lanes so newly
+    // released champions still seed correctly.
+    for (const lane of playableLanesFor(c)) {
       // Prefer the supplied initial override, then fall back to default tier.
       const overrideTier = initialOverride?.[c.alias]?.[lane];
       if (overrideTier) {
@@ -131,6 +159,78 @@ export default function MetaEditor({
   const [draggedAlias, setDraggedAlias] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<MetaTier | null>(null);
   const [mounted, setMounted] = useState(false);
+
+  // Import / Export state. The import panel toggles open with a textarea
+  // for pasting JSON. Status feedback (copied / imported / error) lives in
+  // a single transient string that auto-clears on the next user action.
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [feedback, setFeedback] = useState<{
+    kind: "ok" | "err";
+    text: string;
+  } | null>(null);
+
+  // Auto-clear feedback after 3 seconds so success toasts don't linger.
+  useEffect(() => {
+    if (!feedback) return;
+    const t = setTimeout(() => setFeedback(null), 3000);
+    return () => clearTimeout(t);
+  }, [feedback]);
+
+  // Pre-built alias set for the import validator — lets us silently drop
+  // entries from older exports whose champions were renamed/removed.
+  const validAliases = useMemo(
+    () => new Set(champions.map((c) => c.alias)),
+    [champions],
+  );
+
+  const handleExport = async () => {
+    let code: string;
+    try {
+      code = await encodeMetaOverride(editing);
+    } catch (e) {
+      setFeedback({
+        kind: "err",
+        text: `Encode failed: ${e instanceof Error ? e.message : "unknown"}`,
+      });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(code);
+      setFeedback({ kind: "ok", text: "Meta code copied to clipboard" });
+    } catch {
+      // Clipboard access denied (user blocked / no HTTPS / etc.). Fall back
+      // to opening the import panel pre-filled so the user can copy manually.
+      setImportOpen(true);
+      setImportText(code);
+      setFeedback({
+        kind: "err",
+        text: "Clipboard blocked — copy from the box below",
+      });
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importText.trim()) {
+      setFeedback({ kind: "err", text: "Paste a meta code first" });
+      return;
+    }
+    const result = await decodeMetaOverride(importText, validAliases);
+    if (result.error || !result.override) {
+      setFeedback({ kind: "err", text: result.error ?? "Decode failed" });
+      return;
+    }
+    setEditing(result.override);
+    setImportOpen(false);
+    setImportText("");
+    const skipped = result.skippedEntries
+      ? ` (${result.skippedEntries} skipped)`
+      : "";
+    setFeedback({
+      kind: "ok",
+      text: `Imported ${result.championCount} champions${skipped}`,
+    });
+  };
 
   useEffect(() => setMounted(true), []);
 
@@ -166,7 +266,10 @@ export default function MetaEditor({
       D: [],
     };
     for (const c of champions) {
-      if (!c.lanes.includes(activeRole)) continue;
+      // Use the union (Meraki ∪ CHAMPION_META) so newly-released champions
+      // whose positions Meraki hasn't yet shipped (e.g. Zaahen) still
+      // appear in the role they're tiered in.
+      if (!playableLanesFor(c).includes(activeRole)) continue;
       const tier = editing[c.alias]?.[activeRole];
       if (!tier) continue;
       buckets[tier].push(c);
@@ -275,6 +378,109 @@ export default function MetaEditor({
               Drag champions between tiers · Save when done
             </span>
           </div>
+
+          {/* Export / Import controls. Keep it compact — small icon-buttons
+              that surface the JSON-copy and JSON-paste flows without
+              cluttering the header. The import textarea is collapsed by
+              default. */}
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              type="button"
+              onClick={handleExport}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60 hover:bg-rift-gold/5 text-[10px] md:text-[11px] uppercase tracking-[0.25em] transition-all"
+              title="Copy current meta as JSON to clipboard"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                aria-hidden
+              >
+                <rect x="5" y="3" width="9" height="11" rx="1" />
+                <path d="M11 3V2H3v11h2" strokeLinejoin="round" />
+              </svg>
+              Export
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setImportOpen((v) => !v);
+                if (!importOpen) setImportText("");
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 border text-[10px] md:text-[11px] uppercase tracking-[0.25em] transition-all ${
+                importOpen
+                  ? "border-rift-gold/60 text-rift-goldbright bg-rift-gold/10"
+                  : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60 hover:bg-rift-gold/5"
+              }`}
+              title="Paste JSON to import a meta tier list"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                aria-hidden
+              >
+                <path d="M8 2v9M5 8l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3 14h10" strokeLinecap="round" />
+              </svg>
+              Import
+            </button>
+            {/* Transient status pill — shows "Copied!" / "Imported X champs" / errors */}
+            {feedback && (
+              <span
+                className={`text-[10px] uppercase tracking-[0.25em] ${
+                  feedback.kind === "ok"
+                    ? "text-rift-goldbright"
+                    : "text-rift-redbright"
+                }`}
+                role="status"
+              >
+                {feedback.text}
+              </span>
+            )}
+          </div>
+
+          {/* Inline import panel — textarea + apply button. Hidden when not
+              actively importing. Pre-filled with the current export when
+              the clipboard write fails so users can copy manually. */}
+          {importOpen && (
+            <div className="mt-3 border border-rift-gold/30 bg-rift-bg/60 p-2.5">
+              <div className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/70 mb-1.5">
+                Paste meta code
+              </div>
+              <textarea
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder="META1:..."
+                spellCheck={false}
+                className="w-full h-20 md:h-24 bg-rift-bg/80 border border-rift-line text-[11px] font-mono text-rift-mutedbright p-2 focus:outline-none focus:border-rift-gold/60 resize-none break-all"
+              />
+              <div className="flex justify-end gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImportOpen(false);
+                    setImportText("");
+                    setFeedback(null);
+                  }}
+                  className="px-3 py-1 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/40 text-[10px] uppercase tracking-[0.25em] transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImport}
+                  className="px-3 py-1 border border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright hover:bg-rift-gold/20 text-[10px] uppercase tracking-[0.25em] transition-all"
+                >
+                  Apply Import
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Role tabs */}

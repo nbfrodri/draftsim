@@ -92,3 +92,85 @@ export function playSelectSound() {
 export function playTimerTick() {
   sounds.play(SOUND.timerTick, 0.7);
 }
+
+// ─── Match-event blips (synthesized via WebAudio) ──────────────────────────
+// Plays a short tone when an event reveals during match playback. Three
+// severities map to three sonic profiles:
+//
+//   minor — kill-level events (gank, solo-kill, plates, scuttle, etc.).
+//           Soft blip at 620 Hz, ~80 ms.
+//   mid   — objective events that affect map state (drake, herald, tower,
+//           atakhan, grubs, inhibitor, teamfight, skirmish, etc.). Higher
+//           blip at 780 Hz, ~110 ms.
+//   major — game-defining events (soul, baron, elder, ace, shutdown,
+//           backdoor, nexus). Two-note chord (root + fifth), ~220 ms.
+//
+// Sound is fully synthesized — no audio assets, no network. Respects the
+// global sounds.enabled / sounds.volume the user controls. AudioContext
+// is autoplay-blocked until first user gesture; the lazy init handles
+// that gracefully (silent until the user clicks play/pause/etc).
+
+let _audioCtx: AudioContext | null = null;
+
+function getAudioCtx(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  if (_audioCtx) return _audioCtx;
+  const Ctor =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
+  if (!Ctor) return null;
+  try {
+    _audioCtx = new Ctor();
+  } catch {
+    return null;
+  }
+  return _audioCtx;
+}
+
+// One short tone: triangle wave with soft attack/release envelope so it
+// doesn't pop. Durations and frequencies are tuned by ear at volume 0.5
+// to feel like UI cues, not alarms.
+function playTone(
+  freq: number,
+  durationMs: number,
+  mix: number,
+  startOffset = 0,
+): void {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const now = ctx.currentTime + startOffset;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(freq, now);
+  // 8 ms attack, hold, 30 ms release. Linear ramps avoid click artifacts.
+  const attack = 0.008;
+  const release = 0.03;
+  const peak = mix * sounds.volume;
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(peak, now + attack);
+  gain.gain.setValueAtTime(peak, now + durationMs / 1000 - release);
+  gain.gain.linearRampToValueAtTime(0, now + durationMs / 1000);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + durationMs / 1000 + 0.01);
+}
+
+export type EventBlipSeverity = "minor" | "mid" | "major";
+
+export function playEventBlip(severity: EventBlipSeverity): void {
+  if (!sounds.enabled || sounds.volume === 0) return;
+  if (severity === "minor") {
+    playTone(620, 80, 0.18);
+    return;
+  }
+  if (severity === "mid") {
+    playTone(780, 110, 0.22);
+    return;
+  }
+  // major: A-major chord (root, fifth, octave) staggered for drama.
+  playTone(440, 220, 0.32, 0);
+  playTone(660, 220, 0.22, 0.04);
+  playTone(880, 180, 0.18, 0.08);
+}

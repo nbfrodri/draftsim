@@ -3,6 +3,7 @@ import type {
   AIDifficulty,
   DraftMode,
   GameDraft,
+  GameRecap,
   SeriesFormat,
   SeriesState,
   Side,
@@ -111,10 +112,17 @@ export function isSeriesDecided(series: SeriesState): Side | null {
 export function recordWinner(
   series: SeriesState,
   winner: Side,
+  recap?: GameRecap,
 ): SeriesState {
   const games = [...series.games];
   const last = games[games.length - 1];
-  games[games.length - 1] = { ...last, winner };
+  games[games.length - 1] = {
+    ...last,
+    winner,
+    // Only attach recap if provided (manual winner declarations leave it
+    // unset). Don't overwrite an existing recap with undefined.
+    ...(recap ? { recap } : {}),
+  };
   const updated: SeriesState = { ...series, games };
   const decided = isSeriesDecided(updated);
   if (decided) {

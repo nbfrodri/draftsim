@@ -316,3 +316,27 @@ button { -webkit-tap-highlight-color: transparent; }
      silhouette (the chamfered pennant shape). */
   clip-path: inherit;
 }
+
+/* Event-flash — fires on a lane-gold row when its champion was involved in
+   the event that just revealed. Brief outline glow + scale bump, then
+   settles. Reuses tailwind's `currentColor` for tint so callers can color
+   the flash by side (blue = ally got the kill, red = ally took the death).
+   Re-keying the element on each event reveal restarts the animation. */
+@keyframes event-flash-blue {
+  0%   { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.8); transform: scale(1); }
+  30%  { box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.55); transform: scale(1.08); }
+  100% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0); transform: scale(1); }
+}
+@keyframes event-flash-red {
+  0%   { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.8); transform: scale(1); }
+  30%  { box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.55); transform: scale(1.08); }
+  100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0); transform: scale(1); }
+}
+@keyframes event-flash-gold {
+  0%   { box-shadow: 0 0 0 0 rgba(228, 192, 122, 0.85); transform: scale(1); }
+  30%  { box-shadow: 0 0 0 4px rgba(228, 192, 122, 0.6); transform: scale(1.1); }
+  100% { box-shadow: 0 0 0 0 rgba(228, 192, 122, 0); transform: scale(1); }
+}
+.animate-event-flash-blue { animation: event-flash-blue 1.4s ease-out; }
+.animate-event-flash-red  { animation: event-flash-red 1.4s ease-out; }
+.animate-event-flash-gold { animation: event-flash-gold 1.4s ease-out; }

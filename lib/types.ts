@@ -32,6 +32,34 @@ export interface DraftAction {
   slot: number;
 }
 
+// Compact match summary persisted on a GameDraft after a simulated game
+// resolves. Extracts just what the series recap needs (MVP and biggest
+// swing event) so we don't have to retain the full event timeline — that
+// would bloat state across long series.
+export interface GameRecap {
+  // Match length in minutes, used for "5-min ace" / "long-game grind"
+  // flavor in the recap copy.
+  durationMinutes: number;
+  mvp: {
+    side: Side;
+    lane: Lane;
+    championId: number;
+    kills: number;
+    deaths: number;
+    assists: number;
+    laneGoldDiff: number; // signed from this player's perspective
+  } | null;
+  // The single event that swung win-prob the most. Used to summarize the
+  // narrative ("won behind a stolen Baron", "comeback after key shutdown").
+  biggestSwing: {
+    minute: number;
+    side: Side;
+    type: string;
+    description: string;
+    probDelta: number; // signed: positive = blue gained, negative = red gained
+  } | null;
+}
+
 export interface GameDraft {
   id: string;
   gameNumber: number;
@@ -48,6 +76,10 @@ export interface GameDraft {
   actionIndex: number;
   status: "drafting" | "complete";
   winner: Side | null;
+  // Optional simulation summary, populated when the user resolves a game
+  // via Apply Simulation. Manual winner declarations leave it null. The
+  // series recap reads this to synthesize per-game storylines.
+  recap?: GameRecap;
 }
 
 export interface SeriesState {

@@ -22,6 +22,53 @@ import {
 import type { IdentityTarget } from "./helpers";
 import type { SeriesAIContext } from "./index";
 
+// ─── Cross-game adaptation tables ──────────────────────────────────────────
+// Maps each comp identity → archetypes that counter it. Used by both pick
+// and ban scoring to bias choices when the opponent ran a known identity
+// in their previous game(s). Sourced from the IDENTITY_PROFILES.weakness
+// data: each weakness is decomposed into the archetypes that exploit it.
+//
+// Picks: a candidate gains a bonus if its archetypes overlap with the
+// counter set.
+// Bans: a candidate gains a bonus if its archetypes match the ENABLER set
+// (the archetypes that DEFINE the identity), since banning those denies
+// the opponent's prior game-plan.
+
+const COUNTER_ARCHETYPES_FOR_IDENTITY: Readonly<
+  Record<string, ReadonlySet<Archetype>>
+> = {
+  "Wombo Combo": new Set(["peel", "enchanter", "splitpush"]),
+  "Protect The Carry": new Set(["dive", "assassin", "burst", "pick"]),
+  "Hyper Engage": new Set(["peel", "sustain", "poke"]),
+  "Pick Comp": new Set(["peel", "tank", "sustain"]),
+  "Poke / Siege": new Set(["engage", "dive", "assassin"]),
+  "Dive Comp": new Set(["peel", "enchanter", "tank"]),
+  "Tank Stack": new Set(["hyper-carry", "splitpush", "poke"]),
+  "1-3-1 Splitpush": new Set(["wombo", "engage", "pick"]),
+  "AP Burst": new Set(["sustain", "tank", "peel"]),
+  "Bruiser Brawl": new Set(["peel", "burst", "poke"]),
+  "Standard Teamfight": new Set(["splitpush", "pick", "poke"]),
+};
+
+// Archetypes that ENABLE each identity. Banning these specifically denies
+// the opponent's prior plan. (Not every identity has clean enabler
+// archetypes — generic ones omitted.)
+const ENABLER_ARCHETYPES_FOR_IDENTITY: Readonly<
+  Record<string, ReadonlySet<Archetype>>
+> = {
+  "Wombo Combo": new Set(["wombo", "engage"]),
+  "Pick Comp": new Set(["pick", "burst"]),
+  "Hyper Engage": new Set(["engage"]),
+  "Dive Comp": new Set(["dive"]),
+  "Protect The Carry": new Set(["hyper-carry", "enchanter"]),
+  "Poke / Siege": new Set(["poke"]),
+  "Tank Stack": new Set(["tank"]),
+  "1-3-1 Splitpush": new Set(["splitpush"]),
+  "AP Burst": new Set(["burst", "assassin"]),
+  "Bruiser Brawl": new Set(["skirmish", "sustain"]),
+  "Standard Teamfight": new Set(["engage", "hyper-carry"]),
+};
+
 // ─── Scoring result type ────────────────────────────────────────────────────
 
 export interface ScoreComponent {
@@ -296,12 +343,26 @@ export function scorePick(
   if (oppInLane) {
     const matchupMul = 1 + 0.5 * ctx.myPicksLocked;
     const matchup = laneMatchup(candidate, oppInLane);
-    const value = matchup * matchupMul;
+    // Hard-counter amplifier: matchups |>=4| get a quadratic boost on top
+    // of the linear value, so an extreme matchup is worth dramatically more
+    // than a soft one. The threshold and shape mirror counterSeverity.
+    const absMatchup = Math.abs(matchup);
+    let amplified = matchup;
+    if (absMatchup >= 4) {
+      // Hard / extreme counter — add a non-linear surcharge proportional to
+      // how far past the threshold we are. Cap at +/- 6 extra so a single
+      // extreme matchup can't single-handedly decide the pick.
+      const overshoot = absMatchup - 4;
+      const extra = Math.min(6, 2 + overshoot * 1.2);
+      amplified += matchup > 0 ? extra : -extra;
+    }
+    const value = amplified * matchupMul;
     if (value !== 0) {
+      const severity = absMatchup >= 4 ? "Hard " : "";
       add(
         value > 0
-          ? `Counter-picks ${oppInLane.name}`
-          : `Bad matchup vs ${oppInLane.name}`,
+          ? `${severity}Counter-picks ${oppInLane.name}`
+          : `${severity}Bad matchup vs ${oppInLane.name}`,
         value,
       );
     }
@@ -325,7 +386,10 @@ export function scorePick(
     // positive means the candidate would beat our teammate, which is
     // exactly the threat we want to deny.
     const matchup = laneMatchup(candidate, teammate);
-    if (matchup > 2) denyValue += matchup * 0.5;
+    // Hard counter (matchup >= 4) gets a stronger deny weight — taking it
+    // off the table denies the opponent a guaranteed lane win.
+    if (matchup >= 4) denyValue += matchup * 0.85;
+    else if (matchup > 2) denyValue += matchup * 0.5;
   }
   if (ctx.myCounts["hyper-carry"] >= 1 && ctx.myCounts.peel < 2) {
     if (
@@ -366,6 +430,107 @@ export function scorePick(
     if (earlinessBonus > 0) add("Flex pick (early)", earlinessBonus);
   }
 
+  // ─── Side-aware drafting strategy ─────────────────────────────────────
+  // Real pro/high-elo conventions tied to the snake draft order:
+  //
+  //   Blue (B1/B2-3/B4-5) picks first overall and is exposed to every
+  //   subsequent red counter-pick. Blue's first pick especially has 4
+  //   red picks coming after it. Strategy:
+  //     • FLEX picks (multi-lane viable) so red can't kill us with one
+  //       counter — they don't even know which lane we're slotting into.
+  //     • PREMIUM meta-tier (S+) so the lane matchup loss is small even
+  //       when red lands a counter.
+  //     • Comp-defining picks early so we lock our identity before red
+  //       can reactively shape against it.
+  //
+  //   Red (R1-2/R3-4/R5) picks LAST overall, with full information on
+  //   every blue commit. Red's positional advantage IS counter-picking.
+  //     • Hard counters to specific blue picks already on the board.
+  //     • Lane matchup edge (already in scoring; amplified for red's
+  //       last pick which is the absolute closer).
+  //     • Comp-shape adjustments — react to blue's identity.
+  //
+  // Easy difficulty skips this — beginners don't think positionally.
+  if (ctx.series?.difficulty !== "easy") {
+    if (ctx.side === "blue") {
+      // B1: the most exposed pick. Reward genuinely flex (3+ lanes) hard,
+      // semi-flex (2 lanes) gently. Blue absolutely should not first-pick
+      // a single-lane situational champion.
+      if (ctx.myPicksLocked === 0) {
+        if (flex >= 3) {
+          add("Flex first pick (counter-resistant)", 2.5);
+        } else if (flex >= 2) {
+          add("Semi-flex first pick", 1.2);
+        } else if (flex === 1) {
+          // Single-lane B1 is still picked sometimes, but only on premium
+          // tier — penalize otherwise.
+          if (tierValue < TIER_VALUE.S) {
+            add("Single-lane B1 (counter-bait)", -2);
+          }
+        }
+        // Premium-tier B1 — even if it gets countered, it's still strong
+        // enough that the matchup is survivable.
+        if (tierValue >= TIER_VALUE["S+"]) {
+          add("Power first pick", 1.5);
+        }
+      }
+      // B2/B3 (positions 1-2 in myPicksLocked) — blue's "double pick"
+      // window after seeing R1. Less exposed than B1 but still 3 red
+      // picks remaining. Mild flex preference still helps.
+      if (ctx.myPicksLocked === 1 || ctx.myPicksLocked === 2) {
+        if (flex >= 2 && tierValue >= TIER_VALUE.A) {
+          add("Flex blue mid-phase", 0.8);
+        }
+      }
+    } else {
+      // ─── Red side: counter-pick advantage ───────────────────────────
+      // Boost picks that hard-counter ANY drafted blue laner. This builds
+      // on the existing per-lane matchup logic but makes red's positional
+      // advantage explicit: every red pick gets a counter-awareness lens.
+      let redCounterBonus = 0;
+      for (const id of ctx.oppPicks) {
+        if (id == null) continue;
+        const opp = ctx.byId.get(id);
+        if (!opp) continue;
+        // laneMatchup returns positive when "candidate" beats "opp" — that's
+        // the counter-pick signal. We don't restrict to same-lane here:
+        // red gets to choose where to deploy the counter (within its
+        // candidate's playable lanes).
+        const matchup = laneMatchup(candidate, opp);
+        if (matchup > 1.5) redCounterBonus += matchup * 0.4;
+      }
+      if (redCounterBonus > 0.5) {
+        // Red's LATER picks weigh counters more heavily — by R5 they have
+        // full info and the pick is the final word in the draft.
+        const phaseScale = 1 + ctx.myPicksLocked * 0.3;
+        add(
+          "Red counter advantage",
+          Math.min(5, redCounterBonus * phaseScale),
+        );
+      }
+      // Red's R5 (last pick, myPicksLocked === 4) gets a small extra
+      // amplifier on lane-specific matchup since they're picking with
+      // full info on the enemy lane occupant. Hard-counter avoidance is
+      // ESPECIALLY strict on R5 — there's no later pick to compensate.
+      if (ctx.myPicksLocked === 4 && oppInLane) {
+        const finalMatchup = laneMatchup(candidate, oppInLane);
+        if (finalMatchup > 0) {
+          add("Last-pick lane closer", finalMatchup * 0.6);
+        } else if (finalMatchup <= -4) {
+          // Extreme counter — penalty quadratic-ish to make R5 essentially
+          // refuse to pick into it. The candidate would need MASSIVE bonus
+          // elsewhere to overcome this.
+          add(
+            "Last-pick into HARD counter (avoid)",
+            finalMatchup * 2.5,
+          );
+        } else if (finalMatchup < -1) {
+          add("Last-pick into counter", finalMatchup * 1.0);
+        }
+      }
+    }
+  }
+
   // Enemy ban signal.
   let banSignal = 0;
   for (const a of meta.archetypes) {
@@ -377,16 +542,129 @@ export function scorePick(
   // Flex S+ picks are MORE valuable to save (they cover multiple lanes
   // across games), so the penalty is slightly larger for them — fixing
   // the prior bias where only single-lane S+ got penalized.
+  // SKIPPED on elimination/closeout games: there is no "later game" to save
+  // for if losing ends the series (or winning ends it). Spend everything.
   if (
     ctx.series &&
     ctx.series.fearless &&
     ctx.series.totalGames - ctx.series.gameIndex - 1 > 0 &&
+    !ctx.series.eliminationGame &&
+    !ctx.series.closeoutGame &&
     tierValue >= TIER_VALUE.S
   ) {
     const remaining = ctx.series.totalGames - ctx.series.gameIndex - 1;
     // Single-lane S+ → -1.0 per game; flex S+ (2+ tiered lanes) → -1.5+.
     const flexMultiplier = 1 + Math.min(2, flex - 1) * 0.25;
     add("Save for later games", -1.0 * remaining * flexMultiplier);
+  }
+
+  // ─── Cross-game opponent adaptation ────────────────────────────────────
+  // If the opponent ran a recognizable identity in their previous game,
+  // bias toward picks that counter that identity. Real-LoL pattern: after
+  // losing to a Wombo Combo, drafters prep peel/disengage; after losing to
+  // Pick Comp, they prep frontline + hard-to-catch carries. The boost
+  // weakens as more games go by (most-recent identity matters most), and
+  // is gated to fearless or behind-in-series scenarios where adaptation is
+  // most strategic. Easy AI ignores this — beginners don't strategize
+  // across games.
+  if (
+    ctx.series &&
+    ctx.series.difficulty !== "easy" &&
+    ctx.series.oppPriorIdentities.length > 0
+  ) {
+    const lastIdentity = ctx.series.oppPriorIdentities[0];
+    if (lastIdentity) {
+      const counterArchs = COUNTER_ARCHETYPES_FOR_IDENTITY[lastIdentity];
+      if (counterArchs) {
+        let counterValue = 0;
+        for (const a of meta.archetypes) {
+          if (counterArchs.has(a)) counterValue += 1.5;
+        }
+        // Cap to avoid this dominating; +3 is meaningful but not
+        // overriding lane fit / synergy.
+        if (counterValue > 0) {
+          add(
+            `Counters last game's ${lastIdentity}`,
+            Math.min(3, counterValue),
+          );
+        }
+      }
+    }
+    // Also scan the aggregated archetype profile across ALL prior games:
+    // if the opponent has stacked engage 4+ times across 2 games, the AI
+    // should know they're a teamfight team and lean further into anti-
+    // engage. Fires on heavy concentration only.
+    const profile = ctx.series.oppPriorArchetypeProfile;
+    if (profile.engage >= 3 && meta.archetypes.includes("peel")) {
+      add("Anti-engage prep (opp pattern)", 1);
+    }
+    if (profile.dive >= 2 && meta.archetypes.includes("peel")) {
+      add("Anti-dive prep (opp pattern)", 1);
+    }
+    if (profile["hyper-carry"] >= 2 && meta.archetypes.includes("dive")) {
+      add("Anti-carry dive (opp pattern)", 1);
+    }
+  }
+
+  // ─── Series score awareness ────────────────────────────────────────────
+  // When the AI's team is behind in the series, lean on meta-tier picks
+  // (S+/S) to maximize per-game win probability. Risky off-meta picks
+  // (pocket B/C) get pushed down. When elimination is on the line the
+  // effect is amplified — there is no later game to compensate for a loss.
+  // Closeout games (we win the series with this game) get a milder version
+  // of the same: tighten up, don't gamble.
+  // Easy difficulty deliberately ignores this — beginners don't make
+  // strategic series-level adjustments, and easy mode is supposed to be
+  // beatable.
+  if (ctx.series && ctx.series.difficulty !== "easy") {
+    const behind = ctx.series.winsBehind < 0;
+    const elim = ctx.series.eliminationGame;
+    const closeout = ctx.series.closeoutGame;
+    if (behind || elim || closeout) {
+      // Magnitude scales with situation severity:
+      //   • Just behind (0-1 in BO3, 0-1 / 0-2 / 1-2 in BO5): mild boost.
+      //   • Elimination game (1-2 in BO3, 2-2 in BO5, etc.): strong boost.
+      //   • Closeout game: small boost (don't get cute, close it out).
+      let metaWeight = 0;
+      if (behind) metaWeight += 0.6;
+      if (elim) metaWeight += 1.4;
+      else if (closeout) metaWeight += 0.5;
+
+      // Boost premium tiers; penalize off-meta gambles.
+      if (tierValue >= TIER_VALUE.S) {
+        const bonus = (tierValue - TIER_VALUE.A) * metaWeight;
+        const label = elim
+          ? "Elimination game: meta priority"
+          : behind
+          ? "Behind in series: meta priority"
+          : "Closeout: lock in meta";
+        add(label, bonus);
+      } else if (tierValue <= TIER_VALUE.C) {
+        // Off-meta picks are an explicit gamble when stakes are high.
+        const penalty = -1.5 * metaWeight;
+        add("Avoid off-meta gamble", penalty);
+      }
+
+      // In an elimination game, also discourage repeating the same comp
+      // shape from earlier games — the opponent has already shown they
+      // can beat it. Stacks ON TOP of the existing repetition penalty.
+      if (elim && ctx.series.myPriorPicks.size > 0) {
+        let priorTierMatch = 0;
+        for (const priorId of ctx.series.myPriorPicks) {
+          const priorChamp = ctx.byId.get(priorId);
+          if (!priorChamp) continue;
+          const priorMeta = metaFor(priorChamp);
+          let shared = 0;
+          for (const a of meta.archetypes) {
+            if (priorMeta.archetypes.includes(a)) shared++;
+          }
+          if (shared >= 2) priorTierMatch++;
+        }
+        if (priorTierMatch >= 2) {
+          add("Don't replay losing comp", -2);
+        }
+      }
+    }
   }
 
   // Fearless meta-strategy: diversify across games of the series. If our
@@ -427,6 +705,9 @@ export interface BanContext {
   oppPicks: (number | null)[];
   isPhase2: boolean;
   enemyAnticipated: ReadonlySet<number>;
+  // Optional series context — allows bans to factor in cross-game
+  // opponent adaptation (banning enablers of identities they ran before).
+  series?: SeriesAIContext;
 }
 
 export function scoreBan(
@@ -491,6 +772,45 @@ export function scoreBan(
   // Anticipation.
   if (ctx.enemyAnticipated.has(candidate.id)) {
     add("Anticipates enemy pick", ctx.isPhase2 ? 8 : 4);
+  }
+
+  // ─── Cross-game ban prep ──────────────────────────────────────────────
+  // If the opponent ran a known identity in their last game, banning
+  // enabler archetypes specifically denies the replay of that plan. Real
+  // pro tactic: after losing to TF on Wombo, ban TF/Yasuo entry next game.
+  // Easy AI skips this — beginners don't ban-prep across games.
+  if (
+    ctx.series &&
+    ctx.series.difficulty !== "easy" &&
+    ctx.series.oppPriorIdentities.length > 0
+  ) {
+    const lastIdentity = ctx.series.oppPriorIdentities[0];
+    if (lastIdentity) {
+      const enablers = ENABLER_ARCHETYPES_FOR_IDENTITY[lastIdentity];
+      if (enablers) {
+        let prepValue = 0;
+        for (const a of meta.archetypes) {
+          if (enablers.has(a)) prepValue += 1.4;
+        }
+        if (prepValue > 0) {
+          // Phase-2 weight is higher: targeted-prep bans land later in the
+          // ban phase when more info is on the board.
+          add(
+            `Bans ${lastIdentity} enabler`,
+            Math.min(4, prepValue) * (ctx.isPhase2 ? 1.4 : 1.0),
+          );
+        }
+      }
+    }
+    // Repeat-target detection: if the SAME champion was picked by the opp
+    // multiple times in this series (non-fearless allows it), ban them
+    // outright — they're clearly comfortable on it.
+    if (
+      !ctx.series.fearless &&
+      ctx.series.oppPriorPicks.has(candidate.id)
+    ) {
+      add("Opp pocket pick", ctx.isPhase2 ? 2.5 : 1.5);
+    }
   }
 
   add("Jitter", Math.random() * 0.6);

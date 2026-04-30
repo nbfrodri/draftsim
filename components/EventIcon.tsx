@@ -1,3 +1,32 @@
+import {
+  IconArrowsExchange,
+  IconArrowsRightLeft,
+  IconArrowMergeRight,
+  IconBolt,
+  IconBug,
+  IconBuildingCastle,
+  IconCoins,
+  IconCrosshair,
+  IconCrown,
+  IconDiamondFilled,
+  IconDoorEnter,
+  IconDroplet,
+  IconEye,
+  IconFishHook,
+  IconFlame,
+  IconFlameFilled,
+  IconHandGrab,
+  IconRadar2,
+  IconRipple,
+  IconRoute2,
+  IconShieldHalfFilled,
+  IconSkull,
+  IconStarFilled,
+  IconSword,
+  IconSwords,
+  IconTrendingUp,
+  IconWall,
+} from "@tabler/icons-react";
 import type { EventType } from "@/lib/matchSimulator";
 
 interface Props {
@@ -6,265 +35,152 @@ interface Props {
   className?: string;
 }
 
-// Inline SVG icons — drawn rather than fetched so they're cache-free, theme
-// the rift gold/blue/red palette via currentColor, and stay legible at 14px.
-export default function EventIcon({ type, size = 14, className = "" }: Props) {
+// Event icons sourced from Tabler Icons. Tabler covers ~95% of our event
+// vocabulary cleanly (skulls, swords, shields, crowns, etc.); the few LoL-
+// specific monsters (Baron, Scuttle, the dragons) are mapped to the
+// closest semantic Tabler icon — Baron → skull, Atakhan → crown, dragons
+// → flame variants, scuttle → bug. The set looks consistent because every
+// icon shares the same Tabler stroke profile and weight.
+//
+// `currentColor` is preserved (Tabler icons inherit it via stroke), so
+// theme classes on parent nodes still propagate.
+export default function EventIcon({ type, size = 16, className = "" }: Props) {
+  // Tabler stroke is 2 by default — that's a touch thick at 16px. 1.6
+  // matches the rift-gold rune feel better.
   const common = {
-    width: size,
-    height: size,
-    viewBox: "0 0 16 16",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.3,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true,
+    size,
+    stroke: 1.6,
     className: `inline-block flex-shrink-0 ${className}`,
   };
 
   switch (type) {
-    // Skull — paired hollows for sockets, jaw teeth.
+    // First blood — droplet (blood drop is the iconic FB visual in pro casts).
     case "first-blood":
-      return (
-        <svg {...common}>
-          <path d="M8 1.5c-3 0-5 2.2-5 5.2 0 1.6.7 2.9 1.5 3.6v2.2h2v1.5h1v-1.5h1v1.5h1v-1.5h2v-2.2c.8-.7 1.5-2 1.5-3.6 0-3-2-5.2-5-5.2z" fill="currentColor" fillOpacity="0.18" />
-          <circle cx="6" cy="7.5" r="1.3" fill="currentColor" />
-          <circle cx="10" cy="7.5" r="1.3" fill="currentColor" />
-        </svg>
-      );
+      return <IconDroplet {...common} fill="currentColor" fillOpacity={0.4} />;
 
-    // Generic dragon — lizard silhouette, single eye dot.
-    case "dragon":
-      return (
-        <svg {...common}>
-          <path d="M2 7.5c2-3 5-3 6-1.5C9 4.5 12 4.5 14 7.5c-1 1.5-3 1-4 .5 0 2-1 3.5-2 5-1-1.5-2-3-2-5-1 .5-3 1-4-.5z" fill="currentColor" fillOpacity="0.22" />
-          <circle cx="8" cy="6" r="0.5" fill="currentColor" />
-        </svg>
-      );
-
-    // Soul — radiant orb, double ring.
-    case "soul":
-      return (
-        <svg {...common}>
-          <circle cx="8" cy="8" r="5.5" fill="currentColor" fillOpacity="0.15" />
-          <circle cx="8" cy="8" r="3.5" fill="currentColor" fillOpacity="0.45" />
-          <path d="M8 1.5v1.5M8 13v1.5M1.5 8h1.5M13 8h1.5" strokeWidth="0.9" />
-        </svg>
-      );
-
-    // Atakhan — spiked crown / blood crown silhouette.
-    case "atakhan":
-      return (
-        <svg {...common}>
-          <path d="M2.5 11V6.5l2.5 2L8 4l3 4.5 2.5-2V11z" fill="currentColor" fillOpacity="0.22" />
-          <line x1="3" y1="13" x2="13" y2="13" />
-          <circle cx="5" cy="9" r="0.5" fill="currentColor" />
-          <circle cx="11" cy="9" r="0.5" fill="currentColor" />
-        </svg>
-      );
-
-    // Voidgrubs — wave of small worms.
-    case "grubs":
-      return (
-        <svg {...common} strokeWidth={1.5}>
-          <path d="M2 10c1.5-3 3-3 4 0s2.5 3 4 0 2.5-3 4 0" />
-          <circle cx="2.5" cy="9.5" r="0.7" fill="currentColor" />
-        </svg>
-      );
-
-    // Rift Herald — single fierce eye.
-    case "herald":
-      return (
-        <svg {...common}>
-          <path d="M2 8c1.5-2.5 3.5-3.5 6-3.5S12.5 5.5 14 8c-1.5 2.5-3.5 3.5-6 3.5S3.5 10.5 2 8z" fill="currentColor" fillOpacity="0.18" />
-          <circle cx="8" cy="8" r="2.5" fill="currentColor" fillOpacity="0.7" />
-          <circle cx="8" cy="8" r="0.9" fill="#000" />
-        </svg>
-      );
-
-    // Tower — turret with crenellated top.
-    case "tower":
-      return (
-        <svg {...common}>
-          <path d="M5 14h6v-3h1V9h-1V6h-1V4L8 2 6 4v2H5v3H4v2h1z" fill="currentColor" fillOpacity="0.22" />
-          <line x1="6.5" y1="2.5" x2="6.5" y2="4" />
-          <line x1="9.5" y1="2.5" x2="9.5" y2="4" />
-        </svg>
-      );
-
-    // Inhibitor — diamond crystal with internal lines.
-    case "inhibitor":
-      return (
-        <svg {...common}>
-          <path d="M8 2l5 4v6l-5 2-5-2V6z" fill="currentColor" fillOpacity="0.2" />
-          <path d="M8 2v12M3 6l10 6M3 12l10-6" strokeWidth="0.7" opacity="0.6" />
-        </svg>
-      );
-
-    // Solo kill — lone vertical sword striking down.
+    // Solo kill — single sword (the 1v1 outlaw).
     case "solo-kill":
-      return (
-        <svg {...common} strokeWidth={1.5}>
-          <path d="M8 1v11" strokeLinecap="round" strokeWidth={1.8} />
-          <path d="M5.5 9L8 12l2.5-3" strokeLinecap="round" />
-          <path d="M6.5 1.5h3M5.5 3h5" strokeWidth={1.2} />
-        </svg>
-      );
+      return <IconSword {...common} />;
 
-    // Gank — three converging arrows surprising the lane.
+    // Gank — crosshair / target ambush.
     case "gank":
-      return (
-        <svg {...common} strokeWidth={1.5} strokeLinecap="round">
-          <circle cx="8" cy="9" r="2" fill="currentColor" fillOpacity="0.3" />
-          <path d="M2 3l4 4M14 3l-4 4M8 1v3" />
-          <path d="M3 6l3-1M13 6l-3-1" strokeWidth={1.1} />
-        </svg>
-      );
+      return <IconCrosshair {...common} />;
 
-    // Counter-gank — flipped chevron / shield + arrow.
+    // Counter-gank — half-shield (the parry / save).
     case "counter-gank":
-      return (
-        <svg {...common} strokeWidth={1.5} strokeLinecap="round">
-          <path d="M8 14l-4-4 4-4 4 4-4 4z" fill="currentColor" fillOpacity="0.2" />
-          <path d="M8 4v-2M5 5l-2-2M11 5l2-2" />
-        </svg>
-      );
+      return <IconShieldHalfFilled {...common} />;
 
-    // Plates — three small armor plates stacked.
+    // Plates — wall blocks.
     case "plates":
-      return (
-        <svg {...common} strokeWidth={1.3}>
-          <path d="M3 3h10v3H3zM3 7h10v3H3zM3 11h10v3H3z" fill="currentColor" fillOpacity="0.2" />
-          <path d="M5 4.5h6M5 8.5h6M5 12.5h6" strokeWidth={0.8} opacity="0.5" />
-        </svg>
-      );
+      return <IconWall {...common} />;
 
-    // Skirmish — single crossed swords (smaller fight).
+    // Dragon — flame outline (the fire-breathing classic).
+    case "dragon":
+      return <IconFlame {...common} />;
+
+    // Soul — filled star (the soul is the rewarded power-up after 4 drakes).
+    case "soul":
+      return <IconStarFilled {...common} />;
+
+    // Atakhan — crown (lord of the rift / dominant boss).
+    case "atakhan":
+      return <IconCrown {...common} />;
+
+    // Voidgrubs — bug (literal Tabler icon for the swarm).
+    case "grubs":
+      return <IconBug {...common} />;
+
+    // Rift Herald — eye (the giant eye on the rift wall is iconic).
+    case "herald":
+      return <IconEye {...common} />;
+
+    // Tower — castle silhouette (the tower turret motif).
+    case "tower":
+      return <IconBuildingCastle {...common} />;
+
+    // Inhibitor — diamond crystal.
+    case "inhibitor":
+      return <IconDiamondFilled {...common} />;
+
+    // Skirmish — paired swords (smaller fight).
     case "skirmish":
-      return (
-        <svg {...common} strokeWidth={1.6}>
-          <path d="M3 13l8-8M3 5l8 8" />
-        </svg>
-      );
+      return <IconSwords {...common} />;
 
-    // Pick — shepherd hook curve with chain dot.
+    // Pick — fish hook (literal hook champ — Blitzcrank, Thresh, Pyke).
     case "pick":
-      return (
-        <svg {...common} strokeWidth={1.5}>
-          <path d="M11 2v7c0 2.5-1.5 4-4 4s-4-1.5-4-4" />
-          <path d="M3 9H1.5M3 9l2-2" />
-          <circle cx="11" cy="2" r="0.6" fill="currentColor" />
-        </svg>
-      );
+      return <IconFishHook {...common} />;
 
-    // Teamfight — bigger crossed swords with hilts.
+    // Teamfight — paired swords with chaos vibe (use Swords; we'll style
+    // bigger via wrapping or accept it's similar to skirmish — context
+    // disambiguates: skirmish is small text, teamfight is emphasis-styled).
     case "teamfight":
-      return (
-        <svg {...common} strokeWidth={1.6}>
-          <path d="M2 14L14 2M2 2l12 12" />
-          <path d="M2 4l2-2M14 12l-2 2M12 2l2 2M2 14l2-2" strokeWidth="2" />
-        </svg>
-      );
+      return <IconSwords {...common} stroke={2} />;
 
-    // Baron — large skull with horns sweeping out.
+    // Baron — skull (Tabler's Skull is the closest to the Baron beast).
     case "baron":
-      return (
-        <svg {...common}>
-          <path d="M3 1l2 3M11 4l2-3" />
-          <path d="M8 3c-3 0-5 2-5 5 0 1.7 1 3.2 1.5 3.7V14h7v-2.3c.5-.5 1.5-2 1.5-3.7 0-3-2-5-5-5z" fill="currentColor" fillOpacity="0.25" />
-          <circle cx="6" cy="8" r="1.2" fill="currentColor" />
-          <circle cx="10" cy="8" r="1.2" fill="currentColor" />
-          <path d="M7 12.5h2" strokeWidth="0.9" />
-        </svg>
-      );
+      return <IconSkull {...common} />;
 
-    // Ace — five-point star.
+    // Ace — filled star (clutch moment, gold-tier).
     case "ace":
-      return (
-        <svg {...common} strokeWidth={1.4}>
-          <path d="M8 1.5l1.7 4.5h4.8l-3.9 2.9 1.5 4.7L8 11l-4.1 2.6 1.5-4.7L1.5 6h4.8z" fill="currentColor" fillOpacity="0.3" />
-        </svg>
-      );
+      return <IconStarFilled {...common} />;
 
-    // Elder — dragon with halo above.
+    // Elder dragon — bigger flame (filled, not outline).
     case "elder":
-      return (
-        <svg {...common}>
-          <ellipse cx="8" cy="2.5" rx="3" ry="1" />
-          <path d="M2 9c2-3 5-3 6-1.5C9 6 12 6 14 9c-1 1.5-3 1-4 .5 0 2-1 3.5-2 5-1-1.5-2-3-2-5-1 .5-3 1-4-.5z" fill="currentColor" fillOpacity="0.3" />
-        </svg>
-      );
+      return <IconFlameFilled {...common} />;
 
-    // Nexus — diamond facets, the win condition.
+    // Nexus — diamond (the crystal heart).
     case "nexus":
-      return (
-        <svg {...common} strokeWidth={1.4}>
-          <path d="M8 1l6 7-6 7-6-7z" fill="currentColor" fillOpacity="0.3" />
-          <path d="M8 1v14M2 8h12" strokeWidth="0.7" opacity="0.6" />
-        </svg>
-      );
+      return <IconDiamondFilled {...common} stroke={2} />;
 
-    // Invade — three arrows converging into the enemy jungle.
+    // Invade — route into enemy territory (Tabler has no IconFootprint;
+    // IconRoute2 reads as "they took the path into our jungle").
     case "invade":
-      return (
-        <svg {...common} strokeWidth={1.5} strokeLinecap="round">
-          <circle cx="8" cy="8" r="2" fill="currentColor" fillOpacity="0.3" />
-          <path d="M2 2l4 4M14 2l-4 4M8 14V11" />
-          <path d="M3 5l3 1M13 5l-3 1" strokeWidth={1.1} />
-        </svg>
-      );
+      return <IconRoute2 {...common} />;
 
-    // Scuttle — crab silhouette (oval body, two pincers).
+    // Scuttle crab — Tabler has no crab; use bug as the close semantic.
+    // Combined with the row label "Scuttle" the user reads it as "the
+    // little jungle bug objective".
     case "scuttle":
-      return (
-        <svg {...common} strokeWidth={1.3}>
-          <ellipse cx="8" cy="9" rx="4.5" ry="3" fill="currentColor" fillOpacity="0.25" />
-          <path d="M3.5 8L1.5 5M12.5 8l2-3" />
-          <path d="M5 11l-1.5 2M11 11l1.5 2" />
-          <circle cx="6.5" cy="8.5" r="0.5" fill="currentColor" />
-          <circle cx="9.5" cy="8.5" r="0.5" fill="currentColor" />
-        </svg>
-      );
+      return <IconBug {...common} stroke={1.4} />;
 
-    // Roam — curved arrow swooping from one side to another.
+    // Roam — merge-right arrow (mid laner roaming to a side lane).
     case "roam":
-      return (
-        <svg {...common} strokeWidth={1.5} strokeLinecap="round">
-          <path d="M2 4c4 0 8 2 12 8" />
-          <path d="M11 9l3 3-3 1" />
-          <circle cx="2" cy="4" r="0.9" fill="currentColor" />
-        </svg>
-      );
+      return <IconArrowMergeRight {...common} />;
 
-    // Buff steal — diamond gem outline (jungle buff icon vibe).
+    // Buff steal — hand grabbing (the steal motion).
     case "buff-steal":
-      return (
-        <svg {...common} strokeWidth={1.3}>
-          <path d="M8 2l4 4-4 8-4-8z" fill="currentColor" fillOpacity="0.25" />
-          <path d="M4 6h8" strokeWidth="0.9" />
-          <path d="M8 2v12" strokeWidth="0.7" opacity="0.6" />
-        </svg>
-      );
+      return <IconHandGrab {...common} />;
 
-    // Shutdown — coin / bounty bag with dollar slash.
+    // Shutdown — coins (the bounty paid out on the kill).
     case "shutdown":
-      return (
-        <svg {...common} strokeWidth={1.4}>
-          <circle cx="8" cy="8" r="5.5" fill="currentColor" fillOpacity="0.25" />
-          <path d="M8 4v8M6 6.5h3.5a1.5 1.5 0 010 3h-3a1.5 1.5 0 000 3H10" strokeWidth="1.1" />
-        </svg>
-      );
+      return <IconCoins {...common} />;
 
-    // Backdoor — small figure sneaking past a tower / door.
+    // Backdoor — door entering (sneaky push to the nexus).
     case "backdoor":
-      return (
-        <svg {...common} strokeWidth={1.3}>
-          <path d="M3 14h4V6h-4z" fill="currentColor" fillOpacity="0.25" />
-          <path d="M5.5 10v0.5" strokeWidth="0.9" />
-          <path d="M9 8l3 3M12 8l-3 3" strokeWidth="1.5" strokeLinecap="round" />
-          <circle cx="13" cy="13" r="0.6" fill="currentColor" />
-        </svg>
-      );
+      return <IconDoorEnter {...common} />;
 
+    // Vision — radar (vision sweep / ward placement).
+    case "vision":
+      return <IconRadar2 {...common} />;
+
+    // Outplay — bolt (the play of the game / lightning moment).
+    case "outplay":
+      return <IconBolt {...common} fill="currentColor" fillOpacity={0.3} />;
+
+    // Objective trade — left/right exchange.
+    case "objective-trade":
+      return <IconArrowsExchange {...common} />;
+
+    // Wave crash — ripple (Tabler's closest to "wave crashing").
+    case "wave-crash":
+      return <IconRipple {...common} />;
+
+    // Power spike — trending up (item completion → power increase).
+    case "power-spike":
+      return <IconTrendingUp {...common} stroke={2} />;
+
+    default:
+      // Unknown event: stay graceful with a neutral arrow.
+      return <IconArrowsRightLeft {...common} />;
   }
 }

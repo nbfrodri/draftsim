@@ -322,6 +322,31 @@ export function hardCounterValue(
   return COUNTER_LOOKUP.get(counter.alias)?.get(victim.alias) ?? 0;
 }
 
+// Counter severity classification. The HARD_COUNTERS table uses bonuses
+// 1-6 where higher means stronger matchup advantage; the magnitude is
+// also a stand-in for severity:
+//
+//   bonus 0-1 — situational / soft counter (depends on player)
+//   bonus 2-3 — solid soft counter (favored, not unwinnable)
+//   bonus 4-5 — hard counter (lane is genuinely lost in equal skill)
+//   bonus 6+  — extreme counter (Malphite Yasuo, Yorick Nasus tier)
+//
+// Surface this so callers can apply non-linear weighting (e.g., the AI
+// should NEVER pick into an extreme counter, but a soft one is fine).
+export type CounterSeverity = "neutral" | "soft" | "medium" | "hard" | "extreme";
+
+export function counterSeverity(absBonus: number): CounterSeverity {
+  if (absBonus >= 6) return "extreme";
+  if (absBonus >= 4) return "hard";
+  if (absBonus >= 2) return "medium";
+  if (absBonus >= 1) return "soft";
+  return "neutral";
+}
+
+export function isHardCounter(absBonus: number): boolean {
+  return absBonus >= 4;
+}
+
 // Champion-vs-champion lane matchup. Combines the curated hard-counter
 // table with archetype/mobility/phase heuristics. Range roughly ±10 for
 // hard-counter pairs, ±5 for archetype-only matchups.

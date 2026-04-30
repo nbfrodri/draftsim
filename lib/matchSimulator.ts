@@ -10,11 +10,14 @@ import {
   type Phase,
 } from "./championMeta";
 import { getAbilityProfile, teamLockdownTotal } from "./championAbilities";
-import { buildStatsAt } from "./championBuilds";
+import { buildStatsAt, getKeyPowerSpike } from "./championBuilds";
+import { hardCounterValue } from "./draftAI/helpers";
 import type {
   AtakhanVariant,
+  EventKDA,
   EventKills,
   EventType,
+  LaneKDA,
   MatchEvent,
   MatchTimeline,
   SimulationResult,
@@ -25,8 +28,10 @@ import type {
 // resolve the same names without needing to change paths.
 export type {
   AtakhanVariant,
+  EventKDA,
   EventKills,
   EventType,
+  LaneKDA,
   MatchEvent,
   MatchTimeline,
   SimulationResult,
@@ -77,8 +82,11 @@ import {
   describeInhibitor,
   describeInvade,
   describeNexus,
+  describeObjectiveTrade,
+  describeOutplay,
   describePick,
   describePlates,
+  describePowerSpike,
   describeRoam,
   describeScuttle,
   describeShutdown,
@@ -87,6 +95,21 @@ import {
   describeSoul,
   describeTeamfight,
   describeTower,
+  describeVision,
+  describeWaveCrash,
+  // KDA helpers
+  NO_KDA,
+  aceKDA,
+  addAssist,
+  addDeath,
+  addKill,
+  gankKDA,
+  kdaToLaneGold,
+  laneKillKDA,
+  makeKDA,
+  mergeLaneGold,
+  objectiveKDA,
+  teamfightKDA,
 } from "./sim/descriptions";
 
 interface TeamMember {
@@ -1413,6 +1436,24 @@ function computeLaneAdvantages(
     const blueTier = getMetaTier(blue.alias, lane) ?? "C";
     const redTier = getMetaTier(red.alias, lane) ?? "C";
     const tierDiff = TIER_VALUE[blueTier] - TIER_VALUE[redTier];
+    // Curated hard-counter table — directly translates the matchup table
+    // into lane gold. A bonus 5 hard counter (Yorick vs Nasus, Malphite
+    // vs Yasuo) translates to a ~+75 g/min lane swing. Hard counters
+    // should produce dominant lane outcomes, not a token tier-diff bump.
+    // Bonus 1-2 are situational and contribute modestly; 4+ scales up
+    // sharply via a non-linear curve so the dominance reflects severity.
+    const blueCounters = hardCounterValue(blue, red);
+    const redCounters = hardCounterValue(red, blue);
+    // Net counter: positive = blue wins matchup. Magnitude is the bonus.
+    const counterNet = blueCounters - redCounters;
+    const counterAbs = Math.abs(counterNet);
+    let counterAdvantage = 0;
+    if (counterAbs > 0) {
+      // Linear up to 3, accelerating past 4 (hard counter territory).
+      const base = Math.min(3, counterAbs) * 8;
+      const surcharge = counterAbs > 3 ? (counterAbs - 3) * 18 : 0;
+      counterAdvantage = (counterNet > 0 ? 1 : -1) * (base + surcharge);
+    }
     adv[lane] =
       phaseDiff * 50 +
       ccDiff * 5 +
@@ -1420,6 +1461,7 @@ function computeLaneAdvantages(
       tierDiff * 12 +
       archetypeBonus +
       rangeAdv +
+      counterAdvantage +
       (Math.random() - 0.5) * 20;
   }
   // Apply weakside redistributions. The weak side bleeds ~25 g/min while
@@ -1672,13 +1714,21 @@ function generateTimeline(
       towers?: EventKills;
       inhibs?: EventKills;
       laneGoldDelta?: Partial<Record<Lane, number>>;
+      kdaDelta?: EventKDA;
     } = {},
     momentumImpact: number = 0.15,
   ) {
     const kills = deltas.kills ?? NO_KILLS;
     const towers = deltas.towers ?? NO_KILLS;
     const inhibs = deltas.inhibs ?? NO_KILLS;
-    const laneGoldDelta = deltas.laneGoldDelta ?? {};
+    const baseLaneGold = deltas.laneGoldDelta ?? {};
+    const kdaDelta = deltas.kdaDelta ?? NO_KDA;
+    // Auto-merge kill-derived gold into the lane gold delta. Each kill
+    // (300g) and assist (100g) flow to the lane that earned them, so a
+    // champion with 8K/0D against their lane opponent visibly gains gold
+    // — fixing the "spread evenly across 5 lanes" averaging bug for
+    // teamfights, skirmishes, and other multi-kill events.
+    const laneGoldDelta = mergeLaneGold(baseLaneGold, kdaToLaneGold(kdaDelta));
     const flair = detectComeback(side, momentumImpact);
     applyState(side, kills, towers, inhibs, momentumImpact);
     const winProbAfter = snapshotProb();
@@ -1692,6 +1742,7 @@ function generateTimeline(
       towers,
       inhibs,
       laneGoldDelta,
+      kdaDelta,
       winProbAfter,
     });
   }
@@ -1704,6 +1755,14 @@ function generateTimeline(
     const wp = picksOf(ctx, side);
     const lp = picksOf(ctx, side === "blue" ? "red" : "blue");
     const killHappened = Math.random() < 0.55;
+    // Level-1 invade is a 5-man play; if a kill lands, jungler gets credit
+    // (most likely to leash-kill the enemy jungler), supports assist.
+    const kda = makeKDA();
+    if (killHappened) {
+      addKill(kda, side, "jungle");
+      addAssist(kda, side, "support");
+      addDeath(kda, side === "blue" ? "red" : "blue", "jungle");
+    }
     addEvent(
       "invade",
       t,
@@ -1712,6 +1771,7 @@ function generateTimeline(
       {
         kills: killHappened ? killsForSide(side, 1, 0) : NO_KILLS,
         laneGoldDelta: spreadLaneGold(killHappened ? 200 : 80, side),
+        kdaDelta: kda,
       },
       0.12,
     );
@@ -1770,7 +1830,10 @@ function generateTimeline(
         desc,
         {
           kills: killsForSide(bullySide, numKills, 0),
-          laneGoldDelta: singleLaneGold(lane, 300 * numKills, bullySide),
+          // Kill bounty (300g) flows via kdaDelta. The lane delta here is
+          // just the lost-CS gold from the victim recalling/dying — small.
+          laneGoldDelta: singleLaneGold(lane, 120 * numKills, bullySide),
+          kdaDelta: laneKillKDA(bullySide, lane, numKills),
         },
         0.15 + numKills * 0.05,
       );
@@ -1789,6 +1852,12 @@ function generateTimeline(
     );
     const fbLanes: Lane[] = ["top", "jungle", "middle", "bottom"];
     const fbLane = pickRandom(fbLanes);
+    // First blood: kill goes to the lane where it happened, jungler often
+    // assists (~40% of FBs are gank-fueled).
+    const fbKda = laneKillKDA(side, fbLane);
+    if (Math.random() < 0.4 && fbLane !== "jungle") {
+      addAssist(fbKda, side, "jungle");
+    }
     addEvent(
       "first-blood",
       t,
@@ -1796,7 +1865,10 @@ function generateTimeline(
       desc,
       {
         kills: killsForSide(side, 1, 0),
-        laneGoldDelta: singleLaneGold(fbLane, 300, side),
+        // Kill bounty in kdaDelta. The +100g first-blood bonus is the only
+        // gold remaining — kdaToLaneGold can't model the FB-specific bonus.
+        laneGoldDelta: singleLaneGold(fbLane, 100, side),
+        kdaDelta: fbKda,
       },
       0.2,
     );
@@ -1845,14 +1917,28 @@ function generateTimeline(
       : contestSide;
     state.drakes[side]++;
     const drakeType = pickRandom(DRAGON_TYPES);
+    // Stolen drake: the smiter (jungle) flipped the play; usually the team
+    // that "won" the contest still got 1-2 kills on the smiter's team. KDA
+    // attributes those to the loser side that secured the post-fight kills.
+    const dragonKills = stolen ? rollInt(1, 2) : 0;
     addEvent(
       "dragon",
       t,
       side,
       describeDragon(side, ctx.blueName, ctx.redName, state.drakes[side], drakeType, stolen),
       {
-        kills: stolen ? killsForSide(side, 0, rollInt(1, 2)) : NO_KILLS,
+        kills: stolen ? killsForSide(side, 0, dragonKills) : NO_KILLS,
         laneGoldDelta: spreadLaneGold(150, side),
+        // For a steal, opponents collected the kills (loser of objective
+        // wins the post-smite skirmish). Otherwise no kills, no KDA.
+        kdaDelta: stolen
+          ? objectiveKDA(
+              side === "blue" ? "red" : "blue",
+              dragonKills,
+              0,
+              true,
+            )
+          : NO_KDA,
       },
       stolen ? 0.25 : 0.12,
     );
@@ -1872,7 +1958,10 @@ function generateTimeline(
       describeGank(side, picksOf(ctx, side), lane, ctx.blueName, ctx.redName),
       {
         kills: killsForSide(side, 1, 0),
-        laneGoldDelta: gankLaneGold(lane, 300, side),
+        // Kill+assist gold flows through kdaDelta. Remaining lane gold here
+        // models lost CS for the victim while recalling.
+        laneGoldDelta: gankLaneGold(lane, 100, side),
+        kdaDelta: gankKDA(side, lane, "jungle", lane),
       },
       0.16,
     );
@@ -1883,6 +1972,8 @@ function generateTimeline(
     const t = jitter(5.5, 9.5);
     const side = rollEventSide();
     const flippedLane = pickRandom(["top", "middle", "bottom"] as Lane[]);
+    // Counter-gank: jungler arrived and turned the gank — kill credit goes
+    // to the jungler, laner provides the assist, opp jungler/laner dies.
     addEvent(
       "counter-gank",
       t,
@@ -1890,7 +1981,8 @@ function generateTimeline(
       describeCounterGank(side, picksOf(ctx, side), ctx.blueName, ctx.redName),
       {
         kills: killsForSide(side, 1, 0),
-        laneGoldDelta: gankLaneGold(flippedLane, 300, side),
+        laneGoldDelta: gankLaneGold(flippedLane, 100, side),
+        kdaDelta: gankKDA(side, "jungle", flippedLane, "jungle"),
       },
       0.18,
     );
@@ -1910,6 +2002,9 @@ function generateTimeline(
       {
         kills: killHappened ? killsForSide(side, 1, 0) : NO_KILLS,
         laneGoldDelta: singleLaneGold("jungle", killHappened ? 220 : 100, side),
+        kdaDelta: killHappened
+          ? laneKillKDA(side, "jungle", 1, "jungle")
+          : NO_KDA,
       },
       0.1,
     );
@@ -1946,9 +2041,31 @@ function generateTimeline(
       describeRoam(side, picksOf(ctx, side), targetLane, ctx.blueName, ctx.redName),
       {
         kills: killsForSide(side, 1, 0),
-        laneGoldDelta: gankLaneGold(targetLane, 320, side),
+        // Kill bounty + roamer assist via kdaDelta; lane delta = lost CS only.
+        laneGoldDelta: gankLaneGold(targetLane, 100, side),
+        // Roamer (mid) gets the kill, the laner being roamed for assists,
+        // opponent in target lane dies.
+        kdaDelta: gankKDA(side, "middle", targetLane, targetLane),
       },
       0.13,
+    );
+  }
+
+  // 7c. Wave-crash (8-13) — 35% chance. A laner crashes the wave and
+  // either freezes the bounce (denying CS) or cracks a plate. Pure macro
+  // gold without a kill — just well-timed wave management. Biased by lane
+  // prio (a team with prio crashes harder).
+  if (Math.random() < 0.35) {
+    const t = jitter(8, 13);
+    const side = rollEventSide(laneBias * 0.5);
+    const lane = pickRandom(["top", "middle", "bottom"] as Lane[]);
+    addEvent(
+      "wave-crash",
+      t,
+      side,
+      describeWaveCrash(side, picksOf(ctx, side), lane, ctx.blueName, ctx.redName),
+      { laneGoldDelta: singleLaneGold(lane, 220, side) },
+      0.06,
     );
   }
 
@@ -1987,14 +2104,17 @@ function generateTimeline(
       state.atakhanVariant = atakhanVariant;
       state.atakhanSide = side;
       if (atakhanVariant === "Ruinous") state.ruinousActive = true;
+      const wKills = rollInt(1, 2);
+      const lKills = rollInt(0, 1);
       addEvent(
         "atakhan",
         t,
         side,
         describeAtakhan(side, ctx.blueName, ctx.redName, atakhanVariant),
         {
-          kills: killsForSide(side, rollInt(1, 2), rollInt(0, 1)),
+          kills: killsForSide(side, wKills, lKills),
           laneGoldDelta: spreadLaneGold(250, side),
+          kdaDelta: teamfightKDA(side, wKills, lKills),
         },
         0.18,
       );
@@ -2015,6 +2135,58 @@ function generateTimeline(
     }
   }
 
+  // 9b. Power spikes (13-16). Fire when a carry-archetype champion completes
+  // their first major item — the "I'm online" moment that explains why the
+  // next teamfight tips a certain way. We pick the SINGLE most-impactful
+  // carry per side (highest archetype priority) and fire one event per side
+  // with 70% chance, slightly jittered so the two sides don't stack on the
+  // exact same minute. Tank/enchanter spikes are skipped (undramatic).
+  // Combat resolution already factors items via buildStatsAt, so this is
+  // pure flavor + a small momentum bump.
+  for (const spikeSide of ["blue", "red"] as Side[]) {
+    if (Math.random() >= 0.7) continue;
+    const sidePicks = picksOf(ctx, spikeSide);
+    // Find the highest-priority carry on this side. Sweep picks in order
+    // of typical-LoL impact: hyper-carry first, then burst/assassin, then
+    // skirmish/dive. The first match wins.
+    const ARCHETYPE_PRIO: Archetype[] = [
+      "hyper-carry",
+      "burst",
+      "assassin",
+      "poke",
+      "skirmish",
+      "dive",
+    ];
+    let chosen: { champ: Champion; meta: ChampionMeta } | null = null;
+    outer: for (const want of ARCHETYPE_PRIO) {
+      for (const c of sidePicks) {
+        if (!c) continue;
+        const m = metaFor(c);
+        if (m.archetypes.includes(want)) {
+          chosen = { champ: c, meta: m };
+          break outer;
+        }
+      }
+    }
+    if (!chosen) continue;
+    const spikeInfo = getKeyPowerSpike(chosen.meta);
+    if (!spikeInfo.isCarrySpike) continue;
+    // Side jitter so blue/red spikes don't share a minute. ±1 min around
+    // the build's spike minute.
+    const t = jitter(
+      Math.max(13, spikeInfo.minute - 1),
+      Math.min(16.5, spikeInfo.minute + 1),
+    );
+    addEvent(
+      "power-spike",
+      t,
+      spikeSide,
+      describePowerSpike(chosen.champ, spikeInfo.keyItem),
+      { laneGoldDelta: spreadLaneGold(120, spikeSide) },
+      0.07,
+    );
+  }
+
   // 10. Second Drake (11.5-14.3) — 8% chance of a smite steal. Lane prio
   // still relevant for early-mid drakes.
   if (duration >= 18) {
@@ -2030,28 +2202,35 @@ function generateTimeline(
     if (state.drakes[side] === 4 && state.soulSide == null) {
       state.soulSide = side;
       const soulType = pickRandom(DRAGON_TYPES);
+      const wK = rollInt(1, 3);
+      const lK = rollInt(0, 2);
       addEvent(
         "soul",
         t,
         side,
         describeSoul(side, ctx.blueName, ctx.redName, soulType),
         {
-          kills: killsForSide(side, rollInt(1, 3), rollInt(0, 2)),
+          kills: killsForSide(side, wK, lK),
           towers: killsForSide(side, rollInt(0, 1), 0),
           laneGoldDelta: spreadLaneGold(800, side),
+          kdaDelta: teamfightKDA(side, wK, lK),
         },
         0.55,
       );
     } else {
       const drakeType = pickRandom(DRAGON_TYPES);
+      const stealK = stolen ? rollInt(1, 2) : 0;
       addEvent(
         "dragon",
         t,
         side,
         describeDragon(side, ctx.blueName, ctx.redName, state.drakes[side], drakeType, stolen),
         {
-          kills: stolen ? killsForSide(side, 0, rollInt(1, 2)) : NO_KILLS,
+          kills: stolen ? killsForSide(side, 0, stealK) : NO_KILLS,
           laneGoldDelta: spreadLaneGold(200, side),
+          kdaDelta: stolen
+            ? objectiveKDA(side === "blue" ? "red" : "blue", stealK, 0, true)
+            : NO_KDA,
         },
         stolen ? 0.28 : 0.14,
       );
@@ -2067,6 +2246,15 @@ function generateTimeline(
     const wp = picksOf(ctx, side);
     const lp = picksOf(ctx, side === "blue" ? "red" : "blue");
     if (winnerHasPick) {
+      // Pick Comp pick: support hooks but the carry (mid/bot) usually finishes
+      // damage — kill credit follows damage, support gets the assist. Mirror
+      // of real LoL: Thresh hooks → ADC executes.
+      const pickKda = makeKDA();
+      const carryLane: Lane = Math.random() < 0.55 ? "bottom" : "middle";
+      addKill(pickKda, side, carryLane);
+      addAssist(pickKda, side, "support");
+      addAssist(pickKda, side, "jungle");
+      addDeath(pickKda, side === "blue" ? "red" : "blue", "bottom");
       addEvent(
         "pick",
         t,
@@ -2075,6 +2263,7 @@ function generateTimeline(
         {
           kills: killsForSide(side, 1, 0),
           laneGoldDelta: spreadLaneGold(180, side),
+          kdaDelta: pickKda,
         },
         0.15,
       );
@@ -2088,7 +2277,10 @@ function generateTimeline(
         describeSkirmish(side, wp, wk, lk),
         {
           kills: killsForSide(side, wk, lk),
-          laneGoldDelta: spreadLaneGold((wk + lk) * 100, side),
+          // Kill bounty (300g) flows per-lane via kdaDelta. Small spread
+          // models the "everyone is up" team gold from the broader fight.
+          laneGoldDelta: spreadLaneGold((wk + lk) * 30, side),
+          kdaDelta: teamfightKDA(side, wk, lk),
         },
         0.18,
       );
@@ -2109,28 +2301,35 @@ function generateTimeline(
     if (state.drakes[side] === 4 && state.soulSide == null) {
       state.soulSide = side;
       const soulType = pickRandom(DRAGON_TYPES);
+      const wK = rollInt(1, 3);
+      const lK = rollInt(0, 2);
       addEvent(
         "soul",
         t,
         side,
         describeSoul(side, ctx.blueName, ctx.redName, soulType),
         {
-          kills: killsForSide(side, rollInt(1, 3), rollInt(0, 2)),
+          kills: killsForSide(side, wK, lK),
           towers: killsForSide(side, rollInt(0, 1), 0),
           laneGoldDelta: spreadLaneGold(800, side),
+          kdaDelta: teamfightKDA(side, wK, lK),
         },
         0.55,
       );
     } else {
       const drakeType = pickRandom(DRAGON_TYPES);
+      const stealK = stolen ? rollInt(1, 2) : 0;
       addEvent(
         "dragon",
         t,
         side,
         describeDragon(side, ctx.blueName, ctx.redName, state.drakes[side], drakeType, stolen),
         {
-          kills: stolen ? killsForSide(side, 0, rollInt(1, 2)) : NO_KILLS,
+          kills: stolen ? killsForSide(side, 0, stealK) : NO_KILLS,
           laneGoldDelta: spreadLaneGold(220, side),
+          kdaDelta: stolen
+            ? objectiveKDA(side === "blue" ? "red" : "blue", stealK, 0, true)
+            : NO_KDA,
         },
         stolen ? 0.3 : 0.15,
       );
@@ -2175,7 +2374,11 @@ function generateTimeline(
       {
         kills: killsForSide(side, wk, lk),
         towers: killsForSide(side, rollInt(1, 2), 0),
-        laneGoldDelta: spreadLaneGold(wk * 200 * goldMult, side),
+        // Kill bounty distributed per lane via kdaDelta. Spread here is
+        // the post-fight tower/CS push gold (winner takes mid CS while
+        // loser respawns) — not the fight kills themselves.
+        laneGoldDelta: spreadLaneGold(wk * 60 * goldMult, side),
+        kdaDelta: teamfightKDA(side, wk, lk),
       },
       0.32 + dom * 0.12,
     );
@@ -2193,6 +2396,17 @@ function generateTimeline(
       const side: Side = state.goldLead > 0 ? "red" : "blue";
       const wp = picksOf(ctx, side);
       const lp = picksOf(ctx, side === "blue" ? "red" : "blue");
+      // Shutdown: an assassin/pick lands the play on the fed enemy carry.
+      // Best heuristic: kill credit on jungle (frequent shutdown lane), fed
+      // carry (mid/bottom on opp) takes the death.
+      const sutdownKda = makeKDA();
+      addKill(sutdownKda, side, Math.random() < 0.5 ? "jungle" : "middle");
+      addAssist(sutdownKda, side, "support");
+      addDeath(
+        sutdownKda,
+        side === "blue" ? "red" : "blue",
+        Math.random() < 0.5 ? "bottom" : "middle",
+      );
       addEvent(
         "shutdown",
         t,
@@ -2200,11 +2414,131 @@ function generateTimeline(
         describeShutdown(side, wp, lp),
         {
           kills: killsForSide(side, 1, 0),
+          // Shutdown bounty: 1000-1500g extra ON TOP of the kill bounty
+          // (handled by kdaDelta). The +500 spread models that surplus.
           laneGoldDelta: spreadLaneGold(500, side),
+          kdaDelta: sutdownKda,
         },
         0.28,
       );
     }
+  }
+
+  // 13c. Vision-based pick (16-22) — 28% chance. Control ward in a key
+  // bush leads to catching out a stray enemy. Pure positional play; no
+  // teamfight, just one decisive moment. Biased by lane prio (a team
+  // with prio can place vision deeper).
+  if (duration >= 22 && Math.random() < 0.28) {
+    const t = jitter(16, Math.min(22, duration - 5));
+    const side = rollEventSide(laneBias * 0.3);
+    const wp = picksOf(ctx, side);
+    const lp = picksOf(ctx, side === "blue" ? "red" : "blue");
+    // Vision-pick: support places the ward/sees the catch, team collapses.
+    // Carry (mid/bot/jg) lands kill credit; support assists (very few kills
+    // for sup is the realistic role profile).
+    const visionKda = makeKDA();
+    const finisherLane: Lane =
+      Math.random() < 0.4 ? "middle" : Math.random() < 0.7 ? "jungle" : "bottom";
+    addKill(visionKda, side, finisherLane);
+    addAssist(visionKda, side, "support");
+    if (finisherLane !== "jungle") addAssist(visionKda, side, "jungle");
+    addDeath(
+      visionKda,
+      side === "blue" ? "red" : "blue",
+      Math.random() < 0.4 ? "support" : "middle",
+    );
+    addEvent(
+      "vision",
+      t,
+      side,
+      describeVision(side, wp, lp, ctx.blueName, ctx.redName),
+      {
+        kills: killsForSide(side, 1, 0),
+        // Kill + assist gold via kdaDelta; small spread for vision setup +
+        // map control gain.
+        laneGoldDelta: spreadLaneGold(150, side),
+        kdaDelta: visionKda,
+      },
+      0.18,
+    );
+  }
+
+  // 13d. Outplay (17-26) — 18% chance. A solo player wins outnumbered.
+  // The kind of moment that flips a game's perception. Pure flavor +
+  // small gold/momentum; biased toward the side whose comp has a real
+  // 1v1/1v2 threat (skirmish/assassin/hyper-carry).
+  if (duration >= 25 && Math.random() < 0.18) {
+    const t = jitter(17, Math.min(26, duration - 4));
+    // Outplays favor the side already with a slight edge (lane bias) but
+    // CAN happen for the underdog — moments of brilliance work both ways.
+    const side = rollEventSide(laneBias * 0.2);
+    const wp = picksOf(ctx, side);
+    const lp = picksOf(ctx, side === "blue" ? "red" : "blue");
+    const outnumber = Math.random() < 0.25 ? 3 : 2;
+    const wKills = outnumber >= 3 ? 2 : rollInt(1, 2);
+    // Outplay: one star champion takes all the kills. Heuristic: pick a
+    // carry-weighted lane (mid/bot/jungle) for the hero.
+    const heroLane: Lane =
+      Math.random() < 0.4
+        ? "middle"
+        : Math.random() < 0.65
+        ? "bottom"
+        : "jungle";
+    const outplayKda = makeKDA();
+    addKill(outplayKda, side, heroLane, wKills);
+    for (let i = 0; i < wKills; i++) {
+      addDeath(outplayKda, side === "blue" ? "red" : "blue", pickRandom(["top", "jungle", "middle"] as Lane[]));
+    }
+    addEvent(
+      "outplay",
+      t,
+      side,
+      describeOutplay(side, wp, lp, outnumber),
+      {
+        kills: killsForSide(side, wKills, 0),
+        // The hero's kill bounties (300g each, all in heroLane) flow via
+        // kdaDelta. Small bonus here for the play's swing — outplays demoralize.
+        laneGoldDelta: singleLaneGold(heroLane, 100 * wKills, side),
+        kdaDelta: outplayKda,
+      },
+      0.22,
+    );
+  }
+
+  // 13e. Cross-map objective trade (18-25) — 25% chance. One team gives up
+  // a contested objective to grab a counter-prize on the opposite side of
+  // the map (drake-for-tower, herald-for-drake). Net-neutral fight, real
+  // macro currency. No kills.
+  if (duration >= 24 && Math.random() < 0.25) {
+    const t = jitter(18, Math.min(25, duration - 4));
+    const side = rollEventSide(laneBias * 0.3);
+    const otherSide: Side = side === "blue" ? "red" : "blue";
+    const giveUp: "drake" | "herald" | "tower" = pickRandom([
+      "drake",
+      "tower",
+    ]);
+    const takeFor: "drake" | "herald" | "tower" | "plates" = pickRandom([
+      "tower",
+      "plates",
+    ]);
+    // Lane gold flows on BOTH sides — small spread to each. Both teams
+    // gained something so we encode the trade as positive lane gold for
+    // the "winner" side and offset gold for the other side's named lane.
+    const laneGold: Partial<Record<Lane, number>> = {
+      ...spreadLaneGold(180, side),
+    };
+    // Other team got their own gold — represent by negating one lane.
+    const otherLane: Lane = pickRandom(["top", "middle", "bottom"] as Lane[]);
+    const sign = otherSide === "blue" ? 1 : -1;
+    laneGold[otherLane] = (laneGold[otherLane] ?? 0) + sign * 200;
+    addEvent(
+      "objective-trade",
+      t,
+      side,
+      describeObjectiveTrade(side, ctx.blueName, ctx.redName, giveUp, takeFor),
+      { laneGoldDelta: laneGold },
+      0.05,
+    );
   }
 
   // 14. Fourth Drake / Soul (21-25)
@@ -2221,28 +2555,35 @@ function generateTimeline(
     if (state.drakes[side] === 4) {
       state.soulSide = side;
       const soulType = pickRandom(DRAGON_TYPES);
+      const wK = rollInt(1, 3);
+      const lK = rollInt(0, 2);
       addEvent(
         "soul",
         t,
         side,
         describeSoul(side, ctx.blueName, ctx.redName, soulType),
         {
-          kills: killsForSide(side, rollInt(1, 3), rollInt(0, 2)),
+          kills: killsForSide(side, wK, lK),
           towers: killsForSide(side, rollInt(0, 1), 0),
           laneGoldDelta: spreadLaneGold(800, side),
+          kdaDelta: teamfightKDA(side, wK, lK),
         },
         0.55,
       );
     } else {
       const drakeType = pickRandom(DRAGON_TYPES);
+      const stealK = stolen ? rollInt(1, 2) : 0;
       addEvent(
         "dragon",
         t,
         side,
         describeDragon(side, ctx.blueName, ctx.redName, state.drakes[side], drakeType, stolen),
         {
-          kills: stolen ? killsForSide(side, 0, rollInt(1, 2)) : NO_KILLS,
+          kills: stolen ? killsForSide(side, 0, stealK) : NO_KILLS,
           laneGoldDelta: spreadLaneGold(240, side),
+          kdaDelta: stolen
+            ? objectiveKDA(side === "blue" ? "red" : "blue", stealK, 0, true)
+            : NO_KDA,
         },
         stolen ? 0.3 : 0.18,
       );
@@ -2278,6 +2619,7 @@ function generateTimeline(
         kills: killsForSide(baronSide, wk, lk),
         towers: killsForSide(baronSide, rollInt(2, 3), 0),
         laneGoldDelta: spreadLaneGold(900, baronSide),
+        kdaDelta: objectiveKDA(baronSide, wk, lk, stolen),
       },
       stolen ? 0.65 : 0.5,
     );
@@ -2314,15 +2656,18 @@ function generateTimeline(
         : "blue"
       : contestSide;
     state.elderSide = elderSide;
+    const elderWk = rollInt(1, 3);
+    const elderLk = rollInt(0, 2);
     addEvent(
       "elder",
       t,
       elderSide,
       describeElder(elderSide, ctx.blueName, ctx.redName, stolen),
       {
-        kills: killsForSide(elderSide, rollInt(1, 3), rollInt(0, 2)),
+        kills: killsForSide(elderSide, elderWk, elderLk),
         towers: killsForSide(elderSide, rollInt(0, 2), 0),
         laneGoldDelta: spreadLaneGold(1000, elderSide),
+        kdaDelta: objectiveKDA(elderSide, elderWk, elderLk, stolen),
       },
       stolen ? 0.75 : 0.65,
     );
@@ -2403,15 +2748,18 @@ function generateTimeline(
     const backdoorRoll = Math.random();
     const useBackdoor = hasSplitter && closeGame && backdoorRoll < 0.12;
     if (useBackdoor) {
+      const bdWk = rollInt(0, 1);
+      const bdLk = rollInt(0, 1);
       addEvent(
         "backdoor",
         t,
         finalWinner,
         describeBackdoor(finalWinner, winnerPicks, ctx.blueName, ctx.redName),
         {
-          kills: killsForSide(finalWinner, rollInt(0, 1), rollInt(0, 1)),
+          kills: killsForSide(finalWinner, bdWk, bdLk),
           towers: killsForSide(finalWinner, rollInt(1, 2), 0),
           laneGoldDelta: spreadLaneGold(400, finalWinner),
+          kdaDelta: teamfightKDA(finalWinner, bdWk, bdLk),
         },
         0.5,
       );
@@ -2425,6 +2773,7 @@ function generateTimeline(
           kills: killsForSide(finalWinner, 5, 0),
           towers: killsForSide(finalWinner, rollInt(1, 2), 0),
           laneGoldDelta: spreadLaneGold(800, finalWinner),
+          kdaDelta: aceKDA(finalWinner),
         },
         0.5,
       );
@@ -2450,6 +2799,7 @@ function generateTimeline(
           kills: killsForSide(finalWinner, wk, lk),
           towers: killsForSide(finalWinner, rollInt(1, 2), 0),
           laneGoldDelta: spreadLaneGold(wk * 200, finalWinner),
+          kdaDelta: teamfightKDA(finalWinner, wk, lk),
         },
         0.45,
       );
@@ -2535,5 +2885,174 @@ export function simulateMatch(
     redScore,
     timeline,
     laneAdvantages,
+  };
+}
+
+// Build a compact recap summary (MVP + biggest swing) from a finished
+// simulation. Used when applying a simulated winner to the series so the
+// post-series recap can synthesize a per-game storyline. Mirrors the MVP
+// scoring logic in MVPCard so what the user saw is what gets persisted.
+export function buildGameRecap(
+  game: GameDraft,
+  champions: Champion[],
+  result: SimulationResult,
+): import("./types").GameRecap {
+  const byId = new Map(champions.map((c) => [c.id, c]));
+  // Re-compute final per-lane KDA and lane gold from the timeline. We
+  // don't have access to BetweenGamesView's compute helpers from here, so
+  // a small local version walks events once and accumulates.
+  const events = result.timeline.events;
+  const positionalLanes: Lane[] = [
+    "top",
+    "jungle",
+    "middle",
+    "bottom",
+    "support",
+  ];
+  type LaneKDARecap = { k: number; d: number; a: number };
+  const blueKDA: Record<Lane, LaneKDARecap> = {
+    top: { k: 0, d: 0, a: 0 },
+    jungle: { k: 0, d: 0, a: 0 },
+    middle: { k: 0, d: 0, a: 0 },
+    bottom: { k: 0, d: 0, a: 0 },
+    support: { k: 0, d: 0, a: 0 },
+  };
+  const redKDA: Record<Lane, LaneKDARecap> = {
+    top: { k: 0, d: 0, a: 0 },
+    jungle: { k: 0, d: 0, a: 0 },
+    middle: { k: 0, d: 0, a: 0 },
+    bottom: { k: 0, d: 0, a: 0 },
+    support: { k: 0, d: 0, a: 0 },
+  };
+  const laneGoldEvent: Record<Lane, number> = {
+    top: 0,
+    jungle: 0,
+    middle: 0,
+    bottom: 0,
+    support: 0,
+  };
+  for (const e of events) {
+    for (const lane of positionalLanes) {
+      const b = e.kdaDelta.blue[lane];
+      if (b) {
+        blueKDA[lane].k += b.k;
+        blueKDA[lane].d += b.d;
+        blueKDA[lane].a += b.a;
+      }
+      const r = e.kdaDelta.red[lane];
+      if (r) {
+        redKDA[lane].k += r.k;
+        redKDA[lane].d += r.d;
+        redKDA[lane].a += r.a;
+      }
+      laneGoldEvent[lane] += e.laneGoldDelta[lane] ?? 0;
+    }
+  }
+  // Final lane gold = passive lane-phase gold (capped at laning end) +
+  // accumulated event gold. Mirror of computeLiveLaneGold.
+  const lanePhaseTime = Math.min(
+    result.timeline.durationMinutes,
+    result.timeline.laningEndMinute,
+  );
+  const finalLaneGold: Record<Lane, number> = {
+    top: 0,
+    jungle: 0,
+    middle: 0,
+    bottom: 0,
+    support: 0,
+  };
+  for (const lane of positionalLanes) {
+    finalLaneGold[lane] =
+      result.laneAdvantages[lane] * lanePhaseTime + laneGoldEvent[lane];
+  }
+
+  // MVP scoring (same formula as the MVPCard component).
+  type Cand = {
+    side: Side;
+    lane: Lane;
+    championId: number;
+    kda: LaneKDARecap;
+    laneGoldDiff: number;
+    score: number;
+  };
+  const candidates: Cand[] = [];
+  for (let i = 0; i < positionalLanes.length; i++) {
+    const lane = positionalLanes[i];
+    const blueId = game.bluePicks[i];
+    if (blueId != null && byId.has(blueId)) {
+      const kda = blueKDA[lane];
+      const diff = finalLaneGold[lane];
+      candidates.push({
+        side: "blue",
+        lane,
+        championId: blueId,
+        kda,
+        laneGoldDiff: diff,
+        score:
+          kda.k +
+          kda.a * 0.7 -
+          kda.d * 0.5 +
+          diff / 1000 +
+          (result.winner === "blue" ? 1.5 : 0),
+      });
+    }
+    const redId = game.redPicks[i];
+    if (redId != null && byId.has(redId)) {
+      const kda = redKDA[lane];
+      const diff = -finalLaneGold[lane];
+      candidates.push({
+        side: "red",
+        lane,
+        championId: redId,
+        kda,
+        laneGoldDiff: diff,
+        score:
+          kda.k +
+          kda.a * 0.7 -
+          kda.d * 0.5 +
+          diff / 1000 +
+          (result.winner === "red" ? 1.5 : 0),
+      });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  const mvp = candidates[0]
+    ? {
+        side: candidates[0].side,
+        lane: candidates[0].lane,
+        championId: candidates[0].championId,
+        kills: candidates[0].kda.k,
+        deaths: candidates[0].kda.d,
+        assists: candidates[0].kda.a,
+        laneGoldDiff: candidates[0].laneGoldDiff,
+      }
+    : null;
+
+  // Biggest swing = consecutive winProbAfter delta, max in absolute terms.
+  // The starting probability anchors at 50%, so we compare each event to
+  // the prior event (or 0.5 for the first).
+  let biggestSwing: import("./types").GameRecap["biggestSwing"] = null;
+  let prev = 0.5;
+  for (const e of events) {
+    const delta = e.winProbAfter - prev;
+    if (
+      biggestSwing == null ||
+      Math.abs(delta) > Math.abs(biggestSwing.probDelta)
+    ) {
+      biggestSwing = {
+        minute: e.minutes,
+        side: e.side,
+        type: e.type,
+        description: e.description,
+        probDelta: delta,
+      };
+    }
+    prev = e.winProbAfter;
+  }
+
+  return {
+    durationMinutes: result.timeline.durationMinutes,
+    mvp,
+    biggestSwing,
   };
 }

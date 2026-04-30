@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 import {
   applyLock,
   applyTimeout,
@@ -104,7 +105,7 @@ interface DraftStore {
   // when an AI turn begins so the lock-in panel can render the breakdown.
   setAIRationale: (r: AIRationale | null) => void;
   tickTimer: () => void;
-  declareWinner: (side: Side) => void;
+  declareWinner: (side: Side, recap?: import("@/lib/types").GameRecap) => void;
   proceedToNextGame: (swapSides: boolean) => void;
   swapPickSlots: (
     gameIndex: number,
@@ -133,7 +134,9 @@ function finalizeRoles(game: GameDraft, champions: Champion[]): GameDraft {
   };
 }
 
-export const useDraftStore = create<DraftStore>((set, get) => ({
+export const useDraftStore = create<DraftStore>()(
+  persist(
+    (set, get) => ({
   series: null,
   selectedChampionId: null,
   secondsLeft: null,
@@ -292,7 +295,7 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
         game,
         champions,
         locked,
-        seriesAIContextFrom(series, action.side),
+        seriesAIContextFrom(series, action.side, champions),
       );
     let updatedGame: GameDraft;
     if (championId != null) {
@@ -351,7 +354,7 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
     while (action && isAITurn(game, series.mode, series.aiSide)) {
       // Recompute seriesCtx per iteration — `mySide` changes between blue
       // and red turns, and the prior-picks set is keyed by side identity.
-      const seriesCtx = seriesAIContextFrom(series, action.side);
+      const seriesCtx = seriesAIContextFrom(series, action.side, champions);
       const decision = chooseAIActionWithRationale(
         game,
         champions,
@@ -433,10 +436,10 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
     set({ secondsLeft: secondsLeft - 1 });
   },
 
-  declareWinner: (side) => {
+  declareWinner: (side, recap) => {
     const { series } = get();
     if (!series || series.status !== "between-games") return;
-    set({ series: recordWinner(series, side) });
+    set({ series: recordWinner(series, side, recap) });
   },
 
   proceedToNextGame: (swapSides) => {
@@ -473,4 +476,71 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
       aiRationale: null,
       aiRationaleHistory: [],
     }),
-}));
+  }),
+  {
+    // ─── Persistence config ────────────────────────────────────────────
+    // Survives reloads: the active series, sound preferences, and the
+    // AI rationale history for the current game. Champions roster is
+    // re-fetched fresh from CommunityDragon on each load (the icon URLs
+    // and meta tiers may shift between patches), so it's NOT persisted.
+    // Ephemeral UI state (selected champion, timer) intentionally
+    // resets — a reload mid-draft pauses the timer cleanly.
+    name: "draftsim-store",
+    // Bump on incompatible state shape changes — older persisted states
+    // get dropped automatically rather than rehydrated with missing
+    // fields. v2: ensures `series.mode` and `series.aiSide` are present
+    // (they were added after v1 was first persisted).
+    version: 2,
+    storage: createJSONStorage(() => localStorage),
+    partialize: (state) => ({
+      series: state.series,
+      soundEnabled: state.soundEnabled,
+      volume: state.volume,
+      aiRationaleHistory: state.aiRationaleHistory,
+    }),
+    // Defensive validator: if the persisted series is missing critical
+    // fields (e.g. `mode` from an older build), drop it. Otherwise the
+    // user could end up in a draft view where isAITurn always returns
+    // false because mode is undefined — making PvAI behave as PvP.
+    migrate: (persisted: unknown, _version: number) => {
+      const ps = persisted as { series?: unknown } | undefined;
+      if (ps && typeof ps === "object" && "series" in ps && ps.series) {
+        const s = ps.series as Partial<SeriesState>;
+        const validMode = s.mode === "pvp" || s.mode === "pvai" || s.mode === "aivai";
+        const validAiSide =
+          s.aiSide === null ||
+          s.aiSide === "blue" ||
+          s.aiSide === "red" ||
+          s.aiSide === undefined;
+        if (!validMode || !validAiSide) {
+          // Stale/incompatible series — drop it so the user lands on the
+          // create form and configures fresh.
+          return { ...ps, series: null };
+        }
+      }
+      return ps;
+    },
+    onRehydrateStorage: () => (state) => {
+      // Mirror persisted sound prefs onto the imperative SoundPlayer
+      // singleton — the store is the source of truth, but `sounds`
+      // reads its own state at play() time.
+      if (state) {
+        sounds.enabled = state.soundEnabled;
+        sounds.volume = state.volume;
+      }
+      // Final defensive check on the rehydrated series. If somehow the
+      // migration didn't catch a shape issue (e.g. partial state that
+      // bypasses migrate), null it here too.
+      if (state?.series) {
+        const s = state.series;
+        if (
+          (s.mode !== "pvp" && s.mode !== "pvai" && s.mode !== "aivai") ||
+          (s.mode === "pvai" && s.aiSide !== "blue" && s.aiSide !== "red")
+        ) {
+          state.series = null;
+        }
+      }
+    },
+  },
+  ),
+);

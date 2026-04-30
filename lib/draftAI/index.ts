@@ -14,7 +14,8 @@
 // once with `explain=true` for the chosen champion.
 
 import { applyLock, currentAction, usedChampionsInGame } from "../draftEngine";
-import { maxGames } from "../series";
+import { maxGames, requiredWins, winsByTeamName } from "../series";
+import type { Archetype } from "../championMeta";
 import type {
   AIDifficulty,
   Champion,
@@ -76,11 +77,38 @@ export interface SeriesAIContext {
   // Same for the opponent side — useful for anticipation (opponent likely
   // won't repeat the comp shape they used last game).
   oppPriorPicks: ReadonlySet<number>;
+  // Identity label the OPPONENT ran in each prior game, most-recent first.
+  // Drives cross-game adaptation: if the opp ran Wombo Combo last game,
+  // the AI prioritizes peel/disengage picks and bans wombo enablers.
+  // null entries mean the prior game's identity couldn't be determined
+  // (e.g. flex draft with no clear shape).
+  oppPriorIdentities: ReadonlyArray<string | null>;
+  // Aggregated archetype counts across ALL of the opponent's prior-game
+  // picks. Useful for "they keep stacking engage" patterns even when
+  // individual game identities differ.
+  oppPriorArchetypeProfile: Readonly<Record<Archetype, number>>;
+  // Wins so far in the series, by team identity (so side-swaps don't
+  // misattribute). myWins ≥ 0; oppWins ≥ 0; their sum = games played
+  // before this one.
+  myWins: number;
+  oppWins: number;
+  // myWins - oppWins. Negative = behind, positive = ahead, 0 = tied.
+  // Drives the "play safer / pick meta" signal in scoring.
+  winsBehind: number;
+  // True when losing this game ends the series for the AI's team — i.e.
+  // the AI is on series-point against. In a BO5 with the AI at 1-2, a
+  // loss makes it 1-3 (over). 2-2 is the canonical do-or-die game.
+  // In a BO3 the elimination game is at 0-1 (loss → 0-2) AND 1-1.
+  eliminationGame: boolean;
+  // True when winning this game ends the series in the AI's favor —
+  // series-point. The AI doesn't need to risk anything wild on this game.
+  closeoutGame: boolean;
 }
 
 export function seriesAIContextFrom(
   series: SeriesState,
   mySide: Side,
+  champions?: Champion[],
 ): SeriesAIContext {
   // Walk all previous games (not the current one) and accumulate picks
   // by the configured team identity, accounting for side-swaps.
@@ -90,6 +118,12 @@ export function seriesAIContextFrom(
   // Determine team-name continuity: AI's "team" at the start of the
   // series might be on either side now if sides have swapped.
   const myTeamName = mySide === "blue" ? series.blueTeam : series.redTeam;
+  const oppTeamName = mySide === "blue" ? series.redTeam : series.blueTeam;
+
+  // Per-prior-game opponent picks, in chronological order. We need this
+  // (not the flat union) so we can derive each game's identity separately
+  // for the cross-game adaptation logic.
+  const oppPriorPicksByGame: number[][] = [];
   for (let i = 0; i < lastIdx; i++) {
     const g = series.games[i];
     const myWasBlue = g.blueTeam === myTeamName;
@@ -97,7 +131,59 @@ export function seriesAIContextFrom(
     const oppPicks = myWasBlue ? g.redPicks : g.bluePicks;
     for (const id of myPicks) if (id != null) myPriorPicks.add(id);
     for (const id of oppPicks) if (id != null) oppPriorPicks.add(id);
+    oppPriorPicksByGame.push(oppPicks.filter((id): id is number => id != null));
   }
+
+  // Compute opponent's identity per prior game (most-recent first) and
+  // their aggregated archetype profile across all prior games. Both are
+  // only meaningful when the champion roster is provided — without it we
+  // can't resolve ids → archetypes. Falls back to empty data.
+  const oppPriorIdentities: (string | null)[] = [];
+  const oppPriorArchetypeProfile: Record<Archetype, number> = {
+    engage: 0,
+    peel: 0,
+    poke: 0,
+    dive: 0,
+    pick: 0,
+    wombo: 0,
+    "hyper-carry": 0,
+    splitpush: 0,
+    assassin: 0,
+    tank: 0,
+    enchanter: 0,
+    burst: 0,
+    skirmish: 0,
+    sustain: 0,
+  };
+  if (champions) {
+    const byId = getById(champions);
+    // Iterate most-recent-first so consumers can read priorIdentities[0]
+    // as "what they ran last game".
+    for (let i = oppPriorPicksByGame.length - 1; i >= 0; i--) {
+      const ids = oppPriorPicksByGame[i];
+      const counts = archetypeCounts(ids, byId);
+      // Aggregate per-archetype counts across games.
+      for (const a of Object.keys(counts) as Archetype[]) {
+        oppPriorArchetypeProfile[a] += counts[a];
+      }
+      // Resolve identity. picksLocked = number of non-null picks.
+      const picksLocked = ids.length;
+      const identity = identityTarget(counts, picksLocked);
+      oppPriorIdentities.push(identity?.label ?? null);
+    }
+  }
+
+  // Series score is keyed by team name (not side) — sides may have flipped
+  // between games and we never want to misattribute wins.
+  const wins = winsByTeamName(series);
+  const myWins = wins.get(myTeamName) ?? 0;
+  const oppWins = wins.get(oppTeamName) ?? 0;
+  const need = requiredWins(series.format);
+  // Elimination game = a loss here means the opponent reaches `need` wins.
+  // Closeout game = a win here means we reach `need` wins.
+  const eliminationGame = oppWins === need - 1 && myWins < need;
+  const closeoutGame = myWins === need - 1 && oppWins < need;
+
   return {
     fearless: series.fearless,
     gameIndex: series.games.length - 1,
@@ -105,6 +191,13 @@ export function seriesAIContextFrom(
     difficulty: series.aiDifficulty,
     myPriorPicks,
     oppPriorPicks,
+    oppPriorIdentities,
+    oppPriorArchetypeProfile,
+    myWins,
+    oppWins,
+    winsBehind: myWins - oppWins,
+    eliminationGame,
+    closeoutGame,
   };
 }
 
@@ -249,7 +342,7 @@ export function chooseAIActionWithRationale(
       knobs,
     );
   }
-  return decideBan(action, game, champions, byId, candidates, fearlessLocked, knobs);
+  return decideBan(action, game, champions, byId, candidates, fearlessLocked, knobs, seriesCtx);
 }
 
 // ─── Pick decision ──────────────────────────────────────────────────────────
@@ -360,6 +453,7 @@ function decideBan(
   candidates: Champion[],
   fearlessLocked: ReadonlySet<number>,
   knobs: DifficultyKnobs,
+  seriesCtx: SeriesAIContext | undefined,
 ): AIRationale {
   const myPicks = picksFor(game, action.side);
   const oppPicks = picksFor(game, action.side === "blue" ? "red" : "blue");
@@ -376,6 +470,7 @@ function decideBan(
     oppPicks,
     isPhase2: action.index >= 12,
     enemyAnticipated,
+    series: seriesCtx,
   };
 
   const scored = candidates.map((c) => {

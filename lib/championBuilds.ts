@@ -206,6 +206,58 @@ function buildPathFor(meta: ChampionMeta): BuildPath {
   return BUILDS.skirmish;
 }
 
+// First-major-item completion spike. The "I'm online" moment after the
+// boots+component opener. For most builds this lands ~minute 14 and is
+// the spike that makes a carry threatening in fights — Kraken Slayer for
+// marksmen, Luden's for burst mages, Eclipse for assassins.
+//
+// `keyItem` is the most distinctive non-boots item in the second spike,
+// surfaced in the event description ("Caitlyn completes Kraken Slayer").
+// `isCarrySpike` flags archetypes whose first-item completion meaningfully
+// shifts fight outcomes — only those generate timeline events. Tank /
+// enchanter / peel spikes are real but undramatic (event-log noise).
+export interface KeyPowerSpike {
+  minute: number;
+  keyItem: string;
+  isCarrySpike: boolean;
+}
+
+const CARRY_SPIKE_ARCHETYPES: ReadonlySet<string> = new Set([
+  "hyper-carry",
+  "burst",
+  "assassin",
+  "poke",
+  "skirmish",
+  "dive",
+]);
+
+const BOOTS_NAMES: ReadonlySet<string> = new Set([
+  "Berserker's Greaves",
+  "Sorcerer's Shoes",
+  "Plated Steelcaps",
+  "Mercury's Treads",
+  "Mobility Boots",
+  "Ionian Boots of Lucidity",
+  "Boots",
+]);
+
+export function getKeyPowerSpike(meta: ChampionMeta): KeyPowerSpike {
+  const path = buildPathFor(meta);
+  // Use the second spike (post-boots, first big item). Fallback to the
+  // first if a build only has one entry.
+  const spike = path.spikes[1] ?? path.spikes[0];
+  // Pick the first non-boots item — that's the mythic/core that defines
+  // this spike. World Atlas is a support starter; skip it too.
+  const keyItem =
+    spike.items.find(
+      (n) => !BOOTS_NAMES.has(n) && n !== "World Atlas" && n !== "Doran's Blade",
+    ) ?? spike.items[spike.items.length - 1];
+  const isCarrySpike = meta.archetypes.some((a) =>
+    CARRY_SPIKE_ARCHETYPES.has(a),
+  );
+  return { minute: spike.minute, keyItem, isCarrySpike };
+}
+
 // Linear interpolation between spikes — items don't pop in instantly,
 // but components are bought on the way. Returns cumulative stats for a
 // given champion archetype at a given game time.

@@ -11,7 +11,7 @@ import {
   type Mobility,
   type Phase,
 } from "../championMeta";
-import type { AtakhanVariant, EventKills } from "./types";
+import type { AtakhanVariant, EventKDA, EventKills, LaneKDA } from "./types";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -679,5 +679,398 @@ export function describeBackdoor(
     return `BACKDOOR! ${splitter.name} sneaks in alone, smashes the Nexus`;
   }
   return `${teamName(side, blueName, redName)} backdoors the Nexus`;
+}
+
+// ─── New event description renderers ────────────────────────────────────────
+
+export function describeVision(
+  side: Side,
+  winnerPicks: (Champion | null)[],
+  loserPicks: (Champion | null)[],
+  blueName: string,
+  redName: string,
+): string {
+  const watcher =
+    findByArchetype(winnerPicks, ["pick", "engage", "tank"]) ??
+    laneOf(winnerPicks, "support") ??
+    winnerPicks.find((c) => c != null);
+  const victim = findSquishy(loserPicks);
+  const place = pickRandom([
+    "the Baron pit bush",
+    "tri-bush",
+    "drake pit",
+    "river entrance",
+    "the lane brush",
+  ]);
+  if (watcher && victim) {
+    return `${watcher.name} drops a control ward in ${place} — ${victim.name} steps on it`;
+  }
+  return `${teamName(side, blueName, redName)} reads the map, lands a vision-pick at ${place}`;
+}
+
+export function describeOutplay(
+  side: Side,
+  winnerPicks: (Champion | null)[],
+  loserPicks: (Champion | null)[],
+  outnumberedBy: number,
+): string {
+  const star =
+    findByArchetype(winnerPicks, ["assassin", "skirmish", "hyper-carry", "burst"]) ??
+    winnerPicks.find((c) => c != null);
+  const place = pickRandom(["the side lane", "river", "tri-bush", "their own jungle"]);
+  const ratio = outnumberedBy >= 3 ? "1v3" : "1v2";
+  if (star) {
+    const flair = pickRandom([
+      "OUTPLAY!",
+      "INSANE!",
+      "WHAT A PLAY!",
+    ]);
+    return `${flair} ${star.name} wins a ${ratio} in ${place}`;
+  }
+  return `Outplay — ${teamName(side, "Blue", "Red")} wins a ${ratio} in ${place}`;
+}
+
+export function describeObjectiveTrade(
+  side: Side,
+  blueName: string,
+  redName: string,
+  giveUp: "drake" | "herald" | "tower",
+  takeFor: "drake" | "herald" | "tower" | "plates",
+): string {
+  const labels: Record<typeof giveUp | typeof takeFor, string> = {
+    drake: "Drake",
+    herald: "Herald",
+    tower: "tower",
+    plates: "plates",
+  };
+  return `Cross-map: ${teamName(side, blueName, redName)} trades ${labels[giveUp]} for ${labels[takeFor]}`;
+}
+
+export function describeWaveCrash(
+  side: Side,
+  picks: (Champion | null)[],
+  lane: Lane,
+  blueName: string,
+  redName: string,
+): string {
+  const idx = POSITIONAL_LANES.indexOf(lane);
+  const laner = picks[idx];
+  const laneShort = lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
+  if (laner) {
+    return `${laner.name} crashes the wave ${laneShort}, freezes the bounce`;
+  }
+  return `${teamName(side, blueName, redName)} wins the wave-crash ${laneShort}`;
+}
+
+export function describePowerSpike(champion: Champion, keyItem: string): string {
+  // Real LoL casters describe spikes with verbs that match the item:
+  // "completes" for purchases, "comes online" / "powers up" for moments.
+  const verb = pickRandom(["completes", "powers up with", "finishes"]);
+  return `POWER SPIKE — ${champion.name} ${verb} ${keyItem}`;
+}
+
+// ─── KDA attribution helpers ────────────────────────────────────────────────
+// Each event produces an EventKDA describing per-lane K/D/A deltas. The UI
+// accumulates these across revealed events so the live scoreboard shows
+// each champion's running KDA — same pattern as laneGoldDelta.
+//
+// Attribution is heuristic, not authoritative: kills go to the lane most
+// likely responsible for the play (carry-weighted for teamfights, the
+// fight's actor for solo events), assists trail along, deaths land on
+// squishier roles. Numbers stay internally consistent — sum of per-lane
+// kills on each side matches the event's `kills.{blue,red}`.
+
+const LANE_LIST: readonly Lane[] = [
+  "top",
+  "jungle",
+  "middle",
+  "bottom",
+  "support",
+];
+
+// Role-shaped weighting that mirrors real-LoL stat profiles:
+//   • Support     — mostly assists, very few kills (CCs and peels, rarely
+//                   secures kills directly; sits on the lowest kill share).
+//   • Jungle      — high kills AND high assists (presents in every fight,
+//                   ganks for kills, secures objectives).
+//   • Mid         — high kills AND high assists (primary damage carry that
+//                   roams; consistent participation).
+//   • Bottom (ADC) — high kills, low-ish assists (busy DPSing, dies more
+//                   often due to squishy positioning).
+//   • Top         — moderate kills, LOW assists (isolated side lane, rarely
+//                   present for cross-map kills); deaths from 1v1 trades.
+const KILL_WEIGHTS: Record<Lane, number> = {
+  top: 0.18,
+  jungle: 0.24,
+  middle: 0.28,
+  bottom: 0.25,
+  support: 0.05,
+};
+
+const DEATH_WEIGHTS: Record<Lane, number> = {
+  top: 0.18,
+  jungle: 0.13,
+  middle: 0.18,
+  bottom: 0.27,
+  support: 0.24,
+};
+
+const ASSIST_WEIGHTS: Record<Lane, number> = {
+  top: 0.10,
+  jungle: 0.26,
+  middle: 0.22,
+  bottom: 0.12,
+  support: 0.30,
+};
+
+export function makeKDA(): EventKDA {
+  return { blue: {}, red: {} };
+}
+
+export const NO_KDA: Readonly<EventKDA> = Object.freeze({ blue: {}, red: {} });
+
+function laneBucket(
+  side: Partial<Record<Lane, LaneKDA>>,
+  lane: Lane,
+): LaneKDA {
+  let v = side[lane];
+  if (!v) {
+    v = { k: 0, d: 0, a: 0 };
+    side[lane] = v;
+  }
+  return v;
+}
+
+export function addKill(
+  kda: EventKDA,
+  side: Side,
+  lane: Lane,
+  n: number = 1,
+): void {
+  laneBucket(kda[side], lane).k += n;
+}
+
+export function addAssist(
+  kda: EventKDA,
+  side: Side,
+  lane: Lane,
+  n: number = 1,
+): void {
+  laneBucket(kda[side], lane).a += n;
+}
+
+export function addDeath(
+  kda: EventKDA,
+  side: Side,
+  lane: Lane,
+  n: number = 1,
+): void {
+  laneBucket(kda[side], lane).d += n;
+}
+
+function pickWeighted(weights: Record<Lane, number>): Lane {
+  const total = LANE_LIST.reduce((s, l) => s + weights[l], 0);
+  let r = Math.random() * total;
+  for (const lane of LANE_LIST) {
+    r -= weights[lane];
+    if (r <= 0) return lane;
+  }
+  return LANE_LIST[LANE_LIST.length - 1];
+}
+
+// Single laner kill: kill on the winner's lane, death on the opponent's lane.
+// Used for solo-kill, first-blood, single-target gank/roam events.
+export function laneKillKDA(
+  winnerSide: Side,
+  lane: Lane,
+  kills: number = 1,
+  victimLane: Lane = lane,
+): EventKDA {
+  const k = makeKDA();
+  if (kills <= 0) return k;
+  const loserSide: Side = winnerSide === "blue" ? "red" : "blue";
+  addKill(k, winnerSide, lane, kills);
+  addDeath(k, loserSide, victimLane, kills);
+  return k;
+}
+
+// Gank / roam: laner gets the kill, ganker (jg or roamer) gets an assist.
+// Victim laner takes the death.
+export function gankKDA(
+  winnerSide: Side,
+  killerLane: Lane,
+  assistLane: Lane,
+  victimLane: Lane,
+): EventKDA {
+  const k = makeKDA();
+  const loserSide: Side = winnerSide === "blue" ? "red" : "blue";
+  addKill(k, winnerSide, killerLane);
+  addAssist(k, winnerSide, assistLane);
+  addDeath(k, loserSide, victimLane);
+  return k;
+}
+
+// Spread N kills (and proportional assists) across the winner's team using
+// carry-weighted sampling, plus N deaths across the loser's team using
+// squishy-weighted sampling. For teamfights, skirmishes, objective fights.
+export function teamfightKDA(
+  winnerSide: Side,
+  winnerKills: number,
+  loserKills: number,
+): EventKDA {
+  const k = makeKDA();
+  const loserSide: Side = winnerSide === "blue" ? "red" : "blue";
+
+  // Winner kills + assists. Each kill ~1.5 assists in pro LoL — round to 1
+  // assist per kill plus an extra assist for half the kills. Keeps numbers
+  // believable for early skirmishes (3-1 fight: 3K, 4-5A spread).
+  for (let i = 0; i < winnerKills; i++) {
+    addKill(k, winnerSide, pickWeighted(KILL_WEIGHTS));
+  }
+  const assists = Math.max(0, Math.floor(winnerKills * 1.5));
+  for (let i = 0; i < assists; i++) {
+    addAssist(k, winnerSide, pickWeighted(ASSIST_WEIGHTS));
+  }
+  // Each winner kill = 1 death somewhere on the losing team.
+  for (let i = 0; i < winnerKills; i++) {
+    addDeath(k, loserSide, pickWeighted(DEATH_WEIGHTS));
+  }
+
+  // Loser kills (the few they got back).
+  for (let i = 0; i < loserKills; i++) {
+    addKill(k, loserSide, pickWeighted(KILL_WEIGHTS));
+  }
+  const loserAssists = Math.max(0, Math.floor(loserKills * 1.3));
+  for (let i = 0; i < loserAssists; i++) {
+    addAssist(k, loserSide, pickWeighted(ASSIST_WEIGHTS));
+  }
+  for (let i = 0; i < loserKills; i++) {
+    addDeath(k, winnerSide, pickWeighted(DEATH_WEIGHTS));
+  }
+  return k;
+}
+
+// Ace: spread 5 kills evenly across winner team (one per lane), 5 deaths
+// evenly across loser team, plus generous assists.
+export function aceKDA(winnerSide: Side): EventKDA {
+  const k = makeKDA();
+  const loserSide: Side = winnerSide === "blue" ? "red" : "blue";
+  for (const lane of LANE_LIST) {
+    addKill(k, winnerSide, lane);
+    addDeath(k, loserSide, lane);
+    // Each member is in on most kills — 3 assists each is reasonable for a 5-0.
+    addAssist(k, winnerSide, lane, 3);
+  }
+  return k;
+}
+
+// Smiter event (drake/baron/elder): if a smite-steal happened, the smiter
+// gets credit. Otherwise distribute via teamfight pattern.
+export function objectiveKDA(
+  winnerSide: Side,
+  winnerKills: number,
+  loserKills: number,
+  smiterStolen: boolean,
+): EventKDA {
+  const k = teamfightKDA(winnerSide, winnerKills, loserKills);
+  if (smiterStolen) {
+    // Smiter (jungle) gets bonus credit — they made the play happen.
+    addAssist(k, winnerSide, "jungle");
+  }
+  return k;
+}
+
+// ─── Gold-from-KDA attribution ─────────────────────────────────────────────
+// In real LoL each kill is worth ~300g local + assist gold to participants.
+// The simulator's lane-gold strip should reflect this: a champion with 8
+// kills against a 0/8 enemy laner has to be visibly ahead in gold, not
+// roughly even because the team-fight gold was spread evenly.
+//
+// We convert each event's kdaDelta into a per-lane gold delta:
+//   • +300g per kill the champ scored
+//   • +100g per assist (kill participation)
+// And merge this into the event's existing laneGoldDelta.
+//
+// `kdaToLaneGold` is blue-positive (matches laneGoldDelta convention).
+const KILL_GOLD = 300;
+const ASSIST_GOLD = 100;
+
+export function kdaToLaneGold(kda: EventKDA): Partial<Record<Lane, number>> {
+  const out: Partial<Record<Lane, number>> = {};
+  for (const lane of LANE_LIST) {
+    const blue = kda.blue[lane];
+    const red = kda.red[lane];
+    let net = 0;
+    if (blue) net += blue.k * KILL_GOLD + blue.a * ASSIST_GOLD;
+    if (red) net -= red.k * KILL_GOLD + red.a * ASSIST_GOLD;
+    if (net !== 0) out[lane] = net;
+  }
+  return out;
+}
+
+// Merge two lane-gold maps (blue-positive). Used to combine an event's base
+// lane gold (e.g. objective bounty distributed team-wide) with the kill-
+// derived gold from kdaToLaneGold.
+export function mergeLaneGold(
+  base: Partial<Record<Lane, number>>,
+  add: Partial<Record<Lane, number>>,
+): Partial<Record<Lane, number>> {
+  const out: Partial<Record<Lane, number>> = { ...base };
+  for (const lane of LANE_LIST) {
+    const v = add[lane];
+    if (v !== undefined && v !== 0) {
+      out[lane] = (out[lane] ?? 0) + v;
+    }
+  }
+  return out;
+}
+
+// ─── Damage profile weights ────────────────────────────────────────────────
+// Synthetic damage attribution: combine each champion's KDA with their
+// archetype damage profile to estimate "damage dealt" share. Real LoL
+// damage is unmeasurable here (no ability hits / ticks tracked), but the
+// visualization conveys the right intuition: an ADC carries more damage
+// than a tank with the same KDA, an assassin scales kills harder than a
+// support, etc.
+//
+// The pickHighest function returns the strongest archetype-based weight
+// since a champion may have multiple archetypes (e.g. hyper-carry +
+// skirmish on Tristana → uses hyper-carry's 1.3).
+const ARCHETYPE_DAMAGE_WEIGHT: Partial<Record<string, number>> = {
+  "hyper-carry": 1.35,
+  burst: 1.25,
+  assassin: 1.2,
+  poke: 1.05,
+  splitpush: 1.0,
+  skirmish: 0.9,
+  dive: 0.85,
+  wombo: 0.8,
+  sustain: 0.7,
+  pick: 0.6,
+  engage: 0.55,
+  peel: 0.45,
+  tank: 0.4,
+  enchanter: 0.3,
+};
+
+export function damageWeightFor(meta: Pick<ChampionMeta, "archetypes">): number {
+  let best = 0.6; // Default for any unmapped archetype
+  for (const a of meta.archetypes) {
+    const w = ARCHETYPE_DAMAGE_WEIGHT[a];
+    if (w !== undefined && w > best) best = w;
+  }
+  return best;
+}
+
+// Synthetic damage value for a single player given their KDA and meta.
+// Formula: (kills + 0.5 * assists + 0.15 * deaths) * archetype-weight.
+// Deaths add a tiny amount (you were in fights, dealt some damage before
+// dying) so a 0/8/0 carry still registers a non-zero share.
+export function syntheticDamage(
+  kda: { k: number; d: number; a: number },
+  meta: Pick<ChampionMeta, "archetypes">,
+): number {
+  const base = kda.k + kda.a * 0.5 + kda.d * 0.15;
+  return base * damageWeightFor(meta);
 }
 

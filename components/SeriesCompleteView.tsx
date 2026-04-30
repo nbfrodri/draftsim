@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import { useDraftStore } from "@/store/draftStore";
 import { fearlessLocksBeforeGame, winsByTeamName } from "@/lib/series";
-import type { Champion, GameDraft, Lane, Side } from "@/lib/types";
+import type { Champion, GameDraft, GameRecap, Lane, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
 
 interface Props {
@@ -124,6 +124,10 @@ export default function SeriesCompleteView({ champions }: Props) {
           </div>
         </div>
 
+        {series.games.some((g) => g.recap) && (
+          <SeriesNarrative series={series.games} byId={byId} />
+        )}
+
         <div className="sc-fade text-center mb-3 text-[10px] md:text-xs uppercase tracking-[0.3em] text-rift-muted">
           Tip · click two picks on the same team to swap their champions
         </div>
@@ -166,6 +170,144 @@ export default function SeriesCompleteView({ champions }: Props) {
           </svg>
           MAIN MENU
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Series narrative recap ───────────────────────────────────────────────
+// Synthesizes a 1-2 line storyline for each completed game from its recap
+// (MVP + biggest swing event). Reads as a broadcast post-match recap:
+//   "Game 1 — Blue stomped behind Caitlyn (8/2/4). Stolen Baron at 22:14
+//    swung the game decisively."
+// Games without a recap (manually-declared winner, no simulation) are
+// rendered with a fallback line.
+
+const EVENT_PHRASES: Record<string, (side: string) => string> = {
+  baron: (s) => `${s} secured Baron`,
+  elder: (s) => `${s} took Elder`,
+  soul: (s) => `${s} claimed Soul`,
+  ace: (s) => `${s} aced the enemy team`,
+  shutdown: (s) => `${s} cashed a shutdown`,
+  "first-blood": (s) => `First blood for ${s}`,
+  teamfight: (s) => `${s} won a 5v5`,
+  outplay: (s) => `${s} pulled off an outplay`,
+  "power-spike": (s) => `${s} powered up`,
+  vision: (s) => `${s} landed a vision-pick`,
+  shutdown_alt: (s) => `${s} cashed a shutdown`,
+  backdoor: (s) => `${s} ended on a backdoor`,
+  atakhan: (s) => `${s} secured Atakhan`,
+};
+
+function laneShort(lane: Lane): string {
+  return lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
+}
+
+function paceLabel(durationMinutes: number): string {
+  if (durationMinutes < 25) return "in a quick stomp";
+  if (durationMinutes < 32) return "in a clean game";
+  if (durationMinutes < 40) return "in a hard-fought match";
+  return "in a marathon";
+}
+
+function describeGameRecap(
+  game: GameDraft,
+  byId: Map<number, Champion>,
+  recap: GameRecap | undefined,
+): { headline: string; mvpLine: string | null; swingLine: string | null } {
+  // Winner team name (broadcast-style).
+  const winnerName =
+    game.winner === "blue"
+      ? game.blueTeam
+      : game.winner === "red"
+      ? game.redTeam
+      : "—";
+  if (!recap || !game.winner) {
+    return {
+      headline: `${winnerName} took Game ${game.gameNumber}`,
+      mvpLine: null,
+      swingLine: null,
+    };
+  }
+  // Headline includes pace + winner.
+  const headline = `${winnerName} closed Game ${game.gameNumber} ${paceLabel(
+    recap.durationMinutes,
+  )}`;
+  // MVP line: lead with the champion, lane, KDA. Skip if recap has no MVP
+  // or KDA is all-zero (very rare, but possible for an early surrender).
+  const mvpChamp = recap.mvp ? byId.get(recap.mvp.championId) : null;
+  const mvpLine =
+    recap.mvp && mvpChamp
+      ? `${mvpChamp.name} (${laneShort(recap.mvp.lane)}) carried ${recap.mvp.kills}/${recap.mvp.deaths}/${recap.mvp.assists}`
+      : null;
+  // Swing line: explain WHAT moved the needle. Map known event types to
+  // natural phrases; fall back to the raw description for the rest.
+  let swingLine: string | null = null;
+  if (recap.biggestSwing) {
+    const sideName =
+      recap.biggestSwing.side === "blue" ? game.blueTeam : game.redTeam;
+    const phrase =
+      EVENT_PHRASES[recap.biggestSwing.type]?.(sideName) ??
+      recap.biggestSwing.description;
+    const minute = Math.floor(recap.biggestSwing.minute);
+    swingLine = `Decisive moment at ${minute}': ${phrase}`;
+  }
+  return { headline, mvpLine, swingLine };
+}
+
+function SeriesNarrative({
+  series,
+  byId,
+}: {
+  series: GameDraft[];
+  byId: Map<number, Champion>;
+}) {
+  return (
+    <div className="sc-fade border border-rift-gold/30 bg-rift-panel/40 p-4 md:p-5 mb-5 md:mb-6">
+      <div className="text-[10px] md:text-xs uppercase tracking-[0.4em] text-rift-gold/70 mb-3">
+        Series Recap
+      </div>
+      <div className="space-y-3">
+        {series.map((g, idx) => {
+          const { headline, mvpLine, swingLine } = describeGameRecap(
+            g,
+            byId,
+            g.recap,
+          );
+          const winnerCls =
+            g.winner === "blue"
+              ? "text-rift-bluebright"
+              : g.winner === "red"
+              ? "text-rift-redbright"
+              : "text-rift-muted";
+          return (
+            <div
+              key={g.id}
+              className="flex items-start gap-3 md:gap-4"
+            >
+              <div className="font-display text-xl md:text-2xl text-rift-goldbright tabular-nums w-6 md:w-8 flex-shrink-0">
+                {idx + 1}
+              </div>
+              <div className="flex-1 min-w-0 space-y-0.5">
+                <div className={`text-xs md:text-sm font-display tracking-[0.1em] truncate ${winnerCls}`}>
+                  {headline}
+                </div>
+                {mvpLine && (
+                  <div className="text-[11px] md:text-xs text-rift-mutedbright truncate">
+                    <span className="text-rift-gold/60 mr-1">MVP ·</span>
+                    {mvpLine}
+                  </div>
+                )}
+                {swingLine && (
+                  <div className="text-[11px] md:text-xs text-rift-mutedbright/80 truncate">
+                    <span className="text-rift-gold/60 mr-1">SWING ·</span>
+                    {swingLine}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

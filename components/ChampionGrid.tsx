@@ -11,6 +11,7 @@ import { getMetaTier, type MetaTier } from "@/lib/championMeta";
 import type { Champion, Lane } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
 import AIRationalePanel from "./AIRationalePanel";
+import ChampionDetailModal from "./ChampionDetailModal";
 
 type LaneFilter = "all" | Lane;
 
@@ -28,6 +29,21 @@ export default function ChampionGrid({ champions }: Props) {
   const [query, setQuery] = useState("");
   const [lane, setLane] = useState<LaneFilter>("all");
   const searchRef = useRef<HTMLInputElement | null>(null);
+  // Champion-detail modal state. null = closed; number = the champion id
+  // currently being inspected. The modal looks up the Champion object
+  // from `champions` so we don't have to re-resolve aliases.
+  const [detailChampId, setDetailChampId] = useState<number | null>(null);
+  const detailChampion = useMemo(
+    () =>
+      detailChampId == null
+        ? null
+        : champions.find((c) => c.id === detailChampId) ?? null,
+    [detailChampId, champions],
+  );
+  const byId = useMemo(
+    () => new Map(champions.map((c) => [c.id, c])),
+    [champions],
+  );
 
   const game = currentGame(series);
   const action = currentAction(game);
@@ -222,6 +238,7 @@ export default function ChampionGrid({ champions }: Props) {
                     if (selectedId !== c.id) playSelectSound();
                     selectChampion(c.id);
                   }}
+                  onInfo={() => setDetailChampId(c.id)}
                 />
               );
             })}
@@ -278,6 +295,16 @@ export default function ChampionGrid({ champions }: Props) {
           {buttonLabel}
         </button>
       </div>
+      {/* Champion detail modal — portal-rendered so it overlays the
+          entire viewport, not just the section. State lives in this
+          component (parent of the cell) so a single modal handles every
+          champion in the grid. */}
+      <ChampionDetailModal
+        champion={detailChampion}
+        champions={champions}
+        byId={byId}
+        onClose={() => setDetailChampId(null)}
+      />
     </section>
   );
 }
@@ -441,6 +468,7 @@ function ChampionCell({
   isSelected,
   tier,
   onClick,
+  onInfo,
 }: {
   champ: Champion;
   available: boolean;
@@ -448,54 +476,82 @@ function ChampionCell({
   isSelected: boolean;
   tier: MetaTier | null;
   onClick: () => void;
+  onInfo: () => void;
 }) {
   // Show every tier we have meta data for. Champions with no entry in
   // CHAMPION_META still render no badge (genuinely unknown).
   const showTier = tier !== null;
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!available}
-      title={tier ? `${champ.name} · ${tier}` : champ.name}
-      className={`group relative aspect-square overflow-hidden border transition-all ${
-        !available
-          ? "border-rift-line/40 cursor-not-allowed grayscale brightness-[0.35]"
-          : isSelected
-          ? "border-rift-gold shadow-glow-gold scale-[1.04] z-10"
-          : "border-rift-line hover:border-rift-gold/70 hover:scale-[1.04] hover:z-10"
-      }`}
-    >
-      <img
-        src={champ.iconUrl}
-        alt={champ.name}
-        loading="lazy"
-        className="w-full h-full object-cover"
-      />
-      {/* Tier badge — top-right corner. Renders for every tier (S+ → D)
-          whenever we have meta data. Hidden on greyed-out unavailable
-          champions to reduce visual noise. */}
-      {showTier && available && tier && <TierBadge tier={tier} />}
-      {lockedByFearless && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/60 pointer-events-none">
-          <div className="text-[8px] uppercase tracking-widest text-rift-gold font-display">
-            FLS
+    // .group on the wrapper so the sibling info-button can trigger on the
+    // same hover boundary as the main button. Aspect-square on the wrapper
+    // since the inner button is now a flex child.
+    <div className="group relative aspect-square">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={!available}
+        title={tier ? `${champ.name} · ${tier}` : champ.name}
+        className={`relative aspect-square w-full h-full overflow-hidden border transition-all ${
+          !available
+            ? "border-rift-line/40 cursor-not-allowed grayscale brightness-[0.35]"
+            : isSelected
+            ? "border-rift-gold shadow-glow-gold scale-[1.04] z-10"
+            : "border-rift-line hover:border-rift-gold/70 hover:scale-[1.04] hover:z-10"
+        }`}
+      >
+        <img
+          src={champ.iconUrl}
+          alt={champ.name}
+          loading="lazy"
+          className="w-full h-full object-cover"
+        />
+        {/* Tier badge — top-right corner. Renders for every tier (S+ → D)
+            whenever we have meta data. Hidden on greyed-out unavailable
+            champions to reduce visual noise. */}
+        {showTier && available && tier && <TierBadge tier={tier} />}
+        {lockedByFearless && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60 pointer-events-none">
+            <div className="text-[8px] uppercase tracking-widest text-rift-gold font-display">
+              FLS
+            </div>
+          </div>
+        )}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent reveal px-1 py-0.5">
+          <div className="text-[10px] text-rift-goldbright truncate font-semibold">
+            {champ.name}
           </div>
         </div>
-      )}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent reveal px-1 py-0.5">
-        <div className="text-[10px] text-rift-goldbright truncate font-semibold">
-          {champ.name}
-        </div>
-      </div>
-      {isSelected && (
-        <>
-          <span className="absolute top-0 left-0 w-2.5 h-2.5 border-t-2 border-l-2 border-rift-gold" />
-          <span className="absolute top-0 right-0 w-2.5 h-2.5 border-t-2 border-r-2 border-rift-gold" />
-          <span className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b-2 border-l-2 border-rift-gold" />
-          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b-2 border-r-2 border-rift-gold" />
-        </>
-      )}
-    </button>
+        {isSelected && (
+          <>
+            <span className="absolute top-0 left-0 w-2.5 h-2.5 border-t-2 border-l-2 border-rift-gold" />
+            <span className="absolute top-0 right-0 w-2.5 h-2.5 border-t-2 border-r-2 border-rift-gold" />
+            <span className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b-2 border-l-2 border-rift-gold" />
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b-2 border-r-2 border-rift-gold" />
+          </>
+        )}
+      </button>
+      {/* Info icon overlay — top-left corner, sibling to the main button
+          (nested buttons are invalid HTML). `e.stopPropagation()` keeps
+          the cell's primary click (select for hover/preview) intact.
+          Faded by default so it's unobtrusive on desktop, opaque on hover
+          and on touch — touch devices land on the hover state on tap so
+          the gating works for both input modes. */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onInfo();
+        }}
+        aria-label={`Show ${champ.name} details`}
+        title={`${champ.name} details`}
+        className="absolute top-0.5 left-0.5 w-[18px] h-[18px] z-20 flex items-center justify-center bg-rift-bg/85 backdrop-blur-sm border border-rift-line/70 text-rift-mutedbright hover:border-rift-gold hover:text-rift-goldbright hover:bg-rift-bg/95 transition-all opacity-50 group-hover:opacity-100 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-rift-gold"
+      >
+        <svg viewBox="0 0 16 16" className="w-3 h-3" fill="currentColor" aria-hidden>
+          <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="0.8" fill="none" />
+          <circle cx="8" cy="4.5" r="0.85" />
+          <rect x="7.2" y="6.5" width="1.6" height="5" rx="0.4" />
+        </svg>
+      </button>
+    </div>
   );
 }

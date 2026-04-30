@@ -60,7 +60,7 @@ export default function DraftView({ champions }: Props) {
       game,
       champions,
       fearlessLockedSet(series),
-      seriesAIContextFrom(series, action.side),
+      seriesAIContextFrom(series, action.side, champions),
     );
     if (!decision) return;
     // Surface rationale + hover the chosen champion immediately. The
