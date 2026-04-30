@@ -13,7 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { useDraftStore } from "@/store/draftStore";
-import { currentGame, maxGames, seriesScore } from "@/lib/series";
+import { currentGame, maxGames, seriesScore, starRatingBias } from "@/lib/series";
 import {
   buildGameRecap,
   simulateMatch,
@@ -70,7 +70,13 @@ export default function BetweenGamesView({ champions }: Props) {
   const game = currentGame(series);
   const gameIndex = series.games.length - 1;
   const winnerDeclared = game.winner != null;
-  const [swapSides, setSwapSides] = useState(false);
+  // Auto side-swap rule: loser of the just-finished game plays blue
+  // next. (Pro convention: loser picks side, always picks blue.) The
+  // checkbox below lets the user force the opposite if they want a
+  // manual override.
+  const autoSwap = game.winner === "blue";
+  const [overrideSwap, setOverrideSwap] = useState<boolean | null>(null);
+  const swapSides = overrideSwap ?? autoSwap;
 
   // Track a selected pick for role swapping. null when none.
   const [swapSel, setSwapSel] = useState<{ side: Side; slot: number } | null>(null);
@@ -78,14 +84,22 @@ export default function BetweenGamesView({ champions }: Props) {
   // Match simulation: when set, the panel replaces the manual winner buttons.
   const [simResult, setSimResult] = useState<SimulationResult | null>(null);
 
+  // Tournament star ratings (when present) bias the sim toward the
+  // higher-rated roster. starRatingBias() returns 0 outside tournament
+  // context so single-series sims behave identically.
+  const simOptions = useMemo(
+    () => ({ scoreBias: starRatingBias(series) }),
+    [series],
+  );
+
   const handleSimulate = () => {
-    setSimResult(simulateMatch(game, champions));
+    setSimResult(simulateMatch(game, champions, simOptions));
   };
 
   // Re-simulate produces a fresh result object so the panel resets its
   // playback state (its useEffect keys on result identity).
   const handleResimulate = () => {
-    setSimResult(simulateMatch(game, champions));
+    setSimResult(simulateMatch(game, champions, simOptions));
   };
 
   const handleApplySim = () => {
@@ -336,15 +350,18 @@ export default function BetweenGamesView({ champions }: Props) {
               <>
                 <button
                   type="button"
-                  onClick={() => setSwapSides((v) => !v)}
+                  onClick={() =>
+                    setOverrideSwap((v) => (v === null ? !autoSwap : null))
+                  }
                   className={`w-full py-3 md:py-4 border transition-all ${
-                    swapSides
+                    overrideSwap !== null
                       ? "border-rift-gold bg-rift-gold/10 text-rift-goldbright"
                       : "border-rift-line text-rift-mutedbright hover:border-rift-gold/50 hover:bg-rift-gold/5"
                   }`}
+                  title="Click to force the opposite side assignment"
                 >
                   <div className="text-[10px] md:text-xs uppercase tracking-[0.35em]">
-                    {swapSides ? "Sides will swap" : "Keep same sides"}
+                    {overrideSwap !== null ? "Manual override" : "Loser → blue (auto)"}
                   </div>
                   <div className="text-xs md:text-sm text-rift-muted mt-1">
                     <span className="text-rift-blue">
@@ -2135,11 +2152,15 @@ function MVPCard({
                 K/D/A
               </span>
               <span className="font-display text-base md:text-lg tabular-nums">
-                <span className={sideAccentText}>{mvp.kda.k}</span>
+                {/* KDA uses fixed semantic colors, not side-derived
+                    ones, so the values read consistently across both
+                    teams' rosters: kills (good) = emerald, deaths
+                    (bad) = red, assists = neutral gold. */}
+                <span className="text-emerald-300">{mvp.kda.k}</span>
                 <span className="text-rift-muted/50 mx-0.5">/</span>
                 <span className="text-rift-redbright/85">{mvp.kda.d}</span>
                 <span className="text-rift-muted/50 mx-0.5">/</span>
-                <span className={sideAccentText}>{mvp.kda.a}</span>
+                <span className="text-rift-goldbright/85">{mvp.kda.a}</span>
               </span>
               <span className="text-[10px] tabular-nums text-rift-goldbright/80 font-display ml-1">
                 {kdaRatio}
@@ -2229,17 +2250,21 @@ function FaceOffRow({
 }) {
   const lead =
     blue > red ? "blue" : red > blue ? "red" : "even";
+  // Stat counts use a fixed palette that doesn't depend on side colors:
+  //   • leading side → bright gold (highlights the bigger number)
+  //   • trailing side → muted
+  // Soul still gets emphasized gold + display font.
   const blueCls =
     soulSide === "blue"
       ? "text-rift-goldbright font-display"
       : lead === "blue"
-      ? "text-rift-bluebright font-display"
+      ? "text-rift-goldbright font-display"
       : "text-rift-mutedbright";
   const redCls =
     soulSide === "red"
       ? "text-rift-goldbright font-display"
       : lead === "red"
-      ? "text-rift-redbright font-display"
+      ? "text-rift-goldbright font-display"
       : "text-rift-mutedbright";
   return (
     <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
@@ -2506,11 +2531,15 @@ function TimelineRow({
           </span>
           {totalKills > 0 && (
             <span className="text-[9px] md:text-[10px] tabular-nums">
-              <span className={isBlue && event.kills.blue > 0 ? "text-rift-bluebright" : "text-rift-muted/60"}>
+              {/* Kill counts no longer tinted by side; use a single
+                  fixed palette so K/D/A reads consistently regardless
+                  of who scored. Active kills = emerald (good thing
+                  happening), zeros stay muted. */}
+              <span className={event.kills.blue > 0 ? "text-emerald-300" : "text-rift-muted/60"}>
                 {event.kills.blue}K
               </span>
               <span className="text-rift-muted/50 mx-1">·</span>
-              <span className={!isBlue && event.kills.red > 0 ? "text-rift-redbright" : "text-rift-muted/60"}>
+              <span className={event.kills.red > 0 ? "text-emerald-300" : "text-rift-muted/60"}>
                 {event.kills.red}K
               </span>
             </span>
@@ -2667,11 +2696,14 @@ function ContributionRow({
           </div>
           {kda && (
             <span className="text-[10px] md:text-[11px] tabular-nums tracking-tight text-rift-mutedbright flex-shrink-0">
-              <span className={accent}>{kda.k}</span>
+              {/* Fixed KDA palette so colors carry meaning instead of
+                  side identity: kills = emerald (good), deaths = red
+                  (bad), assists = gold. */}
+              <span className="text-emerald-300">{kda.k}</span>
               <span className="text-rift-muted">/</span>
               <span className="text-rift-redbright/80">{kda.d}</span>
               <span className="text-rift-muted">/</span>
-              <span className={accent}>{kda.a}</span>
+              <span className="text-rift-goldbright/85">{kda.a}</span>
             </span>
           )}
         </div>

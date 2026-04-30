@@ -16,6 +16,12 @@ type SwapSel = { gameId: string; side: Side; slot: number } | null;
 export default function SeriesCompleteView({ champions }: Props) {
   const series = useDraftStore((s) => s.series)!;
   const resetAll = useDraftStore((s) => s.resetAll);
+  // Tournament-mode awareness: if a tournament match is active, the
+  // "exit" button advances the bracket via finishMatch and returns to
+  // the dashboard, instead of resetting everything to main menu.
+  const tournament = useDraftStore((s) => s.tournament);
+  const finishMatch = useDraftStore((s) => s.finishMatch);
+  const inTournament = tournament != null && tournament.activeMatchId != null;
   const swapPickSlots = useDraftStore((s) => s.swapPickSlots);
 
   const byId = useMemo(
@@ -154,7 +160,7 @@ export default function SeriesCompleteView({ champions }: Props) {
 
         <button
           type="button"
-          onClick={resetAll}
+          onClick={inTournament ? finishMatch : resetAll}
           className="sc-fade btn-gold w-full py-4 md:py-5 font-display text-base md:text-lg tracking-[0.3em] md:tracking-[0.4em] inline-flex items-center justify-center gap-3"
         >
           <svg
@@ -168,7 +174,7 @@ export default function SeriesCompleteView({ champions }: Props) {
             <path d="M9 3l-5 5 5 5" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M4 8h10" strokeLinecap="round" />
           </svg>
-          MAIN MENU
+          {inTournament ? "BACK TO TOURNAMENT" : "MAIN MENU"}
         </button>
       </div>
     </div>

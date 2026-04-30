@@ -13,8 +13,8 @@
 // Both share the same scoring path; the rationale variant just runs scoring
 // once with `explain=true` for the chosen champion.
 
-import { applyLock, currentAction, usedChampionsInGame } from "../draftEngine";
-import { maxGames, requiredWins, winsByTeamName } from "../series";
+import { currentAction, usedChampionsInGame } from "../draftEngine";
+import { difficultyForSide, maxGames, requiredWins, winsByTeamName } from "../series";
 import type { Archetype } from "../championMeta";
 import type {
   AIDifficulty,
@@ -103,12 +103,29 @@ export interface SeriesAIContext {
   // True when winning this game ends the series in the AI's favor —
   // series-point. The AI doesn't need to risk anything wild on this game.
   closeoutGame: boolean;
+  // Optional tournament-wide champion W/L observed so far. Drives a
+  // per-champion strength modulator in scoring so the in-tournament
+  // "meta" shifts based on observed performance — a champ on a 4-1
+  // streak gets a small bump; one going 1-4 gets a small penalty.
+  // Undefined outside tournament context (regular series → no shift).
+  tournamentChampionWR?: ReadonlyMap<
+    number,
+    { games: number; wins: number; winRate: number }
+  >;
 }
 
 export function seriesAIContextFrom(
   series: SeriesState,
   mySide: Side,
   champions?: Champion[],
+  // Optional pre-computed tournament champion WR. The store passes this
+  // when the active series is a tournament match so the AI can lean
+  // toward champions winning in this tournament. The function deliberately
+  // doesn't import tournament module to keep this file self-contained.
+  tournamentChampionWR?: ReadonlyMap<
+    number,
+    { games: number; wins: number; winRate: number }
+  >,
 ): SeriesAIContext {
   // Walk all previous games (not the current one) and accumulate picks
   // by the configured team identity, accounting for side-swaps.
@@ -188,7 +205,9 @@ export function seriesAIContextFrom(
     fearless: series.fearless,
     gameIndex: series.games.length - 1,
     totalGames: maxGames(series.format),
-    difficulty: series.aiDifficulty,
+    // Use the side-specific difficulty if set (AI vs AI handicaps), else
+    // fall back to the series-wide aiDifficulty.
+    difficulty: difficultyForSide(series, mySide),
     myPriorPicks,
     oppPriorPicks,
     oppPriorIdentities,
@@ -198,6 +217,7 @@ export function seriesAIContextFrom(
     winsBehind: myWins - oppWins,
     eliminationGame,
     closeoutGame,
+    tournamentChampionWR,
   };
 }
 

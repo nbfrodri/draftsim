@@ -4,6 +4,10 @@ import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import { useDraftStore } from "@/store/draftStore";
 import { currentGame, fearlessLockedSet } from "@/lib/series";
+import {
+  computeTournamentChampionWR,
+  effectiveLockedSet,
+} from "@/lib/tournament";
 import { currentAction } from "@/lib/draftEngine";
 import {
   chooseAIActionWithRationale,
@@ -30,6 +34,7 @@ interface Props {
 
 export default function DraftView({ champions }: Props) {
   const series = useDraftStore((s) => s.series)!;
+  const tournament = useDraftStore((s) => s.tournament);
   const secondsLeft = useDraftStore((s) => s.secondsLeft);
   const tickTimer = useDraftStore((s) => s.tickTimer);
   const timeout = useDraftStore((s) => s.timeout);
@@ -56,11 +61,14 @@ export default function DraftView({ champions }: Props) {
       return;
     }
     if (!action) return;
+    const tournamentWR = tournament
+      ? computeTournamentChampionWR(tournament)
+      : undefined;
     const decision = chooseAIActionWithRationale(
       game,
       champions,
-      fearlessLockedSet(series),
-      seriesAIContextFrom(series, action.side, champions),
+      effectiveLockedSet(tournament, fearlessLockedSet(series)),
+      seriesAIContextFrom(series, action.side, champions, tournamentWR),
     );
     if (!decision) return;
     // Surface rationale + hover the chosen champion immediately. The

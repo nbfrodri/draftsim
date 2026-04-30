@@ -1,10 +1,12 @@
 # DraftSim
 
-A **League of Legends** tournament draft simulator with a strategic AI drafter
-and a full match simulator. Pick / ban a Bo1, Bo3, or Bo5 series, draft against
-the AI (or watch AI vs AI), then watch the match play out as a live timeline
-of events with KDA, gold, and a win-probability curve — finishing with an MVP
-card, a damage-share breakdown, and a per-game series recap.
+A **League of Legends** draft + match simulator with a strategic AI drafter
+and a full event-driven match engine. Run a single series (Bo1/3/5) or build a
+tournament — single-elim, double-elim with bracket reset, round-robin, Swiss,
+Swiss + playoffs, or groups + playoffs — with up to 32 teams. Pick/ban
+against the AI or watch AI vs AI, then play the match out as a live timeline
+of events with KDA, gold, and a win-probability curve, finishing with an MVP
+card, damage-share breakdown, and a per-game / per-tournament recap.
 
 > Hobby / portfolio project. No affiliation with Riot Games.
 
@@ -37,15 +39,33 @@ opponent anticipation, series-state awareness, and side-aware drafting.
 
 ## Features
 
-### Draft
+### Tournament mode
+
+- **Six formats** picked at creation:
+  - **Single Elimination** (2–8 teams, bye support, optional re-seeding between rounds)
+  - **Double Elimination** (4 / 8 / 16 / 32 teams, mandatory bracket-reset OR "True GF" toggle)
+  - **Round Robin** (3–10 teams)
+  - **Swiss** (4–16 teams, ceil(log₂N) rounds, dynamic pairing avoiding rematches, Buchholz + Median Buchholz tiebreakers)
+  - **Swiss + Playoffs** (Swiss stage → top-N seeded into single-elim)
+  - **Groups + Playoffs** (1–8 group stages of 3-4 teams, snake-seed into a single-elim playoff)
+- **Up to 32 teams** with per-team **name**, **seed**, **icon** (64-icon Tabler set + custom picker), **color** (64-color palette + custom picker), **1-5 star rating** (biases per-game win probability), and **per-team AI difficulty override**.
+- **Cross-format Sim controls** — `Sim All Remaining` (auto-plays the whole tournament), `Sim Round` / `Sim Day` / `Sim Stage` (per round / matchday / group stage), `Sim This Match` (single match). All run AI vs AI with a deferred loading overlay so the UI doesn't freeze.
+- **Per-match overrides** — change format/mode/fearless/AI difficulty for an individual match before launching.
+- **Tournament-aware AI** — the AI scoring layers in a "live tournament meta" using observed champion W/L (Bayesian-shrunk so 1-game outliers don't dominate); a champion on a 4-1 streak gets a small bump.
+- **Save / Load full state** — exports the active tournament (including the in-flight match's draft, meta snapshot, persisted history) as a `TOUR1:` deflate-base64 code. Pasting it back in restores the exact state — the user lands directly back in the active match if they were drafting.
+- **Tournament history** — last 5 completed tournaments archived locally with slim recaps. Open / delete / clear all from the entry menu.
+- **Post-tournament recap** — summary tiles (matches/games/coverage/longest series), most-contested champion, best WR (≥3 games), presence + win-rate champion stat tables, meta-shift movers (rising/falling vs base tier), champion lookup with per-team attribution, per-team champion pools, and a per-match replay viewer (picks/bans/win-prob chart/damage bars/event log).
+
+### Single series
 
 - Standard LoL tournament draft order (20 actions: 6 bans → 6 picks → 4 bans → 4 picks).
 - **Bo1 / Bo3 / Bo5** with correct win thresholds and side-swap-proof scoring.
 - **Fearless Draft** — picks are locked out across games. Bans reset.
+- **Auto side-swap** — loser of the previous game plays blue next (pro convention; manual override available).
 - **30s action timer** (toggleable). Bans skip on timeout; picks random-fill.
 - **Three modes:** P-vs-P, P-vs-AI, AI-vs-AI.
 - **Three AI difficulties:** Easy / Normal / Hard (different sampling temperature,
-  lookahead depth, and feature set).
+  lookahead depth, and feature set). **Per-side override** in AI vs AI for handicap matches.
 
 ### AI drafter
 
@@ -127,12 +147,27 @@ the top-N. Notable strategic features:
 
 ### Persistence
 
-- **Active series survives reload** via Zustand `persist` middleware
-  (`localStorage`). Sound preferences (enabled / volume) and the per-game AI
-  rationale history also persist.
-- Champions roster is **not** persisted — re-fetched fresh from CommunityDragon
-  on each load so icon URLs and patch-shipped meta tiers stay current.
-- Custom meta override + meta-source preference are persisted independently.
+- **Active series + tournament + history survive reload** via Zustand
+  `persist` middleware (`localStorage`). Sound preferences (enabled /
+  volume) and the per-game AI rationale history also persist.
+- **Quota-safe storage wrapper** — when localStorage hits its 5 MB
+  ceiling (most likely cause: large in-flight tournament with full game
+  recaps), the wrapper drops `tournamentHistory` and retries; on a
+  second failure, removes the key entirely. The store stays usable in
+  memory for the current tab.
+- **Slim archive on persist** — completed-game replay payloads
+  (`winProbTimeline`, `notableEvents`, `perPickKDA`) are stripped before
+  the localStorage write. The full payload stays in memory for the
+  active session; reloads keep MVP/biggest-swing/lane-gold-diff but
+  lose the per-game chart. Tournament `Save` (TOUR1: code) preserves
+  the full payload regardless.
+- Champions roster is **not** persisted — re-fetched fresh from
+  CommunityDragon on each load so icon URLs and patch-shipped meta
+  tiers stay current.
+- Custom meta override + meta-source preference are persisted
+  independently. The current meta is also **snapshotted onto each
+  tournament at creation** so a save/load round-trip restores the
+  AI's view of the meta the tournament was originally played on.
 
 ### Sound
 
@@ -186,22 +221,26 @@ draftsim/
 │   ├── types.ts                  Side / Lane / Champion / GameDraft / SeriesState / GameRecap
 │   ├── draftOrder.ts             20-action DRAFT_ORDER constant + phase labels
 │   ├── draftEngine.ts            applyLock / applyTimeout / role assignment / swap
-│   ├── series.ts                 series lifecycle + fearless pool + score-by-name
+│   ├── series.ts                 series lifecycle + fearless pool + side-swap rule + star-rating bias
+│   ├── tournament.ts             tournament state, format generators, advancement, history,
+│   │                              standings (with Buchholz tiebreakers), TOUR1: encode/decode
 │   ├── lanes.ts                  Lane labels + Meraki-to-Lane map
 │   ├── sounds.ts                 SFX (CDragon URLs + WebAudio synthesis)
 │   ├── communityDragon.ts        parallel CDragon + Meraki fetch + pending-release injection
-│   ├── championMeta.ts           172 champion metas, 340+ synergies, meta override persistence
+│   ├── championMeta.ts           172+ champion metas, 340+ synergies, meta override persistence
 │   ├── championAbilities.ts      ability lockdown profiles
 │   ├── championBuilds.ts         archetype build paths + key-spike helper
-│   ├── matchSimulator.ts         orchestrator — event timeline + combat resolution
+│   ├── matchSimulator.ts         orchestrator — event timeline + combat resolution + recap (with
+│   │                              winProbTimeline + perPickKDA for replay charts)
 │   ├── metaRandomizer.ts         randomize-meta + localStorage helpers for the override
 │   ├── draftAI/
 │   │   ├── index.ts              chooseAIAction + chooseAIActionWithRationale + SeriesAIContext
+│   │   │                          (with tournament-meta WR shift)
 │   │   ├── scoring.ts            scorePick / scoreBan + counter/enabler tables
 │   │   ├── helpers.ts            stateless helpers (laneMatchup, identityTarget, etc.)
 │   │   ├── anticipation.ts       1-ply / 2-ply lookahead + enemy prediction
 │   │   ├── data.ts               250+ HARD_COUNTERS + IDENTITIES + sampling constants
-│   │   └── __tests__/            vitest scaffold (helpers.test.ts)
+│   │   └── __tests__/            vitest scaffold (helpers.test.ts) — install vitest to run
 │   ├── sim/
 │   │   ├── descriptions.ts       event flavor + KDA helpers + damage-share weights
 │   │   ├── identities.ts         11 IDENTITY_PROFILES + identityMatchupEdge
@@ -211,10 +250,16 @@ draftsim/
 │       ├── abilities.json        Meraki-derived ability data
 │       └── items.json            Meraki item stats
 ├── store/
-│   └── draftStore.ts             single Zustand store w/ persist middleware
+│   └── draftStore.ts             single Zustand store w/ persist middleware (quotaSafeStorage,
+│                                  slim-archive on persist, tournament + history actions)
 ├── components/
-│   ├── DraftApp.tsx              view router based on series.status
-│   ├── CreateSimulationForm.tsx
+│   ├── DraftApp.tsx              top-level view router (entry menu / setup / draft / dashboard)
+│   ├── CreateSimulationForm.tsx  single-series setup
+│   ├── TournamentSetup.tsx       tournament setup — format, teams (icon/color/rating/diff), defaults
+│   ├── TournamentDashboard.tsx   bracket / standings / fixtures / replay modal / post-tournament
+│   │                              recap (champion lookup, team breakdown, meta shift, win-prob graph)
+│   ├── TeamIcon.tsx              Tabler icon component used for team logos (64 keys)
+│   ├── MetaPanel.tsx             reusable meta controls (full / compact / view-only variants)
 │   ├── DraftView.tsx             draft layout
 │   ├── DraftHeader.tsx
 │   ├── TeamPanel.tsx
@@ -259,13 +304,20 @@ draftsim/
 ### Key design decisions
 
 - **Pure-function core.** Everything in `lib/` is framework-free. The AI
-  scoring, simulator, draft engine, and series logic have no React/DOM
-  dependencies and are unit-testable with any runner.
+  scoring, simulator, draft engine, series, and tournament logic have
+  no React/DOM dependencies and are unit-testable with any runner.
 - **Single Zustand store with persist.** All UI state in one place; series +
-  sound prefs hydrate from localStorage; champions and ephemeral UI state
-  reset on reload.
+  sound prefs + tournament + tournament history hydrate from localStorage;
+  champions and ephemeral UI state reset on reload.
 - **Score by team name, not by side.** `seriesScore()` aggregates wins via
   team name so side swaps between games don't split a team's wins.
+- **Authoritative winner from `series.winner`.** Match-level winner
+  attribution maps the side that clinched (`series.winner`) back to the
+  match's stable team id by name comparison — robust against side-
+  swaps mid-series and tied game counts.
+- **Auto side-swap rule.** After each game, the loser plays blue side
+  next ("loser picks side, always picks blue" pro convention). Applied
+  in `proceedToNextGame` (manual) and `autoPlayMatch` (sim).
 - **Draft-order vs positional-order picks.** During draft, picks are indexed
   by lock-in order. On game completion, picks are reordered into positional
   order (`[0]` top → `[4]` support) and `blueRoles` is frozen — makes the
@@ -274,6 +326,16 @@ draftsim/
   it sees the team converging toward a comp identity (e.g., Wombo) and
   rewards picks that complete it. Encoded as the `IDENTITIES` trigger →
   `needed` archetype table.
+- **Tournament formats append matches.** Most generators emit the full
+  match list at creation, but **Swiss** appends rounds dynamically as
+  prior rounds resolve, **groups+playoffs** + **swiss+playoffs** append
+  the playoff bracket on user trigger, and **double-elim grand-final
+  reset** appends a reset match when the L-side wins game one.
+- **Deferred sim work for UI feedback.** All `Sim *` actions paint a
+  loading overlay synchronously, then defer the heavy AI-vs-AI loop
+  via `setTimeout(0)` so the overlay actually renders before the main
+  thread blocks. Wrapped in `try / finally` so a thrown error doesn't
+  leave the overlay stuck.
 - **Modal via React portal.** Escapes the header's `backdrop-filter`
   containing block so the modal can `fixed inset-0` over the viewport.
 
@@ -316,7 +378,7 @@ per server instance per day; it just isn't stored in the cross-request cache.
 | `npm run build` | Production build (static prerender) |
 | `npm start` | Serve the production build |
 | `npm run lint` | Next.js ESLint |
-| `npm run test` | Vitest |
+| `npm run test` | Vitest — install `vitest` as a devDep first; the test scaffold lives at `lib/draftAI/__tests__/` |
 | `npm run refresh-data` | Pull latest Meraki ability + item data into `lib/data/*.json` |
 | `npm run calibrate` | Run N random drafts × M sims, report correlation between TeamScore.diff and actual blue win rate, plus per-component leave-one-out analysis. Tweak via `CALIB_DRAFTS=600 CALIB_SIMS_PER_DRAFT=40`. |
 
@@ -349,6 +411,21 @@ injected from a local fallback table.
 > ![Series recap](docs/screenshots/recap.png)
 > ![Team comparison](docs/screenshots/comparison.png)
 > ```
+
+---
+
+## Tournament mode design notes
+
+A more detailed design doc lives at [`docs/tournament-mode.md`](docs/tournament-mode.md)
+covering:
+
+- format generators (single-elim seeding, double-elim L-bracket math, Swiss circle
+  pairing with avoid-rematch, group-stage snake-seed)
+- standings tiebreakers (head-to-head → game diff → games-won → seed; Swiss adds
+  Median Buchholz + Buchholz)
+- bracket-reset / true-grand-final convention
+- save/import (TOUR1: deflate-base64) preserving meta snapshot + in-flight series
+- history archiving (slim recap, cap 5)
 
 ---
 

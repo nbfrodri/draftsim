@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { currentGame, fearlessLockedSet } from "@/lib/series";
+import { effectiveLockedSet } from "@/lib/tournament";
 import { isChampionAvailable, currentAction } from "@/lib/draftEngine";
 import { isAITurn } from "@/lib/draftAI";
 import { LANES } from "@/lib/lanes";
@@ -47,7 +48,11 @@ export default function ChampionGrid({ champions }: Props) {
 
   const game = currentGame(series);
   const action = currentAction(game);
-  const locked = fearlessLockedSet(series);
+  // Lockout for the pick grid — unions per-series fearless with any
+  // cross-match fearless from the active tournament (no-op outside
+  // tournament mode).
+  const tournament = useDraftStore((s) => s.tournament);
+  const locked = effectiveLockedSet(tournament, fearlessLockedSet(series));
   // While the AI is on the clock, the lock-in button is repurposed: it
   // commits the AI's chosen pick (passed via the rationale's championId).
   // No auto-advance — the user clicks to control draft pacing.

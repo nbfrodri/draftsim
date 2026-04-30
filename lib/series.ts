@@ -30,6 +30,11 @@ export function createSeries(params: {
   mode: DraftMode;
   aiSide: Side | null;
   aiDifficulty: AIDifficulty;
+  blueAiDifficulty?: AIDifficulty;
+  redAiDifficulty?: AIDifficulty;
+  // Optional star ratings (tournament context only).
+  blueStarRating?: number;
+  redStarRating?: number;
 }): SeriesState {
   return {
     id: `series-${Date.now()}`,
@@ -44,7 +49,40 @@ export function createSeries(params: {
     mode: params.mode,
     aiSide: params.mode === "pvai" ? params.aiSide : null,
     aiDifficulty: params.aiDifficulty,
+    blueAiDifficulty: params.blueAiDifficulty,
+    redAiDifficulty: params.redAiDifficulty,
+    blueStarRating: params.blueStarRating,
+    redStarRating: params.redStarRating,
   };
+}
+
+// Convert a series's per-team star ratings into a score-diff bias for
+// the simulator. Returns 0 when ratings aren't set (non-tournament).
+// SIGMOID_K in matchSimulator is 0.05, so a bias of ~6 score points per
+// star ≈ +7-8% win-prob per star at the slope. A 5★ vs 1★ blowout
+// (diff = 4) reaches around +28-30% extra blue win-prob — a clear
+// underdog story but not deterministic; even a 1★ team can beat a 5★
+// team ~10-15% of the time after draft factors are mixed in. Even
+// matchups (3★ vs 3★) get zero bias.
+const STAR_RATING_BIAS_K = 6.0;
+export function starRatingBias(series: SeriesState): number {
+  const blue = series.blueStarRating;
+  const red = series.redStarRating;
+  if (typeof blue !== "number" || typeof red !== "number") return 0;
+  return (blue - red) * STAR_RATING_BIAS_K;
+}
+
+// Pick the effective AI difficulty for a given side. Per-side overrides
+// take precedence over the default `aiDifficulty`. Used by the AI
+// scoring path to apply different sampling knobs per AI when AI vs AI
+// is configured as a handicap match.
+export function difficultyForSide(
+  series: SeriesState,
+  side: Side,
+): AIDifficulty {
+  if (side === "blue" && series.blueAiDifficulty) return series.blueAiDifficulty;
+  if (side === "red" && series.redAiDifficulty) return series.redAiDifficulty;
+  return series.aiDifficulty;
 }
 
 export function currentGame(series: SeriesState): GameDraft {

@@ -56,7 +56,6 @@ import {
   earlyCount,
   fallbackMeta,
   findByArchetype,
-  findSquishy,
   isAD,
   isAP,
   lateScalingCount,
@@ -2834,9 +2833,20 @@ function generateTimeline(
   return { events, finalWinner, laningEndMinute };
 }
 
+// Optional knobs for the simulator beyond just the draft. Currently only
+// `scoreBias` — added directly to the (blue - red) team-score diff before
+// the sigmoid. Tournament code passes a star-rating-derived bias here so
+// stronger rosters win more often even with similar drafts. Positive =
+// favors blue; negative = favors red. Units are score points (sigmoid_k
+// scales them into prob). A bias of ±2 ≈ ±15% win-prob at the slope.
+export interface SimulateOptions {
+  scoreBias?: number;
+}
+
 export function simulateMatch(
   game: GameDraft,
   champions: Champion[],
+  options?: SimulateOptions,
 ): SimulationResult {
   const byId = new Map(champions.map((c) => [c.id, c]));
   const bluePicks: (Champion | null)[] = game.bluePicks.map((id) =>
@@ -2849,7 +2859,8 @@ export function simulateMatch(
   const blueScore = teamScore(bluePicks, game.blueRoles, redPicks, game.redRoles);
   const redScore = teamScore(redPicks, game.redRoles, bluePicks, game.blueRoles);
 
-  const diff = blueScore.total - redScore.total;
+  const scoreBias = options?.scoreBias ?? 0;
+  const diff = blueScore.total - redScore.total + scoreBias;
   const rawBlueProb = 1 / (1 + Math.exp(-diff * SIGMOID_K));
   const blueProb = Math.min(0.97, Math.max(0.03, rawBlueProb + BLUE_SIDE_BONUS));
   const redProb = 1 - blueProb;
@@ -3050,9 +3061,70 @@ export function buildGameRecap(
     prev = e.winProbAfter;
   }
 
+  // Build per-lane gold diff snapshot (signed from blue's perspective)
+  // for the post-tournament replay panel. Same final-lane-gold values
+  // the MVP scoring uses, just exposed as a lane-keyed map. Guard
+  // against NaN (legacy/empty lane states from incomplete drafts) so
+  // serialization doesn't write `null` and the replay shows 0 instead
+  // of a missing value.
+  const laneGoldDiff: Partial<Record<Lane, number>> = {};
+  for (const lane of positionalLanes) {
+    const v = finalLaneGold[lane];
+    laneGoldDiff[lane] = Number.isFinite(v) ? Math.round(v) : 0;
+  }
+
+  // Sparse blue-side win-prob timeline (one point per event). The graph
+  // anchors at 50% before the first event; clients should prepend that
+  // when drawing if they want to start at game time 0.
+  const winProbTimeline = events.map((e) => ({
+    minute: Math.round(e.minutes * 10) / 10,
+    blueProb: e.winProbAfter,
+  }));
+  // Notable events: limit to top 12 by absolute prob delta (keeps the
+  // chart clean while still capturing the storyline). Always include
+  // the biggestSwing anchor.
+  const eventsRanked = events
+    .map((e, idx) => ({
+      idx,
+      minute: e.minutes,
+      side: e.side,
+      type: e.type,
+      description: e.description,
+      probDelta: e.winProbAfter - (idx === 0 ? 0.5 : events[idx - 1].winProbAfter),
+    }))
+    .sort((a, b) => Math.abs(b.probDelta) - Math.abs(a.probDelta));
+  const notableEvents = eventsRanked
+    .slice(0, 12)
+    .sort((a, b) => a.minute - b.minute)
+    .map((e) => ({
+      minute: Math.round(e.minute * 10) / 10,
+      side: e.side,
+      type: e.type,
+      description: e.description,
+      probDelta: e.probDelta,
+    }));
+
+  // Per-pick KDA — 5 entries per side aligned to the positional lanes.
+  const perPickKDA = {
+    blue: positionalLanes.map((lane) => ({
+      k: blueKDA[lane].k,
+      d: blueKDA[lane].d,
+      a: blueKDA[lane].a,
+    })),
+    red: positionalLanes.map((lane) => ({
+      k: redKDA[lane].k,
+      d: redKDA[lane].d,
+      a: redKDA[lane].a,
+    })),
+  };
+
   return {
     durationMinutes: result.timeline.durationMinutes,
     mvp,
+    laneGoldDiff,
     biggestSwing,
+    winProbTimeline,
+    notableEvents,
+    perPickKDA,
   };
 }

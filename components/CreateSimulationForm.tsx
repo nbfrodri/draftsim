@@ -31,7 +31,14 @@ const DIFFICULTIES: { value: AIDifficulty; label: string; sub: string }[] = [
   { value: "hard", label: "Hard", sub: "Tight sampling, optimal play" },
 ];
 
-export default function CreateSimulationForm() {
+interface FormProps {
+  // Optional back callback. When present, a "← Back" button shows in the
+  // header so the user can return to the entry menu without losing data
+  // outside the form. When absent (legacy callsite), no button renders.
+  onBack?: () => void;
+}
+
+export default function CreateSimulationForm({ onBack }: FormProps = {}) {
   const startSimulation = useDraftStore((s) => s.startSimulation);
   const champions = useDraftStore((s) => s.champions);
   const metaOverride = useDraftStore((s) => s.metaOverride);
@@ -52,6 +59,15 @@ export default function CreateSimulationForm() {
   const [aiSide, setAiSide] = useState<Side>("red");
   // AI difficulty — only meaningful when an AI is participating.
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>("normal");
+  // Per-side difficulty overrides — only meaningful in aivai mode where
+  // both sides are AI-controlled. Lets the user run handicap matches
+  // (e.g. blue Hard vs red Easy). Defaults to the global aiDifficulty
+  // unless the user explicitly enables the override toggle.
+  const [perSideDifficulty, setPerSideDifficulty] = useState(false);
+  const [blueAiDifficulty, setBlueAiDifficulty] =
+    useState<AIDifficulty>("normal");
+  const [redAiDifficulty, setRedAiDifficulty] =
+    useState<AIDifficulty>("normal");
   const [tierListOpen, setTierListOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [synergyOpen, setSynergyOpen] = useState(false);
@@ -102,6 +118,13 @@ export default function CreateSimulationForm() {
       mode,
       aiSide: mode === "pvai" ? aiSide : null,
       aiDifficulty,
+      // Per-side overrides only apply in AI vs AI when the toggle is on.
+      // For pvai, the lone AI uses `aiDifficulty`. For pvp neither field
+      // is meaningful so we don't send them.
+      blueAiDifficulty:
+        mode === "aivai" && perSideDifficulty ? blueAiDifficulty : undefined,
+      redAiDifficulty:
+        mode === "aivai" && perSideDifficulty ? redAiDifficulty : undefined,
     });
   };
 
@@ -113,6 +136,21 @@ export default function CreateSimulationForm() {
       {/* decorative side lines */}
       <div className="pointer-events-none absolute inset-y-0 left-0 w-px bg-gradient-to-b from-transparent via-rift-gold/30 to-transparent" />
       <div className="pointer-events-none absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-rift-gold/30 to-transparent" />
+
+      {/* Back to mode selector — only when callsite provides it */}
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="absolute top-3 left-3 md:top-4 md:left-4 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em] z-20"
+        >
+          <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M9 3l-5 5 5 5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M4 8h10" strokeLinecap="round" />
+          </svg>
+          Back
+        </button>
+      )}
 
       <form
         onSubmit={handleSubmit}
@@ -245,9 +283,27 @@ export default function CreateSimulationForm() {
             )}
             {(mode === "pvai" || mode === "aivai") && (
               <div className="mt-3">
-                <label className="block text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
-                  AI Difficulty
-                </label>
+                <div className="flex items-baseline justify-between mb-1.5">
+                  <label className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60">
+                    {mode === "aivai" && perSideDifficulty
+                      ? "Default Difficulty (overridden below)"
+                      : "AI Difficulty"}
+                  </label>
+                  {/* Per-side toggle — only visible in AI vs AI mode. */}
+                  {mode === "aivai" && (
+                    <label className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.25em] text-rift-mutedbright cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={perSideDifficulty}
+                        onChange={(e) =>
+                          setPerSideDifficulty(e.target.checked)
+                        }
+                        className="accent-rift-gold"
+                      />
+                      Per-side
+                    </label>
+                  )}
+                </div>
                 <div className="grid grid-cols-3 gap-1.5 md:gap-2">
                   {DIFFICULTIES.map((d) => {
                     const active = aiDifficulty === d.value;
@@ -273,6 +329,26 @@ export default function CreateSimulationForm() {
                     );
                   })}
                 </div>
+
+                {/* Per-side difficulty overrides — appear when per-side
+                    toggle is on in AI vs AI mode. Two stacked rows, one
+                    per team, each with the same 3 options. */}
+                {mode === "aivai" && perSideDifficulty && (
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <SideDifficultyRow
+                      side="blue"
+                      label="Blue AI"
+                      value={blueAiDifficulty}
+                      onChange={setBlueAiDifficulty}
+                    />
+                    <SideDifficultyRow
+                      side="red"
+                      label="Red AI"
+                      value={redAiDifficulty}
+                      onChange={setRedAiDifficulty}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -586,5 +662,59 @@ function ToggleRow({
         />
       </div>
     </button>
+  );
+}
+
+function SideDifficultyRow({
+  side,
+  label,
+  value,
+  onChange,
+}: {
+  side: Side;
+  label: string;
+  value: AIDifficulty;
+  onChange: (v: AIDifficulty) => void;
+}) {
+  const containerCls =
+    side === "blue"
+      ? "border border-rift-blue/30 bg-rift-blue/[0.04] p-2"
+      : "border border-rift-red/30 bg-rift-red/[0.04] p-2";
+  const labelCls =
+    side === "blue"
+      ? "text-[9px] uppercase tracking-[0.3em] mb-1.5 text-rift-bluebright"
+      : "text-[9px] uppercase tracking-[0.3em] mb-1.5 text-rift-redbright";
+  return (
+    <div className={containerCls}>
+      <div className={labelCls}>{label}</div>
+      <div className="grid grid-cols-3 gap-1.5">
+        {DIFFICULTIES.map((d) => {
+          const active = value === d.value;
+          const activeCls =
+            side === "blue"
+              ? "border-rift-blue bg-rift-blue/10 text-rift-bluebright"
+              : "border-rift-red bg-rift-red/10 text-rift-redbright";
+          const idleCls =
+            side === "blue"
+              ? "border-rift-line text-rift-mutedbright hover:border-rift-blue/60 hover:text-rift-bluebright hover:bg-rift-blue/5"
+              : "border-rift-line text-rift-mutedbright hover:border-rift-red/60 hover:text-rift-redbright hover:bg-rift-red/5";
+          return (
+            <button
+              key={d.value}
+              type="button"
+              onClick={() => onChange(d.value)}
+              className={`px-2 py-1 border text-center transition-all ${
+                active ? activeCls : idleCls
+              }`}
+              title={d.sub}
+            >
+              <div className="font-display text-[10px] md:text-xs tracking-wider">
+                {d.label}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

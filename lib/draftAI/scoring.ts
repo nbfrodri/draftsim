@@ -606,6 +606,38 @@ export function scorePick(
     }
   }
 
+  // ─── Tournament champion WR shift ─────────────────────────────────────
+  // When the active series is a tournament match, blend in observed per-
+  // champion win rate so the AI mirrors how the in-tournament meta is
+  // actually playing out. Uses Bayesian shrinkage with a 50% prior so a
+  // 1-game sample doesn't cause wild swings — only champions with a few
+  // games of evidence move meaningfully. Capped at ±2 score points so
+  // tier-fit and matchup data still dominate.
+  // Easy difficulty ignores this — beginner AI doesn't track meta shifts.
+  if (
+    ctx.series?.tournamentChampionWR &&
+    ctx.series.difficulty !== "easy"
+  ) {
+    const entry = ctx.series.tournamentChampionWR.get(candidate.id);
+    if (entry && entry.games > 0) {
+      const PRIOR_GAMES = 3;
+      const PRIOR_WR = 0.5;
+      const shrunkWR =
+        (entry.wins + PRIOR_WR * PRIOR_GAMES) /
+        (entry.games + PRIOR_GAMES);
+      // Centered on 0; positive = winning more than expected.
+      const delta = shrunkWR - 0.5;
+      const bonus = Math.max(-2, Math.min(2, delta * 8));
+      if (Math.abs(bonus) >= 0.15) {
+        const label =
+          bonus > 0
+            ? `Tournament hot streak (${entry.wins}-${entry.games - entry.wins})`
+            : `Tournament cold streak (${entry.wins}-${entry.games - entry.wins})`;
+        add(label, bonus);
+      }
+    }
+  }
+
   // ─── Series score awareness ────────────────────────────────────────────
   // When the AI's team is behind in the series, lean on meta-tier picks
   // (S+/S) to maximize per-game win probability. Risky off-meta picks
