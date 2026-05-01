@@ -35,6 +35,12 @@ export function createSeries(params: {
   // Optional star ratings (tournament context only).
   blueStarRating?: number;
   redStarRating?: number;
+  // Tournament momentum context. Win streaks feed a "team on a roll"
+  // score-bias bump; round-depth tag enables underdog protection in
+  // semis/finals.
+  blueWinStreak?: number;
+  redWinStreak?: number;
+  tournamentRound?: "early" | "quarterfinal" | "semifinal" | "final";
 }): SeriesState {
   return {
     id: `series-${Date.now()}`,
@@ -53,6 +59,9 @@ export function createSeries(params: {
     redAiDifficulty: params.redAiDifficulty,
     blueStarRating: params.blueStarRating,
     redStarRating: params.redStarRating,
+    blueWinStreak: params.blueWinStreak,
+    redWinStreak: params.redWinStreak,
+    tournamentRound: params.tournamentRound,
   };
 }
 
@@ -65,11 +74,58 @@ export function createSeries(params: {
 // team ~10-15% of the time after draft factors are mixed in. Even
 // matchups (3★ vs 3★) get zero bias.
 const STAR_RATING_BIAS_K = 6.0;
+// Per-consecutive-win bonus. ~1.5 points per win in the streak ≈ +2pp
+// win-prob per win at the slope. Capped so a snowball doesn't snowball
+// the simulator: 4 consecutive wins (final-bound team) = +6 points,
+// equivalent to a one-star bump. Streak resets on any loss.
+const WIN_STREAK_BIAS_K = 1.5;
+const WIN_STREAK_BIAS_CAP = 6.0;
+// Underdog protection. When a low-rated team faces a high-rated team in
+// a semifinal or final, blunt the chalk bias and add a flat
+// counter-bias. Reflects: any team that survived to semis/finals has
+// proven they can play, so the seed gap matters less than it did in
+// round 1. UNDERDOG_FLAT (+2.5 score-pts) ≈ +3pp counter-bias at the
+// slope; combined with UNDERDOG_BLUNT (60% of star diff) the 4-star
+// gap from 5★ vs 1★ in a final shrinks from +28pp to about +13pp
+// blue-favored — still a clear favorite, but the underdog story is
+// real. Triggers only when the star diff is at least 2 (i.e. 1★ vs
+// 3★+ or 2★ vs 4★+).
+const UNDERDOG_BLUNT = 0.6;
+const UNDERDOG_FLAT = 2.5;
+const UNDERDOG_MIN_GAP = 2;
 export function starRatingBias(series: SeriesState): number {
   const blue = series.blueStarRating;
   const red = series.redStarRating;
   if (typeof blue !== "number" || typeof red !== "number") return 0;
-  return (blue - red) * STAR_RATING_BIAS_K;
+  let starBias = (blue - red) * STAR_RATING_BIAS_K;
+  // Underdog protection in semifinals / finals. Operates on the star
+  // bias only — leaves streak and base draft signals alone, since they
+  // already reflect the underdog's real form.
+  const round = series.tournamentRound;
+  const isLateRound = round === "semifinal" || round === "final";
+  if (isLateRound) {
+    const starGap = Math.abs(blue - red);
+    if (starGap >= UNDERDOG_MIN_GAP) {
+      // Blunt the chalk: scale the star-rating bias down so the
+      // underdog isn't already buried by the seed gap before the draft
+      // even runs.
+      starBias *= 1 - UNDERDOG_BLUNT;
+      // Add a flat bonus toward the underdog (the lower-rated side).
+      // Sign is opposite of starBias direction: if blue is favored,
+      // underdog flat helps red (negative). And vice versa.
+      if (blue > red) starBias -= UNDERDOG_FLAT;
+      else starBias += UNDERDOG_FLAT;
+    }
+  }
+  // Win-streak bonus. Each side gets credit for their current
+  // consecutive-win count in the tournament; the diff feeds into the
+  // bias. A team riding a 3-match streak vs a team coming off a loss
+  // earns a measurable edge — the "form" component of upset/chalk.
+  const blueStreak = Math.max(0, series.blueWinStreak ?? 0);
+  const redStreak = Math.max(0, series.redWinStreak ?? 0);
+  const blueStreakBias = Math.min(WIN_STREAK_BIAS_CAP, blueStreak * WIN_STREAK_BIAS_K);
+  const redStreakBias = Math.min(WIN_STREAK_BIAS_CAP, redStreak * WIN_STREAK_BIAS_K);
+  return starBias + (blueStreakBias - redStreakBias);
 }
 
 // Pick the effective AI difficulty for a given side. Per-side overrides

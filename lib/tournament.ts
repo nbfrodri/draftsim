@@ -275,6 +275,152 @@ export function teamStarRating(team: TournamentTeam | null): number {
   return Math.max(1, Math.min(5, Math.round(r)));
 }
 
+// Count consecutive match wins for `teamId` ending at the most recently
+// completed match they played. Walks the team's completed match history
+// in chronological order (by round, then by match-id stability) and
+// counts the trailing run of wins. Excludes the current `excludeMatchId`
+// so a team's bias for the match they're currently playing doesn't
+// double-count an in-progress series. Returns 0 for legacy / partial
+// data or teams with no completed matches yet.
+//
+// Used by tournamentSeriesContext below to feed starRatingBias the
+// "team on a roll" signal — winners of a tournament typically rack up
+// 3-4 consecutive series wins by the final, and that momentum is real
+// (preparation, confidence, scouting advantages all compound).
+export function teamWinStreak(
+  tournament: TournamentState,
+  teamId: string,
+  excludeMatchId?: string,
+): number {
+  // Filter to completed matches the team participated in. Sort by round
+  // ascending, then by match.id (stable insertion order proxy) so the
+  // walk is deterministic across formats.
+  const played = tournament.matches
+    .filter((m) => m.id !== excludeMatchId)
+    .filter(
+      (m) =>
+        m.winner != null && (m.blueTeamId === teamId || m.redTeamId === teamId),
+    )
+    .sort((a, b) => a.round - b.round || a.id.localeCompare(b.id));
+  let streak = 0;
+  // Walk backwards from the most recent completed match: each consecutive
+  // win extends the streak; first loss breaks it.
+  for (let i = played.length - 1; i >= 0; i--) {
+    const m = played[i];
+    if (m.winner?.teamId === teamId) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+// Classify a tournament match's round depth so the simulator can
+// differentiate "early bracket noise" from "elimination-pressure
+// rounds". Returns:
+//   - "final"        — last single-elim round, last DE round, or the
+//                      round-robin championship match
+//   - "semifinal"    — penultimate single-elim/DE round
+//   - "quarterfinal" — second-to-last bracket round (single-elim/DE)
+//   - "early"        — group stage, round-robin regular play, swiss
+//                      regular play, or earlier bracket rounds
+//
+// Round-robin / swiss matches have no inherent "final" — those only
+// emerge after the playoff bracket starts (the *-playoffs formats use
+// the bracket subset for late-round detection). For pure round-robin
+// and pure swiss, every match returns "early" since no match
+// eliminates a team.
+export function tournamentRoundDepth(
+  tournament: TournamentState,
+  matchId: string,
+): "early" | "quarterfinal" | "semifinal" | "final" {
+  const match = tournament.matches.find((m) => m.id === matchId);
+  if (!match) return "early";
+  // Round-robin / swiss / groups stage matches are never elimination
+  // rounds; treat as early regardless of round number.
+  const isStageMatch =
+    !match.bracket && // double-elim matches always have a bracket tag
+    (tournament.format === "round-robin" ||
+      tournament.format === "swiss" ||
+      // For *-playoffs formats, stage matches are identified by
+      // groupId presence (groups) or by being in the early matches
+      // pool before any bracket matches were generated. The simplest
+      // heuristic: stage matches lack `feedsInto` (they don't advance
+      // anywhere within a bracket).
+      (formatHasPlayoffs(tournament.format) && !match.feedsInto && !match.bracket));
+  if (isStageMatch) return "early";
+  // Bracket matches (single-elim, double-elim, *-playoffs bracket
+  // portion). Compute max round number among bracket matches in the
+  // SAME bracket family (winners-bracket subset for double-elim, full
+  // bracket for single-elim).
+  //
+  // Distinguishing "bracket" from "stage" matches: bracket finals carry
+  // `feedsInto: null` (same as round-robin stage matches), so we can't
+  // use that field alone. A match is treated as a bracket match if EITHER
+  //   - it has `feedsInto` truthy (every non-final bracket match), OR
+  //   - some other match's `feedsInto.matchId` points back at it
+  //     (catches the final, which is fed-into but doesn't itself feed).
+  const fedIntoIds = new Set<string>();
+  for (const m of tournament.matches) {
+    if (m.feedsInto?.matchId) fedIntoIds.add(m.feedsInto.matchId);
+  }
+  const isBracketMatch = (m: TournamentMatch): boolean =>
+    m.feedsInto != null || fedIntoIds.has(m.id) || m.bracket != null;
+  const peers = tournament.matches.filter((m) => {
+    if (match.bracket) {
+      // Double-elim or playoff DE: scope to same bracket type
+      // (winners / losers / grand-final).
+      return m.bracket === match.bracket;
+    }
+    // Single-elim: scope to bracket matches only (filter out stage
+    // matches that share the no-bracket tag).
+    return !m.bracket && isBracketMatch(m);
+  });
+  const maxRound = peers.reduce((acc, m) => Math.max(acc, m.round), 0);
+  if (maxRound === 0) return "early";
+  // Grand-final and grand-final-reset are always "final".
+  if (match.bracket === "grand-final" || match.bracket === "grand-final-reset") {
+    return "final";
+  }
+  if (match.round === maxRound) return "final";
+  if (match.round === maxRound - 1) return "semifinal";
+  if (match.round === maxRound - 2) return "quarterfinal";
+  return "early";
+}
+
+// Bundled tournament-context lookup: star ratings + win streaks +
+// round depth for both sides of a given match. Returns null if the
+// match doesn't have both teams set yet. Consumed by createSeries call
+// sites in the store to populate SeriesState.tournament* fields in one
+// pass (instead of three independent lookups per side).
+export interface TournamentSeriesContext {
+  blueStarRating: number;
+  redStarRating: number;
+  blueWinStreak: number;
+  redWinStreak: number;
+  roundDepth: "early" | "quarterfinal" | "semifinal" | "final";
+}
+
+export function tournamentSeriesContext(
+  tournament: TournamentState,
+  matchId: string,
+): TournamentSeriesContext | null {
+  const match = tournament.matches.find((m) => m.id === matchId);
+  if (!match || match.blueTeamId == null || match.redTeamId == null) {
+    return null;
+  }
+  const blueTeam = tournament.teams.find((t) => t.id === match.blueTeamId);
+  const redTeam = tournament.teams.find((t) => t.id === match.redTeamId);
+  return {
+    blueStarRating: teamStarRating(blueTeam ?? null),
+    redStarRating: teamStarRating(redTeam ?? null),
+    blueWinStreak: teamWinStreak(tournament, match.blueTeamId, matchId),
+    redWinStreak: teamWinStreak(tournament, match.redTeamId, matchId),
+    roundDepth: tournamentRoundDepth(tournament, matchId),
+  };
+}
+
 export interface TournamentMatch {
   id: string;
   // 1-indexed round number. Round 1 is the first round of matches; the

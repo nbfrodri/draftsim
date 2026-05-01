@@ -1122,6 +1122,79 @@ type TeamCombatStats = TeamCombatProfile;
 // a hyper-carry comp at full build (Jinx + Lulu + Janna + Sejuani + Sett at
 // min 35) actually shreds an enemy that didn't get to scale, even from a
 // modest gold deficit.
+// Carry archetypes whose gold lead disproportionately translates into
+// fight outcomes. A fed Vayne or Akali at 3-item-spike is the canonical
+// "carry won the fight" scenario; a fed Sejuani is meaningful but less
+// fight-determining (her job is utility, not damage). Used by
+// carryGoldLeadBonus below to weight the per-lane lead toward carries.
+const CARRY_GOLD_ARCHETYPES: ReadonlySet<Archetype> = new Set([
+  "hyper-carry",
+  "burst",
+  "assassin",
+  "poke",
+]);
+
+// Per-lane "fed carry" damage bonus. For each lane where one side has a
+// meaningful gold lead AND the leading side's pick is a carry, scale up
+// that side's damage. Models the real-LoL outcome where the team behind
+// on gold can still teamfight evenly UNLESS the lead is concentrated on
+// a hyper-scaling carry — in which case it's basically over.
+//
+// Mechanics:
+//   - Threshold: 1500g lane lead before any bonus applies (smaller leads
+//     are noise, already covered by the team-wide blueItemBoost).
+//   - Per-lane bonus: linear from 1500g (+3%) up to 5000g (+12%), capped.
+//   - Carry weight: hyper-carry/burst/assassin/poke get full bonus;
+//     marksman role tag also qualifies; other archetypes get half value
+//     (they benefit from gold but don't carry fights with it).
+//   - Caps: total bonus per side capped at +25% damage so a runaway
+//     stomp doesn't multiply away the rest of the simulation logic.
+function carryGoldLeadBonus(
+  bluePicks: (Champion | null)[],
+  redPicks: (Champion | null)[],
+  laneGold: Record<Lane, number>,
+): { blueDmgMul: number; redDmgMul: number } {
+  let blueBonus = 0;
+  let redBonus = 0;
+  for (let i = 0; i < POSITIONAL_LANES.length; i++) {
+    const lane = POSITIONAL_LANES[i];
+    const lead = laneGold[lane];
+    const absLead = Math.abs(lead);
+    if (absLead < 1500) continue;
+    // Bonus magnitude: 1500g → 0.03, 5000g → 0.12, then capped.
+    const baseBonus = Math.min(0.12, 0.03 + (absLead - 1500) / 50000);
+    if (lead > 0) {
+      const champ = bluePicks[i];
+      if (!champ) continue;
+      const meta = metaFor(champ);
+      const isCarryArch = meta.archetypes.some((a) =>
+        CARRY_GOLD_ARCHETYPES.has(a),
+      );
+      const isMarksman = champ.roles.some(
+        (r) => r.toLowerCase() === "marksman",
+      );
+      const weight = isCarryArch || isMarksman ? 1.0 : 0.5;
+      blueBonus += baseBonus * weight;
+    } else {
+      const champ = redPicks[i];
+      if (!champ) continue;
+      const meta = metaFor(champ);
+      const isCarryArch = meta.archetypes.some((a) =>
+        CARRY_GOLD_ARCHETYPES.has(a),
+      );
+      const isMarksman = champ.roles.some(
+        (r) => r.toLowerCase() === "marksman",
+      );
+      const weight = isCarryArch || isMarksman ? 1.0 : 0.5;
+      redBonus += baseBonus * weight;
+    }
+  }
+  return {
+    blueDmgMul: 1 + Math.min(0.25, blueBonus),
+    redDmgMul: 1 + Math.min(0.25, redBonus),
+  };
+}
+
 function resolveCombat(
   bluePicks: (Champion | null)[],
   blueRoles: (Lane | null)[],
@@ -1129,12 +1202,19 @@ function resolveCombat(
   redRoles: (Lane | null)[],
   gameTime: number,
   goldLead: number,
+  laneGold: Record<Lane, number> | null,
 ): { winnerSide: Side; winnerKills: number; loserKills: number; ratio: number } {
   const blue = teamCombatProfile(bluePicks, blueRoles, gameTime);
   const red = teamCombatProfile(redPicks, redRoles, gameTime);
   // Gold lead translates into items, items translate into stats.
   const blueItemBoost = 1 + Math.max(0, goldLead) / 10000;
   const redItemBoost = 1 + Math.max(0, -goldLead) / 10000;
+  // Per-lane "fed carry" damage multiplier — concentrates gold-lead
+  // impact on carries instead of spreading it evenly across the team.
+  // null laneGold (legacy callers) skips the bonus entirely.
+  const carryBonus = laneGold
+    ? carryGoldLeadBonus(bluePicks, redPicks, laneGold)
+    : { blueDmgMul: 1, redDmgMul: 1 };
 
   // Identity multipliers — comp shapes interact, not just stats:
   function identityDamageMul(my: TeamCombatStats, opp: TeamCombatStats): number {
@@ -1166,11 +1246,13 @@ function resolveCombat(
   const blueAdVsRed = (blue.adDamage * blueItemBoost) / (1 + red.armor / 100);
   const blueApVsRed = (blue.apDamage * blueItemBoost) / (1 + red.mr / 100);
   const blueTrueVsRed = blue.trueDamage * blueItemBoost;
-  let blueDmg = (blueAdVsRed + blueApVsRed + blueTrueVsRed) * blueIdDmg;
+  let blueDmg =
+    (blueAdVsRed + blueApVsRed + blueTrueVsRed) * blueIdDmg * carryBonus.blueDmgMul;
   const redAdVsBlue = (red.adDamage * redItemBoost) / (1 + blue.armor / 100);
   const redApVsBlue = (red.apDamage * redItemBoost) / (1 + blue.mr / 100);
   const redTrueVsBlue = red.trueDamage * redItemBoost;
-  let redDmg = (redAdVsBlue + redApVsBlue + redTrueVsBlue) * redIdDmg;
+  let redDmg =
+    (redAdVsBlue + redApVsBlue + redTrueVsBlue) * redIdDmg * carryBonus.redDmgMul;
 
   // ─── Anti-heal interaction ────────────────────────────────────────────
   // When facing 2+ damage threats, teams buy Grievous Wounds items
@@ -1743,6 +1825,10 @@ function generateTimeline(
       laneGoldDelta,
       kdaDelta,
       winProbAfter,
+      // Snapshot the post-event gold lead so the UI can render a
+      // gold-over-time chart without re-walking laneGoldDelta. Captures
+      // the same applyState() output that drives win-prob.
+      goldLeadAfter: state.goldLead,
     });
   }
 
@@ -2686,6 +2772,31 @@ function generateTimeline(
   // Picks are stored in positional order (top, jungle, middle, bottom,
   // support) post-finalize, so the lane for picks[i] is POSITIONAL_LANES[i].
   const positionalRoles: (Lane | null)[] = [...POSITIONAL_LANES];
+  // Per-lane gold accumulated through the game = laning passive (capped at
+  // first-tower / minute 14) + event-driven contributions. Mirrors the
+  // computeLiveLaneGold logic in BetweenGamesView so the carry-bonus sees
+  // the same lane gold the user sees in the UI strip.
+  const finalLaneGold: Record<Lane, number> = {
+    top: 0,
+    jungle: 0,
+    middle: 0,
+    bottom: 0,
+    support: 0,
+  };
+  for (const e of events) {
+    for (const lane of POSITIONAL_LANES) {
+      finalLaneGold[lane] += e.laneGoldDelta[lane] ?? 0;
+    }
+  }
+  // Laning phase passive: per-minute g/min × time spent in laning. Use
+  // the actual laning-end minute (set just below from first tower) — but
+  // since that hasn't been computed yet here, approximate with the
+  // standard 14-min floor capped at duration. Close enough for the
+  // damage-multiplier weight.
+  const lanePhaseTime = Math.min(duration, 14);
+  for (const lane of POSITIONAL_LANES) {
+    finalLaneGold[lane] += ctx.laneAdvantages[lane] * lanePhaseTime;
+  }
   const combat = resolveCombat(
     ctx.bluePicks,
     positionalRoles,
@@ -2693,6 +2804,7 @@ function generateTimeline(
     positionalRoles,
     duration,
     state.goldLead,
+    finalLaneGold,
   );
   const closingLogit =
     state.goldLead / 5000 +
@@ -2829,6 +2941,31 @@ function generateTimeline(
       e.minutes < 18,
   );
   const laningEndMinute = firstTower?.minutes ?? 14;
+
+  // ─── Reconcile goldLeadAfter with the displayed lane-gold model ───────
+  // During event generation, `state.goldLead` only tracks kill/tower/
+  // inhib bounties (300/550/800g) — the values that drive the sim's
+  // win-prob math. The UI's gold scoreboard, however, uses a different
+  // model: lane-economy gold = sum(laneAdvantages × lanePhaseTime) +
+  // sum(per-event laneGoldDelta). The two scales diverge by an order of
+  // magnitude (chart showed ~3-4k while scoreboard showed ~30-40k).
+  //
+  // Re-snapshot goldLeadAfter on every event using the lane-economy
+  // model so the chart and scoreboard always agree. Walk events in
+  // sorted order, accumulate laneGoldDelta totals, add the laning
+  // passive (capped at laningEndMinute), and overwrite goldLeadAfter.
+  let laneAdvSum = 0;
+  for (const lane of POSITIONAL_LANES) laneAdvSum += ctx.laneAdvantages[lane];
+  let cumulativeEventGold = 0;
+  for (const e of events) {
+    for (const lane of POSITIONAL_LANES) {
+      cumulativeEventGold += e.laneGoldDelta[lane] ?? 0;
+    }
+    const lanePhaseTime = Math.min(e.minutes, laningEndMinute);
+    e.goldLeadAfter = Math.round(
+      laneAdvSum * lanePhaseTime + cumulativeEventGold,
+    );
+  }
 
   return { events, finalWinner, laningEndMinute };
 }
@@ -3080,6 +3217,13 @@ export function buildGameRecap(
     minute: Math.round(e.minutes * 10) / 10,
     blueProb: e.winProbAfter,
   }));
+  // Parallel gold-lead timeline (signed from blue's perspective).
+  // Snapshotted at the same event boundaries as winProbTimeline so the
+  // two charts align minute-for-minute in the recap UI.
+  const goldLeadTimeline = events.map((e) => ({
+    minute: Math.round(e.minutes * 10) / 10,
+    goldLead: Math.round(e.goldLeadAfter),
+  }));
   // Notable events: limit to top 12 by absolute prob delta (keeps the
   // chart clean while still capturing the storyline). Always include
   // the biggestSwing anchor.
@@ -3124,6 +3268,7 @@ export function buildGameRecap(
     laneGoldDiff,
     biggestSwing,
     winProbTimeline,
+    goldLeadTimeline,
     notableEvents,
     perPickKDA,
   };

@@ -24,6 +24,8 @@ import {
   type SimulationResult,
   type TeamScore,
 } from "@/lib/matchSimulator";
+import { getKeyPowerSpike } from "@/lib/championBuilds";
+import { metaFor } from "@/lib/sim/descriptions";
 import { syntheticDamage } from "@/lib/sim/descriptions";
 import {
   getIdentityProfile,
@@ -1181,12 +1183,23 @@ function MatchTimelinePanel({
         revealedCount={revealedCount}
         durationMinutes={timeline.durationMinutes}
       />
+      <GoldLeadSparkline
+        events={timeline.events}
+        revealedCount={revealedCount}
+        durationMinutes={timeline.durationMinutes}
+        currentMin={currentMin}
+        laneAdvantages={laneAdvantages}
+        laningEndMinute={timeline.laningEndMinute}
+        blueTeam={blueTeam}
+        redTeam={redTeam}
+      />
       <LaneGoldStrip
         laneGold={laneGold}
         laneKDA={stats.laneKDA}
         bluePicks={bluePicks}
         redPicks={redPicks}
         byId={byId}
+        currentMin={currentMin}
         latestEvent={
           latestEventIdx >= 0 && latestEventIdx < revealedCount
             ? timeline.events[latestEventIdx]
@@ -1283,6 +1296,7 @@ const SPARKLINE_MARKER_EVENTS: ReadonlySet<EventType> = new Set([
   "elder",
   "ace",
   "shutdown",
+  "power-spike",
   "nexus",
 ]);
 
@@ -1672,6 +1686,482 @@ function WinProbSparkline({
   );
 }
 
+// Pinned-marker event types for the gold chart. Power-spikes are flagged
+// here too so the "I'm online" moment is easy to spot on the gold curve
+// (typically followed by a fight that swings the lead).
+const GOLD_MARKER_EVENTS: ReadonlySet<EventType> = new Set([
+  "soul",
+  "baron",
+  "elder",
+  "ace",
+  "shutdown",
+  "power-spike",
+  "nexus",
+]);
+
+interface GoldChartPoint {
+  minute: number;
+  blueAbove: number | null; // value when blue ahead (>=0) else null
+  redBelow: number | null; // value when red ahead (<0) else null
+  goldLead: number; // raw signed value, blue-positive
+  side: Side;
+  desc: string;
+  type: EventType;
+}
+
+interface GoldMarkerPoint {
+  minute: number;
+  goldLead: number;
+  side: Side;
+  desc: string;
+  type: EventType;
+}
+
+// Format a signed gold lead into a compact string like "+3.2k" or "−850".
+// Sub-1k leads show as integers; 1k+ leads use the k shorthand. The sign
+// is rendered separately by the caller (color cues which side leads), so
+// this helper returns just the magnitude.
+function formatGoldLeadAbs(g: number): string {
+  const abs = Math.abs(Math.round(g));
+  if (abs >= 1000) return `${(abs / 1000).toFixed(1)}k`;
+  return `${abs}`;
+}
+
+function GoldChartTooltip({
+  active,
+  payload,
+  blueTeam,
+  redTeam,
+}: {
+  active?: boolean;
+  payload?: { payload?: GoldChartPoint }[];
+  blueTeam: string;
+  redTeam: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const p = payload[0]?.payload;
+  if (!p) return null;
+  const isBlueAhead = p.goldLead >= 0;
+  const leaderName = isBlueAhead ? blueTeam : redTeam;
+  const leaderCls = isBlueAhead ? "text-rift-bluebright" : "text-rift-redbright";
+  return (
+    <div className="border border-rift-gold/40 bg-rift-bg/95 backdrop-blur px-2 py-1.5 text-[10px] shadow-lg">
+      <div className="flex items-baseline gap-2">
+        <span className="font-display tabular-nums tracking-[0.15em] text-rift-goldbright">
+          {formatClock(p.minute)}
+        </span>
+        <span className={`tabular-nums tracking-[0.1em] ${leaderCls}`}>
+          {leaderName} +{formatGoldLeadAbs(p.goldLead)}g
+        </span>
+      </div>
+      <div className="text-rift-mutedbright text-[9px] mt-0.5 max-w-[220px] truncate">
+        {p.desc}
+      </div>
+    </div>
+  );
+}
+
+// Side-aware Y tick for the gold chart. Positive values render in blue,
+// negative in red, both as positive magnitudes (no minus signs to parse
+// — color carries which side is ahead). The 0 baseline reads "EVEN" in
+// gold, mirroring the win-prob chart's visual convention.
+function GoldYTick(props: {
+  x?: number | string;
+  y?: number | string;
+  payload?: { value?: number };
+}) {
+  const v = props.payload?.value ?? 0;
+  const isMid = v === 0;
+  const isBlue = v > 0;
+  const display = isMid ? "EVEN" : `${formatGoldLeadAbs(v)}g`;
+  const color = isMid
+    ? "rgb(214 173 99)"
+    : isBlue
+    ? "rgb(96 165 250)"
+    : "rgb(248 113 113)";
+  return (
+    <text
+      x={props.x}
+      y={props.y}
+      dy={3}
+      textAnchor="end"
+      fill={color}
+      fontSize={9}
+      opacity={0.85}
+      style={{ fontVariantNumeric: "tabular-nums" }}
+    >
+      {display}
+    </text>
+  );
+}
+
+// Gold-lead-over-time chart. Same visual language as WinProbSparkline:
+// blue area above the 0 baseline, red below, dynamic Y domain, pinned
+// markers for game-defining events. Reads goldLeadAfter snapshotted on
+// each MatchEvent by the simulator (so the curve reflects the same
+// kill/tower/inhib economy that drives win-prob).
+function GoldLeadSparkline({
+  events,
+  revealedCount,
+  durationMinutes,
+  currentMin,
+  laneAdvantages,
+  laningEndMinute,
+  blueTeam,
+  redTeam,
+}: {
+  events: MatchEvent[];
+  revealedCount: number;
+  durationMinutes: number;
+  currentMin: number;
+  laneAdvantages: Record<Lane, number>;
+  laningEndMinute: number;
+  blueTeam: string;
+  redTeam: string;
+}) {
+  // Lane-economy gold model: gold lead at any minute t equals
+  //   Σ(laneAdvantages) × min(t, laningEnd) + Σ(laneGoldDelta from events at ≤t)
+  // This is the same formula the scoreboard / lane-gold strip uses, so
+  // the chart agrees with the displayed totals at every minute, not just
+  // at event boundaries. Computing it on the client lets us interpolate
+  // intermediate points (smoothly-rising laning phase) and follow the
+  // live cursor (the curve advances every animation frame, not only on
+  // event reveals).
+  const laneAdvSum = useMemo(() => {
+    let s = 0;
+    for (const lane of LANE_ORDER) s += laneAdvantages[lane];
+    return s;
+  }, [laneAdvantages]);
+
+  const data = useMemo<GoldChartPoint[]>(() => {
+    // Cumulative event gold contribution per event index. Walking events
+    // once gives us cumulative[i] = total laneGoldDelta-summed gold from
+    // events 0..i, which we can then look up at any minute t.
+    const cumulativeAt: number[] = [];
+    let running = 0;
+    for (let i = 0; i < revealedCount; i++) {
+      const e = events[i];
+      for (const lane of LANE_ORDER) running += e.laneGoldDelta[lane] ?? 0;
+      cumulativeAt.push(running);
+    }
+    // Compute the displayed gold lead at any minute t. The lookup walks
+    // events backwards to find the most recent one at or before t — its
+    // index gives us the cumulative event gold to add to passive lane
+    // gold. Returns the same value that goldLeadAfter snapshots at
+    // event boundaries; smoothly interpolates between them.
+    const goldAt = (t: number): number => {
+      // Most recent event index whose minute <= t. Linear scan is fine —
+      // events count is bounded (~30) and this runs once per render.
+      let idx = -1;
+      for (let i = 0; i < revealedCount; i++) {
+        if (events[i].minutes <= t) idx = i;
+        else break;
+      }
+      const eventGold = idx >= 0 ? cumulativeAt[idx] : 0;
+      const lanePhaseTime = Math.min(t, laningEndMinute);
+      return Math.round(laneAdvSum * lanePhaseTime + eventGold);
+    };
+
+    const pts: GoldChartPoint[] = [
+      {
+        minute: 0,
+        goldLead: 0,
+        blueAbove: 0,
+        redBelow: 0,
+        side: "blue",
+        desc: "Match start — even gold",
+        type: "first-blood",
+      },
+    ];
+
+    // Anchor minute(s) we want represented in the chart. We dedupe by
+    // minute (rounded to one decimal) so an event firing at exactly the
+    // same time as an interpolation tick doesn't draw two points.
+    const seen = new Set<string>();
+    const pushPoint = (
+      minute: number,
+      side: Side,
+      desc: string,
+      type: EventType,
+    ) => {
+      const key = minute.toFixed(1);
+      if (seen.has(key)) return;
+      seen.add(key);
+      const v = goldAt(minute);
+      pts.push({
+        minute,
+        goldLead: v,
+        blueAbove: v >= 0 ? v : 0,
+        redBelow: v < 0 ? v : 0,
+        side,
+        desc,
+        type,
+      });
+    };
+
+    // Per-minute interpolation across the laning phase. The lane-economy
+    // model has its only continuous component (laneAdvSum × t) here, so
+    // before laningEnd we want a point per minute to see the slope. After
+    // laning, gold lead is piecewise-constant between events — events
+    // alone are enough.
+    const interpEnd = Math.min(currentMin, laningEndMinute);
+    for (let m = 1; m <= Math.floor(interpEnd); m++) {
+      pushPoint(m, "blue", `Min ${m} — laning gold drift`, "first-blood");
+    }
+
+    // All revealed events in order. Each one snaps its actual goldLead
+    // (matches goldLeadAfter exactly via goldAt() since the same
+    // formula is used).
+    for (let i = 0; i < revealedCount; i++) {
+      const e = events[i];
+      pushPoint(e.minutes, e.side, e.description, e.type);
+    }
+
+    // Live cursor — appends "now" so the curve tip advances every
+    // animation frame, not just on event reveals. Skip if there's
+    // already an event point exactly at currentMin (rare; the dedupe
+    // would catch it anyway).
+    if (currentMin > 0) {
+      pushPoint(currentMin, "blue", "Live", "first-blood");
+    }
+
+    pts.sort((a, b) => a.minute - b.minute);
+    return pts;
+  }, [events, revealedCount, currentMin, laneAdvSum, laningEndMinute]);
+
+  const markers = useMemo<GoldMarkerPoint[]>(() => {
+    const out: GoldMarkerPoint[] = [];
+    for (let i = 0; i < revealedCount; i++) {
+      const e = events[i];
+      if (GOLD_MARKER_EVENTS.has(e.type)) {
+        out.push({
+          minute: e.minutes,
+          goldLead: e.goldLeadAfter ?? 0,
+          side: e.side,
+          desc: e.description,
+          type: e.type,
+        });
+      }
+    }
+    return out;
+  }, [events, revealedCount]);
+
+  // Symmetric Y-domain anchored at 0 so the baseline is always visible
+  // and a comeback shows as a clear cross of the midline. Padded ±15%
+  // beyond the data extreme; minimum span ±2k so a tense early game still
+  // renders with vertical movement.
+  const yDomain = useMemo<[number, number]>(() => {
+    let extreme = 2000;
+    for (const p of data) {
+      const a = Math.abs(p.goldLead);
+      if (a > extreme) extreme = a;
+    }
+    extreme = Math.ceil(extreme * 1.15);
+    return [-extreme, extreme];
+  }, [data]);
+
+  const yTicks = useMemo<number[]>(() => {
+    const [lo, hi] = yDomain;
+    // 5 ticks: extremes, halfway, and 0. Round halfway values to a clean
+    // increment based on magnitude (500 / 1k / 2.5k / 5k).
+    const mag = Math.max(Math.abs(lo), Math.abs(hi));
+    const step =
+      mag > 12000 ? 5000 : mag > 6000 ? 2500 : mag > 2500 ? 1000 : 500;
+    const ticks: number[] = [0];
+    for (let v = step; v <= hi - step / 2; v += step) ticks.push(v);
+    for (let v = -step; v >= lo + step / 2; v -= step) ticks.push(v);
+    return ticks.sort((a, b) => a - b);
+  }, [yDomain]);
+
+  const last = data[data.length - 1];
+  const lead = last.goldLead;
+  const leadingSide: Side | "even" =
+    Math.abs(lead) < 250 ? "even" : lead > 0 ? "blue" : "red";
+  const headerLabel =
+    leadingSide === "blue"
+      ? `Blue +${formatGoldLeadAbs(lead)}g`
+      : leadingSide === "red"
+      ? `Red +${formatGoldLeadAbs(lead)}g`
+      : "Even gold";
+  const labelCls =
+    leadingSide === "blue"
+      ? "text-rift-bluebright"
+      : leadingSide === "red"
+      ? "text-rift-redbright"
+      : "text-rift-mutedbright";
+  const dotColor =
+    leadingSide === "blue"
+      ? "rgb(96 165 250)"
+      : leadingSide === "red"
+      ? "rgb(248 113 113)"
+      : "rgb(180 180 180)";
+
+  const tickStep = durationMinutes >= 30 ? 5 : durationMinutes >= 18 ? 4 : 3;
+  const xTicks: number[] = [0];
+  for (let m = tickStep; m <= durationMinutes; m += tickStep) xTicks.push(m);
+
+  return (
+    <div className="border-t border-rift-line/40 mt-3 pt-2">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-[9px] md:text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
+          Gold Lead
+        </span>
+        <span
+          className={`font-display text-[10px] md:text-[11px] tabular-nums tracking-[0.18em] ${labelCls}`}
+        >
+          {headerLabel}
+        </span>
+      </div>
+      <div className="relative h-32 md:h-40 -mx-1">
+        <span
+          className="pointer-events-none absolute top-1.5 right-2 text-[8px] font-display tracking-[0.3em] text-rift-bluebright/70 z-10"
+          aria-hidden
+        >
+          BLUE
+        </span>
+        <span
+          className="pointer-events-none absolute bottom-5 right-2 text-[8px] font-display tracking-[0.3em] text-rift-redbright/70 z-10"
+          aria-hidden
+        >
+          RED
+        </span>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart
+            data={data}
+            margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
+          >
+            <defs>
+              <linearGradient id="gold-blue-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgb(96 165 250)" stopOpacity={0.55} />
+                <stop offset="100%" stopColor="rgb(96 165 250)" stopOpacity={0.04} />
+              </linearGradient>
+              <linearGradient id="gold-red-fill" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stopColor="rgb(248 113 113)" stopOpacity={0.55} />
+                <stop offset="100%" stopColor="rgb(248 113 113)" stopOpacity={0.04} />
+              </linearGradient>
+              <linearGradient id="gold-curve" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgb(150 200 255)" />
+                <stop offset="50%" stopColor="rgb(228 192 122)" />
+                <stop offset="100%" stopColor="rgb(255 160 160)" />
+              </linearGradient>
+            </defs>
+            <XAxis
+              dataKey="minute"
+              type="number"
+              domain={[0, durationMinutes]}
+              ticks={xTicks}
+              tickFormatter={(m) => `${m}'`}
+              tick={{ fill: "rgb(160 160 170)", fontSize: 10, opacity: 0.7 }}
+              tickLine={false}
+              axisLine={{ stroke: "rgb(120 120 130)", strokeOpacity: 0.3 }}
+              interval={0}
+              minTickGap={10}
+            />
+            <YAxis
+              domain={yDomain}
+              ticks={yTicks}
+              tick={GoldYTick}
+              tickLine={false}
+              axisLine={false}
+              width={42}
+            />
+            <ReferenceLine
+              y={0}
+              stroke="rgb(214 173 99)"
+              strokeOpacity={0.45}
+              strokeDasharray="3 3"
+              label={{
+                value: "EVEN",
+                position: "insideRight",
+                fill: "rgb(214 173 99)",
+                fontSize: 8,
+                opacity: 0.6,
+                offset: 4,
+              }}
+            />
+            <Area
+              type="monotone"
+              dataKey="blueAbove"
+              stroke="none"
+              fill="url(#gold-blue-fill)"
+              fillOpacity={1}
+              isAnimationActive={false}
+              connectNulls
+              baseValue={0}
+            />
+            <Area
+              type="monotone"
+              dataKey="redBelow"
+              stroke="none"
+              fill="url(#gold-red-fill)"
+              fillOpacity={1}
+              isAnimationActive={false}
+              connectNulls
+              baseValue={0}
+            />
+            <Area
+              type="monotone"
+              dataKey="goldLead"
+              stroke="url(#gold-curve)"
+              strokeWidth={2.4}
+              fill="none"
+              dot={false}
+              activeDot={{
+                r: 5,
+                stroke: "rgb(228 192 122)",
+                strokeWidth: 2,
+                fill: "rgb(20 22 30)",
+              }}
+              isAnimationActive={false}
+            />
+            {markers.map((m, i) => (
+              <ReferenceDot
+                key={`gold-marker-${i}`}
+                x={m.minute}
+                y={m.goldLead}
+                r={m.type === "power-spike" ? 3.5 : 4.5}
+                fill={
+                  m.type === "power-spike"
+                    ? "rgb(228 192 122)"
+                    : m.side === "blue"
+                    ? "rgb(96 165 250)"
+                    : "rgb(248 113 113)"
+                }
+                stroke="rgb(20 22 30)"
+                strokeWidth={1.5}
+                ifOverflow="visible"
+              />
+            ))}
+            {revealedCount > 0 && (
+              <ReferenceDot
+                x={last.minute}
+                y={last.goldLead}
+                r={4}
+                fill={dotColor}
+                stroke={dotColor}
+                strokeOpacity={0.5}
+                strokeWidth={4}
+                ifOverflow="visible"
+              />
+            )}
+            <Tooltip
+              content={
+                <GoldChartTooltip blueTeam={blueTeam} redTeam={redTeam} />
+              }
+              cursor={{
+                stroke: "rgb(214 173 99)",
+                strokeOpacity: 0.5,
+                strokeDasharray: "2 3",
+                strokeWidth: 1.2,
+              }}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 // Per-lane involvement classification for the most recent event. Used by
 // LaneGoldRow to decide which champion icons to flash and what color.
 type FlashKind = "kill" | "death" | "objective" | null;
@@ -1745,6 +2235,7 @@ function LaneGoldStrip({
   bluePicks,
   redPicks,
   byId,
+  currentMin,
   latestEvent,
   flashKey,
 }: {
@@ -1753,6 +2244,7 @@ function LaneGoldStrip({
   bluePicks: (number | null)[];
   redPicks: (number | null)[];
   byId: Map<number, Champion>;
+  currentMin: number;
   latestEvent: MatchEvent | null;
   flashKey: number;
 }) {
@@ -1784,12 +2276,67 @@ function LaneGoldStrip({
             blueKDA={laneKDA.blue[lane]}
             redKDA={laneKDA.red[lane]}
             diff={diff}
+            currentMin={currentMin}
             blueFlash={inv.blue}
             redFlash={inv.red}
             flashKey={flashKey}
           />
         );
       })}
+    </div>
+  );
+}
+
+// Per-champion power-spike badge. Shows the minute the champion's first
+// major item lands, sourced from the same getKeyPowerSpike() data the
+// simulator uses for its power-spike events. Two states:
+//   - pending: rendered dim, label reads "SPIKE 14'" — the carry isn't
+//     online yet, viewer knows when to expect them
+//   - live: when currentMin >= spike minute, badge brightens to gold and
+//     reads "ONLINE 14'+" — the threat window is now open
+// Carry spikes (hyper/burst/assassin/marksman) get prominent gold
+// styling; non-carry spikes (tanks/enchanters/peel) get a muted treatment
+// since their "spike" is utility, not a fight-flipper.
+function ChampSpikeBadge({
+  champ,
+  currentMin,
+  side,
+}: {
+  champ: Champion;
+  currentMin: number;
+  side: Side;
+}) {
+  const spike = useMemo(() => {
+    const m = metaFor(champ);
+    return getKeyPowerSpike(m);
+  }, [champ]);
+  const live = currentMin >= spike.minute;
+  const isCarry = spike.isCarrySpike;
+  const baseCls = live
+    ? isCarry
+      ? "bg-rift-gold/15 border-rift-gold/60 text-rift-goldbright"
+      : "bg-rift-gold/5 border-rift-gold/30 text-rift-gold/80"
+    : isCarry
+    ? "bg-rift-bg/40 border-rift-line text-rift-mutedbright/80"
+    : "bg-rift-bg/40 border-rift-line/60 text-rift-muted/70";
+  const label = live ? `ONLINE ${spike.minute}'` : `SPIKE ${spike.minute}'`;
+  const align = side === "blue" ? "justify-end" : "justify-start";
+  return (
+    <div className={`flex ${align} mt-0.5`}>
+      <span
+        className={`inline-flex items-center gap-1 px-1.5 py-[1px] border text-[8px] md:text-[9px] uppercase tracking-[0.2em] tabular-nums ${baseCls}`}
+        title={`Key item: ${spike.keyItem}`}
+      >
+        <svg
+          viewBox="0 0 16 16"
+          className="w-2 h-2 md:w-2.5 md:h-2.5"
+          fill="currentColor"
+          aria-hidden
+        >
+          <path d="M8 1L3 9h4l-1 6 5-8H7l1-6z" />
+        </svg>
+        {label}
+      </span>
     </div>
   );
 }
@@ -1818,6 +2365,7 @@ function LaneGoldRow({
   blueKDA,
   redKDA,
   diff,
+  currentMin,
   blueFlash,
   redFlash,
   flashKey,
@@ -1828,6 +2376,7 @@ function LaneGoldRow({
   blueKDA: LaneKDA;
   redKDA: LaneKDA;
   diff: number;
+  currentMin: number;
   blueFlash: FlashKind;
   redFlash: FlashKind;
   flashKey: number;
@@ -1879,6 +2428,13 @@ function LaneGoldRow({
               <span className="text-rift-muted/60">/</span>
               <span className="text-rift-bluebright">{blueKDA.a}</span>
             </span>
+          )}
+          {blueChamp && (
+            <ChampSpikeBadge
+              champ={blueChamp}
+              currentMin={currentMin}
+              side="blue"
+            />
           )}
         </div>
         {blueChamp && (
@@ -1959,6 +2515,13 @@ function LaneGoldRow({
               <span className="text-rift-muted/60">/</span>
               <span className="text-rift-redbright">{redKDA.a}</span>
             </span>
+          )}
+          {redChamp && (
+            <ChampSpikeBadge
+              champ={redChamp}
+              currentMin={currentMin}
+              side="red"
+            />
           )}
         </div>
       </div>

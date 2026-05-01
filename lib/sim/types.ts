@@ -106,6 +106,11 @@ export interface MatchEvent {
   // Blue win probability *after* this event resolves. Drives the live
   // probability bar — comebacks visibly swing it. 0..1.
   winProbAfter: number;
+  // Team gold lead *after* this event resolves, signed from BLUE's
+  // perspective (positive = blue ahead). Snapshotted from the simulator's
+  // running gold-lead tracker so the UI can render a gold-over-time chart
+  // without recomputing the kill/tower/inhib economy on the client.
+  goldLeadAfter: number;
 }
 
 export interface MatchTimeline {

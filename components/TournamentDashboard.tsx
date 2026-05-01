@@ -1240,6 +1240,19 @@ function ReplayGamePanel({
         />
       )}
 
+      {/* Gold-lead sparkline. Mirrors the live chart in BetweenGamesView
+          using the recap's persisted goldLeadTimeline (signed, blue-
+          positive). Renders only when the timeline is present (sim-
+          resolved games on a recent build; legacy recaps lack it). */}
+      {recap?.goldLeadTimeline && recap.goldLeadTimeline.length > 1 && (
+        <GoldLeadChart
+          timeline={recap.goldLeadTimeline}
+          notableEvents={recap.notableEvents ?? []}
+          blueTeam={blueTeamName}
+          redTeam={redTeamName}
+        />
+      )}
+
       {/* Damage-dealt bars synthesized from KDA + champion archetype.
           Renders only when per-pick KDA is in the recap. */}
       {recap?.perPickKDA && (
@@ -1697,6 +1710,344 @@ function WinProbChart({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Gold-lead chart for the post-tournament replay. Reads the recap's
+// goldLeadTimeline (signed, blue-positive) and renders the same split
+// blue/red gradient + 0-baseline visual language as the live chart in
+// BetweenGamesView's GoldLeadSparkline. Snapshots are at the same event
+// boundaries as the win-prob timeline, so the two charts align
+// minute-for-minute when stacked. Notable events are pinned as colored
+// dots so soul/baron/elder moments are easy to find on the curve.
+function formatGoldLeadAbsReplay(g: number): string {
+  const abs = Math.abs(Math.round(g));
+  if (abs >= 1000) return `${(abs / 1000).toFixed(1)}k`;
+  return `${abs}`;
+}
+
+function GoldChartTooltipReplay({
+  active,
+  payload,
+  blueTeam,
+  redTeam,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    payload: { minute: number; goldLead: number };
+  }>;
+  blueTeam: string;
+  redTeam: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const p = payload[0]?.payload;
+  if (!p) return null;
+  const isBlueAhead = p.goldLead >= 0;
+  const leaderName = isBlueAhead ? blueTeam : redTeam;
+  const leaderCls = isBlueAhead
+    ? "text-rift-bluebright"
+    : "text-rift-redbright";
+  return (
+    <div className="bg-rift-panel border border-rift-gold/60 px-2 py-1 text-[10px] tabular-nums font-display">
+      <div className="text-rift-mutedbright/70 uppercase tracking-[0.25em] text-[8px]">
+        {Math.round(p.minute)} min
+      </div>
+      <div className={`mt-0.5 ${leaderCls}`}>
+        {Math.abs(p.goldLead) < 250
+          ? "Even gold"
+          : `${leaderName} +${formatGoldLeadAbsReplay(p.goldLead)}g`}
+      </div>
+    </div>
+  );
+}
+
+function GoldYTickReplay(props: {
+  x?: number | string;
+  y?: number | string;
+  payload?: { value?: number };
+}) {
+  const v = props.payload?.value ?? 0;
+  const isMid = v === 0;
+  const isBlue = v > 0;
+  const display = isMid ? "EVEN" : `${formatGoldLeadAbsReplay(v)}g`;
+  const color = isMid
+    ? "rgb(214 173 99)"
+    : isBlue
+    ? "rgb(96 165 250)"
+    : "rgb(248 113 113)";
+  return (
+    <text
+      x={props.x}
+      y={props.y}
+      dy={3}
+      textAnchor="end"
+      fill={color}
+      fontSize={9}
+      opacity={0.85}
+      style={{ fontVariantNumeric: "tabular-nums" }}
+    >
+      {display}
+    </text>
+  );
+}
+
+function GoldLeadChart({
+  timeline,
+  notableEvents,
+  blueTeam,
+  redTeam,
+}: {
+  timeline: Array<{ minute: number; goldLead: number }>;
+  notableEvents: Array<{
+    minute: number;
+    side: Side;
+    type: string;
+    description: string;
+    probDelta: number;
+  }>;
+  blueTeam: string;
+  redTeam: string;
+}) {
+  // Build chart data with split blueAbove/redBelow series and synthetic
+  // crossing points at exactly 0 to keep the colored zones from bleeding
+  // past the baseline. Mirror of WinProbChart's crossing-point insertion
+  // logic — same numerical reasoning, just with a 0 baseline instead of
+  // 50.
+  const data = useMemo(() => {
+    type Pt = {
+      minute: number;
+      goldLead: number;
+      blueAbove: number;
+      redBelow: number;
+    };
+    const series: Pt[] = [];
+    const push = (minute: number, gold: number) => {
+      series.push({
+        minute,
+        goldLead: gold,
+        blueAbove: gold >= 0 ? gold : 0,
+        redBelow: gold < 0 ? gold : 0,
+      });
+    };
+    push(0, 0);
+    let prev = { minute: 0, goldLead: 0 };
+    for (const p of timeline) {
+      const v = p.goldLead;
+      const crossesUp = prev.goldLead < 0 && v >= 0;
+      const crossesDown = prev.goldLead >= 0 && v < 0;
+      if ((crossesUp || crossesDown) && p.minute > prev.minute) {
+        const denom = v - prev.goldLead;
+        if (Math.abs(denom) > 1e-6) {
+          const tStar =
+            prev.minute +
+            ((p.minute - prev.minute) * (0 - prev.goldLead)) / denom;
+          push(tStar, 0);
+        }
+      }
+      push(p.minute, v);
+      prev = { minute: p.minute, goldLead: v };
+    }
+    return series;
+  }, [timeline]);
+
+  const durationMinutes =
+    data.length > 0 ? data[data.length - 1].minute : 30;
+  const tickStep =
+    durationMinutes >= 30 ? 5 : durationMinutes >= 18 ? 4 : 3;
+  const xTicks: number[] = [0];
+  for (let m = tickStep; m <= durationMinutes; m += tickStep) xTicks.push(m);
+
+  // Symmetric Y domain anchored at 0 (matches the live chart). Pad
+  // ±15% so the curve doesn't kiss the edges; minimum span ±2k so a
+  // tense game still renders with vertical movement.
+  const yDomain = useMemo<[number, number]>(() => {
+    let extreme = 2000;
+    for (const p of data) {
+      const a = Math.abs(p.goldLead);
+      if (a > extreme) extreme = a;
+    }
+    extreme = Math.ceil(extreme * 1.15);
+    return [-extreme, extreme];
+  }, [data]);
+
+  const yTicks = useMemo<number[]>(() => {
+    const [lo, hi] = yDomain;
+    const mag = Math.max(Math.abs(lo), Math.abs(hi));
+    const step =
+      mag > 12000 ? 5000 : mag > 6000 ? 2500 : mag > 2500 ? 1000 : 500;
+    const ticks: number[] = [0];
+    for (let v = step; v <= hi - step / 2; v += step) ticks.push(v);
+    for (let v = -step; v >= lo + step / 2; v -= step) ticks.push(v);
+    return ticks.sort((a, b) => a - b);
+  }, [yDomain]);
+
+  const last = data[data.length - 1];
+  const lead = last?.goldLead ?? 0;
+  const leadingSide: Side | "even" =
+    Math.abs(lead) < 250 ? "even" : lead > 0 ? "blue" : "red";
+  const headerLabel =
+    leadingSide === "blue"
+      ? `Blue +${formatGoldLeadAbsReplay(lead)}g`
+      : leadingSide === "red"
+      ? `Red +${formatGoldLeadAbsReplay(lead)}g`
+      : "Even gold";
+  const labelCls =
+    leadingSide === "blue"
+      ? "text-rift-bluebright"
+      : leadingSide === "red"
+      ? "text-rift-redbright"
+      : "text-rift-mutedbright";
+
+  return (
+    <div className="border-t border-rift-line/40 mt-3 pt-2">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-[9px] md:text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
+          Gold Lead
+        </span>
+        <span
+          className={`font-display text-[10px] md:text-[11px] tabular-nums tracking-[0.18em] ${labelCls}`}
+        >
+          {headerLabel}
+        </span>
+      </div>
+      <div className="relative h-32 md:h-40 -mx-1">
+        <span
+          className="pointer-events-none absolute top-1.5 right-2 text-[8px] font-display tracking-[0.3em] text-rift-bluebright/70 z-10"
+          aria-hidden
+        >
+          BLUE
+        </span>
+        <span
+          className="pointer-events-none absolute bottom-5 right-2 text-[8px] font-display tracking-[0.3em] text-rift-redbright/70 z-10"
+          aria-hidden
+        >
+          RED
+        </span>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart
+            data={data}
+            margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
+          >
+            <defs>
+              <linearGradient id="rep-gold-blue-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgb(96 165 250)" stopOpacity={0.55} />
+                <stop offset="100%" stopColor="rgb(96 165 250)" stopOpacity={0.04} />
+              </linearGradient>
+              <linearGradient id="rep-gold-red-fill" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stopColor="rgb(248 113 113)" stopOpacity={0.55} />
+                <stop offset="100%" stopColor="rgb(248 113 113)" stopOpacity={0.04} />
+              </linearGradient>
+              <linearGradient id="rep-gold-curve" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgb(150 200 255)" />
+                <stop offset="50%" stopColor="rgb(228 192 122)" />
+                <stop offset="100%" stopColor="rgb(255 160 160)" />
+              </linearGradient>
+            </defs>
+            <XAxis
+              dataKey="minute"
+              type="number"
+              domain={[0, Math.max(durationMinutes, 5)]}
+              ticks={xTicks}
+              tickFormatter={(m) => `${m}'`}
+              tick={{ fill: "rgb(160 160 170)", fontSize: 10, opacity: 0.7 }}
+              tickLine={false}
+              axisLine={{ stroke: "rgb(120 120 130)", strokeOpacity: 0.3 }}
+              interval={0}
+              minTickGap={10}
+            />
+            <YAxis
+              domain={yDomain}
+              ticks={yTicks}
+              tick={GoldYTickReplay}
+              tickLine={false}
+              axisLine={false}
+              width={42}
+            />
+            <ReferenceLine
+              y={0}
+              stroke="rgb(214 173 99)"
+              strokeOpacity={0.45}
+              strokeDasharray="3 3"
+              label={{
+                value: "EVEN",
+                position: "insideRight",
+                fill: "rgb(214 173 99)",
+                fontSize: 8,
+                opacity: 0.6,
+                offset: 4,
+              }}
+            />
+            <Area
+              type="linear"
+              dataKey="blueAbove"
+              stroke="none"
+              fill="url(#rep-gold-blue-fill)"
+              fillOpacity={1}
+              isAnimationActive={false}
+              baseValue={0}
+            />
+            <Area
+              type="linear"
+              dataKey="redBelow"
+              stroke="none"
+              fill="url(#rep-gold-red-fill)"
+              fillOpacity={1}
+              isAnimationActive={false}
+              baseValue={0}
+            />
+            <Area
+              type="linear"
+              dataKey="goldLead"
+              stroke="url(#rep-gold-curve)"
+              strokeWidth={2.4}
+              fill="none"
+              dot={false}
+              isAnimationActive={false}
+            />
+            {notableEvents.map((e, i) => {
+              // Find the gold-timeline point at the event's minute. Use
+              // a 0.1-minute tolerance for floating-point drift between
+              // the win-prob and gold-lead timelines (both snapshot at
+              // the same simulator event boundaries).
+              const pt = timeline.find(
+                (p) => Math.abs(p.minute - e.minute) < 0.15,
+              );
+              if (!pt) return null;
+              return (
+                <ReferenceDot
+                  key={`gold-evt-${i}`}
+                  x={pt.minute}
+                  y={pt.goldLead}
+                  r={4}
+                  fill={
+                    e.side === "blue"
+                      ? "rgb(96 165 250)"
+                      : "rgb(248 113 113)"
+                  }
+                  stroke="rgb(20 22 30)"
+                  strokeWidth={1.4}
+                  ifOverflow="visible"
+                />
+              );
+            })}
+            <Tooltip
+              cursor={{
+                stroke: "rgb(214 173 99)",
+                strokeOpacity: 0.5,
+                strokeDasharray: "2 3",
+                strokeWidth: 1.2,
+              }}
+              content={
+                <GoldChartTooltipReplay
+                  blueTeam={blueTeam}
+                  redTeam={redTeam}
+                />
+              }
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }

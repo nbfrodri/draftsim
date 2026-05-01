@@ -71,6 +71,13 @@ export interface GameRecap {
     minute: number;
     blueProb: number; // 0..1
   }>;
+  // Sparse team gold-lead snapshots through the game. Signed from blue's
+  // perspective (positive = blue ahead in total team gold). One entry per
+  // event; consumers render a line chart. Optional / legacy-safe.
+  goldLeadTimeline?: Array<{
+    minute: number;
+    goldLead: number; // signed integer, blue-positive
+  }>;
   // Compact event log: just enough to mark notable moments on the chart
   // (kills, dragons, barons, towers, etc). Optional / legacy-safe.
   notableEvents?: Array<{
@@ -143,6 +150,20 @@ export interface SeriesState {
   // often. Undefined in stand-alone series (no bias applied).
   blueStarRating?: number;
   redStarRating?: number;
+  // Tournament momentum & round context. Populated when the series is
+  // created from a tournament match. Used by starRatingBias to layer
+  // win-streak rewards (teams on a roll get a small score-bias bump)
+  // and underdog protection in semis/finals (low-rated teams that
+  // reached late rounds get a counter-bias against higher-rated
+  // opponents — they're not chalk anymore, the bracket says so).
+  // Undefined for stand-alone series and for round-1 tournament matches
+  // (no streak yet, no late-round bracket).
+  blueWinStreak?: number;
+  redWinStreak?: number;
+  // Round-depth tag: "early" | "quarterfinal" | "semifinal" | "final".
+  // The latter two enable underdog protection. Undefined outside
+  // tournaments.
+  tournamentRound?: "early" | "quarterfinal" | "semifinal" | "final";
 }
 
 export interface SimulationSettings {

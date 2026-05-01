@@ -60,6 +60,7 @@ import {
   startRoundRobinPlayoffs,
   startSwissPlayoffs,
   teamStarRating,
+  tournamentSeriesContext,
   type CreateTournamentParams,
   type TournamentMatch,
   type TournamentState,
@@ -289,6 +290,11 @@ function autoPlayMatch(
   );
   if (!blueTeam || !redTeam) return workingTournament;
   const allIds = allChampionIds(champions);
+  // Tournament momentum context — star ratings + win streaks +
+  // round-depth in one lookup. Falls back to plain star ratings if the
+  // context can't be assembled (defensive against partially-decoded
+  // tournament state).
+  const tctx = tournamentSeriesContext(workingTournament, matchId);
   let series = createSeries({
     format: match.format,
     fearless: match.fearless,
@@ -300,8 +306,11 @@ function autoPlayMatch(
     aiDifficulty: match.aiDifficulty,
     blueAiDifficulty: undefined,
     redAiDifficulty: undefined,
-    blueStarRating: teamStarRating(blueTeam),
-    redStarRating: teamStarRating(redTeam),
+    blueStarRating: tctx?.blueStarRating ?? teamStarRating(blueTeam),
+    redStarRating: tctx?.redStarRating ?? teamStarRating(redTeam),
+    blueWinStreak: tctx?.blueWinStreak,
+    redWinStreak: tctx?.redWinStreak,
+    tournamentRound: tctx?.roundDepth,
   });
   while (series.status !== "complete") {
     const crossLocked = crossMatchFearlessLocked(
@@ -400,6 +409,7 @@ function slimTournamentForArchive(
             if (!g.recap) return g;
             const slim = { ...g.recap };
             delete slim.winProbTimeline;
+            delete slim.goldLeadTimeline;
             delete slim.notableEvents;
             delete slim.perPickKDA;
             return { ...g, recap: slim };
@@ -969,6 +979,11 @@ export const useDraftStore = create<DraftStore>()(
     // the team names. Reuses createSeries from the existing single-flow
     // — the match doesn't care that it's part of a tournament until
     // finishMatch records the winner.
+    // Tournament momentum context — star ratings + win streaks +
+    // round-depth feed starRatingBias for win-streak rewards and
+    // semis/finals underdog protection. Falls back to plain star
+    // ratings when the context can't be assembled.
+    const tctx = tournamentSeriesContext(tournament, matchId);
     const series = createSeries({
       format: effective.format,
       fearless: effective.fearless,
@@ -985,8 +1000,11 @@ export const useDraftStore = create<DraftStore>()(
       redAiDifficulty: redTeam.aiDifficulty,
       // Tournament-only — used by the simulator to bias outcome toward
       // the higher-rated roster (see starRatingBias in lib/series.ts).
-      blueStarRating: teamStarRating(blueTeam),
-      redStarRating: teamStarRating(redTeam),
+      blueStarRating: tctx?.blueStarRating ?? teamStarRating(blueTeam),
+      redStarRating: tctx?.redStarRating ?? teamStarRating(redTeam),
+      blueWinStreak: tctx?.blueWinStreak,
+      redWinStreak: tctx?.redWinStreak,
+      tournamentRound: tctx?.roundDepth,
     });
     // Mark the match as active and stash the live series on it so reload
     // can resume mid-match (the series is also held in `state.series`).
