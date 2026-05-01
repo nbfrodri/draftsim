@@ -20,7 +20,66 @@ export type TournamentFormat =
   | "double-elim"
   | "swiss"
   | "swiss-playoffs"
-  | "groups-playoffs";
+  | "groups-playoffs"
+  // Stage + double-elim playoff variants. Each runs the regular stage
+  // (round-robin / swiss / groups) to determine playoff seeding, then
+  // drops the top-N teams into a double-elim bracket (W + L + grand
+  // final) instead of a single-elim tree. Same plumbing as the
+  // single-elim playoff variants above, only the playoff-bracket
+  // generator differs.
+  | "round-robin-playoffs"
+  | "swiss-playoffs-de"
+  | "groups-playoffs-de";
+
+// Returns true when the format runs a regular stage and then promotes
+// top-N teams into a separate playoff bracket. Used to centralize the
+// stage-vs-playoff logic so individual call sites don't have to keep
+// listing every variant. Plain "round-robin", "swiss", "single-elim",
+// "double-elim" return false.
+export function formatHasPlayoffs(format: TournamentFormat): boolean {
+  return (
+    format === "swiss-playoffs" ||
+    format === "swiss-playoffs-de" ||
+    format === "groups-playoffs" ||
+    format === "groups-playoffs-de" ||
+    format === "round-robin-playoffs"
+  );
+}
+
+// Which playoff-bracket shape a *-playoffs format uses. Single-elim by
+// default; double-elim for the *-de variants and round-robin-playoffs
+// (the user-facing label for that format is "Round Robin + DE Playoffs",
+// so it always uses double-elim). Returns "single-elim" for non-playoff
+// formats — caller should branch on formatHasPlayoffs first.
+export function playoffBracketKindFor(
+  format: TournamentFormat,
+): "single-elim" | "double-elim" {
+  if (
+    format === "swiss-playoffs-de" ||
+    format === "groups-playoffs-de" ||
+    format === "round-robin-playoffs"
+  ) {
+    return "double-elim";
+  }
+  return "single-elim";
+}
+
+// Stage-format companion for *-playoffs formats. Returns the underlying
+// stage that runs before the playoff bracket: round-robin for the
+// groups/round-robin variants, swiss for the swiss variants. Used by
+// tournament setup labels and for routing dashboard rendering.
+export function stageFormatFor(
+  format: TournamentFormat,
+): "round-robin" | "swiss" | "groups" | null {
+  if (format === "swiss-playoffs" || format === "swiss-playoffs-de") {
+    return "swiss";
+  }
+  if (format === "groups-playoffs" || format === "groups-playoffs-de") {
+    return "groups";
+  }
+  if (format === "round-robin-playoffs") return "round-robin";
+  return null;
+}
 
 // For double-elimination only: which sub-bracket a match lives in.
 //   "winners"            — the standard upper bracket. A loss drops the
@@ -281,6 +340,48 @@ export interface TournamentDefaults {
   timerEnabled: boolean;
 }
 
+// Per-match SeriesFormat overrides keyed by structured strings. Each
+// generator looks up overrides[key] before falling back to
+// defaults.format. The setup form writes these; generators consume at
+// match-creation time. Persisted on TournamentState so playoff
+// promotion (which generates matches AFTER tournament creation) can
+// still read them.
+//
+// Key shapes:
+//   "main:<round>"  — main stage matchday/round
+//                     (round-robin, swiss, groups stage)
+//   "wb:<round>"    — winners-bracket round (standalone single-elim
+//                     or standalone double-elim W bracket)
+//   "lb:<round>"    — losers-bracket round (standalone double-elim)
+//   "gf"            — grand final (standalone double-elim)
+//   "po:wb:<round>" — playoff winners-bracket round (*-playoffs)
+//   "po:lb:<round>" — playoff losers-bracket round (DE *-playoffs)
+//   "po:gf"         — playoff grand final (DE *-playoffs)
+//
+// Missing keys fall back to defaults.format. Saving a key with the
+// same value as defaults.format is harmless but redundant.
+export type FormatOverrides = Record<string, SeriesFormat>;
+
+// Look up the SeriesFormat for a match. Tries each key in order and
+// returns the first defined override; falls back to defaults.format
+// when none match. Multiple keys allow generators to look up a
+// specific match (e.g. "main:3") then a stage-wide fallback ("main")
+// — the setup UI writes "main" as a single picker for the whole
+// regular stage but the data model still supports per-matchday
+// granularity if anyone wires it later.
+export function pickFormat(
+  defaults: TournamentDefaults,
+  overrides: FormatOverrides | undefined,
+  ...keys: string[]
+): SeriesFormat {
+  if (!overrides) return defaults.format;
+  for (const k of keys) {
+    const v = overrides[k];
+    if (v) return v;
+  }
+  return defaults.format;
+}
+
 export interface TournamentState {
   id: string;
   name: string;
@@ -313,6 +414,14 @@ export interface TournamentState {
   // Swiss-playoffs only: false until the user freezes standings and
   // generates the playoff bracket.
   swissPlayoffsStarted?: boolean;
+  // Round-robin-playoffs only: how many top-of-standings teams advance
+  // to the playoff bracket. Defaults to a power of 2 ≥ 4 (4 or 8) so
+  // both single-elim and double-elim brackets fit cleanly. Undefined
+  // for non-RR-playoffs formats.
+  rrPlayoffsAdvancing?: number;
+  // Round-robin-playoffs only: false until the user freezes standings
+  // and generates the playoff bracket.
+  rrPlayoffsStarted?: boolean;
   // Groups-playoffs only: configuration captured at creation. Defines
   // how many groups, teams per group, and how many advance from each
   // group to the single-elim playoff. Undefined for other formats.
@@ -325,6 +434,12 @@ export interface TournamentState {
     // snapshots still load without losing the playoff size.
     advancingTeams?: number;
   };
+  // Per-match format overrides — see FormatOverrides docs for key
+  // schema. When the playoff bracket is generated lazily (Swiss-/
+  // groups-/round-robin-playoffs), the promotion functions read this
+  // map to apply the user's per-round customizations to the new
+  // matches. Undefined for legacy snapshots; treated as empty map.
+  formatOverrides?: FormatOverrides;
   fearlessConfig: TournamentFearlessConfig;
   // Cross-match aggregates (populated in Phase 2).
   teamPickHistory: Record<string, number[]>;
@@ -409,6 +524,11 @@ export function makeTournamentId(): string {
 export function generateSingleElimBracket(
   teams: TournamentTeam[],
   defaults: TournamentDefaults,
+  formatOverrides?: FormatOverrides,
+  // Prefix for the override key. "" for standalone single-elim,
+  // "po:" when this single-elim acts as a playoff bracket. Round-N
+  // matches look up `${keyPrefix}wb:${round}`.
+  keyPrefix: string = "",
 ): TournamentMatch[] {
   const n = teams.length;
   if (n < 2) {
@@ -446,7 +566,7 @@ export function generateSingleElimBracket(
         round: 1,
         blueTeamId: teamA.id,
         redTeamId: teamB.id,
-        format: defaults.format,
+        format: pickFormat(defaults, formatOverrides, `${keyPrefix}wb:1`),
         fearless: defaults.fearless,
         mode: defaults.mode,
         aiSide: defaults.aiSide,
@@ -489,7 +609,7 @@ export function generateSingleElimBracket(
         // when the previous-round match still needs to resolve.
         blueTeamId: slotA.kind === "bye" ? slotA.teamId : null,
         redTeamId: slotB.kind === "bye" ? slotB.teamId : null,
-        format: defaults.format,
+        format: pickFormat(defaults, formatOverrides, `${keyPrefix}wb:${r}`),
         fearless: defaults.fearless,
         mode: defaults.mode,
         aiSide: defaults.aiSide,
@@ -540,6 +660,7 @@ function nextPowerOfTwo(n: number): number {
 export function generateRoundRobinMatches(
   teams: TournamentTeam[],
   defaults: TournamentDefaults,
+  formatOverrides?: FormatOverrides,
 ): TournamentMatch[] {
   if (teams.length < 2) {
     throw new Error("Round-robin needs at least 2 teams");
@@ -571,7 +692,12 @@ export function generateRoundRobinMatches(
         round,
         blueTeamId: blueTeam.id,
         redTeamId: redTeam.id,
-        format: defaults.format,
+        format: pickFormat(
+          defaults,
+          formatOverrides,
+          `main:${round}`,
+          "main",
+        ),
         fearless: defaults.fearless,
         mode: defaults.mode,
         aiSide: defaults.aiSide,
@@ -653,6 +779,7 @@ export function generateGroupStageMatches(
   teams: TournamentTeam[],
   cfg: { groupCount: number; advancingPerGroup: number },
   defaults: TournamentDefaults,
+  formatOverrides?: FormatOverrides,
 ): TournamentMatch[] {
   if (cfg.groupCount < 1) {
     throw new Error("Groups+playoffs requires at least 1 group");
@@ -663,7 +790,13 @@ export function generateGroupStageMatches(
     const gTeams = groups[gi];
     if (gTeams.length < 2) continue;
     const groupId = groupLabelForIndex(gi);
-    const groupMatches = generateRoundRobinMatches(gTeams, defaults);
+    // Per-matchday format overrides (`main:<round>`) apply to every
+    // group's matchday-N — there's only one main-stage round axis.
+    const groupMatches = generateRoundRobinMatches(
+      gTeams,
+      defaults,
+      formatOverrides,
+    );
     for (const m of groupMatches) m.groupId = groupId;
     out.push(...groupMatches);
   }
@@ -702,6 +835,11 @@ export function generateGroupStageMatches(
 export function generateDoubleElimBracket(
   teams: TournamentTeam[],
   defaults: TournamentDefaults,
+  formatOverrides?: FormatOverrides,
+  // "" for standalone DE; "po:" when this DE is acting as the playoff
+  // bracket of a *-playoffs-de tournament. Threads through to W-/L-/
+  // GF override key lookups.
+  keyPrefix: string = "",
 ): TournamentMatch[] {
   const n = teams.length;
   if (n < 4 || (n & (n - 1)) !== 0) {
@@ -710,7 +848,12 @@ export function generateDoubleElimBracket(
     );
   }
   // Step 1: build the W-side bracket (re-use single-elim shape).
-  const wMatches = generateSingleElimBracket(teams, defaults);
+  const wMatches = generateSingleElimBracket(
+    teams,
+    defaults,
+    formatOverrides,
+    keyPrefix,
+  );
   for (const m of wMatches) m.bracket = "winners";
   const wRoundCount = Math.log2(n);
   const wByRound: TournamentMatch[][] = [];
@@ -747,7 +890,11 @@ export function generateDoubleElimBracket(
       // Slot is filled when the corresponding W-side match completes.
       blueTeamId: null,
       redTeamId: null,
-      format: defaults.format,
+      format: pickFormat(
+        defaults,
+        formatOverrides,
+        `${keyPrefix}lb:${lRoundIdx}`,
+      ),
       fearless: defaults.fearless,
       mode: defaults.mode,
       aiSide: defaults.aiSide,
@@ -789,7 +936,11 @@ export function generateDoubleElimBracket(
         round: lRoundIdx,
         blueTeamId: null,
         redTeamId: null,
-        format: defaults.format,
+        format: pickFormat(
+          defaults,
+          formatOverrides,
+          `${keyPrefix}lb:${lRoundIdx}`,
+        ),
         fearless: defaults.fearless,
         mode: defaults.mode,
         aiSide: defaults.aiSide,
@@ -825,7 +976,11 @@ export function generateDoubleElimBracket(
           round: lRoundIdx,
           blueTeamId: null,
           redTeamId: null,
-          format: defaults.format,
+          format: pickFormat(
+            defaults,
+            formatOverrides,
+            `${keyPrefix}lb:${lRoundIdx}`,
+          ),
           fearless: defaults.fearless,
           mode: defaults.mode,
           aiSide: defaults.aiSide,
@@ -878,7 +1033,7 @@ export function generateDoubleElimBracket(
     round: lRoundIdx,
     blueTeamId: null,
     redTeamId: null,
-    format: defaults.format,
+    format: pickFormat(defaults, formatOverrides, `${keyPrefix}gf`),
     fearless: defaults.fearless,
     mode: defaults.mode,
     aiSide: defaults.aiSide,
@@ -912,6 +1067,7 @@ export function generateDoubleElimBracket(
 function generateSwissRound1(
   teams: TournamentTeam[],
   defaults: TournamentDefaults,
+  formatOverrides?: FormatOverrides,
 ): TournamentMatch[] {
   const sorted = [...teams].sort((a, b) => a.seed - b.seed);
   const half = sorted.length / 2;
@@ -924,7 +1080,7 @@ function generateSwissRound1(
       round: 1,
       blueTeamId: blue.id,
       redTeamId: red.id,
-      format: defaults.format,
+      format: pickFormat(defaults, formatOverrides, "main:1", "main"),
       fearless: defaults.fearless,
       mode: defaults.mode,
       aiSide: defaults.aiSide,
@@ -940,14 +1096,24 @@ function generateSwissRound1(
 export function generateSwissBracket(
   teams: TournamentTeam[],
   defaults: TournamentDefaults,
+  formatOverrides?: FormatOverrides,
+  // Optional override of the auto-derived round count
+  // (default ceil(log2 N)). Useful for shorter Swiss events.
+  totalRoundsOverride?: number,
 ): { matches: TournamentMatch[]; totalRounds: number } {
   const n = teams.length;
   if (n < 4 || n % 2 !== 0) {
     throw new Error(`Swiss requires an even team count ≥ 4 (got ${n})`);
   }
+  const totalRounds =
+    typeof totalRoundsOverride === "number" &&
+    Number.isFinite(totalRoundsOverride) &&
+    totalRoundsOverride >= 1
+      ? Math.floor(totalRoundsOverride)
+      : Math.ceil(Math.log2(n));
   return {
-    matches: generateSwissRound1(teams, defaults),
-    totalRounds: Math.ceil(Math.log2(n)),
+    matches: generateSwissRound1(teams, defaults, formatOverrides),
+    totalRounds,
   };
 }
 
@@ -1106,7 +1272,12 @@ function generateNextSwissRound(
       round,
       blueTeamId: blue.id,
       redTeamId: red.id,
-      format: tournament.defaults.format,
+      format: pickFormat(
+        tournament.defaults,
+        tournament.formatOverrides,
+        `main:${round}`,
+        "main",
+      ),
       fearless: tournament.defaults.fearless,
       mode: tournament.defaults.mode,
       aiSide: tournament.defaults.aiSide,
@@ -1233,6 +1404,20 @@ export interface CreateTournamentParams {
   fearlessConfig?: Partial<TournamentFearlessConfig>;
   reseedBetweenRounds?: boolean;
   trueGrandFinal?: boolean;
+  // Per-match format overrides — see FormatOverrides docs. Optional;
+  // undefined or empty means every match uses defaults.format.
+  formatOverrides?: FormatOverrides;
+  // Override the auto-derived Swiss round count (default: ceil(log2 N)).
+  // Ignored for non-Swiss formats. Useful for shorter or longer Swiss
+  // events (e.g. 5 rounds for 16 teams instead of the default 4).
+  swissTotalRoundsOverride?: number;
+  // Override the auto-derived advancing count for *-playoffs formats.
+  // Ignored for non-*-playoffs formats.
+  swissPlayoffsAdvancingOverride?: number;
+  rrPlayoffsAdvancingOverride?: number;
+  // Override the auto-derived groups config (groupCount × advancing).
+  // Ignored for non-groups-playoffs formats.
+  groupsConfigOverride?: { groupCount: number; advancingPerGroup: number };
   // Snapshot of the live meta to bundle with the tournament. The store
   // captures it from useDraftStore at creation time and passes here.
   metaSnapshot?: {
@@ -1249,30 +1434,53 @@ export function createTournament(
   let matches: TournamentMatch[];
   let swissTotalRounds: number | undefined;
   let groupsPlayoffs: TournamentState["groupsPlayoffs"] | undefined;
+  const fo = params.formatOverrides;
   if (params.format === "single-elim") {
-    matches = generateSingleElimBracket(teams, params.defaults);
+    matches = generateSingleElimBracket(teams, params.defaults, fo);
   } else if (params.format === "round-robin") {
-    matches = generateRoundRobinMatches(teams, params.defaults);
+    matches = generateRoundRobinMatches(teams, params.defaults, fo);
   } else if (params.format === "double-elim") {
-    matches = generateDoubleElimBracket(teams, params.defaults);
+    matches = generateDoubleElimBracket(teams, params.defaults, fo);
   } else if (params.format === "swiss") {
-    const swiss = generateSwissBracket(teams, params.defaults);
+    const swiss = generateSwissBracket(
+      teams,
+      params.defaults,
+      fo,
+      params.swissTotalRoundsOverride,
+    );
     matches = swiss.matches;
     swissTotalRounds = swiss.totalRounds;
-  } else if (params.format === "swiss-playoffs") {
-    const swiss = generateSwissBracket(teams, params.defaults);
+  } else if (
+    params.format === "swiss-playoffs" ||
+    params.format === "swiss-playoffs-de"
+  ) {
+    const swiss = generateSwissBracket(
+      teams,
+      params.defaults,
+      fo,
+      params.swissTotalRoundsOverride,
+    );
     matches = swiss.matches;
     swissTotalRounds = swiss.totalRounds;
-  } else if (params.format === "groups-playoffs") {
+  } else if (
+    params.format === "groups-playoffs" ||
+    params.format === "groups-playoffs-de"
+  ) {
     // Groups+playoffs starts as a per-group round-robin stage; the
     // playoff bracket gets generated when the user freezes standings.
-    const cfg = inferGroupsConfig(teams.length);
-    matches = generateGroupStageMatches(teams, cfg, params.defaults);
+    const inferred = inferGroupsConfig(teams.length);
+    const cfg = params.groupsConfigOverride ?? inferred;
+    matches = generateGroupStageMatches(teams, cfg, params.defaults, fo);
     groupsPlayoffs = {
       groupCount: cfg.groupCount,
       advancingPerGroup: cfg.advancingPerGroup,
       playoffStarted: false,
     };
+  } else if (params.format === "round-robin-playoffs") {
+    // Same regular stage as plain round-robin; playoff bracket gets
+    // generated when the user freezes standings (analogous to swiss-
+    // playoffs / groups-playoffs flow).
+    matches = generateRoundRobinMatches(teams, params.defaults, fo);
   } else {
     throw new Error(`Unsupported tournament format: ${params.format}`);
   }
@@ -1290,11 +1498,34 @@ export function createTournament(
     swissTotalRounds,
     swissPlayoffsAdvancing:
       params.format === "swiss-playoffs"
-        ? Math.min(8, Math.max(4, Math.floor(teams.length / 2)))
-        : undefined,
+        ? params.swissPlayoffsAdvancingOverride ??
+          Math.min(8, Math.max(4, Math.floor(teams.length / 2)))
+        : params.format === "swiss-playoffs-de"
+          ? // DE playoffs require a power-of-2 ≥ 4 advancing count, so
+            // snap to the nearest power-of-2 in {4, 8, 16}. User
+            // overrides also get clamped so the playoff generator
+            // doesn't choke on an invalid count.
+            clampToPowerOf2AtLeast4(
+              params.swissPlayoffsAdvancingOverride ??
+                Math.min(16, Math.max(4, Math.floor(teams.length / 2))),
+            )
+          : undefined,
     swissPlayoffsStarted:
-      params.format === "swiss-playoffs" ? false : undefined,
+      params.format === "swiss-playoffs" ||
+      params.format === "swiss-playoffs-de"
+        ? false
+        : undefined,
+    rrPlayoffsAdvancing:
+      params.format === "round-robin-playoffs"
+        ? clampToPowerOf2AtLeast4(
+            params.rrPlayoffsAdvancingOverride ??
+              Math.min(16, Math.max(4, Math.floor(teams.length / 2))),
+          )
+        : undefined,
+    rrPlayoffsStarted:
+      params.format === "round-robin-playoffs" ? false : undefined,
     groupsPlayoffs,
+    formatOverrides: params.formatOverrides,
     fearlessConfig: {
       perSeries: params.fearlessConfig?.perSeries ?? true,
       perTeam: params.fearlessConfig?.perTeam ?? false,
@@ -1363,26 +1594,43 @@ export function recordMatchWinner(
   //   - single-elim: this match was the final (no feedsInto)
   //   - round-robin: every match now has a winner
   //   - double-elim: this match was the grand final
+  //   - *-playoffs (SE): the playoff bracket final (the only
+  //     winners-bracket match whose feedsInto is null)
+  //   - *-playoffs-de / round-robin-playoffs: the grand final (or its
+  //     reset) — handled by the shared double-elim branch below.
   let status: TournamentState["status"] = tournament.status;
+  // Single-elim playoff brackets used by the SE-playoff variants share
+  // the same shape — bracket="winners", feedsInto null on the final —
+  // so the same completion check covers all of them.
+  const isSEPlayoffsFinal =
+    (tournament.format === "groups-playoffs" ||
+      tournament.format === "swiss-playoffs") &&
+    finishedMatch.bracket === "winners" &&
+    !finishedMatch.feedsInto;
+  // DE-playoff variants use the same grand-final / grand-final-reset
+  // shape as standalone double-elim. Group them so the completion +
+  // bracket-reset logic is shared (the existing double-elim branch
+  // below now fires for these formats too).
+  const isDEPlayoffsContext =
+    tournament.format === "double-elim" ||
+    tournament.format === "swiss-playoffs-de" ||
+    tournament.format === "groups-playoffs-de" ||
+    tournament.format === "round-robin-playoffs";
   if (tournament.format === "single-elim" && !finishedMatch.feedsInto) {
     status = "complete";
   } else if (tournament.format === "round-robin") {
     if (matches.every((m) => m.winner != null)) {
       status = "complete";
     }
-  } else if (
-    (tournament.format === "groups-playoffs" ||
-      tournament.format === "swiss-playoffs") &&
-    finishedMatch.bracket === "winners" &&
-    !finishedMatch.feedsInto
-  ) {
+  } else if (isSEPlayoffsFinal) {
     // Playoff bracket final (the only winners-bracket match in
     // groups-playoffs / swiss-playoffs whose feedsInto is null) —
     // tournament is over.
     status = "complete";
   } else if (
     tournament.format === "swiss" ||
-    (tournament.format === "swiss-playoffs" &&
+    ((tournament.format === "swiss-playoffs" ||
+      tournament.format === "swiss-playoffs-de") &&
       finishedMatch.bracket === undefined)
   ) {
     // Swiss completes when all rounds have run AND every match has a
@@ -1396,9 +1644,9 @@ export function recordMatchWinner(
       const total = tournament.swissTotalRounds ?? round;
       if (round >= total) {
         // For plain Swiss the tournament finishes here. For
-        // swiss-playoffs the user advances to the playoff bracket via
-        // a separate "Generate Playoff Bracket" action — leave status
-        // as in-progress.
+        // swiss-playoffs / swiss-playoffs-de the user advances to the
+        // playoff bracket via a separate "Generate Playoff Bracket"
+        // action — leave status as in-progress.
         if (tournament.format === "swiss") {
           status = "complete";
         }
@@ -1411,7 +1659,7 @@ export function recordMatchWinner(
       }
     }
   } else if (
-    tournament.format === "double-elim" &&
+    isDEPlayoffsContext &&
     (finishedMatch.bracket === "grand-final" ||
       finishedMatch.bracket === "grand-final-reset")
   ) {
@@ -1539,36 +1787,148 @@ function applySingleElimReseed(
 // bracket="winners" so the dashboard renders them in a separate panel.
 // Returns the updated tournament; idempotent if the playoff has already
 // been generated.
+
+// Generate the playoff bracket matches for a given top-N seeded team
+// list. Branches on `kind`:
+//   • single-elim — calls generateSingleElimBracket and tags each match
+//     bracket="winners" so the dashboard groups them in a "Knockout"
+//     panel separate from the regular stage.
+//   • double-elim — calls generateDoubleElimBracket which already tags
+//     matches with bracket="winners"/"losers"/"grand-final". The result
+//     fits straight into the same advancement pipeline used by the
+//     standalone double-elim format (recordMatchWinner already handles
+//     grand-final / bracket-reset for any tournament whose finished
+//     match has bracket==="grand-final").
+//
+// The double-elim path requires the seeded team list to be a power of 2
+// ≥ 4 — caller is responsible for trimming. We don't pad with phantom
+// byes here because mid-bracket byes in a DE generator are awkward
+// (drop-ins from W-side don't have a clean partner). The advancing
+// count UI restricts to 4 / 8 / 16 to avoid this case.
+function buildPlayoffMatches(
+  seededTeams: TournamentTeam[],
+  defaults: TournamentDefaults,
+  kind: "single-elim" | "double-elim",
+  formatOverrides?: FormatOverrides,
+): TournamentMatch[] {
+  if (kind === "double-elim") {
+    // "po:" prefix routes the override lookups to the playoff key
+    // namespace (po:wb / po:lb / po:gf), distinct from any standalone
+    // DE keys the user might have set elsewhere.
+    return generateDoubleElimBracket(
+      seededTeams,
+      defaults,
+      formatOverrides,
+      "po:",
+    );
+  }
+  const matches = generateSingleElimBracket(
+    seededTeams,
+    defaults,
+    formatOverrides,
+    "po:",
+  );
+  for (const m of matches) m.bracket = "winners";
+  return matches;
+}
+
 // Swiss + playoffs: when the Swiss stage completes, promote the top-N
-// teams (by Swiss standings) into a single-elim playoff bracket. The
-// playoff matches are appended with bracket="winners" so they render
-// in their own panel.
+// teams (by Swiss standings) into a single-elim or double-elim playoff
+// bracket. The playoff matches are appended with bracket fields so they
+// render in their own panel. Handles both swiss-playoffs (SE) and
+// swiss-playoffs-de (DE) — the latter trims top-N to the largest
+// power-of-2 ≥ 4 ≤ advancing so the DE generator's preconditions hold.
 export function startSwissPlayoffs(
   tournament: TournamentState,
 ): TournamentState {
-  if (tournament.format !== "swiss-playoffs") return tournament;
+  if (
+    tournament.format !== "swiss-playoffs" &&
+    tournament.format !== "swiss-playoffs-de"
+  ) {
+    return tournament;
+  }
   if (tournament.swissPlayoffsStarted) return tournament;
-  const advancing = tournament.swissPlayoffsAdvancing ?? 4;
+  const kind = playoffBracketKindFor(tournament.format);
+  let advancing = tournament.swissPlayoffsAdvancing ?? 4;
+  if (kind === "double-elim") advancing = clampToPowerOf2AtLeast4(advancing);
   const standings = computeSwissStandings(tournament);
   if (standings.length < 2) return tournament;
   const top = standings.slice(0, advancing);
   if (top.length < 2) return tournament;
+  if (kind === "double-elim" && !isPowerOfTwoAtLeast4(top.length)) {
+    return tournament;
+  }
   // Re-seed: standings rank → bracket seed.
   const reseededTeams: TournamentTeam[] = top.map((s, i) => ({
     ...s.team,
     seed: i + 1,
   }));
-  const playoffMatches = generateSingleElimBracket(
+  const playoffMatches = buildPlayoffMatches(
     reseededTeams,
     tournament.defaults,
+    kind,
+    tournament.formatOverrides,
   );
-  for (const m of playoffMatches) m.bracket = "winners";
   return {
     ...tournament,
     matches: [...tournament.matches, ...playoffMatches],
     swissPlayoffsStarted: true,
     updatedAt: Date.now(),
   };
+}
+
+// Round-robin + playoffs: every team plays each other once (regular
+// round-robin stage), then top-N by standings advance to the playoff
+// bracket. Mirrors startSwissPlayoffs for the swiss case. The user-
+// facing label is "Round Robin + DE Playoffs" — there's no SE variant
+// (use plain round-robin if you don't want a knockout phase, or
+// single-elim if you don't need a regular stage).
+export function startRoundRobinPlayoffs(
+  tournament: TournamentState,
+): TournamentState {
+  if (tournament.format !== "round-robin-playoffs") return tournament;
+  if (tournament.rrPlayoffsStarted) return tournament;
+  const kind = playoffBracketKindFor(tournament.format); // always "double-elim"
+  let advancing = tournament.rrPlayoffsAdvancing ?? 4;
+  if (kind === "double-elim") advancing = clampToPowerOf2AtLeast4(advancing);
+  const standings = computeStandings(tournament);
+  if (standings.length < 2) return tournament;
+  const top = standings.slice(0, advancing);
+  if (top.length < 2) return tournament;
+  if (kind === "double-elim" && !isPowerOfTwoAtLeast4(top.length)) {
+    return tournament;
+  }
+  const reseededTeams: TournamentTeam[] = top.map((s, i) => ({
+    ...s.team,
+    seed: i + 1,
+  }));
+  const playoffMatches = buildPlayoffMatches(
+    reseededTeams,
+    tournament.defaults,
+    kind,
+    tournament.formatOverrides,
+  );
+  return {
+    ...tournament,
+    matches: [...tournament.matches, ...playoffMatches],
+    rrPlayoffsStarted: true,
+    updatedAt: Date.now(),
+  };
+}
+
+// Snap an arbitrary advancing count to the largest power of 2 ≥ 4 that
+// is ≤ the input. 4 → 4; 5..7 → 4; 8..15 → 8; 16+ → 16. Caps at 16
+// because a 32-team DE playoff is impractically large for stage-based
+// tournaments (the standalone double-elim format covers that).
+function clampToPowerOf2AtLeast4(n: number): number {
+  if (n < 4) return 4;
+  if (n >= 16) return 16;
+  if (n >= 8) return 8;
+  return 4;
+}
+
+function isPowerOfTwoAtLeast4(n: number): boolean {
+  return n >= 4 && (n & (n - 1)) === 0;
 }
 
 // Compute standings restricted to a single group (groups+playoffs).
@@ -1601,10 +1961,16 @@ export function computeGroupStandings(
 export function startGroupsPlayoffs(
   tournament: TournamentState,
 ): TournamentState {
-  if (tournament.format !== "groups-playoffs") return tournament;
+  if (
+    tournament.format !== "groups-playoffs" &&
+    tournament.format !== "groups-playoffs-de"
+  ) {
+    return tournament;
+  }
   if (tournament.groupsPlayoffs?.playoffStarted) return tournament;
   const cfg = tournament.groupsPlayoffs;
   if (!cfg) return tournament;
+  const kind = playoffBracketKindFor(tournament.format);
   const groupCount = cfg.groupCount;
   const advancingPerGroup = cfg.advancingPerGroup;
   // For each group, take top-K. Snake-seed across groups so #1 from
@@ -1619,17 +1985,30 @@ export function startGroupsPlayoffs(
     }
   }
   if (advancing.length < 2) return tournament;
+  // For DE playoffs, trim to the largest power-of-2 ≥ 4 — the DE
+  // generator can't accept arbitrary counts. Trims from the bottom
+  // (lowest-seeded promoted team gets bumped if needed). The setup UI
+  // restricts groupCount × advancingPerGroup so this rarely fires, but
+  // we belt-and-brace here because saved tournaments can have legacy
+  // configs.
+  let trimmed = advancing;
+  if (kind === "double-elim") {
+    const target = largestPowerOf2AtLeast4LessThanOrEqual(advancing.length);
+    if (target < 4) return tournament;
+    trimmed = advancing.slice(0, target);
+  }
   // Re-seed by promotion order. Snake order above gives reasonable
   // pairings: top-of-group-A vs top-of-group-B in the final, etc.
-  const reseededTeams: TournamentTeam[] = advancing.map((t, i) => ({
+  const reseededTeams: TournamentTeam[] = trimmed.map((t, i) => ({
     ...t,
     seed: i + 1,
   }));
-  const playoffMatches = generateSingleElimBracket(
+  const playoffMatches = buildPlayoffMatches(
     reseededTeams,
     tournament.defaults,
+    kind,
+    tournament.formatOverrides,
   );
-  for (const m of playoffMatches) m.bracket = "winners";
   return {
     ...tournament,
     matches: [...tournament.matches, ...playoffMatches],
@@ -1639,6 +2018,16 @@ export function startGroupsPlayoffs(
     },
     updatedAt: Date.now(),
   };
+}
+
+// Largest power of 2 ≥ 4 that is ≤ n. Used to trim a top-N list down to
+// a DE-bracket-friendly size when the user's group config produces
+// e.g. 6 advancing teams (→ 4 spots).
+function largestPowerOf2AtLeast4LessThanOrEqual(n: number): number {
+  if (n < 4) return 0;
+  if (n >= 16) return 16;
+  if (n >= 8) return 8;
+  return 4;
 }
 
 // ─── Lookups ──────────────────────────────────────────────────────────────
@@ -2272,6 +2661,9 @@ export async function decodeTournament(
     "swiss",
     "swiss-playoffs",
     "groups-playoffs",
+    "round-robin-playoffs",
+    "swiss-playoffs-de",
+    "groups-playoffs-de",
   ];
   if (
     typeof t.id !== "string" ||
@@ -2316,32 +2708,43 @@ export function tournamentChampion(
     const standings = computeSwissStandings(tournament);
     return standings[0]?.team ?? null;
   }
-  if (tournament.format === "swiss-playoffs") {
-    // Champion is the playoff-bracket final winner once that bracket
-    // has been generated and resolved. Falls back to top of Swiss
-    // standings if the playoff hasn't started (shouldn't happen for a
-    // "complete" tournament but defensive).
-    const playoff = tournament.matches.filter(
-      (m) => m.bracket === "winners",
+  // *-playoffs (single-elim and double-elim variants) all crown the
+  // playoff-bracket champion once that bracket exists. SE playoff
+  // brackets only produce bracket="winners" matches, so the final is
+  // the one with feedsInto null. DE playoff brackets produce W/L/GF —
+  // the decider is grand-final-reset (if forced) or grand-final.
+  const isPlayoffsFormat =
+    tournament.format === "swiss-playoffs" ||
+    tournament.format === "swiss-playoffs-de" ||
+    tournament.format === "groups-playoffs" ||
+    tournament.format === "groups-playoffs-de" ||
+    tournament.format === "round-robin-playoffs";
+  if (isPlayoffsFormat) {
+    const reset = tournament.matches.find(
+      (m) => m.bracket === "grand-final-reset",
     );
-    if (playoff.length > 0) {
-      const final = playoff.find((m) => m.feedsInto == null);
-      if (!final?.winner) return null;
-      return getTeam(tournament, final.winner.teamId);
+    const grandFinal = tournament.matches.find(
+      (m) => m.bracket === "grand-final",
+    );
+    const decider = reset ?? grandFinal ?? null;
+    if (decider) {
+      if (!decider.winner) return null;
+      return getTeam(tournament, decider.winner.teamId);
     }
-    const standings = computeSwissStandings(tournament);
-    return standings[0]?.team ?? null;
-  }
-  if (tournament.format === "groups-playoffs") {
-    // After the playoff bracket has been generated, the champion is the
-    // single-elim grand final winner. Before that, no champion.
-    const playoff = tournament.matches.filter(
-      (m) => m.bracket === "winners",
+    // SE-playoff path: final is the bracket="winners" match with no
+    // feedsInto.
+    const seFinal = tournament.matches.find(
+      (m) => m.bracket === "winners" && m.feedsInto == null,
     );
-    if (playoff.length === 0) return null;
-    const final = playoff.find((m) => m.feedsInto == null);
-    if (!final?.winner) return null;
-    return getTeam(tournament, final.winner.teamId);
+    if (seFinal?.winner) return getTeam(tournament, seFinal.winner.teamId);
+    // No playoff bracket yet — defensive fallback to standings top.
+    if (
+      tournament.format === "swiss-playoffs" ||
+      tournament.format === "swiss-playoffs-de"
+    ) {
+      return computeSwissStandings(tournament)[0]?.team ?? null;
+    }
+    return null;
   }
   return null;
 }

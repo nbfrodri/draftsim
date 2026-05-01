@@ -28,6 +28,7 @@ import {
   getMatch,
   getTeam,
   matchesByRound,
+  playoffBracketKindFor,
   tournamentChampion,
   type ChampionAttribution,
   type ChampionStat,
@@ -241,7 +242,8 @@ export default function TournamentDashboard() {
             top + a flat match list below. Single-elim keeps the bracket
             tree. Double-elim renders winners + losers + grand-final
             stacked. */}
-        {tournament.format === "round-robin" ? (
+        {tournament.format === "round-robin" ||
+        tournament.format === "round-robin-playoffs" ? (
           <RoundRobinView
             tournament={tournament}
             rounds={rounds}
@@ -249,7 +251,8 @@ export default function TournamentDashboard() {
             onStartMatch={(id) => setPendingMatchId(id)}
             onViewMatch={handleViewMatch}
           />
-        ) : tournament.format === "groups-playoffs" ? (
+        ) : tournament.format === "groups-playoffs" ||
+          tournament.format === "groups-playoffs-de" ? (
           <GroupsPlayoffsView
             tournament={tournament}
             rounds={rounds}
@@ -258,7 +261,8 @@ export default function TournamentDashboard() {
             onViewMatch={handleViewMatch}
           />
         ) : tournament.format === "swiss" ||
-          tournament.format === "swiss-playoffs" ? (
+          tournament.format === "swiss-playoffs" ||
+          tournament.format === "swiss-playoffs-de" ? (
           <SwissView
             tournament={tournament}
             rounds={rounds}
@@ -506,7 +510,7 @@ function Header({
   return (
     <div className="text-center mb-6 md:mb-8">
       <div className="text-[10px] md:text-xs uppercase tracking-[0.5em] text-rift-gold/70">
-        {tournament.format === "single-elim" ? "Single Elimination" : "Round Robin"}
+        {formatHeaderLabel(tournament.format)}
         {" · "}
         {tournament.teams.length} Teams · {totalRounds} Round{totalRounds > 1 ? "s" : ""}
       </div>
@@ -2253,12 +2257,7 @@ function SummaryCard({
   if (tournament.fearlessConfig.global) fearlessLabels.push("Global");
   else if (tournament.fearlessConfig.perTeam) fearlessLabels.push("Per-Team");
   if (tournament.fearlessConfig.perSeries) fearlessLabels.push("Per-Series");
-  const formatLabel =
-    tournament.format === "single-elim"
-      ? "Single-Elim"
-      : tournament.format === "round-robin"
-      ? "Round-Robin"
-      : tournament.format;
+  const formatLabel = formatHeaderLabel(tournament.format);
   const avgGamesPerMatch =
     summary.totalMatches > 0
       ? (summary.totalGames / summary.totalMatches).toFixed(2)
@@ -3178,6 +3177,13 @@ function WinRateTable({
 // Standalone round-robin layout: standings + matchday-grouped match
 // cards. Each matchday gets its own header with a quick progress
 // readout (X of Y played).
+//
+// For format === "round-robin-playoffs", the same standings + matchday
+// layout drives the regular stage; once the regular stage finishes, a
+// "Generate Playoff Bracket" button appears (then a DE playoff section
+// once started). Playoff matches are filtered out of the matchday grid
+// because they live on their own round-numbering and would otherwise
+// merge into the regular-stage matchdays.
 function RoundRobinView({
   tournament,
   rounds,
@@ -3192,6 +3198,34 @@ function RoundRobinView({
   onViewMatch: (matchId: string) => void;
 }) {
   const simulateMatches = useDraftStore((s) => s.simulateMatches);
+  const generatePlayoffBracket = useDraftStore(
+    (s) => s.generatePlayoffBracket,
+  );
+  const isRRPlayoffs = tournament.format === "round-robin-playoffs";
+  // Regular-stage matches only — strips out the DE playoff matches
+  // (winners/losers/grand-final) so they don't double up in the
+  // matchday view. For plain round-robin every match has bracket
+  // undefined so this is a no-op.
+  const regularRounds = useMemo(() => {
+    if (!isRRPlayoffs) return rounds;
+    return rounds
+      .map((rm) => rm.filter((m) => m.bracket === undefined))
+      .filter((rm) => rm.length > 0);
+  }, [rounds, isRRPlayoffs]);
+  const playoffMatches = useMemo(
+    () =>
+      isRRPlayoffs
+        ? tournament.matches.filter((m) => m.bracket !== undefined)
+        : [],
+    [tournament.matches, isRRPlayoffs],
+  );
+  const regularStageComplete =
+    isRRPlayoffs &&
+    tournament.matches
+      .filter((m) => m.bracket === undefined)
+      .every((m) => m.winner != null);
+  const playoffStarted = tournament.rrPlayoffsStarted ?? false;
+  const advancing = tournament.rrPlayoffsAdvancing ?? 0;
   return (
     <div className="space-y-6">
       <div>
@@ -3205,7 +3239,7 @@ function RoundRobinView({
           Matchdays
         </div>
         <div className="space-y-3">
-          {rounds.map((roundMatches, roundIdx) => {
+          {regularRounds.map((roundMatches, roundIdx) => {
             const done = roundMatches.filter((m) => m.winner).length;
             const pendingIds = roundMatches
               .filter((m) => !m.winner && m.blueTeamId && m.redTeamId)
@@ -3213,7 +3247,7 @@ function RoundRobinView({
             const isCurrent =
               done < roundMatches.length &&
               (roundIdx === 0 ||
-                rounds[roundIdx - 1].every((m) => m.winner != null));
+                regularRounds[roundIdx - 1].every((m) => m.winner != null));
             return (
               <div
                 key={roundIdx}
@@ -3266,7 +3300,236 @@ function RoundRobinView({
           })}
         </div>
       </div>
+
+      {isRRPlayoffs && regularStageComplete && !playoffStarted && (
+        <button
+          type="button"
+          onClick={generatePlayoffBracket}
+          className="w-full py-3 border-2 border-rift-gold bg-rift-gold/10 text-rift-goldbright hover:bg-rift-gold/20 font-display text-sm tracking-[0.3em] uppercase transition-all"
+        >
+          Lock In Standings → Generate Playoff Bracket (Top {advancing})
+        </button>
+      )}
+
+      {isRRPlayoffs && playoffStarted && playoffMatches.length > 0 && (
+        <PlayoffBracketSection
+          tournament={tournament}
+          playoffMatches={playoffMatches}
+          kind={playoffBracketKindFor(tournament.format)}
+          advancing={advancing}
+          onStartMatch={onStartMatch}
+          onViewMatch={reviewMode ? onViewMatch : undefined}
+        />
+      )}
     </div>
+  );
+}
+
+// Reusable playoff bracket section — renders either a single-elim
+// column layout or a double-elim winners + losers + grand-final stack
+// depending on `kind`. Used by SwissView, GroupsPlayoffsView, and the
+// round-robin-playoffs branch of RoundRobinView so the same code paths
+// drive every stage-format playoff bracket.
+function PlayoffBracketSection({
+  tournament,
+  playoffMatches,
+  kind,
+  advancing,
+  onStartMatch,
+  onViewMatch,
+}: {
+  tournament: TournamentState;
+  playoffMatches: TournamentMatch[];
+  kind: "single-elim" | "double-elim";
+  advancing: number;
+  onStartMatch: (matchId: string) => void;
+  onViewMatch?: (matchId: string) => void;
+}) {
+  // Group matches by round for SE rendering. DE gets its own filter
+  // path further down.
+  const seRoundsByRound: TournamentMatch[][] = useMemo(() => {
+    if (kind !== "single-elim") return [];
+    const max = playoffMatches.reduce((acc, m) => Math.max(acc, m.round), 0);
+    const out: TournamentMatch[][] = [];
+    for (let r = 1; r <= max; r++) {
+      const inRound = playoffMatches.filter((m) => m.round === r);
+      if (inRound.length > 0) out.push(inRound);
+    }
+    return out;
+  }, [playoffMatches, kind]);
+
+  // Pre-split DE buckets — saved here once so the JSX below stays clean.
+  const winners = useMemo(
+    () =>
+      kind === "double-elim"
+        ? playoffMatches.filter((m) => m.bracket === "winners")
+        : [],
+    [playoffMatches, kind],
+  );
+  const losers = useMemo(
+    () =>
+      kind === "double-elim"
+        ? playoffMatches.filter((m) => m.bracket === "losers")
+        : [],
+    [playoffMatches, kind],
+  );
+  const grandFinal =
+    kind === "double-elim"
+      ? playoffMatches.find((m) => m.bracket === "grand-final") ?? null
+      : null;
+  const grandFinalReset =
+    kind === "double-elim"
+      ? playoffMatches.find((m) => m.bracket === "grand-final-reset") ?? null
+      : null;
+
+  const groupByRound = (matches: TournamentMatch[]): TournamentMatch[][] => {
+    const max = matches.reduce((acc, m) => Math.max(acc, m.round), 0);
+    const minRound = matches.reduce(
+      (acc, m) => Math.min(acc, m.round),
+      Number.POSITIVE_INFINITY,
+    );
+    const out: TournamentMatch[][] = [];
+    if (!Number.isFinite(minRound)) return out;
+    for (let r = minRound; r <= max; r++) {
+      const inRound = matches.filter((m) => m.round === r);
+      if (inRound.length > 0) out.push(inRound);
+    }
+    return out;
+  };
+  const winnersByRound = groupByRound(winners);
+  const losersByRound = groupByRound(losers);
+
+  return (
+    <section>
+      <div className="flex items-baseline justify-between mb-3 pb-2 border-b-2 border-rift-gold/40">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
+            Knockout Stage
+          </div>
+          <div className="font-display text-2xl tracking-wider text-rift-goldbright">
+            Playoffs
+          </div>
+        </div>
+        <div className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/60">
+          {kind === "double-elim" ? "Double-Elim" : "Single-Elim"} ·{" "}
+          {advancing} teams
+        </div>
+      </div>
+
+      {kind === "single-elim" ? (
+        <div className="overflow-x-auto pb-2">
+          <div
+            className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
+            style={{ minWidth: `${seRoundsByRound.length * 220}px` }}
+          >
+            {seRoundsByRound.map((roundMatches, idx) => (
+              <RoundColumn
+                key={idx}
+                round={idx + 1}
+                totalRounds={seRoundsByRound.length}
+                matches={roundMatches}
+                tournament={tournament}
+                onStartMatch={onStartMatch}
+                onViewMatch={onViewMatch}
+              />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
+              Winners Bracket
+            </div>
+            <div className="overflow-x-auto pb-2">
+              <div
+                className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
+                style={{ minWidth: `${winnersByRound.length * 220}px` }}
+              >
+                {winnersByRound.map((roundMatches, idx) => (
+                  <RoundColumn
+                    key={idx}
+                    round={idx + 1}
+                    totalRounds={winnersByRound.length}
+                    matches={roundMatches}
+                    tournament={tournament}
+                    onStartMatch={onStartMatch}
+                    onViewMatch={onViewMatch}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.4em] text-rift-redbright/65 mb-2">
+              Losers Bracket
+            </div>
+            <div className="overflow-x-auto pb-2">
+              <div
+                className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
+                style={{ minWidth: `${losersByRound.length * 220}px` }}
+              >
+                {losersByRound.map((roundMatches, idx) => (
+                  <LosersRoundColumn
+                    key={idx}
+                    round={idx + 1}
+                    totalRounds={losersByRound.length}
+                    matches={roundMatches}
+                    tournament={tournament}
+                    onStartMatch={onStartMatch}
+                    onViewMatch={onViewMatch}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+          {grandFinal && (
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
+                Grand Final
+              </div>
+              <div className="max-w-md">
+                <MatchCard
+                  match={grandFinal}
+                  tournament={tournament}
+                  onStart={() => onStartMatch(grandFinal.id)}
+                  onView={
+                    onViewMatch ? () => onViewMatch(grandFinal.id) : undefined
+                  }
+                />
+              </div>
+              {!grandFinalReset && (
+                <div className="text-[8px] uppercase tracking-[0.3em] text-rift-mutedbright/40 mt-1">
+                  W-side wins outright. L-side win forces a bracket reset.
+                </div>
+              )}
+            </div>
+          )}
+          {grandFinalReset && (
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
+                Grand Final · Reset
+              </div>
+              <div className="max-w-md">
+                <MatchCard
+                  match={grandFinalReset}
+                  tournament={tournament}
+                  onStart={() => onStartMatch(grandFinalReset.id)}
+                  onView={
+                    onViewMatch
+                      ? () => onViewMatch(grandFinalReset.id)
+                      : undefined
+                  }
+                />
+              </div>
+              <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mt-1">
+                L-side forced a reset — this match decides the tournament.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -3324,17 +3587,6 @@ function GroupsPlayoffsView({
     .filter((m) => m.bracket === undefined)
     .every((m) => m.winner != null);
   const playoffStarted = cfg?.playoffStarted ?? false;
-  const playoffRoundsByRound: TournamentMatch[][] = [];
-  if (playoffMatches.length > 0) {
-    const maxRound = playoffMatches.reduce(
-      (acc, m) => Math.max(acc, m.round),
-      0,
-    );
-    for (let r = 1; r <= maxRound; r++) {
-      const inRound = playoffMatches.filter((m) => m.round === r);
-      if (inRound.length > 0) playoffRoundsByRound.push(inRound);
-    }
-  }
 
   return (
     <div className="space-y-7">
@@ -3410,43 +3662,16 @@ function GroupsPlayoffsView({
         </button>
       )}
 
-      {/* ─── Playoffs ────────────────────────────────────────── */}
-      {playoffStarted && playoffRoundsByRound.length > 0 && (
-        <section>
-          <div className="flex items-baseline justify-between mb-3 pb-2 border-b-2 border-rift-gold/40">
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
-                Knockout Stage
-              </div>
-              <div className="font-display text-2xl tracking-wider text-rift-goldbright">
-                Playoffs
-              </div>
-            </div>
-            <div className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/60">
-              Single-Elim · {totalAdvancing} teams
-            </div>
-          </div>
-          <div className="overflow-x-auto pb-2">
-            <div
-              className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
-              style={{
-                minWidth: `${playoffRoundsByRound.length * 220}px`,
-              }}
-            >
-              {playoffRoundsByRound.map((roundMatches, idx) => (
-                <RoundColumn
-                  key={idx}
-                  round={idx + 1}
-                  totalRounds={playoffRoundsByRound.length}
-                  matches={roundMatches}
-                  tournament={tournament}
-                  onStartMatch={onStartMatch}
-                  onViewMatch={reviewMode ? onViewMatch : undefined}
-                />
-              ))}
-            </div>
-          </div>
-        </section>
+      {/* ─── Playoffs (single-elim or double-elim) ──────────── */}
+      {playoffStarted && playoffMatches.length > 0 && (
+        <PlayoffBracketSection
+          tournament={tournament}
+          playoffMatches={playoffMatches}
+          kind={playoffBracketKindFor(tournament.format)}
+          advancing={totalAdvancing}
+          onStartMatch={onStartMatch}
+          onViewMatch={reviewMode ? onViewMatch : undefined}
+        />
       )}
     </div>
   );
@@ -3657,15 +3882,6 @@ function SwissView({
     }
     return out;
   }, [swissMatches]);
-  const playoffRoundsByRound: TournamentMatch[][] = useMemo(() => {
-    const max = playoffMatches.reduce((a, m) => Math.max(a, m.round), 0);
-    const out: TournamentMatch[][] = [];
-    for (let r = 1; r <= max; r++) {
-      const inRound = playoffMatches.filter((m) => m.round === r);
-      if (inRound.length > 0) out.push(inRound);
-    }
-    return out;
-  }, [playoffMatches]);
 
   const currentRoundIdx = (() => {
     for (let i = 0; i < swissRounds.length; i++) {
@@ -3703,9 +3919,12 @@ function SwissView({
   const allSwissPendingIds = swissMatches
     .filter((m) => !m.winner && m.blueTeamId && m.redTeamId)
     .map((m) => m.id);
-  const isSwissPlayoffs = tournament.format === "swiss-playoffs";
+  const isSwissPlayoffs =
+    tournament.format === "swiss-playoffs" ||
+    tournament.format === "swiss-playoffs-de";
   const playoffStarted = tournament.swissPlayoffsStarted ?? false;
   const advancing = tournament.swissPlayoffsAdvancing ?? 0;
+  const playoffKind = playoffBracketKindFor(tournament.format);
 
   return (
     <div className="space-y-6">
@@ -3786,43 +4005,16 @@ function SwissView({
         </div>
       </div>
 
-      {/* ─── Playoff bracket (swiss-playoffs only) ─────────── */}
-      {isSwissPlayoffs && playoffStarted && playoffRoundsByRound.length > 0 && (
-        <section>
-          <div className="flex items-baseline justify-between mb-3 pb-2 border-b-2 border-rift-gold/40">
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
-                Knockout Stage
-              </div>
-              <div className="font-display text-2xl tracking-wider text-rift-goldbright">
-                Playoffs
-              </div>
-            </div>
-            <div className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/60">
-              Single-Elim · {advancing} teams
-            </div>
-          </div>
-          <div className="overflow-x-auto pb-2">
-            <div
-              className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
-              style={{
-                minWidth: `${playoffRoundsByRound.length * 220}px`,
-              }}
-            >
-              {playoffRoundsByRound.map((roundMatches, idx) => (
-                <RoundColumn
-                  key={idx}
-                  round={idx + 1}
-                  totalRounds={playoffRoundsByRound.length}
-                  matches={roundMatches}
-                  tournament={tournament}
-                  onStartMatch={onStartMatch}
-                  onViewMatch={reviewMode ? onViewMatch : undefined}
-                />
-              ))}
-            </div>
-          </div>
-        </section>
+      {/* ─── Playoff bracket (swiss-playoffs / swiss-playoffs-de) ── */}
+      {isSwissPlayoffs && playoffStarted && playoffMatches.length > 0 && (
+        <PlayoffBracketSection
+          tournament={tournament}
+          playoffMatches={playoffMatches}
+          kind={playoffKind}
+          advancing={advancing}
+          onStartMatch={onStartMatch}
+          onViewMatch={reviewMode ? onViewMatch : undefined}
+        />
       )}
     </div>
   );
@@ -4170,6 +4362,35 @@ function StandingsTable({ tournament }: { tournament: TournamentState }) {
       </div>
     </div>
   );
+}
+
+// Header label per tournament format. Keep in sync with the option list
+// in TournamentSetup so the dashboard echoes the same wording the user
+// picked. New stage+playoff variants get explicit two-word labels so
+// the format is unambiguous at a glance.
+function formatHeaderLabel(format: TournamentState["format"]): string {
+  switch (format) {
+    case "single-elim":
+      return "Single Elimination";
+    case "double-elim":
+      return "Double Elimination";
+    case "round-robin":
+      return "Round Robin";
+    case "swiss":
+      return "Swiss";
+    case "swiss-playoffs":
+      return "Swiss + Playoffs";
+    case "swiss-playoffs-de":
+      return "Swiss + DE Playoffs";
+    case "groups-playoffs":
+      return "Groups + Playoffs";
+    case "groups-playoffs-de":
+      return "Groups + DE Playoffs";
+    case "round-robin-playoffs":
+      return "Round Robin + DE Playoffs";
+    default:
+      return "Tournament";
+  }
 }
 
 function StatusPill({ status }: { status: "pending" | "ready" | "complete" }) {

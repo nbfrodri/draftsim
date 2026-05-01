@@ -1,9 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
-import { makeTeamId, TEAM_COLORS, TEAM_ICON_KEYS } from "@/lib/tournament";
+import {
+  formatHasPlayoffs,
+  inferGroupsConfig,
+  makeTeamId,
+  playoffBracketKindFor,
+  TEAM_COLORS,
+  TEAM_ICON_KEYS,
+} from "@/lib/tournament";
 import type {
+  FormatOverrides,
   TournamentFormat,
   TournamentTeam,
   TournamentDefaults,
@@ -16,11 +24,27 @@ import MetaPanel from "./MetaPanel";
 // bye support — top seeds auto-advance when paired with virtual byes.
 // Round-robin accepts 3-8 plus 10 (full pro-style group of ten).
 // Double-elim restricted to powers of 2 ≥ 4. Swiss requires even N ≥ 4.
+// The DE-playoff variants (swiss-playoffs-de / groups-playoffs-de /
+// round-robin-playoffs) trim to the largest power-of-2 ≤ advancing
+// count at promotion time, so any team count works — but the option
+// list nudges users toward counts that produce clean 4 / 8 / 16 DE
+// brackets without any wasted teams.
 const ELIM_COUNTS = [2, 3, 4, 5, 6, 7, 8] as const;
 const RR_COUNTS = [3, 4, 5, 6, 7, 8, 10] as const;
 const DOUBLE_ELIM_COUNTS = [4, 8, 16, 32] as const;
 const SWISS_COUNTS = [4, 6, 8, 10, 12, 16] as const;
 const GROUPS_PLAYOFFS_COUNTS = [4, 6, 8, 12, 16, 24, 32] as const;
+// Round-robin-playoffs needs at least 5 teams so the round-robin stage
+// has more matches than a 4-team DE bracket; values pick out clean
+// "top 4 / top 8" splits.
+const RR_PLAYOFFS_COUNTS = [5, 6, 8, 10, 12, 16] as const;
+// Swiss + DE playoffs: same Swiss counts, but the DE bracket caps at
+// 16 advancing so the larger sizes still make sense.
+const SWISS_DE_COUNTS = [8, 10, 12, 16] as const;
+// Groups + DE playoffs: skip 4 (which would degenerate to a single
+// 4-team DE bracket with no group context). 8+ gives at least two
+// groups feeding the bracket.
+const GROUPS_DE_COUNTS = [8, 12, 16, 24, 32] as const;
 type TeamCount = number;
 
 // Pool of 64 evocative League-of-Legends-flavored team names used by
@@ -116,6 +140,21 @@ const TOURNAMENT_FORMATS: { value: TournamentFormat; label: string; sub: string 
     label: "Groups + Playoffs",
     sub: "Round-robin group stage, then top N play single-elim",
   },
+  {
+    value: "round-robin-playoffs",
+    label: "Round Robin + DE Playoffs",
+    sub: "Round-robin stage, then top N play double-elim",
+  },
+  {
+    value: "swiss-playoffs-de",
+    label: "Swiss + DE Playoffs",
+    sub: "Swiss stage, then top N play double-elim",
+  },
+  {
+    value: "groups-playoffs-de",
+    label: "Groups + DE Playoffs",
+    sub: "Round-robin groups, then top N play double-elim",
+  },
 ];
 
 const FORMATS: { value: SeriesFormat; label: string }[] = [
@@ -165,6 +204,34 @@ export default function TournamentSetup({ onCancel }: Props) {
   // the grand final is a single decisive series with no bracket reset.
   const [trueGrandFinal, setTrueGrandFinal] = useState(false);
 
+  // Advanced customization. Each entry overrides one match's series
+  // format (Bo1/Bo3/Bo5) keyed per FormatOverrides schema in
+  // lib/tournament.ts. Empty map means every match inherits the
+  // tournament default. Reset whenever format/teamCount/groups config
+  // changes since the round count shifts and stale keys would just
+  // dangle.
+  const [formatOverrides, setFormatOverrides] = useState<FormatOverrides>({});
+  // Override of auto-derived advancing count for *-playoffs. Undefined
+  // means "use the default heuristic." Snap to power-of-2 for DE
+  // variants happens at submit time / inside createTournament.
+  const [advancingOverride, setAdvancingOverride] = useState<
+    number | undefined
+  >(undefined);
+  // Override of auto-derived groups config. Undefined → inferGroupsConfig
+  // chooses based on team count. Only meaningful for groups-playoffs /
+  // groups-playoffs-de.
+  const [groupsConfigOverride, setGroupsConfigOverride] = useState<
+    { groupCount: number; advancingPerGroup: number } | undefined
+  >(undefined);
+  // Override of Swiss total round count (default ceil(log2 N)).
+  const [swissRoundsOverride, setSwissRoundsOverride] = useState<
+    number | undefined
+  >(undefined);
+  // Show/hide the advanced settings panel. Closed by default to keep
+  // the setup form approachable for casual users; power users can
+  // expand to fine-tune every round.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
   const teamCountOptions =
     tournamentFormat === "single-elim"
       ? ELIM_COUNTS
@@ -175,12 +242,25 @@ export default function TournamentSetup({ onCancel }: Props) {
       : tournamentFormat === "swiss" ||
         tournamentFormat === "swiss-playoffs"
       ? SWISS_COUNTS
+      : tournamentFormat === "swiss-playoffs-de"
+      ? SWISS_DE_COUNTS
+      : tournamentFormat === "round-robin-playoffs"
+      ? RR_PLAYOFFS_COUNTS
+      : tournamentFormat === "groups-playoffs-de"
+      ? GROUPS_DE_COUNTS
       : GROUPS_PLAYOFFS_COUNTS;
 
   // Adjust team list when team count changes — preserve existing entries
   // by index, fill rest with defaults, drop overflow.
   const handleTeamCountChange = (n: TeamCount) => {
     setTeamCount(n);
+    // Round counts depend on team count, so any per-round overrides
+    // anchored to the previous count would point at rounds that no
+    // longer exist. Cheaper to just reset and let the user re-pick.
+    setFormatOverrides({});
+    setAdvancingOverride(undefined);
+    setGroupsConfigOverride(undefined);
+    setSwissRoundsOverride(undefined);
     setTeams((prev) => {
       const next: TournamentTeam[] = [];
       for (let i = 0; i < n; i++) {
@@ -323,6 +403,38 @@ export default function TournamentSetup({ onCancel }: Props) {
         tournamentFormat === "single-elim" ? reseedBetweenRounds : undefined,
       trueGrandFinal:
         tournamentFormat === "double-elim" ? trueGrandFinal : undefined,
+      // Strip empty / no-op overrides so the persisted tournament
+      // doesn't carry dead state. Empty map → undefined.
+      formatOverrides:
+        Object.keys(formatOverrides).length > 0
+          ? formatOverrides
+          : undefined,
+      // Advancing-count override only meaningful for the relevant
+      // *-playoffs formats — gate per format.
+      swissPlayoffsAdvancingOverride:
+        (tournamentFormat === "swiss-playoffs" ||
+          tournamentFormat === "swiss-playoffs-de") &&
+        advancingOverride != null
+          ? advancingOverride
+          : undefined,
+      rrPlayoffsAdvancingOverride:
+        tournamentFormat === "round-robin-playoffs" &&
+        advancingOverride != null
+          ? advancingOverride
+          : undefined,
+      groupsConfigOverride:
+        (tournamentFormat === "groups-playoffs" ||
+          tournamentFormat === "groups-playoffs-de") &&
+        groupsConfigOverride
+          ? groupsConfigOverride
+          : undefined,
+      swissTotalRoundsOverride:
+        (tournamentFormat === "swiss" ||
+          tournamentFormat === "swiss-playoffs" ||
+          tournamentFormat === "swiss-playoffs-de") &&
+        swissRoundsOverride != null
+          ? swissRoundsOverride
+          : undefined,
     });
   };
 
@@ -330,6 +442,13 @@ export default function TournamentSetup({ onCancel }: Props) {
   // the new format (each format has its own count constraints).
   const handleFormatChange = (f: TournamentFormat) => {
     setTournamentFormat(f);
+    // Per-round / per-bracket overrides reference round-count + format-
+    // shape — a single-elim "wb:3" is meaningless under round-robin.
+    // Reset everything advanced so the user starts clean.
+    setFormatOverrides({});
+    setAdvancingOverride(undefined);
+    setGroupsConfigOverride(undefined);
+    setSwissRoundsOverride(undefined);
     const options =
       f === "single-elim"
         ? ELIM_COUNTS
@@ -339,10 +458,20 @@ export default function TournamentSetup({ onCancel }: Props) {
         ? DOUBLE_ELIM_COUNTS
         : f === "swiss" || f === "swiss-playoffs"
         ? SWISS_COUNTS
+        : f === "swiss-playoffs-de"
+        ? SWISS_DE_COUNTS
+        : f === "round-robin-playoffs"
+        ? RR_PLAYOFFS_COUNTS
+        : f === "groups-playoffs-de"
+        ? GROUPS_DE_COUNTS
         : GROUPS_PLAYOFFS_COUNTS;
     if (!options.includes(teamCount as never)) {
-      // Snap to the closest valid count (or 4 if no obvious match).
-      const next = options.includes(4 as never) ? 4 : options[0];
+      // Snap to the closest valid count (or 4 / 8 if no obvious match).
+      const next = options.includes(8 as never)
+        ? 8
+        : options.includes(4 as never)
+          ? 4
+          : options[0];
       handleTeamCountChange(next);
     }
   };
@@ -447,6 +576,12 @@ export default function TournamentSetup({ onCancel }: Props) {
               ? `${Math.ceil(Math.log2(teamCount))} rounds · ${(Math.ceil(Math.log2(teamCount)) * teamCount) / 2} matches · pairings update each round`
               : tournamentFormat === "swiss-playoffs"
               ? `${Math.ceil(Math.log2(teamCount))} swiss rounds · top ${Math.min(8, Math.max(4, Math.floor(teamCount / 2)))} → single-elim`
+              : tournamentFormat === "swiss-playoffs-de"
+              ? `${Math.ceil(Math.log2(teamCount))} swiss rounds · top ${dePlayoffAdvancingFor(teamCount)} → double-elim`
+              : tournamentFormat === "round-robin-playoffs"
+              ? `${(teamCount * (teamCount - 1)) / 2} round-robin matches · top ${dePlayoffAdvancingFor(teamCount)} → double-elim`
+              : tournamentFormat === "groups-playoffs-de"
+              ? `${(teamCount * (teamCount - 1)) / 2} group matches · top ${dePlayoffAdvancingFor(teamCount)} → double-elim playoffs`
               : tournamentFormat === "groups-playoffs"
               ? `${(teamCount * (teamCount - 1)) / 2} group matches · top 4 → single-elim playoffs`
               : `${teamCount % 2 === 0 ? teamCount - 1 : teamCount} matchday${teamCount > 3 ? "s" : ""} · ${(teamCount * (teamCount - 1)) / 2} match${teamCount > 2 ? "es" : ""}`}
@@ -674,6 +809,23 @@ export default function TournamentSetup({ onCancel }: Props) {
           </div>
         </div>
 
+        {/* ─── Advanced settings ───────────────────────────────────── */}
+        <AdvancedSettingsPanel
+          format={tournamentFormat}
+          teamCount={teamCount}
+          defaultFormat={format}
+          formatOverrides={formatOverrides}
+          setFormatOverrides={setFormatOverrides}
+          advancingOverride={advancingOverride}
+          setAdvancingOverride={setAdvancingOverride}
+          groupsConfigOverride={groupsConfigOverride}
+          setGroupsConfigOverride={setGroupsConfigOverride}
+          swissRoundsOverride={swissRoundsOverride}
+          setSwissRoundsOverride={setSwissRoundsOverride}
+          open={advancedOpen}
+          setOpen={setAdvancedOpen}
+        />
+
         {/* ─── Meta tier controls ──────────────────────────────────── */}
         {/* Same access as single-series setup — users can review tier
             list, synergies, randomize, edit, or toggle the meta system
@@ -739,6 +891,19 @@ function doubleElimSummary(n: number): string {
   if (n === 16) return "11 rounds · 30 matches · winners + losers + grand final";
   if (n === 32) return "14 rounds · 62 matches · winners + losers + grand final";
   return `${n} teams`;
+}
+
+// How many top-N teams a *-playoffs-de or round-robin-playoffs tournament
+// promotes into its DE playoff bracket given a team count. Mirrors the
+// snap-to-power-of-2 logic in lib/tournament.ts so the setup summary
+// matches what the user will actually get. Caps at 16 because a 32-team
+// DE bracket is impractically large for a stage-based tournament.
+function dePlayoffAdvancingFor(teamCount: number): number {
+  const half = Math.floor(teamCount / 2);
+  const target = Math.min(16, Math.max(4, half));
+  if (target >= 16) return 16;
+  if (target >= 8) return 8;
+  return 4;
 }
 
 function defaultTeams(n: number): TournamentTeam[] {
@@ -985,6 +1150,799 @@ function StarPicker({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Advanced settings panel ──────────────────────────────────────────
+//
+// Per-format customization. Renders three sub-sections when relevant:
+//   1. Series Format per Round — Bo1/Bo3/Bo5 picker per bracket round
+//      and a single picker for main-stage matchdays. Power users can
+//      mirror real-world conventions like "regular season Bo1, semis
+//      Bo5, final Bo5" without touching every match individually after
+//      the tournament starts.
+//   2. Tournament Structure — playoff advancing count, groups config,
+//      Swiss round count. Lets the user override the auto-derived
+//      defaults (e.g. "8 teams advance from 16-team Swiss instead of 4").
+// Collapsed by default to keep the entry-level setup form short.
+
+interface RoundOverrideRow {
+  key: string;
+  label: string;
+  // Section header. Adjacent rows with the same section are visually
+  // grouped under one header.
+  section: string;
+}
+
+// Compute the list of override-able rounds for the current format +
+// team count + downstream config (advancing count / groups). Each
+// returned row drives one Bo1/Bo3/Bo5 picker in the panel.
+function computeRoundOverrideRows(
+  format: TournamentFormat,
+  teamCount: number,
+  effectiveAdvancing: number,
+  effectiveGroupsConfig: { groupCount: number; advancingPerGroup: number },
+): RoundOverrideRow[] {
+  const rows: RoundOverrideRow[] = [];
+
+  // Standalone bracket formats — every round of the bracket is its own
+  // override row. Single-elim and DE-W rounds use the same key shape
+  // ("wb:N") since they're identically structured at the data layer.
+  if (format === "single-elim") {
+    const k = Math.ceil(Math.log2(Math.max(2, teamCount)));
+    for (let r = 1; r <= k; r++) {
+      rows.push({
+        key: `wb:${r}`,
+        label: bracketRoundLabel(r, k, "se"),
+        section: "Bracket",
+      });
+    }
+  }
+  if (format === "double-elim") {
+    const k = Math.log2(teamCount);
+    for (let r = 1; r <= k; r++) {
+      rows.push({
+        key: `wb:${r}`,
+        label: bracketRoundLabel(r, k, "de-w"),
+        section: "Winners Bracket",
+      });
+    }
+    const lRounds = 2 * (k - 1);
+    for (let r = 1; r <= lRounds; r++) {
+      rows.push({
+        key: `lb:${r}`,
+        label: bracketRoundLabel(r, lRounds, "de-l"),
+        section: "Losers Bracket",
+      });
+    }
+    rows.push({
+      key: "gf",
+      label: "Grand Final",
+      section: "Grand Final",
+    });
+  }
+
+  // Stage formats — single "main stage" picker covers every matchday.
+  // Per-matchday flexibility is supported by the data model but not
+  // exposed in the UI to avoid clutter (typical pro tournaments use
+  // one Bo for the whole regular season anyway).
+  if (format === "round-robin" || format === "round-robin-playoffs") {
+    rows.push({
+      key: "main",
+      label: "All Matchdays",
+      section: "Main Stage",
+    });
+  }
+  if (
+    format === "swiss" ||
+    format === "swiss-playoffs" ||
+    format === "swiss-playoffs-de"
+  ) {
+    rows.push({
+      key: "main",
+      label: "All Swiss Rounds",
+      section: "Swiss Stage",
+    });
+  }
+  if (format === "groups-playoffs" || format === "groups-playoffs-de") {
+    rows.push({
+      key: "main",
+      label: "All Group Matchdays",
+      section: "Group Stage",
+    });
+  }
+
+  // Playoff bracket rounds — only for *-playoffs formats. The DE
+  // variants have W/L/GF; SE variants just have W rounds (we still
+  // use the "wb:" key shape internally, prefixed with "po:").
+  if (formatHasPlayoffs(format)) {
+    const kind = playoffBracketKindFor(format);
+    if (kind === "single-elim") {
+      const k = Math.ceil(Math.log2(Math.max(2, effectiveAdvancing)));
+      for (let r = 1; r <= k; r++) {
+        rows.push({
+          key: `po:wb:${r}`,
+          label: bracketRoundLabel(r, k, "po-se"),
+          section: "Playoff Bracket",
+        });
+      }
+    } else {
+      const k = Math.log2(effectiveAdvancing);
+      if (Number.isFinite(k) && k >= 2) {
+        for (let r = 1; r <= k; r++) {
+          rows.push({
+            key: `po:wb:${r}`,
+            label: bracketRoundLabel(r, k, "po-de-w"),
+            section: "Playoff Winners",
+          });
+        }
+        const lRounds = 2 * (k - 1);
+        for (let r = 1; r <= lRounds; r++) {
+          rows.push({
+            key: `po:lb:${r}`,
+            label: bracketRoundLabel(r, lRounds, "po-de-l"),
+            section: "Playoff Losers",
+          });
+        }
+        rows.push({
+          key: "po:gf",
+          label: "Playoff Grand Final",
+          section: "Playoff Grand Final",
+        });
+      }
+    }
+  }
+
+  // Suppress effective-config warnings for unused params in formats
+  // that don't consume them (e.g. round-robin doesn't care about
+  // groups). The lint rule is calmed by the call-site usage.
+  void effectiveGroupsConfig;
+  return rows;
+}
+
+// Pretty round name based on its position in a bracket.
+function bracketRoundLabel(
+  round: number,
+  totalRounds: number,
+  ctx: "se" | "de-w" | "de-l" | "po-se" | "po-de-w" | "po-de-l",
+): string {
+  const isFinal = round === totalRounds;
+  const isSemi = round === totalRounds - 1;
+  const isQuarter = round === totalRounds - 2;
+  if (ctx === "se") {
+    if (isFinal) return "Final";
+    if (isSemi) return "Semifinal";
+    if (isQuarter) return "Quarterfinal";
+    return `Round ${round}`;
+  }
+  if (ctx === "de-w") {
+    if (isFinal) return "W-Final";
+    if (isSemi) return "W-Semi";
+    return `W-R${round}`;
+  }
+  if (ctx === "de-l") {
+    if (isFinal) return "L-Final";
+    if (isSemi) return "L-Semi";
+    return `L-R${round}`;
+  }
+  if (ctx === "po-se") {
+    if (isFinal) return "Playoff Final";
+    if (isSemi) return "Playoff Semifinal";
+    if (isQuarter) return "Playoff Quarterfinal";
+    return `Playoff R${round}`;
+  }
+  if (ctx === "po-de-w") {
+    if (isFinal) return "Playoff W-Final";
+    if (isSemi) return "Playoff W-Semi";
+    return `Playoff W-R${round}`;
+  }
+  // po-de-l
+  if (isFinal) return "Playoff L-Final";
+  if (isSemi) return "Playoff L-Semi";
+  return `Playoff L-R${round}`;
+}
+
+// Divisors of N that produce ≥ 2 teams per group AND ≥ 2 groups (or
+// just 1 group, the trivial single-group case). Used to populate the
+// group-count picker so every option produces a valid group stage.
+function validGroupCounts(teamCount: number): number[] {
+  const out: number[] = [];
+  for (let g = 1; g <= teamCount; g++) {
+    if (teamCount % g !== 0) continue;
+    const groupSize = teamCount / g;
+    if (groupSize < 2) continue;
+    out.push(g);
+  }
+  return out;
+}
+
+function AdvancedSettingsPanel({
+  format,
+  teamCount,
+  defaultFormat,
+  formatOverrides,
+  setFormatOverrides,
+  advancingOverride,
+  setAdvancingOverride,
+  groupsConfigOverride,
+  setGroupsConfigOverride,
+  swissRoundsOverride,
+  setSwissRoundsOverride,
+  open,
+  setOpen,
+}: {
+  format: TournamentFormat;
+  teamCount: number;
+  defaultFormat: SeriesFormat;
+  formatOverrides: FormatOverrides;
+  setFormatOverrides: React.Dispatch<React.SetStateAction<FormatOverrides>>;
+  advancingOverride: number | undefined;
+  setAdvancingOverride: (n: number | undefined) => void;
+  groupsConfigOverride:
+    | { groupCount: number; advancingPerGroup: number }
+    | undefined;
+  setGroupsConfigOverride: (
+    cfg: { groupCount: number; advancingPerGroup: number } | undefined,
+  ) => void;
+  swissRoundsOverride: number | undefined;
+  setSwissRoundsOverride: (n: number | undefined) => void;
+  open: boolean;
+  setOpen: (v: boolean) => void;
+}) {
+  // Effective config — what the tournament will actually use given
+  // current overrides + defaults. Drives both the round-list shape
+  // (DE-bracket round count depends on advancing count) and the row
+  // labels.
+  const effectiveAdvancing = useMemo(() => {
+    if (advancingOverride != null) {
+      const kind = playoffBracketKindFor(format);
+      if (kind === "double-elim") {
+        // Snap to nearest power-of-2 ≥ 4 ≤ 16 to stay within the
+        // generator's preconditions. Same rule applies at submit time.
+        const v = Math.min(16, Math.max(4, advancingOverride));
+        if (v >= 16) return 16;
+        if (v >= 8) return 8;
+        return 4;
+      }
+      return Math.max(2, Math.min(teamCount, advancingOverride));
+    }
+    if (
+      format === "swiss-playoffs" ||
+      format === "swiss-playoffs-de" ||
+      format === "round-robin-playoffs"
+    ) {
+      return dePlayoffAdvancingFor(teamCount);
+    }
+    if (format === "groups-playoffs" || format === "groups-playoffs-de") {
+      const cfg = groupsConfigOverride ?? inferGroupsConfig(teamCount);
+      return cfg.groupCount * cfg.advancingPerGroup;
+    }
+    return 0;
+  }, [advancingOverride, format, teamCount, groupsConfigOverride]);
+
+  const effectiveGroupsConfig = useMemo(
+    () => groupsConfigOverride ?? inferGroupsConfig(teamCount),
+    [groupsConfigOverride, teamCount],
+  );
+
+  const rows = useMemo(
+    () =>
+      computeRoundOverrideRows(
+        format,
+        teamCount,
+        effectiveAdvancing,
+        effectiveGroupsConfig,
+      ),
+    [format, teamCount, effectiveAdvancing, effectiveGroupsConfig],
+  );
+
+  const sections = useMemo(() => {
+    // Group rows by section, preserving order.
+    const order: string[] = [];
+    const map = new Map<string, RoundOverrideRow[]>();
+    for (const r of rows) {
+      if (!map.has(r.section)) {
+        map.set(r.section, []);
+        order.push(r.section);
+      }
+      map.get(r.section)!.push(r);
+    }
+    return order.map((s) => ({ section: s, items: map.get(s)! }));
+  }, [rows]);
+
+  // Whether to show the "Tournament Structure" section. Hidden for
+  // formats with no playoff bracket / groups / Swiss config knobs.
+  const showStructureControls =
+    formatHasPlayoffs(format) ||
+    format === "swiss" ||
+    format === "groups-playoffs" ||
+    format === "groups-playoffs-de";
+
+  const setRound = (key: string, fmt: SeriesFormat | "default") => {
+    setFormatOverrides((prev) => {
+      const next = { ...prev };
+      // Special handling for the "main" key: writing it sets all
+      // matchdays uniformly. We use a single `main` key (not per-
+      // round) since the UI offers one picker for the whole stage.
+      // The runtime falls back appropriately.
+      if (fmt === "default") {
+        delete next[key];
+      } else {
+        next[key] = fmt;
+      }
+      return next;
+    });
+  };
+
+  const resetAll = () => {
+    setFormatOverrides({});
+    setAdvancingOverride(undefined);
+    setGroupsConfigOverride(undefined);
+    setSwissRoundsOverride(undefined);
+  };
+
+  const overrideCount =
+    Object.keys(formatOverrides).length +
+    (advancingOverride != null ? 1 : 0) +
+    (groupsConfigOverride ? 1 : 0) +
+    (swissRoundsOverride != null ? 1 : 0);
+
+  return (
+    <div className="mb-5 border border-rift-line/40 bg-rift-bg/30">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-3 md:px-4 py-3 text-left hover:bg-rift-gold/[0.03] transition-colors"
+      >
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
+            Advanced Settings
+          </div>
+          <div className="text-[9px] uppercase tracking-[0.25em] text-rift-mutedbright/55 mt-0.5">
+            Per-round series format · playoff size · groups config
+            {overrideCount > 0 && (
+              <span className="ml-2 text-rift-goldbright">
+                · {overrideCount} override{overrideCount === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+        </div>
+        <span className="text-rift-gold/70 text-sm">{open ? "▾" : "▸"}</span>
+      </button>
+
+      {open && (
+        <div className="px-3 md:px-4 pb-4 space-y-5 border-t border-rift-line/40">
+          {/* ─── Tournament Structure ──────────────────────────── */}
+          {showStructureControls && (
+            <section className="pt-3">
+              <div className="flex items-baseline justify-between mb-2">
+                <h3 className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
+                  Tournament Structure
+                </h3>
+                {overrideCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={resetAll}
+                    className="text-[9px] uppercase tracking-[0.25em] text-rift-mutedbright hover:text-rift-goldbright"
+                  >
+                    Reset all
+                  </button>
+                )}
+              </div>
+              <div className="space-y-2">
+                {/* Swiss round count */}
+                {(format === "swiss" ||
+                  format === "swiss-playoffs" ||
+                  format === "swiss-playoffs-de") && (
+                  <SwissRoundsControl
+                    teamCount={teamCount}
+                    value={swissRoundsOverride}
+                    onChange={setSwissRoundsOverride}
+                  />
+                )}
+                {/* Advancing count for *-playoffs (non-groups) */}
+                {(format === "swiss-playoffs" ||
+                  format === "swiss-playoffs-de" ||
+                  format === "round-robin-playoffs") && (
+                  <AdvancingCountControl
+                    teamCount={teamCount}
+                    kind={playoffBracketKindFor(format)}
+                    value={advancingOverride}
+                    onChange={setAdvancingOverride}
+                    fallback={dePlayoffAdvancingFor(teamCount)}
+                  />
+                )}
+                {/* Groups config (groupCount × advancingPerGroup) */}
+                {(format === "groups-playoffs" ||
+                  format === "groups-playoffs-de") && (
+                  <GroupsConfigControl
+                    teamCount={teamCount}
+                    value={groupsConfigOverride}
+                    onChange={setGroupsConfigOverride}
+                    isDE={format === "groups-playoffs-de"}
+                  />
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ─── Series Format per Round ──────────────────────── */}
+          {rows.length > 0 && (
+            <section className={showStructureControls ? "pt-1" : "pt-3"}>
+              <h3 className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
+                Series Format per Round
+              </h3>
+              <p className="text-[9px] tracking-[0.15em] text-rift-mutedbright/55 mb-3 leading-relaxed">
+                Override Bo1 / Bo3 / Bo5 per round. Set semifinals to Bo5, the
+                final to Bo7-style etc. Defaults to the tournament-wide format
+                ({defaultFormat.toUpperCase()}) when not overridden.
+              </p>
+              <div className="space-y-3">
+                {sections.map((s) => (
+                  <div key={s.section}>
+                    <div className="text-[8px] uppercase tracking-[0.35em] text-rift-mutedbright/55 mb-1.5">
+                      {s.section}
+                    </div>
+                    <div className="space-y-1">
+                      {s.items.map((row) => (
+                        <RoundFormatRow
+                          key={row.key}
+                          label={row.label}
+                          value={formatOverrides[row.key]}
+                          defaultFormat={defaultFormat}
+                          onChange={(fmt) => setRound(row.key, fmt)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One row of the per-round format picker. Three buttons (Bo1 / Bo3 /
+// Bo5) plus a "Default" button that drops the override and inherits
+// the tournament-wide default.
+function RoundFormatRow({
+  label,
+  value,
+  defaultFormat,
+  onChange,
+}: {
+  label: string;
+  value: SeriesFormat | undefined;
+  defaultFormat: SeriesFormat;
+  onChange: (fmt: SeriesFormat | "default") => void;
+}) {
+  const isDefault = value == null;
+  const effective = value ?? defaultFormat;
+  return (
+    <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+      <span className="text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright">
+        {label}
+      </span>
+      <div className="flex gap-1">
+        {(["bo1", "bo3", "bo5"] as const).map((f) => {
+          const active = !isDefault && effective === f;
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => onChange(f)}
+              className={`px-2.5 py-1 border text-[10px] uppercase tracking-[0.25em] transition-all ${
+                active
+                  ? "border-rift-gold bg-rift-gold/15 text-rift-goldbright"
+                  : "border-rift-line text-rift-mutedbright hover:border-rift-gold/60 hover:text-rift-goldbright"
+              }`}
+            >
+              {f.toUpperCase()}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => onChange("default")}
+          title={`Inherit tournament default (${defaultFormat.toUpperCase()})`}
+          className={`px-2 py-1 border text-[10px] uppercase tracking-[0.25em] transition-all ${
+            isDefault
+              ? "border-rift-line/40 bg-rift-line/10 text-rift-mutedbright/70"
+              : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60"
+          }`}
+        >
+          Default
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Number-of-teams-advancing control. SE-playoffs accept any integer
+// 2..teamCount-1; DE-playoffs snap to {4, 8, 16} ≤ teamCount.
+function AdvancingCountControl({
+  teamCount,
+  kind,
+  value,
+  onChange,
+  fallback,
+}: {
+  teamCount: number;
+  kind: "single-elim" | "double-elim";
+  value: number | undefined;
+  onChange: (n: number | undefined) => void;
+  fallback: number;
+}) {
+  const effective = value ?? fallback;
+  if (kind === "double-elim") {
+    const options = [4, 8, 16].filter((n) => n <= teamCount);
+    return (
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright mb-1">
+          Teams in Playoffs
+          <span className="ml-2 text-[9px] text-rift-mutedbright/55 normal-case">
+            (DE bracket — must be a power of 2)
+          </span>
+        </div>
+        <div className="flex gap-1.5">
+          {options.map((n) => {
+            const active = effective === n && value != null;
+            return (
+              <button
+                key={n}
+                type="button"
+                onClick={() => onChange(n)}
+                className={`px-3 py-1 border text-[10px] uppercase tracking-[0.25em] transition-all ${
+                  active
+                    ? "border-rift-gold bg-rift-gold/15 text-rift-goldbright"
+                    : "border-rift-line text-rift-mutedbright hover:border-rift-gold/60 hover:text-rift-goldbright"
+                }`}
+              >
+                {n}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => onChange(undefined)}
+            className={`px-2.5 py-1 border text-[10px] uppercase tracking-[0.25em] transition-all ${
+              value == null
+                ? "border-rift-line/40 bg-rift-line/10 text-rift-mutedbright/70"
+                : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60"
+            }`}
+          >
+            Auto ({fallback})
+          </button>
+        </div>
+      </div>
+    );
+  }
+  // SE-playoffs — any integer in [2, teamCount-1]
+  const min = 2;
+  const max = Math.max(min + 1, teamCount - 1);
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright mb-1">
+        Teams in Playoffs
+        <span className="ml-2 text-[9px] text-rift-mutedbright/55 normal-case">
+          ({min}–{max})
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={value ?? ""}
+          placeholder={String(fallback)}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "") {
+              onChange(undefined);
+              return;
+            }
+            const n = parseInt(v, 10);
+            if (!Number.isFinite(n)) return;
+            onChange(Math.min(max, Math.max(min, n)));
+          }}
+          className="w-20 bg-rift-bg/60 border border-rift-line text-rift-goldbright px-2 py-1 text-sm font-display tracking-wider focus:outline-none focus:border-rift-gold/60"
+        />
+        <button
+          type="button"
+          onClick={() => onChange(undefined)}
+          className={`px-2.5 py-1 border text-[10px] uppercase tracking-[0.25em] transition-all ${
+            value == null
+              ? "border-rift-line/40 bg-rift-line/10 text-rift-mutedbright/70"
+              : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60"
+          }`}
+        >
+          Auto ({fallback})
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Groups config picker — group count (divisors of teamCount) and
+// per-group advancement (1..groupSize-1). Combined output is shown
+// inline so the user sees the implied playoff size at a glance.
+function GroupsConfigControl({
+  teamCount,
+  value,
+  onChange,
+  isDE,
+}: {
+  teamCount: number;
+  value: { groupCount: number; advancingPerGroup: number } | undefined;
+  onChange: (
+    cfg: { groupCount: number; advancingPerGroup: number } | undefined,
+  ) => void;
+  isDE: boolean;
+}) {
+  const inferred = inferGroupsConfig(teamCount);
+  const effective = value ?? inferred;
+  const validCounts = validGroupCounts(teamCount);
+  const groupSize = teamCount / effective.groupCount;
+  const maxAdvance = Math.max(1, Math.min(groupSize - 1, groupSize));
+  const advancingOptions: number[] = [];
+  for (let i = 1; i <= maxAdvance; i++) advancingOptions.push(i);
+  const totalAdvance = effective.groupCount * effective.advancingPerGroup;
+  const dePlayoffSize = isDE
+    ? totalAdvance >= 16
+      ? 16
+      : totalAdvance >= 8
+        ? 8
+        : totalAdvance >= 4
+          ? 4
+          : 0
+    : null;
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright mb-1">
+          Number of Groups
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {validCounts.map((g) => {
+            const active = effective.groupCount === g && value != null;
+            return (
+              <button
+                key={g}
+                type="button"
+                onClick={() =>
+                  onChange({
+                    groupCount: g,
+                    // Re-clamp advancingPerGroup if the new group size
+                    // is smaller than the current setting.
+                    advancingPerGroup: Math.min(
+                      Math.max(1, teamCount / g - 1),
+                      effective.advancingPerGroup,
+                    ),
+                  })
+                }
+                className={`px-3 py-1 border text-[10px] uppercase tracking-[0.25em] transition-all ${
+                  active
+                    ? "border-rift-gold bg-rift-gold/15 text-rift-goldbright"
+                    : "border-rift-line text-rift-mutedbright hover:border-rift-gold/60 hover:text-rift-goldbright"
+                }`}
+              >
+                {g} × {teamCount / g}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => onChange(undefined)}
+            className={`px-2.5 py-1 border text-[10px] uppercase tracking-[0.25em] transition-all ${
+              value == null
+                ? "border-rift-line/40 bg-rift-line/10 text-rift-mutedbright/70"
+                : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60"
+            }`}
+          >
+            Auto ({inferred.groupCount}×{teamCount / inferred.groupCount})
+          </button>
+        </div>
+      </div>
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright mb-1">
+          Advance per Group
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {advancingOptions.map((a) => {
+            const active = effective.advancingPerGroup === a && value != null;
+            return (
+              <button
+                key={a}
+                type="button"
+                onClick={() =>
+                  onChange({
+                    groupCount: effective.groupCount,
+                    advancingPerGroup: a,
+                  })
+                }
+                className={`px-3 py-1 border text-[10px] uppercase tracking-[0.25em] transition-all ${
+                  active
+                    ? "border-rift-gold bg-rift-gold/15 text-rift-goldbright"
+                    : "border-rift-line text-rift-mutedbright hover:border-rift-gold/60 hover:text-rift-goldbright"
+                }`}
+              >
+                {a}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="text-[9px] tracking-[0.2em] text-rift-mutedbright/55">
+        → {totalAdvance} team{totalAdvance === 1 ? "" : "s"} into playoffs
+        {isDE && dePlayoffSize != null && dePlayoffSize !== totalAdvance && (
+          <span className="text-rift-gold/70">
+            {" "}(trims to {dePlayoffSize} for DE bracket)
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Swiss round count override. Default is ceil(log2(N)). Allow 1 to
+// teamCount-1 (anything more produces forced rematches under the
+// greedy pairing algorithm).
+function SwissRoundsControl({
+  teamCount,
+  value,
+  onChange,
+}: {
+  teamCount: number;
+  value: number | undefined;
+  onChange: (n: number | undefined) => void;
+}) {
+  const fallback = Math.ceil(Math.log2(Math.max(2, teamCount)));
+  const min = 1;
+  const max = Math.max(min + 1, teamCount - 1);
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright mb-1">
+        Swiss Rounds
+        <span className="ml-2 text-[9px] text-rift-mutedbright/55 normal-case">
+          ({min}–{max})
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={value ?? ""}
+          placeholder={String(fallback)}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "") {
+              onChange(undefined);
+              return;
+            }
+            const n = parseInt(v, 10);
+            if (!Number.isFinite(n)) return;
+            onChange(Math.min(max, Math.max(min, n)));
+          }}
+          className="w-20 bg-rift-bg/60 border border-rift-line text-rift-goldbright px-2 py-1 text-sm font-display tracking-wider focus:outline-none focus:border-rift-gold/60"
+        />
+        <button
+          type="button"
+          onClick={() => onChange(undefined)}
+          className={`px-2.5 py-1 border text-[10px] uppercase tracking-[0.25em] transition-all ${
+            value == null
+              ? "border-rift-line/40 bg-rift-line/10 text-rift-mutedbright/70"
+              : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60"
+          }`}
+        >
+          Auto ({fallback})
+        </button>
+      </div>
     </div>
   );
 }

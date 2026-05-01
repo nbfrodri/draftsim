@@ -57,6 +57,7 @@ import {
   effectiveLockedSet,
   recordMatchWinner,
   startGroupsPlayoffs,
+  startRoundRobinPlayoffs,
   startSwissPlayoffs,
   teamStarRating,
   type CreateTournamentParams,
@@ -1073,10 +1074,17 @@ export const useDraftStore = create<DraftStore>()(
   generatePlayoffBracket: () => {
     const { tournament } = get();
     if (!tournament) return;
-    const updated =
-      tournament.format === "swiss-playoffs"
-        ? startSwissPlayoffs(tournament)
-        : startGroupsPlayoffs(tournament);
+    let updated: TournamentState;
+    if (
+      tournament.format === "swiss-playoffs" ||
+      tournament.format === "swiss-playoffs-de"
+    ) {
+      updated = startSwissPlayoffs(tournament);
+    } else if (tournament.format === "round-robin-playoffs") {
+      updated = startRoundRobinPlayoffs(tournament);
+    } else {
+      updated = startGroupsPlayoffs(tournament);
+    }
     if (updated === tournament) return;
     set({ tournament: updated });
   },
@@ -1168,7 +1176,8 @@ export const useDraftStore = create<DraftStore>()(
           );
           if (!startable) {
             if (
-              working.format === "groups-playoffs" &&
+              (working.format === "groups-playoffs" ||
+                working.format === "groups-playoffs-de") &&
               !working.groupsPlayoffs?.playoffStarted &&
               working.matches
                 .filter((m) => m.bracket === undefined)
@@ -1178,13 +1187,24 @@ export const useDraftStore = create<DraftStore>()(
               continue;
             }
             if (
-              working.format === "swiss-playoffs" &&
+              (working.format === "swiss-playoffs" ||
+                working.format === "swiss-playoffs-de") &&
               !working.swissPlayoffsStarted &&
               working.matches
                 .filter((m) => m.bracket === undefined)
                 .every((m) => m.winner != null)
             ) {
               working = startSwissPlayoffs(working);
+              continue;
+            }
+            if (
+              working.format === "round-robin-playoffs" &&
+              !working.rrPlayoffsStarted &&
+              working.matches
+                .filter((m) => m.bracket === undefined)
+                .every((m) => m.winner != null)
+            ) {
+              working = startRoundRobinPlayoffs(working);
               continue;
             }
             break;
