@@ -229,6 +229,11 @@ export function recordWinner(
 }
 
 // Start next game. Caller decides which side is which (side-swap UI).
+// When teams swap sides, every per-side field that's actually a property
+// of the TEAM (aiSide for PvAI, per-team AI difficulties, star ratings,
+// win streaks) must follow the team — otherwise the human ends up
+// controlling whichever roster the AI was driving last game, and
+// tournament biases point at the wrong side.
 export function startNextGame(
   series: SeriesState,
   blueTeam: string,
@@ -237,11 +242,28 @@ export function startNextGame(
   if (series.status !== "between-games") return series;
   const nextGameNumber = series.games.length + 1;
   if (nextGameNumber > maxGames(series.format)) return series;
+  const swap = blueTeam === series.redTeam && redTeam === series.blueTeam;
   return {
     ...series,
     blueTeam,
     redTeam,
     status: "drafting",
     games: [...series.games, createGame(nextGameNumber, blueTeam, redTeam)],
+    ...(swap
+      ? {
+          aiSide:
+            series.aiSide === "blue"
+              ? ("red" as Side)
+              : series.aiSide === "red"
+              ? ("blue" as Side)
+              : series.aiSide,
+          blueAiDifficulty: series.redAiDifficulty,
+          redAiDifficulty: series.blueAiDifficulty,
+          blueStarRating: series.redStarRating,
+          redStarRating: series.blueStarRating,
+          blueWinStreak: series.redWinStreak,
+          redWinStreak: series.blueWinStreak,
+        }
+      : {}),
   };
 }

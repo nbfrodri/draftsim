@@ -355,9 +355,20 @@ const TIER_RANK: Record<MetaTier, number> = {
   D: 1,
 };
 
+// Fallback tier for champions Meraki lists in a lane but who have no
+// explicit tier data (champion not in CHAMPION_META, baseline didn't
+// cover that lane, or the random override skipped them). Champ select
+// shows every champion that plays a lane per Meraki, so we always want
+// a badge to render — better to show "C" (pocket pick) than nothing.
+const FALLBACK_TIER: MetaTier = "C";
+
 function bestTierFor(champ: Champion, lane: LaneFilter): MetaTier | null {
   if (lane !== "all") {
-    return getMetaTier(champ.alias, lane) ?? null;
+    const t = getMetaTier(champ.alias, lane);
+    if (t) return t;
+    // Champion plays this lane per Meraki but no explicit tier — show
+    // the fallback so the badge is never missing.
+    return champ.lanes.includes(lane) ? FALLBACK_TIER : null;
   }
   let best: MetaTier | null = null;
   for (const l of champ.lanes) {
@@ -365,6 +376,10 @@ function bestTierFor(champ: Champion, lane: LaneFilter): MetaTier | null {
     if (!t) continue;
     if (!best || TIER_RANK[t] > TIER_RANK[best]) best = t;
   }
+  // No tier in any of their playable lanes — still render a badge so
+  // every champ in the grid carries one. Only return null if they
+  // literally have no Meraki lanes (which shouldn't happen in practice).
+  if (!best && champ.lanes.length > 0) return FALLBACK_TIER;
   return best;
 }
 

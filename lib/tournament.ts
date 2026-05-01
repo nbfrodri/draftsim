@@ -597,15 +597,19 @@ export interface TournamentState {
   // routes to the active match's series flow when set, and back to the
   // dashboard when null.
   activeMatchId: string | null;
-  // Snapshot of the meta tier configuration at tournament creation
-  // time. Saved alongside the tournament so a save/load round-trip
-  // restores the AI's view of the meta. `metaOverride` null means the
-  // tournament was played on the default tier list (no overrides).
-  // metaEnabled boolean controls whether the AI uses tier weighting at
-  // all. Both optional for legacy/backwards-compat snapshots.
+  // Snapshot of the meta configuration at tournament creation time.
+  // Saved alongside the tournament so a save/load round-trip restores
+  // the AI's view of the meta. All four fields are optional so legacy
+  // snapshots (only metaOverride/metaEnabled) still rehydrate cleanly:
+  //   • metaOverride null → tournament was played on default tiers
+  //   • metaEnabled false → AI ignored tier weighting entirely
+  //   • synergyOverride null → default CHAMPION_SYNERGIES list was used
+  //   • counterOverride null → default HARD_COUNTERS list was used
   metaSnapshot?: {
     metaOverride: import("./championMeta").MetaOverride | null;
     metaEnabled: boolean;
+    synergyOverride?: import("./championMeta").Synergy[] | null;
+    counterOverride?: import("./championMeta").CounterPair[] | null;
   };
 }
 
@@ -1569,6 +1573,8 @@ export interface CreateTournamentParams {
   metaSnapshot?: {
     metaOverride: import("./championMeta").MetaOverride | null;
     metaEnabled: boolean;
+    synergyOverride?: import("./championMeta").Synergy[] | null;
+    counterOverride?: import("./championMeta").CounterPair[] | null;
   };
 }
 

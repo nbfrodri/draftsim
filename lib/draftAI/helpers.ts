@@ -5,7 +5,9 @@
 import { POSITIONAL_LANES, assignLanesToPicks } from "../draftEngine";
 import { DRAFT_ORDER, TOTAL_ACTIONS } from "../draftOrder";
 import {
+  getActiveCounterOverride,
   getChampionMeta,
+  getCounterOverrideVersion,
   getMetaEnabled,
   getMetaTier,
   getSynergy,
@@ -23,16 +25,39 @@ import {
   FALLBACK_META,
 } from "./data";
 
-// ─── Lookup map for hard counters (built once at module load) ──────────────
+// ─── Lookup map for hard counters ──────────────────────────────────────────
+// Memoized against the override version from championMeta. When a random
+// counters override is applied, the next lookup rebuilds the map from the
+// override list; without an override we always reuse the baseline lookup
+// built from HARD_COUNTERS.
 
-const COUNTER_LOOKUP: ReadonlyMap<string, ReadonlyMap<string, number>> = (() => {
+function buildCounterLookup(
+  source: ReadonlyArray<readonly [string, string, number]>,
+): ReadonlyMap<string, ReadonlyMap<string, number>> {
   const m = new Map<string, Map<string, number>>();
-  for (const [c, v, b] of HARD_COUNTERS) {
+  for (const [c, v, b] of source) {
     if (!m.has(c)) m.set(c, new Map());
     m.get(c)!.set(v, b);
   }
   return m;
-})();
+}
+
+const BASELINE_COUNTER_LOOKUP = buildCounterLookup(HARD_COUNTERS);
+
+let _cachedCounterLookup: ReadonlyMap<string, ReadonlyMap<string, number>> =
+  BASELINE_COUNTER_LOOKUP;
+let _cachedCounterVersion = 0;
+
+function getCounterLookup(): ReadonlyMap<string, ReadonlyMap<string, number>> {
+  const override = getActiveCounterOverride();
+  if (!override) return BASELINE_COUNTER_LOOKUP;
+  const v = getCounterOverrideVersion();
+  if (v !== _cachedCounterVersion) {
+    _cachedCounterLookup = buildCounterLookup(override);
+    _cachedCounterVersion = v;
+  }
+  return _cachedCounterLookup;
+}
 
 // ─── byId cache ─────────────────────────────────────────────────────────────
 
@@ -319,7 +344,7 @@ export function hardCounterValue(
   counter: Champion,
   victim: Champion,
 ): number {
-  return COUNTER_LOOKUP.get(counter.alias)?.get(victim.alias) ?? 0;
+  return getCounterLookup().get(counter.alias)?.get(victim.alias) ?? 0;
 }
 
 // Counter severity classification. The HARD_COUNTERS table uses bonuses

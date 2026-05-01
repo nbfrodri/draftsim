@@ -28,18 +28,28 @@ import {
 } from "@/lib/draftAI";
 import { playActionSound, sounds, SOUND } from "@/lib/sounds";
 import {
+  setActiveCounterOverride,
   setActiveMetaOverride,
+  setActiveSynergyOverride,
   setMetaEnabled,
+  type CounterPair,
   type MetaOverride,
+  type Synergy,
 } from "@/lib/championMeta";
 import {
-  randomizeMeta,
-  saveMetaOverride,
-  loadMetaOverride,
-  saveMetaSource,
-  loadMetaSource,
-  saveMetaEnabled,
+  loadCounterOverride,
   loadMetaEnabled,
+  loadMetaOverride,
+  loadMetaSource,
+  loadSynergyOverride,
+  randomizeCounters,
+  randomizeMeta,
+  randomizeSynergies,
+  saveCounterOverride,
+  saveMetaEnabled,
+  saveMetaOverride,
+  saveMetaSource,
+  saveSynergyOverride,
 } from "@/lib/metaRandomizer";
 import type {
   Champion,
@@ -134,6 +144,14 @@ interface DraftStore {
   // returns null for everyone; AI scoring loses its meta-tier signal,
   // simulator's metaStrengthScore flattens, and tier badges hide.
   metaEnabled: boolean;
+  // Random synergy / counter overrides. When non-null, replace the
+  // baseline CHAMPION_SYNERGIES / HARD_COUNTERS lists everywhere those
+  // are consulted (AI scoring, simulator, UI panels). Versions bump on
+  // every change so dependent useMemos invalidate.
+  synergyOverride: Synergy[] | null;
+  synergyVersion: number;
+  counterOverride: CounterPair[] | null;
+  counterVersion: number;
   // Rationale of the AI's current decision — populated when an AI turn
   // starts, cleared on lock or when control returns to a human. Read by the
   // overlay UI to surface the AI's reasoning during the hover phase.
@@ -151,6 +169,8 @@ interface DraftStore {
   resetMetaTiers: () => void;
   applyCustomMeta: (override: MetaOverride) => void;
   setMetaEnabled: (enabled: boolean) => void;
+  randomizeSynergiesAndCounters: () => void;
+  resetSynergiesAndCounters: () => void;
   hydrateMetaFromStorage: () => void;
   startSimulation: (settings: SimulationSettings) => void;
   selectChampion: (id: number | null) => void;
@@ -461,6 +481,10 @@ export const useDraftStore = create<DraftStore>()(
   metaVersion: 0,
   metaSource: "default" as MetaSource,
   metaEnabled: true,
+  synergyOverride: null,
+  synergyVersion: 0,
+  counterOverride: null,
+  counterVersion: 0,
   aiRationale: null,
   aiRationaleHistory: [],
   tournament: null,
@@ -473,7 +497,7 @@ export const useDraftStore = create<DraftStore>()(
     if (!entry) return;
     // Restore the meta snapshot if the history entry has one — same
     // logic as importTournament so re-opening a past tournament shows
-    // it under the meta it was originally played on.
+    // it under the meta + pairings it was originally played on.
     const snap = entry.metaSnapshot;
     const metaPatch =
       snap !== undefined
@@ -484,6 +508,18 @@ export const useDraftStore = create<DraftStore>()(
               : "default") as MetaSource,
             metaEnabled: snap.metaEnabled,
             metaVersion: state.metaVersion + 1,
+            ...(snap.synergyOverride !== undefined
+              ? {
+                  synergyOverride: snap.synergyOverride ?? null,
+                  synergyVersion: state.synergyVersion + 1,
+                }
+              : {}),
+            ...(snap.counterOverride !== undefined
+              ? {
+                  counterOverride: snap.counterOverride ?? null,
+                  counterVersion: state.counterVersion + 1,
+                }
+              : {}),
           }
         : {};
     if (snap !== undefined) {
@@ -492,6 +528,14 @@ export const useDraftStore = create<DraftStore>()(
       saveMetaOverride(snap.metaOverride ?? null);
       saveMetaSource(snap.metaOverride ? "custom" : "default");
       saveMetaEnabled(snap.metaEnabled);
+      if (snap.synergyOverride !== undefined) {
+        setActiveSynergyOverride(snap.synergyOverride ?? null);
+        saveSynergyOverride(snap.synergyOverride ?? null);
+      }
+      if (snap.counterOverride !== undefined) {
+        setActiveCounterOverride(snap.counterOverride ?? null);
+        saveCounterOverride(snap.counterOverride ?? null);
+      }
     }
     set({
       tournament: { ...entry, activeMatchId: null },
@@ -575,11 +619,44 @@ export const useDraftStore = create<DraftStore>()(
     }));
   },
 
+  randomizeSynergiesAndCounters: () => {
+    const champions = get().champions;
+    const synergies = randomizeSynergies(champions);
+    const counters = randomizeCounters(champions);
+    setActiveSynergyOverride(synergies);
+    setActiveCounterOverride(counters);
+    saveSynergyOverride(synergies);
+    saveCounterOverride(counters);
+    set((s) => ({
+      synergyOverride: synergies,
+      synergyVersion: s.synergyVersion + 1,
+      counterOverride: counters,
+      counterVersion: s.counterVersion + 1,
+    }));
+  },
+
+  resetSynergiesAndCounters: () => {
+    setActiveSynergyOverride(null);
+    setActiveCounterOverride(null);
+    saveSynergyOverride(null);
+    saveCounterOverride(null);
+    set((s) => ({
+      synergyOverride: null,
+      synergyVersion: s.synergyVersion + 1,
+      counterOverride: null,
+      counterVersion: s.counterVersion + 1,
+    }));
+  },
+
   hydrateMetaFromStorage: () => {
     const stored = loadMetaOverride();
     const source = loadMetaSource();
     const enabled = loadMetaEnabled();
+    const synergies = loadSynergyOverride();
+    const counters = loadCounterOverride();
     setMetaEnabled(enabled);
+    if (synergies) setActiveSynergyOverride(synergies);
+    if (counters) setActiveCounterOverride(counters);
     if (stored) {
       setActiveMetaOverride(stored);
       set((s) => ({
@@ -587,11 +664,19 @@ export const useDraftStore = create<DraftStore>()(
         metaVersion: s.metaVersion + 1,
         metaSource: source,
         metaEnabled: enabled,
+        synergyOverride: synergies,
+        synergyVersion: synergies ? s.synergyVersion + 1 : s.synergyVersion,
+        counterOverride: counters,
+        counterVersion: counters ? s.counterVersion + 1 : s.counterVersion,
       }));
     } else {
       set((s) => ({
         metaEnabled: enabled,
         metaVersion: s.metaVersion + 1,
+        synergyOverride: synergies,
+        synergyVersion: synergies ? s.synergyVersion + 1 : s.synergyVersion,
+        counterOverride: counters,
+        counterVersion: counters ? s.counterVersion + 1 : s.counterVersion,
       }));
     }
   },
@@ -865,13 +950,17 @@ export const useDraftStore = create<DraftStore>()(
     // Capture the current meta as the tournament's snapshot so a
     // save/load round-trip preserves the AI's view of the meta — the
     // tournament is "played on this meta" regardless of what the user
-    // changes globally afterward.
-    const { metaOverride, metaEnabled } = get();
+    // changes globally afterward. Includes the synergy and counter
+    // overrides so randomized pairings travel with the tournament.
+    const { metaOverride, metaEnabled, synergyOverride, counterOverride } =
+      get();
     const tournament = createTournament({
       ...params,
       metaSnapshot: params.metaSnapshot ?? {
         metaOverride: metaOverride ?? null,
         metaEnabled,
+        synergyOverride: synergyOverride ?? null,
+        counterOverride: counterOverride ?? null,
       },
     });
     set({
@@ -908,17 +997,29 @@ export const useDraftStore = create<DraftStore>()(
         }
       }
       // Restore the meta snapshot so the AI sees the same tier list
-      // the original tournament was played on. Falls back gracefully
-      // when the snapshot isn't present (legacy codes).
+      // and pairings the original tournament was played on. Falls back
+      // gracefully when the snapshot isn't present (legacy codes).
       const snap = tournament.metaSnapshot;
-      // Apply meta side-effects (the imperative singleton) to mirror
-      // the loaded snapshot. AI scoring reads from this, not the store.
+      // Apply meta side-effects (the imperative singletons) to mirror
+      // the loaded snapshot. AI scoring reads from these, not the store.
       if (snap !== undefined) {
         setActiveMetaOverride(snap.metaOverride ?? null);
         setMetaEnabled(snap.metaEnabled);
         saveMetaOverride(snap.metaOverride ?? null);
         saveMetaSource(snap.metaOverride ? "custom" : "default");
         saveMetaEnabled(snap.metaEnabled);
+        // Pairings are optional in the snapshot — only restore if the
+        // loaded tournament actually carried them. Calling setActive*
+        // with null when the user hadn't randomized would otherwise
+        // wipe their currently-active pairings.
+        if (snap.synergyOverride !== undefined) {
+          setActiveSynergyOverride(snap.synergyOverride ?? null);
+          saveSynergyOverride(snap.synergyOverride ?? null);
+        }
+        if (snap.counterOverride !== undefined) {
+          setActiveCounterOverride(snap.counterOverride ?? null);
+          saveCounterOverride(snap.counterOverride ?? null);
+        }
       }
       set((state) => ({
         tournament,
@@ -938,6 +1039,18 @@ export const useDraftStore = create<DraftStore>()(
               // Use the updater form's `state` so the bump is on the
               // most-current store value, not a pre-await read.
               metaVersion: state.metaVersion + 1,
+              ...(snap.synergyOverride !== undefined
+                ? {
+                    synergyOverride: snap.synergyOverride ?? null,
+                    synergyVersion: state.synergyVersion + 1,
+                  }
+                : {}),
+              ...(snap.counterOverride !== undefined
+                ? {
+                    counterOverride: snap.counterOverride ?? null,
+                    counterVersion: state.counterVersion + 1,
+                  }
+                : {}),
             }
           : {}),
       }));

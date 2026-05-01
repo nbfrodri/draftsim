@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { CHAMPION_SYNERGIES } from "@/lib/championMeta";
+import { getActiveSynergies } from "@/lib/championMeta";
+import { useDraftStore } from "@/store/draftStore";
 import type { Champion } from "@/lib/types";
 
 interface Props {
@@ -15,6 +16,14 @@ export default function SynergyView({ open, champions, onClose }: Props) {
   const [search, setSearch] = useState("");
   const [focusedAlias, setFocusedAlias] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  // Subscribe to the synergy version so a randomize/reset triggers a
+  // re-render with the new active list.
+  const synergyVersion = useDraftStore((s) => s.synergyVersion);
+  const activeSynergies = useMemo(
+    () => getActiveSynergies(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [synergyVersion],
+  );
 
   useEffect(() => setMounted(true), []);
 
@@ -47,7 +56,7 @@ export default function SynergyView({ open, champions, onClose }: Props) {
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return CHAMPION_SYNERGIES.filter((s) => {
+    return activeSynergies.filter((s) => {
       if (focusedAlias && !s.champs.includes(focusedAlias)) return false;
       if (term) {
         const a = byAlias.get(s.champs[0])?.name?.toLowerCase() ?? s.champs[0].toLowerCase();
@@ -63,17 +72,17 @@ export default function SynergyView({ open, champions, onClose }: Props) {
       const bName = byAlias.get(b.champs[0])?.name ?? b.champs[0];
       return aName.localeCompare(bName);
     });
-  }, [search, focusedAlias, byAlias]);
+  }, [search, focusedAlias, byAlias, activeSynergies]);
 
-  const totalCount = CHAMPION_SYNERGIES.length;
+  const totalCount = activeSynergies.length;
   const championCount = useMemo(() => {
     const set = new Set<string>();
-    for (const s of CHAMPION_SYNERGIES) {
+    for (const s of activeSynergies) {
       set.add(s.champs[0]);
       set.add(s.champs[1]);
     }
     return set.size;
-  }, []);
+  }, [activeSynergies]);
 
   if (!open || !mounted) return null;
 

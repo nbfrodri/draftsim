@@ -49,6 +49,16 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
   const metaEnabled = useDraftStore((s) => s.metaEnabled);
   const setMetaEnabledStore = useDraftStore((s) => s.setMetaEnabled);
   const applyCustomMeta = useDraftStore((s) => s.applyCustomMeta);
+  const synergyOverride = useDraftStore((s) => s.synergyOverride);
+  const counterOverride = useDraftStore((s) => s.counterOverride);
+  const randomizeSynergiesAndCounters = useDraftStore(
+    (s) => s.randomizeSynergiesAndCounters,
+  );
+  const resetSynergiesAndCounters = useDraftStore(
+    (s) => s.resetSynergiesAndCounters,
+  );
+  const synergiesCountersRandomized =
+    synergyOverride != null || counterOverride != null;
   const [format, setFormat] = useState<SeriesFormat>("bo3");
   const [fearless, setFearless] = useState(false);
   const [timerEnabled, setTimerEnabled] = useState(true);
@@ -534,6 +544,59 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
                 : metaSource === "randomized"
                 ? `Randomized (v${metaVersion})`
                 : "Default · Patch 26.08"}
+            </span>
+          </div>
+
+          {/* Random synergies + counters. Generates ~120 random pair
+              synergies and ~90 random same-lane counters. Independent of
+              the tier randomizer so they can be toggled in any
+              combination. */}
+          <div
+            className={`grid grid-cols-2 gap-2 mt-3 transition-opacity ${
+              metaEnabled ? "" : "opacity-40 pointer-events-none"
+            }`}
+          >
+            <button
+              type="button"
+              onClick={randomizeSynergiesAndCounters}
+              className="py-2.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60 hover:bg-rift-gold/5 font-display text-[10px] md:text-xs tracking-[0.25em] uppercase transition-all flex items-center justify-center gap-1.5"
+              title={
+                synergiesCountersRandomized
+                  ? "Re-randomize synergies & counters"
+                  : "Randomize synergies & counters"
+              }
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="w-3.5 h-3.5" aria-hidden>
+                <path d="M2 4h7l-2-2M14 12H7l2 2" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="6" cy="10" r="1.6" />
+                <circle cx="11" cy="10" r="1.6" />
+              </svg>
+              <span className="hidden md:inline">Random Pairings</span>
+              <span className="md:hidden">Pairings</span>
+            </button>
+            <button
+              type="button"
+              onClick={resetSynergiesAndCounters}
+              disabled={!synergiesCountersRandomized}
+              className={`py-2.5 border font-display text-[10px] md:text-xs tracking-[0.25em] uppercase transition-all flex items-center justify-center gap-1.5 ${
+                synergiesCountersRandomized
+                  ? "border-rift-line text-rift-mutedbright hover:text-rift-redbright hover:border-rift-red/50 hover:bg-rift-red/5"
+                  : "border-rift-line/40 text-rift-muted/40 cursor-not-allowed"
+              }`}
+            >
+              Reset Pairings
+            </button>
+          </div>
+          <div className="mt-2 text-center text-[9px] md:text-[10px] uppercase tracking-[0.35em]">
+            <span className="text-rift-muted">Pairings · </span>
+            <span
+              className={
+                synergiesCountersRandomized
+                  ? "text-rift-goldbright"
+                  : "text-rift-mutedbright"
+              }
+            >
+              {synergiesCountersRandomized ? "Randomized" : "Default"}
             </span>
           </div>
         </div>

@@ -2183,8 +2183,37 @@ export const CHAMPION_SYNERGIES: Synergy[] = [
 
 ];
 
-// Pre-built lookup map keyed by alphabetical pair string for O(1) access.
-const SYNERGY_LOOKUP: Map<string, Synergy> = (() => {
+// ─── Synergy override ──────────────────────────────────────────────────────
+// Mirrors the meta-tier override pattern. When an override is active, the
+// override list REPLACES CHAMPION_SYNERGIES — getSynergy and any UI that
+// reads getActiveSynergies() see only the overridden pairs. Bumped version
+// counter lets dependent caches (counter lookup in helpers.ts, etc.)
+// invalidate without prop drilling.
+let _activeSynergyOverride: Synergy[] | null = null;
+let _synergyOverrideVersion = 0;
+
+export function setActiveSynergyOverride(o: Synergy[] | null): void {
+  _activeSynergyOverride = o;
+  _synergyOverrideVersion++;
+}
+
+export function getActiveSynergyOverride(): Synergy[] | null {
+  return _activeSynergyOverride;
+}
+
+export function getActiveSynergies(): readonly Synergy[] {
+  return _activeSynergyOverride ?? CHAMPION_SYNERGIES;
+}
+
+export function getSynergyOverrideVersion(): number {
+  return _synergyOverrideVersion;
+}
+
+// Pre-built lookup map for the BASELINE table — built once at module load.
+// When an override is active we build a fresh map from the override list
+// on demand and memoize it against the override version so consumers
+// don't pay the rebuild on every getSynergy call.
+const BASELINE_SYNERGY_LOOKUP: Map<string, Synergy> = (() => {
   const map = new Map<string, Synergy>();
   for (const s of CHAMPION_SYNERGIES) {
     const [a, b] = s.champs;
@@ -2194,7 +2223,50 @@ const SYNERGY_LOOKUP: Map<string, Synergy> = (() => {
   return map;
 })();
 
+let _cachedSynergyLookup: Map<string, Synergy> = BASELINE_SYNERGY_LOOKUP;
+let _cachedSynergyVersion = 0;
+
+function activeSynergyLookup(): Map<string, Synergy> {
+  if (!_activeSynergyOverride) return BASELINE_SYNERGY_LOOKUP;
+  if (_cachedSynergyVersion === _synergyOverrideVersion) return _cachedSynergyLookup;
+  const map = new Map<string, Synergy>();
+  for (const s of _activeSynergyOverride) {
+    const [a, b] = s.champs;
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+    map.set(key, s);
+  }
+  _cachedSynergyLookup = map;
+  _cachedSynergyVersion = _synergyOverrideVersion;
+  return map;
+}
+
 export function getSynergy(aliasA: string, aliasB: string): Synergy | null {
   const key = aliasA < aliasB ? `${aliasA}|${aliasB}` : `${aliasB}|${aliasA}`;
-  return SYNERGY_LOOKUP.get(key) ?? null;
+  return activeSynergyLookup().get(key) ?? null;
+}
+
+// ─── Counter override ──────────────────────────────────────────────────────
+// Same pattern as the synergy override. The counter list lives in
+// lib/draftAI/data.ts (HARD_COUNTERS) — when an override is active, the
+// counter lookup in lib/draftAI/helpers.ts swaps to this list instead.
+// Pairs are [counter, victim, bonus] so a single lane matchup can produce
+// directional swings.
+export type CounterPair = readonly [string, string, number];
+
+let _activeCounterOverride: readonly CounterPair[] | null = null;
+let _counterOverrideVersion = 0;
+
+export function setActiveCounterOverride(
+  o: readonly CounterPair[] | null,
+): void {
+  _activeCounterOverride = o;
+  _counterOverrideVersion++;
+}
+
+export function getActiveCounterOverride(): readonly CounterPair[] | null {
+  return _activeCounterOverride;
+}
+
+export function getCounterOverrideVersion(): number {
+  return _counterOverrideVersion;
 }

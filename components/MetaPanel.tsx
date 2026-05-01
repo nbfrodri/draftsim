@@ -35,6 +35,16 @@ export default function MetaPanel({ variant = "full" }: Props) {
   const randomizeMetaTiers = useDraftStore((s) => s.randomizeMetaTiers);
   const resetMetaTiers = useDraftStore((s) => s.resetMetaTiers);
   const applyCustomMeta = useDraftStore((s) => s.applyCustomMeta);
+  const synergyOverride = useDraftStore((s) => s.synergyOverride);
+  const counterOverride = useDraftStore((s) => s.counterOverride);
+  const randomizeSynergiesAndCounters = useDraftStore(
+    (s) => s.randomizeSynergiesAndCounters,
+  );
+  const resetSynergiesAndCounters = useDraftStore(
+    (s) => s.resetSynergiesAndCounters,
+  );
+  const synergiesCountersRandomized =
+    synergyOverride != null || counterOverride != null;
 
   const [tierListOpen, setTierListOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -186,6 +196,55 @@ export default function MetaPanel({ variant = "full" }: Props) {
             : metaSource === "randomized"
             ? "Randomized"
             : "Custom"}
+        </span>
+      </div>
+
+      {/* Random synergies + counters. Independent of the tier randomizer
+          — both can be toggled in any combination. The randomizer also
+          constrains counters to "same lane" so the generated table stays
+          plausible (no top vs ADC matchups). */}
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        <button
+          type="button"
+          onClick={randomizeSynergiesAndCounters}
+          className="py-2 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60 hover:bg-rift-gold/5 font-display text-[10px] md:text-xs tracking-[0.25em] uppercase transition-all flex items-center justify-center gap-1.5"
+          title={
+            synergiesCountersRandomized
+              ? "Re-randomize synergies & counters"
+              : "Randomize synergies & counters"
+          }
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="w-3.5 h-3.5" aria-hidden>
+            <path d="M2 4h7l-2-2M14 12H7l2 2" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="6" cy="10" r="1.6" />
+            <circle cx="11" cy="10" r="1.6" />
+          </svg>
+          <span className="hidden md:inline">Random Pairings</span>
+          <span className="md:hidden">Pairings</span>
+        </button>
+        <button
+          type="button"
+          onClick={resetSynergiesAndCounters}
+          disabled={!synergiesCountersRandomized}
+          className={`py-2 border font-display text-[10px] md:text-xs tracking-[0.25em] uppercase transition-all flex items-center justify-center gap-1.5 ${
+            synergiesCountersRandomized
+              ? "border-rift-line text-rift-mutedbright hover:text-rift-redbright hover:border-rift-red/50 hover:bg-rift-red/5"
+              : "border-rift-line/40 text-rift-muted/40 cursor-not-allowed"
+          }`}
+        >
+          Reset Pairings
+        </button>
+      </div>
+      <div className="mt-1 text-center text-[9px] md:text-[10px] uppercase tracking-[0.35em]">
+        <span className="text-rift-muted">Pairings · </span>
+        <span
+          className={
+            synergiesCountersRandomized
+              ? "text-rift-goldbright"
+              : "text-rift-mutedbright"
+          }
+        >
+          {synergiesCountersRandomized ? "Randomized" : "Default"}
         </span>
       </div>
         </>

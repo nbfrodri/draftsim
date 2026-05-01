@@ -4,13 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import gsap from "gsap";
 import {
-  CHAMPION_SYNERGIES,
+  getActiveCounterOverride,
+  getActiveSynergies,
   getMetaTier,
   type MetaTier,
 } from "@/lib/championMeta";
 import { getAbilityProfile } from "@/lib/championAbilities";
 import { HARD_COUNTERS } from "@/lib/draftAI/data";
 import { metaFor } from "@/lib/draftAI/helpers";
+import { useDraftStore } from "@/store/draftStore";
 import type { Champion, Lane } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
 
@@ -59,7 +61,7 @@ function synergiesFor(
   byAlias: Map<string, Champion>,
 ): SynergyEntry[] {
   const out: SynergyEntry[] = [];
-  for (const s of CHAMPION_SYNERGIES) {
+  for (const s of getActiveSynergies()) {
     const [a, b] = s.champs;
     let partnerAlias: string | null = null;
     if (a === champion.alias) partnerAlias = b;
@@ -95,7 +97,10 @@ function countersFor(
 ): { vsUs: CounterEntry[]; weBeat: CounterEntry[] } {
   const vsUs: CounterEntry[] = [];
   const weBeat: CounterEntry[] = [];
-  for (const [counter, victim, bonus] of HARD_COUNTERS) {
+  // Use the active counter list (override or baseline) so the modal
+  // reflects randomized counters when the user has toggled them on.
+  const source = getActiveCounterOverride() ?? HARD_COUNTERS;
+  for (const [counter, victim, bonus] of source) {
     if (counter === champion.alias) {
       // Candidate is the counter. Positive bonus → we beat `victim`.
       const other = byAlias.get(victim);
@@ -172,16 +177,22 @@ export default function ChampionDetailModal({
   }, [open, onClose]);
 
   const byAlias = useMemo(() => indexByAlias(champions), [champions]);
+  // Subscribe to override versions so a randomize/reset re-renders the
+  // synergy and counter lists with the new active data.
+  const synergyVersion = useDraftStore((s) => s.synergyVersion);
+  const counterVersion = useDraftStore((s) => s.counterVersion);
   const synergies = useMemo(
     () => (champion ? synergiesFor(champion, byAlias) : []),
-    [champion, byAlias],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [champion, byAlias, synergyVersion],
   );
   const counters = useMemo(
     () =>
       champion
         ? countersFor(champion, byAlias)
         : { vsUs: [] as CounterEntry[], weBeat: [] as CounterEntry[] },
-    [champion, byAlias],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [champion, byAlias, counterVersion],
   );
 
   if (!open || !champion || !mounted) return null;
