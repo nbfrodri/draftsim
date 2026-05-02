@@ -19,7 +19,7 @@ import {
   metaFor,
   synergyWith,
 } from "./helpers";
-import type { IdentityTarget } from "./helpers";
+import type { IdentityTarget, PhaseProfile } from "./helpers";
 import type { SeriesAIContext } from "./index";
 
 // ─── Cross-game adaptation tables ──────────────────────────────────────────
@@ -110,6 +110,11 @@ export interface PickContext {
   // hyper-carries, bursts, pokes, damage mages — NOT tanks/peelers).
   // Used to detect "we can't break tanks" scenarios.
   myDamageDealers: number;
+  // Per-phase counts on my and the opponent's drafted picks. Mirrors the
+  // simulator's scaling-advantage model so the AI deliberately balances
+  // early/mid/late presence and reacts to the opponent's phase weight.
+  myPhase: PhaseProfile;
+  oppPhase: PhaseProfile;
 }
 
 export function scorePick(
@@ -319,6 +324,92 @@ export function scorePick(
       meta.archetypes.includes("sustain")
     ) {
       add("Fits weakside bot (resources to top)", 1.5);
+    }
+  }
+
+  // ─── Phase balance & scaling matchup ───────────────────────────────────
+  // Mirrors the simulator's scalingAdvantageScore + phaseBalanceScore. A
+  // team with no early presence loses laning across the board (no prio,
+  // no plates, no first-tower); a team with no late scaling loses any
+  // game that runs past 25 minutes. The AI used to ignore this entirely
+  // and could happily build a 5-late or 5-early roster. Now each pick's
+  // phase contribution is graded against current team gaps + the
+  // opponent's phase weight.
+  //
+  // Magnitudes: the values here cap around ±4 so phase is a meaningful
+  // tiebreaker but doesn't override lane fit / tier / matchup. Late
+  // bonuses run slightly larger than early because the simulator's
+  // closing fight scales with late-game team strength.
+  {
+    const isCandEarly = meta.phase === "early";
+    const isCandLate = meta.phase === "late" || meta.phase === "mid-late";
+    const isCandMid = meta.phase === "mid";
+    const myEarly = ctx.myPhase.early;
+    const myLate = ctx.myPhase.late + ctx.myPhase.midLate;
+    const oppEarly = ctx.oppPhase.early;
+    const oppLate = ctx.oppPhase.late + ctx.oppPhase.midLate;
+
+    // Gap fillers: a team with 0 of one phase has zero leverage in that
+    // window — the next pick that fills the gap is highly valuable.
+    if (isCandEarly && myEarly === 0 && ctx.myPicksLocked >= 2) {
+      add("Fills early-game presence", 3);
+    }
+    if (isCandLate && myLate === 0 && ctx.myPicksLocked >= 2) {
+      add("Fills late-game scaling", 3.5);
+    }
+
+    // Anti-stack: don't drown the comp in a single phase. Stacking 3+
+    // early into a late opp invites the "won lane, lost game" classic;
+    // stacking 3+ late risks getting run over before items come online.
+    if (isCandEarly && myEarly >= 3) {
+      add("Phase saturated (too early)", -2);
+    }
+    if (isCandLate && myLate >= 3) {
+      // Slightly milder than early-stack — extra scaling at least gives
+      // the team a closing fight, even if the laning phase is rough.
+      add("Phase saturated (too late)", -1.5);
+    }
+
+    // Opponent-aware phase tilt: when they've stacked one end of the
+    // curve, lean into the side that beats them.
+    //   • Heavy-late opp (≥2 late) → early picks get a snowball bonus
+    //     (close the game before they scale).
+    //   • Heavy-early opp (≥2 early) → late picks get a survival bonus
+    //     (outlast the early window, win the closing fight).
+    if (isCandEarly && oppLate >= 2 && oppEarly < 2) {
+      add("Snowballs vs scaling opp", 2);
+    }
+    if (isCandLate && oppEarly >= 2 && oppLate < 2) {
+      add("Outscales early opp", 2.5);
+    }
+    // Mid picks get a small bonus when both teams are phase-extreme —
+    // the team that controls the mid-game transition wins.
+    if (isCandMid && (myEarly + myLate) >= 3 && Math.abs(myEarly - myLate) >= 2) {
+      add("Bridges phase gap", 1);
+    }
+  }
+
+  // ─── Comp shape coherence ──────────────────────────────────────────────
+  // A picked archetype gets a small "fits the comp" boost when it
+  // overlaps with the team's already-stacked archetypes — but only when
+  // identityTarget hasn't already credited it via "Completes <identity>"
+  // (avoid double-counting). Mirrors the simulator's compIdentityScore,
+  // where teams with a coherent archetype shape (3+ wombo, 3+ dive, etc.)
+  // get a real teamfight multiplier.
+  {
+    let coherence = 0;
+    for (const a of meta.archetypes) {
+      const stacked = ctx.myCounts[a];
+      // 1 already on team + this pick = 2 of that archetype: small bonus.
+      // 2+ already → larger bonus (we're closing in on a real comp shape).
+      if (stacked >= 2) coherence += 0.6;
+      else if (stacked === 1) coherence += 0.25;
+    }
+    // Cap so a 3-archetype champion doesn't snowball this into +5. Skip
+    // entirely if identityTarget already fired — that path already
+    // covered the bonus.
+    if (coherence > 0 && !ctx.identity) {
+      add("Reinforces comp shape", Math.min(2, coherence));
     }
   }
 

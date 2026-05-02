@@ -36,6 +36,7 @@ import {
   inferLaneAssignment,
   nextActionIsEnemyPick,
   openLanes,
+  phaseProfile,
   picksFor,
   sampleTopN,
 } from "./helpers";
@@ -407,6 +408,8 @@ function decidePick(
     fearlessLocked,
     game,
     myDamageDealers: damageDealerCount(myPicks, byId),
+    myPhase: phaseProfile(myPicks, byId),
+    oppPhase: phaseProfile(oppPicks, byId),
   };
 
   // First pass: score every candidate without rationale (fast).

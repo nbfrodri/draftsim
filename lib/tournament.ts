@@ -1462,8 +1462,10 @@ export interface TeamStanding {
 
 // Compute standings from completed matches. Teams sorted by:
 //   1. Match wins (desc)
-//   2. Head-to-head among ties
-//   3. Game differential (desc) — the standard "+/-" tiebreaker
+//   2. Game differential (desc) — the visible "+/-" column drives tiebreakers
+//      so two 2-1 teams resolve in the order the user reads in the table
+//   3. Head-to-head among ties (still applied after +/- so a team that
+//      dominated easier opponents but lost the direct H2H still drops)
 //   4. Total games won (desc) — splits ties when +/- is also equal
 //   5. Seed (asc — top seed wins last-resort tie)
 export function computeStandings(
@@ -1530,13 +1532,14 @@ export function computeStandings(
   const arr = [...standings.values()];
   arr.sort((a, b) => {
     if (a.wins !== b.wins) return b.wins - a.wins;
-    // Head-to-head: did one beat the other directly?
+    // Game differential FIRST (the visible "+/-" column). For two 2-1
+    // teams, the one with more games won AND fewer games lost (higher
+    // gameDiff) ranks higher — matching what the user reads in the table.
+    if (a.gameDiff !== b.gameDiff) return b.gameDiff - a.gameDiff;
+    // Then head-to-head: did one beat the other directly when +/- is tied?
     const aOverB = h2h[a.team.id]?.[b.team.id] ?? 0;
     const bOverA = h2h[b.team.id]?.[a.team.id] ?? 0;
     if (aOverB !== bOverA) return bOverA - aOverB;
-    // Game differential first (the visible "+/-" column) so the user
-    // sees the standings reflect what they read.
-    if (a.gameDiff !== b.gameDiff) return b.gameDiff - a.gameDiff;
     if (a.gamesWon !== b.gamesWon) return b.gamesWon - a.gamesWon;
     return a.team.seed - b.team.seed;
   });
@@ -2368,6 +2371,69 @@ export function computeChampionStats(
     if (awr !== bwr) return bwr - awr;
     return a.championId - b.championId;
   });
+}
+
+// Per-champion KDA aggregate across the tournament. Sums kills, deaths,
+// and assists from every game's `recap.perPickKDA` for a given champion,
+// regardless of which lane they were slotted into. Used by the post-
+// tournament leaderboard so the user can see who actually carried.
+export interface ChampionKDAStat {
+  championId: number;
+  games: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  // KDA = (K + A) / max(1, D). The conventional ratio — capped at 0
+  // games returns null so the UI can hide undefined champions.
+  kda: number;
+}
+
+export function computeChampionKDAStats(
+  tournament: TournamentState,
+): ChampionKDAStat[] {
+  const POSITIONAL_LANE_COUNT = 5;
+  const rows = new Map<number, ChampionKDAStat>();
+  function bump(
+    id: number,
+    k: number,
+    d: number,
+    a: number,
+  ): void {
+    let r = rows.get(id);
+    if (!r) {
+      r = { championId: id, games: 0, kills: 0, deaths: 0, assists: 0, kda: 0 };
+      rows.set(id, r);
+    }
+    r.games += 1;
+    r.kills += k;
+    r.deaths += d;
+    r.assists += a;
+  }
+  for (const match of tournament.matches) {
+    if (!match.series) continue;
+    for (const game of match.series.games) {
+      if (!game.recap?.perPickKDA) continue;
+      const { blue: blueKDA, red: redKDA } = game.recap.perPickKDA;
+      for (let i = 0; i < POSITIONAL_LANE_COUNT; i++) {
+        const blueId = game.bluePicks[i];
+        const blueEntry = blueKDA[i];
+        if (blueId != null && blueEntry) {
+          bump(blueId, blueEntry.k, blueEntry.d, blueEntry.a);
+        }
+        const redId = game.redPicks[i];
+        const redEntry = redKDA[i];
+        if (redId != null && redEntry) {
+          bump(redId, redEntry.k, redEntry.d, redEntry.a);
+        }
+      }
+    }
+  }
+  // Compute KDA ratio (K + A) / D, with D clamped to 1 so a 10/0/5
+  // champion shows a meaningful number rather than infinity.
+  for (const r of rows.values()) {
+    r.kda = (r.kills + r.assists) / Math.max(1, r.deaths);
+  }
+  return [...rows.values()];
 }
 
 // High-level tournament summary used by the post-tournament recap.

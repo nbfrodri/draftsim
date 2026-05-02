@@ -17,6 +17,7 @@ import {
   laneMatchup,
   nextActionIsEnemyPick,
   openLanes,
+  phaseProfile,
   picksFor,
   remainingActionsForSide,
 } from "./helpers";
@@ -68,6 +69,8 @@ export function predictTopK(
     fearlessLocked,
     game,
     myDamageDealers: damageDealerCount(myPicks, byId),
+    myPhase: phaseProfile(myPicks, byId),
+    oppPhase: phaseProfile(oppPicks, byId),
   };
 
   const scored = candidates.map((c) => ({

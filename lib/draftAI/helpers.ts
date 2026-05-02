@@ -205,6 +205,37 @@ export function damageDealerCount(
   return n;
 }
 
+// Per-phase counts on a partial draft. Used by the AI to shape comps
+// across the early/mid/late curve — a team with 0 early presence and 3
+// late scalers is asking to get run over, just as 5 early picks all
+// fall off when the game runs long. Mirrors the simulator's scaling-
+// advantage logic so the AI's mental model matches what the sim actually
+// rewards.
+export interface PhaseProfile {
+  early: number;
+  mid: number;
+  midLate: number;
+  late: number;
+}
+
+export function phaseProfile(
+  picks: (number | null)[],
+  byId: Map<number, Champion>,
+): PhaseProfile {
+  const profile: PhaseProfile = { early: 0, mid: 0, midLate: 0, late: 0 };
+  for (const id of picks) {
+    if (id == null) continue;
+    const c = byId.get(id);
+    if (!c) continue;
+    const meta = metaFor(c);
+    if (meta.phase === "early") profile.early++;
+    else if (meta.phase === "mid") profile.mid++;
+    else if (meta.phase === "mid-late") profile.midLate++;
+    else if (meta.phase === "late") profile.late++;
+  }
+  return profile;
+}
+
 export function damageProfile(
   picks: (number | null)[],
   byId: Map<number, Champion>,

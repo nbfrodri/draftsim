@@ -1718,9 +1718,24 @@ function generateTimeline(
     return drakeFactor + soulFactor + elderFactor + atakhanFactor;
   }
 
-  function snapshotProb(): number {
+  // Gold-lead weight by game phase. Real LoL: a 2k lead at 10 min means
+  // tower plates, denied items, snowballed lanes — game-defining. The same
+  // 2k lead at 30 min is one shutdown away from being neutralized, and the
+  // outcome leans on objectives/scaling instead. Curve:
+  //   t = 8  → 1.7×   (early — gold is leverage)
+  //   t = 15 → 1.25×  (laning ending)
+  //   t = 22 → 0.9×   (mid game — closer to even)
+  //   t = 32 → 0.6×   (late — comp/objectives dominate)
+  function goldPhaseWeight(time: number): number {
+    if (time <= 6) return 1.8;
+    if (time >= 35) return 0.55;
+    // Linear interp between (6, 1.8) and (35, 0.55)
+    return 1.8 - ((time - 6) / 29) * 1.25;
+  }
+
+  function snapshotProb(time: number): number {
     const compFactor = ctx.diff * 0.022;
-    const goldFactor = state.goldLead / 4500;
+    const goldFactor = (state.goldLead / 4500) * goldPhaseWeight(time);
     const momFactor = state.momentum * 1.2;
     const blueBonus = 0.1;
     const logit =
@@ -1728,9 +1743,9 @@ function generateTimeline(
     return Math.max(0.03, Math.min(0.97, 1 / (1 + Math.exp(-logit))));
   }
 
-  function rollEventSide(typeBias: number = 0): Side {
+  function rollEventSide(time: number, typeBias: number = 0): Side {
     const compFactor = ctx.diff * 0.022;
-    const goldFactor = state.goldLead / 4500;
+    const goldFactor = (state.goldLead / 4500) * goldPhaseWeight(time);
     const momFactor = state.momentum * 1.2;
     const blueBonus = 0.1;
     const logit =
@@ -1748,9 +1763,9 @@ function generateTimeline(
   // Tower events use the standard side roll plus a tilt from accumulated
   // tower pressure. Sides that took grubs/herald are more likely to crack
   // turrets next; pressure is consumed when a tower falls.
-  function rollTowerSide(): Side {
+  function rollTowerSide(time: number): Side {
     const pressureDiff = state.towerPressure.blue - state.towerPressure.red;
-    return rollEventSide(pressureDiff * 0.45);
+    return rollEventSide(time, pressureDiff * 0.45);
   }
 
   function consumeTowerPressure(side: Side) {
@@ -1812,7 +1827,7 @@ function generateTimeline(
     const laneGoldDelta = mergeLaneGold(baseLaneGold, kdaToLaneGold(kdaDelta));
     const flair = detectComeback(side, momentumImpact);
     applyState(side, kills, towers, inhibs, momentumImpact);
-    const winProbAfter = snapshotProb();
+    const winProbAfter = snapshotProb(minutes);
     events.push({
       type,
       minutes,
@@ -1832,14 +1847,21 @@ function generateTimeline(
     });
   }
 
+  // Track whether a kill has already landed before the first-blood event
+  // window — used to label first-blood correctly. If invade or solo kills
+  // already drew first blood, the actual first-blood event becomes an
+  // "early kill" instead so the timeline doesn't claim two first bloods.
+  let firstKillTaken = false;
+
   // 0a. Level 1 invade (0.3-1.8) — 30% chance. Side bias toward team with more
   // engage/pick presence; outcome is a single kill or a neutral win.
   if (Math.random() < 0.3) {
     const t = jitter(0.3, 1.8);
-    const side = rollEventSide();
+    const side = rollEventSide(t);
     const wp = picksOf(ctx, side);
     const lp = picksOf(ctx, side === "blue" ? "red" : "blue");
     const killHappened = Math.random() < 0.55;
+    if (killHappened) firstKillTaken = true;
     // Level-1 invade is a 5-man play; if a kill lands, jungler gets credit
     // (most likely to leash-kill the enemy jungler), supports assist.
     const kda = makeKDA();
@@ -1865,7 +1887,7 @@ function generateTimeline(
   // 0b. First scuttle crab (3-4.5) — 60% chance. Vision + small gold reward.
   if (Math.random() < 0.6) {
     const t = jitter(3, 4.5);
-    const side = rollEventSide();
+    const side = rollEventSide(t);
     addEvent(
       "scuttle",
       t,
@@ -1901,6 +1923,7 @@ function generateTimeline(
           : advMag >= 65
           ? rollInt(1, 2)
           : 1;
+      firstKillTaken = true;
       const t = jitter(4, 7);
       const winnerChamp = picksOf(ctx, bullySide)[POSITIONAL_LANES.indexOf(lane)];
       const laneShort = lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
@@ -1925,24 +1948,37 @@ function generateTimeline(
     }
   }
 
-  // 2. First blood (3-5.5)
+  // 2. First blood (3-5.5). If invade or a snowballing solo lane already
+  // took the first kill, this fires as a follow-up early kill instead so
+  // the timeline doesn't double-claim first blood. Same kill economy
+  // either way — only the label and the kill-bounty bonus differ.
   {
     const t = jitter(3, 5.5);
-    const side = rollEventSide(0.1);
-    const desc = describeFirstBlood(
-      side,
-      picksOf(ctx, side),
-      picksOf(ctx, side === "blue" ? "red" : "blue"),
-      t,
-    );
+    const side = rollEventSide(t, 0.1);
+    const isFirstBlood = !firstKillTaken;
     const fbLanes: Lane[] = ["top", "jungle", "middle", "bottom"];
     const fbLane = pickRandom(fbLanes);
-    // First blood: kill goes to the lane where it happened, jungler often
-    // assists (~40% of FBs are gank-fueled).
+    const winnerChamp =
+      picksOf(ctx, side)[POSITIONAL_LANES.indexOf(fbLane)] ?? null;
+    const desc = isFirstBlood
+      ? describeFirstBlood(
+          side,
+          picksOf(ctx, side),
+          picksOf(ctx, side === "blue" ? "red" : "blue"),
+          t,
+        )
+      : winnerChamp
+        ? `Early kill — ${winnerChamp.name} draws blood ${
+            fbLane === "middle" ? "mid" : fbLane === "bottom" ? "bot" : fbLane
+          }`
+        : `Early kill in ${fbLane === "middle" ? "mid" : fbLane === "bottom" ? "bot" : fbLane}`;
+    // Kill goes to the lane where it happened, jungler often assists
+    // (~40% of FBs / early kills are gank-fueled).
     const fbKda = laneKillKDA(side, fbLane);
     if (Math.random() < 0.4 && fbLane !== "jungle") {
       addAssist(fbKda, side, "jungle");
     }
+    firstKillTaken = true;
     addEvent(
       "first-blood",
       t,
@@ -1952,7 +1988,8 @@ function generateTimeline(
         kills: killsForSide(side, 1, 0),
         // Kill bounty in kdaDelta. The +100g first-blood bonus is the only
         // gold remaining — kdaToLaneGold can't model the FB-specific bonus.
-        laneGoldDelta: singleLaneGold(fbLane, 100, side),
+        // No bonus on follow-up early kills (it was already paid out).
+        laneGoldDelta: singleLaneGold(fbLane, isFirstBlood ? 100 : 0, side),
         kdaDelta: fbKda,
       },
       0.2,
@@ -1968,7 +2005,7 @@ function generateTimeline(
   // explicitly and feeds tower pressure proportionally + lane gold scales.
   {
     const t = jitter(6, 7.5);
-    const side = rollEventSide(laneBias * 0.7);
+    const side = rollEventSide(t, laneBias * 0.7);
     // Count distribution: 6 grubs is most common when one team contests
     // hard (~50%); 3 grubs for split, 4-5 for partial fights.
     const grubsTaken =
@@ -1993,7 +2030,7 @@ function generateTimeline(
   // who can fight over drake without losing a tower.
   {
     const t = jitter(6.5, 8.3);
-    const contestSide = rollEventSide(laneBias * 0.6);
+    const contestSide = rollEventSide(t, laneBias * 0.6);
     const stolen = Math.random() < 0.08;
     const side: Side = stolen
       ? contestSide === "blue"
@@ -2034,7 +2071,7 @@ function generateTimeline(
   // can roam to gank without giving up jungle camps.
   if (Math.random() < 0.55) {
     const t = jitter(3.5, 9.5);
-    const side = rollEventSide(laneBias * 0.5);
+    const side = rollEventSide(t, laneBias * 0.5);
     const lane = pickGankableLane(ctx.laneAdvantages, side);
     addEvent(
       "gank",
@@ -2055,7 +2092,7 @@ function generateTimeline(
   // 6. Counter-gank (5.5-9.5) — 30% chance.
   if (Math.random() < 0.3) {
     const t = jitter(5.5, 9.5);
-    const side = rollEventSide();
+    const side = rollEventSide(t);
     const flippedLane = pickRandom(["top", "middle", "bottom"] as Lane[]);
     // Counter-gank: jungler arrived and turned the gank — kill credit goes
     // to the jungler, laner provides the assist, opp jungler/laner dies.
@@ -2077,7 +2114,7 @@ function generateTimeline(
   // to back up — without it, getting caught is the more likely outcome.
   if (Math.random() < 0.22) {
     const t = jitter(5.5, 9);
-    const side = rollEventSide(laneBias * 0.6);
+    const side = rollEventSide(t, laneBias * 0.6);
     const killHappened = Math.random() < 0.4;
     addEvent(
       "buff-steal",
@@ -2100,7 +2137,7 @@ function generateTimeline(
   // means the plates fall to your side.
   if (Math.random() < 0.5) {
     const t = jitter(8, 12);
-    const side = rollEventSide(laneBias * 0.7);
+    const side = rollEventSide(t, laneBias * 0.7);
     addEvent(
       "plates",
       t,
@@ -2117,7 +2154,7 @@ function generateTimeline(
   // dove on the way back.
   if (Math.random() < 0.4) {
     const t = jitter(9, 13);
-    const side = rollEventSide(laneBias * 0.9);
+    const side = rollEventSide(t, laneBias * 0.9);
     const targetLane = pickRandom(["top", "bottom"] as Lane[]);
     addEvent(
       "roam",
@@ -2142,7 +2179,7 @@ function generateTimeline(
   // prio (a team with prio crashes harder).
   if (Math.random() < 0.35) {
     const t = jitter(8, 13);
-    const side = rollEventSide(laneBias * 0.5);
+    const side = rollEventSide(t, laneBias * 0.5);
     const lane = pickRandom(["top", "middle", "bottom"] as Lane[]);
     addEvent(
       "wave-crash",
@@ -2158,7 +2195,7 @@ function generateTimeline(
   // grubs is meaningfully more likely to crack first turret.
   {
     const t = jitter(10, 13);
-    const side = rollTowerSide();
+    const side = rollTowerSide(t);
     consumeTowerPressure(side);
     const towerLane = pickRandom(["top", "middle", "bottom"] as Lane[]);
     addEvent(
@@ -2182,7 +2219,7 @@ function generateTimeline(
   // the next lost teamfight (loserKills -1).
   {
     const t = jitter(14, 16);
-    const side = rollEventSide(laneBias * 0.4);
+    const side = rollEventSide(t, laneBias * 0.4);
     if (Math.random() < 0.6) {
       const atakhanVariant: AtakhanVariant =
         Math.random() < 0.5 ? "Voracious" : "Ruinous";
@@ -2276,7 +2313,7 @@ function generateTimeline(
   // still relevant for early-mid drakes.
   if (duration >= 18) {
     const t = jitter(11.5, 14.3);
-    const contestSide = rollEventSide(laneBias * 0.4);
+    const contestSide = rollEventSide(t, laneBias * 0.4);
     const stolen = Math.random() < 0.08;
     const side: Side = stolen
       ? contestSide === "blue"
@@ -2325,7 +2362,7 @@ function generateTimeline(
   // 11. Mid-game pick or skirmish (15.5-19)
   {
     const t = jitter(15.5, 19);
-    const side = rollEventSide();
+    const side = rollEventSide(t);
     const winnerScore = side === "blue" ? ctx.blueScore : ctx.redScore;
     const winnerHasPick = winnerScore.identityLabel === "Pick Comp";
     const wp = picksOf(ctx, side);
@@ -2375,7 +2412,7 @@ function generateTimeline(
   // 12. Third Drake (16.5-20) — 10% steal as games heat up.
   if (duration >= 22) {
     const t = jitter(16.5, 20);
-    const contestSide = rollEventSide();
+    const contestSide = rollEventSide(t);
     const stolen = Math.random() < 0.1;
     const side: Side = stolen
       ? contestSide === "blue"
@@ -2424,7 +2461,7 @@ function generateTimeline(
   // 13. Mid teamfight (19-24)
   {
     const t = jitter(19, Math.min(24, duration - 4));
-    const side = rollEventSide();
+    const side = rollEventSide(t);
     const wp = picksOf(ctx, side);
     // Scale kill spread by relative fight strength at this game time.
     // Dominant team (e.g. late comp at min 24 vs early comp) converts 3-2
@@ -2515,7 +2552,7 @@ function generateTimeline(
   // with prio can place vision deeper).
   if (duration >= 22 && Math.random() < 0.28) {
     const t = jitter(16, Math.min(22, duration - 5));
-    const side = rollEventSide(laneBias * 0.3);
+    const side = rollEventSide(t, laneBias * 0.3);
     const wp = picksOf(ctx, side);
     const lp = picksOf(ctx, side === "blue" ? "red" : "blue");
     // Vision-pick: support places the ward/sees the catch, team collapses.
@@ -2556,7 +2593,7 @@ function generateTimeline(
     const t = jitter(17, Math.min(26, duration - 4));
     // Outplays favor the side already with a slight edge (lane bias) but
     // CAN happen for the underdog — moments of brilliance work both ways.
-    const side = rollEventSide(laneBias * 0.2);
+    const side = rollEventSide(t, laneBias * 0.2);
     const wp = picksOf(ctx, side);
     const lp = picksOf(ctx, side === "blue" ? "red" : "blue");
     const outnumber = Math.random() < 0.25 ? 3 : 2;
@@ -2596,7 +2633,7 @@ function generateTimeline(
   // macro currency. No kills.
   if (duration >= 24 && Math.random() < 0.25) {
     const t = jitter(18, Math.min(25, duration - 4));
-    const side = rollEventSide(laneBias * 0.3);
+    const side = rollEventSide(t, laneBias * 0.3);
     const otherSide: Side = side === "blue" ? "red" : "blue";
     const giveUp: "drake" | "herald" | "tower" = pickRandom([
       "drake",
@@ -2629,7 +2666,7 @@ function generateTimeline(
   // 14. Fourth Drake / Soul (21-25)
   if (duration >= 26 && state.soulSide == null) {
     const t = jitter(21, Math.min(25, duration - 3));
-    const contestSide = rollEventSide();
+    const contestSide = rollEventSide(t);
     const stolen = Math.random() < 0.1;
     const side: Side = stolen
       ? contestSide === "blue"
@@ -2681,7 +2718,7 @@ function generateTimeline(
   if (duration >= 25) {
     const tMax = Math.min(duration - 4, 30);
     const t = jitter(20, Math.max(21, tMax));
-    const contestSide = rollEventSide(0.05);
+    const contestSide = rollEventSide(t, 0.05);
     const stolen = Math.random() < 0.15;
     const baronSide: Side = stolen
       ? contestSide === "blue"
@@ -2713,7 +2750,7 @@ function generateTimeline(
   // 16. Mid tower (23 to duration-3). Reuses tower-pressure bias.
   if (duration >= 27) {
     const t = jitter(23, Math.max(24, duration - 3));
-    const side = rollTowerSide();
+    const side = rollTowerSide(t);
     consumeTowerPressure(side);
     addEvent(
       "tower",
@@ -2733,7 +2770,7 @@ function generateTimeline(
   // game. Sets state.elderSide so closing-fight logic factors it in.
   if (duration >= 32 && Math.random() < 0.65) {
     const t = jitter(duration - 7, duration - 3);
-    const contestSide = rollEventSide();
+    const contestSide = rollEventSide(t);
     const stolen = Math.random() < 0.18;
     const elderSide: Side = stolen
       ? contestSide === "blue"
@@ -2806,8 +2843,12 @@ function generateTimeline(
     state.goldLead,
     finalLaneGold,
   );
+  // Late-game gold matters less than early-game gold — comp/scaling and
+  // objectives close fights regardless of who farmed mid. The phase
+  // weight at `duration` (typically 28-40) lands ~0.6, so a 5k lead at
+  // 35 min reads as a moderate edge, not a guaranteed win.
   const closingLogit =
-    state.goldLead / 5000 +
+    (state.goldLead / 5000) * goldPhaseWeight(duration) +
     state.momentum * 0.9 +
     objectiveLogit() * 0.4 +
     Math.log(combat.ratio) * 0.7;
