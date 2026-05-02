@@ -2306,10 +2306,15 @@ function ChampSpikeBadge({
   currentMin: number;
   side: Side;
 }) {
+  // The power-spike override is module-level state that the useMemo dep
+  // array can't observe directly, so subscribe to the store's version
+  // counter to recompute when randomization swaps the override in/out.
+  const powerSpikeVersion = useDraftStore((s) => s.powerSpikeVersion);
   const spike = useMemo(() => {
     const m = metaFor(champ);
-    return getKeyPowerSpike(m);
-  }, [champ]);
+    return getKeyPowerSpike(m, champ.alias);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [champ, powerSpikeVersion]);
   const live = currentMin >= spike.minute;
   const isCarry = spike.isCarrySpike;
   const baseCls = live

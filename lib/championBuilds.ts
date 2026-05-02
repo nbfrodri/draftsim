@@ -241,7 +241,26 @@ const BOOTS_NAMES: ReadonlySet<string> = new Set([
   "Boots",
 ]);
 
-export function getKeyPowerSpike(meta: ChampionMeta): KeyPowerSpike {
+// Active per-champion power-spike override (alias → minute). Mirrors the
+// synergy/counter override pattern: when set, getKeyPowerSpike returns the
+// override minute for that champion instead of the build path's default,
+// while keyItem and isCarrySpike still come from the archetype path.
+let _activePowerSpikeOverride: Record<string, number> | null = null;
+
+export function setActivePowerSpikeOverride(
+  o: Record<string, number> | null,
+): void {
+  _activePowerSpikeOverride = o;
+}
+
+export function getActivePowerSpikeOverride(): Record<string, number> | null {
+  return _activePowerSpikeOverride;
+}
+
+export function getKeyPowerSpike(
+  meta: ChampionMeta,
+  alias?: string,
+): KeyPowerSpike {
   const path = buildPathFor(meta);
   // Use the second spike (post-boots, first big item). Fallback to the
   // first if a build only has one entry.
@@ -255,7 +274,15 @@ export function getKeyPowerSpike(meta: ChampionMeta): KeyPowerSpike {
   const isCarrySpike = meta.archetypes.some((a) =>
     CARRY_SPIKE_ARCHETYPES.has(a),
   );
-  return { minute: spike.minute, keyItem, isCarrySpike };
+  const overrideMinute =
+    alias && _activePowerSpikeOverride
+      ? _activePowerSpikeOverride[alias]
+      : undefined;
+  return {
+    minute: overrideMinute ?? spike.minute,
+    keyItem,
+    isCarrySpike,
+  };
 }
 
 // Linear interpolation between spikes — items don't pop in instantly,

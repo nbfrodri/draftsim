@@ -966,16 +966,25 @@ export function aceKDA(winnerSide: Side): EventKDA {
 
 // Smiter event (drake/baron/elder): if a smite-steal happened, the smiter
 // gets credit. Otherwise distribute via teamfight pattern.
+//
+// `smiterSide` is the team that *stole* the objective (where the smiter
+// lives). For drake events, the post-fight kill winner is often the
+// OPPOSITE of the smiter (the team that lost the objective wins the
+// post-smite skirmish), so the smiter assist must be attributed
+// independently of `winnerSide`. Defaults to `winnerSide` so baron/elder
+// callers — which model the steal-taker as the kill winner — keep their
+// existing behavior.
 export function objectiveKDA(
   winnerSide: Side,
   winnerKills: number,
   loserKills: number,
   smiterStolen: boolean,
+  smiterSide: Side = winnerSide,
 ): EventKDA {
   const k = teamfightKDA(winnerSide, winnerKills, loserKills);
   if (smiterStolen) {
     // Smiter (jungle) gets bonus credit — they made the play happen.
-    addAssist(k, winnerSide, "jungle");
+    addAssist(k, smiterSide, "jungle");
   }
   return k;
 }

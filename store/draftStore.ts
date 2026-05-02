@@ -41,16 +41,21 @@ import {
   loadMetaEnabled,
   loadMetaOverride,
   loadMetaSource,
+  loadPowerSpikeOverride,
   loadSynergyOverride,
   randomizeCounters,
   randomizeMeta,
+  randomizePowerSpikes,
   randomizeSynergies,
   saveCounterOverride,
   saveMetaEnabled,
   saveMetaOverride,
   saveMetaSource,
+  savePowerSpikeOverride,
   saveSynergyOverride,
+  type PowerSpikeOverride,
 } from "@/lib/metaRandomizer";
+import { setActivePowerSpikeOverride } from "@/lib/championBuilds";
 import type {
   Champion,
   GameDraft,
@@ -152,6 +157,12 @@ interface DraftStore {
   synergyVersion: number;
   counterOverride: CounterPair[] | null;
   counterVersion: number;
+  // Per-champion power-spike minute override (alias → minute, ≤ 14).
+  // Generated alongside synergyOverride / counterOverride by the
+  // randomizeSynergiesAndCounters action; later minutes mean a more
+  // impactful spike event in the simulator.
+  powerSpikeOverride: PowerSpikeOverride | null;
+  powerSpikeVersion: number;
   // Rationale of the AI's current decision — populated when an AI turn
   // starts, cleared on lock or when control returns to a human. Read by the
   // overlay UI to surface the AI's reasoning during the hover phase.
@@ -485,6 +496,8 @@ export const useDraftStore = create<DraftStore>()(
   synergyVersion: 0,
   counterOverride: null,
   counterVersion: 0,
+  powerSpikeOverride: null,
+  powerSpikeVersion: 0,
   aiRationale: null,
   aiRationaleHistory: [],
   tournament: null,
@@ -623,28 +636,37 @@ export const useDraftStore = create<DraftStore>()(
     const champions = get().champions;
     const synergies = randomizeSynergies(champions);
     const counters = randomizeCounters(champions);
+    const powerSpikes = randomizePowerSpikes(champions);
     setActiveSynergyOverride(synergies);
     setActiveCounterOverride(counters);
+    setActivePowerSpikeOverride(powerSpikes);
     saveSynergyOverride(synergies);
     saveCounterOverride(counters);
+    savePowerSpikeOverride(powerSpikes);
     set((s) => ({
       synergyOverride: synergies,
       synergyVersion: s.synergyVersion + 1,
       counterOverride: counters,
       counterVersion: s.counterVersion + 1,
+      powerSpikeOverride: powerSpikes,
+      powerSpikeVersion: s.powerSpikeVersion + 1,
     }));
   },
 
   resetSynergiesAndCounters: () => {
     setActiveSynergyOverride(null);
     setActiveCounterOverride(null);
+    setActivePowerSpikeOverride(null);
     saveSynergyOverride(null);
     saveCounterOverride(null);
+    savePowerSpikeOverride(null);
     set((s) => ({
       synergyOverride: null,
       synergyVersion: s.synergyVersion + 1,
       counterOverride: null,
       counterVersion: s.counterVersion + 1,
+      powerSpikeOverride: null,
+      powerSpikeVersion: s.powerSpikeVersion + 1,
     }));
   },
 
@@ -654,9 +676,11 @@ export const useDraftStore = create<DraftStore>()(
     const enabled = loadMetaEnabled();
     const synergies = loadSynergyOverride();
     const counters = loadCounterOverride();
+    const powerSpikes = loadPowerSpikeOverride();
     setMetaEnabled(enabled);
     if (synergies) setActiveSynergyOverride(synergies);
     if (counters) setActiveCounterOverride(counters);
+    if (powerSpikes) setActivePowerSpikeOverride(powerSpikes);
     if (stored) {
       setActiveMetaOverride(stored);
       set((s) => ({
@@ -668,6 +692,10 @@ export const useDraftStore = create<DraftStore>()(
         synergyVersion: synergies ? s.synergyVersion + 1 : s.synergyVersion,
         counterOverride: counters,
         counterVersion: counters ? s.counterVersion + 1 : s.counterVersion,
+        powerSpikeOverride: powerSpikes,
+        powerSpikeVersion: powerSpikes
+          ? s.powerSpikeVersion + 1
+          : s.powerSpikeVersion,
       }));
     } else {
       set((s) => ({
@@ -677,6 +705,10 @@ export const useDraftStore = create<DraftStore>()(
         synergyVersion: synergies ? s.synergyVersion + 1 : s.synergyVersion,
         counterOverride: counters,
         counterVersion: counters ? s.counterVersion + 1 : s.counterVersion,
+        powerSpikeOverride: powerSpikes,
+        powerSpikeVersion: powerSpikes
+          ? s.powerSpikeVersion + 1
+          : s.powerSpikeVersion,
       }));
     }
   },

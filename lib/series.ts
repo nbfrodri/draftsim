@@ -67,43 +67,47 @@ export function createSeries(params: {
 
 // Convert a series's per-team star ratings into a score-diff bias for
 // the simulator. Returns 0 when ratings aren't set (non-tournament).
-// SIGMOID_K in matchSimulator is 0.05, so a bias of ~6 score points per
-// star ≈ +7-8% win-prob per star at the slope. A 5★ vs 1★ blowout
-// (diff = 4) reaches around +28-30% extra blue win-prob — a clear
-// underdog story but not deterministic; even a 1★ team can beat a 5★
-// team ~10-15% of the time after draft factors are mixed in. Even
-// matchups (3★ vs 3★) get zero bias.
-const STAR_RATING_BIAS_K = 6.0;
+// SIGMOID_K in matchSimulator is 0.05, so a bias of ~9 score points per
+// star ≈ +11pp win-prob per star at the slope. A 5★ vs 1★ blowout
+// (diff = 4) reaches around +43% extra blue win-prob — a chalk
+// favorite, but not deterministic. Even matchups (3★ vs 3★) get zero
+// bias. The gradient was bumped from 6.0 because higher-rated rosters
+// were losing to lower-rated rosters too often: in-game variance
+// (gold-lead random walk + closing-fight combat ratio) was washing
+// out the per-event side bias. A stronger K compounds across all 20+
+// rolls so the favorite reliably banks an early gold lead.
+const STAR_RATING_BIAS_K = 9.0;
 // Per-consecutive-win bonus. ~1.5 points per win in the streak ≈ +2pp
 // win-prob per win at the slope. Capped so a snowball doesn't snowball
 // the simulator: 4 consecutive wins (final-bound team) = +6 points,
 // equivalent to a one-star bump. Streak resets on any loss.
 const WIN_STREAK_BIAS_K = 1.5;
 const WIN_STREAK_BIAS_CAP = 6.0;
-// Underdog protection. When a low-rated team faces a high-rated team in
-// a semifinal or final, blunt the chalk bias and add a flat
-// counter-bias. Reflects: any team that survived to semis/finals has
-// proven they can play, so the seed gap matters less than it did in
-// round 1. UNDERDOG_FLAT (+2.5 score-pts) ≈ +3pp counter-bias at the
-// slope; combined with UNDERDOG_BLUNT (60% of star diff) the 4-star
-// gap from 5★ vs 1★ in a final shrinks from +28pp to about +13pp
-// blue-favored — still a clear favorite, but the underdog story is
-// real. Triggers only when the star diff is at least 2 (i.e. 1★ vs
-// 3★+ or 2★ vs 4★+).
-const UNDERDOG_BLUNT = 0.6;
-const UNDERDOG_FLAT = 2.5;
-const UNDERDOG_MIN_GAP = 2;
+// Underdog protection. Now scoped tighter: only fires when the star
+// gap is severe (≥ 3) AND the round is a final. Reflects user intent:
+// a 5★ team should reliably beat a 4★ team — only the largest gaps
+// (1★/2★ vs 4★/5★) get a real upset window, and only when the stage
+// is meaningful. UNDERDOG_BLUNT now keeps 65% of the favorite's edge
+// (was 40%); UNDERDOG_FLAT shrunk to 1.5 score-pts (was 2.5). Net for
+// a 5★ vs 1★ final: bias = 9*4*0.65 - 1.5 ≈ 21.9 → ~75% favorite,
+// leaving ~25% as the genuine "upset" probability.
+const UNDERDOG_BLUNT = 0.35;
+const UNDERDOG_FLAT = 1.5;
+const UNDERDOG_MIN_GAP = 3;
 export function starRatingBias(series: SeriesState): number {
   const blue = series.blueStarRating;
   const red = series.redStarRating;
   if (typeof blue !== "number" || typeof red !== "number") return 0;
   let starBias = (blue - red) * STAR_RATING_BIAS_K;
-  // Underdog protection in semifinals / finals. Operates on the star
-  // bias only — leaves streak and base draft signals alone, since they
-  // already reflect the underdog's real form.
+  // Underdog protection in finals only. Operates on the star bias
+  // alone — leaves streak and base draft signals untouched, since they
+  // already reflect the underdog's real form. Scoped to FINAL (not
+  // semis) and a star gap ≥ 3 so only the most consequential
+  // mismatches earn an upset window. A 5★ vs 4★ final still plays
+  // chalk; a 5★ vs 1★ final is the one with a real comeback story.
   const round = series.tournamentRound;
-  const isLateRound = round === "semifinal" || round === "final";
-  if (isLateRound) {
+  const isFinal = round === "final";
+  if (isFinal) {
     const starGap = Math.abs(blue - red);
     if (starGap >= UNDERDOG_MIN_GAP) {
       // Blunt the chalk: scale the star-rating bias down so the

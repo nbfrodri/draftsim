@@ -2059,6 +2059,7 @@ function generateTimeline(
               dragonKills,
               0,
               true,
+              side,
             )
           : NO_KDA,
       },
@@ -2291,21 +2292,35 @@ function generateTimeline(
       }
     }
     if (!chosen) continue;
-    const spikeInfo = getKeyPowerSpike(chosen.meta);
+    const spikeInfo = getKeyPowerSpike(chosen.meta, chosen.champ.alias);
     if (!spikeInfo.isCarrySpike) continue;
     // Side jitter so blue/red spikes don't share a minute. ±1 min around
-    // the build's spike minute.
-    const t = jitter(
-      Math.max(13, spikeInfo.minute - 1),
-      Math.min(16.5, spikeInfo.minute + 1),
+    // the build's spike minute, clamped so we don't fire before min 5.
+    const lo = Math.max(5, spikeInfo.minute - 1);
+    const hi = Math.max(lo + 0.5, spikeInfo.minute + 1);
+    const t = jitter(lo, hi);
+    // Later spikes hit harder. The default build minute is 14; randomized
+    // overrides span [6, 14]. We linearly scale gold delta and momentum
+    // impact between a 6' spike and a 14' spike: a 14' carry coming
+    // online drops a real momentum bomb, a 6' spike is mostly flavor.
+    const SPIKE_MIN = 6;
+    const SPIKE_MAX = 14;
+    const t01 = Math.max(
+      0,
+      Math.min(
+        1,
+        (spikeInfo.minute - SPIKE_MIN) / (SPIKE_MAX - SPIKE_MIN),
+      ),
     );
+    const goldDelta = Math.round(60 + 180 * t01);
+    const momentumImpact = 0.04 + 0.1 * t01;
     addEvent(
       "power-spike",
       t,
       spikeSide,
       describePowerSpike(chosen.champ, spikeInfo.keyItem),
-      { laneGoldDelta: spreadLaneGold(120, spikeSide) },
-      0.07,
+      { laneGoldDelta: spreadLaneGold(goldDelta, spikeSide) },
+      momentumImpact,
     );
   }
 
@@ -2351,7 +2366,13 @@ function generateTimeline(
           kills: stolen ? killsForSide(side, 0, stealK) : NO_KILLS,
           laneGoldDelta: spreadLaneGold(200, side),
           kdaDelta: stolen
-            ? objectiveKDA(side === "blue" ? "red" : "blue", stealK, 0, true)
+            ? objectiveKDA(
+                side === "blue" ? "red" : "blue",
+                stealK,
+                0,
+                true,
+                side,
+              )
             : NO_KDA,
         },
         stolen ? 0.28 : 0.14,
@@ -2370,13 +2391,16 @@ function generateTimeline(
     if (winnerHasPick) {
       // Pick Comp pick: support hooks but the carry (mid/bot) usually finishes
       // damage — kill credit follows damage, support gets the assist. Mirror
-      // of real LoL: Thresh hooks → ADC executes.
+      // of real LoL: Thresh hooks → ADC executes. Victim is the OPPOSING
+      // mirror lane (our bot kills theirs, our mid picks theirs) — the
+      // pre-fix version hardcoded bot, which produced "mid pick → enemy
+      // bot dies" mismatches in the replay.
       const pickKda = makeKDA();
       const carryLane: Lane = Math.random() < 0.55 ? "bottom" : "middle";
       addKill(pickKda, side, carryLane);
       addAssist(pickKda, side, "support");
       addAssist(pickKda, side, "jungle");
-      addDeath(pickKda, side === "blue" ? "red" : "blue", "bottom");
+      addDeath(pickKda, side === "blue" ? "red" : "blue", carryLane);
       addEvent(
         "pick",
         t,
@@ -2450,7 +2474,13 @@ function generateTimeline(
           kills: stolen ? killsForSide(side, 0, stealK) : NO_KILLS,
           laneGoldDelta: spreadLaneGold(220, side),
           kdaDelta: stolen
-            ? objectiveKDA(side === "blue" ? "red" : "blue", stealK, 0, true)
+            ? objectiveKDA(
+                side === "blue" ? "red" : "blue",
+                stealK,
+                0,
+                true,
+                side,
+              )
             : NO_KDA,
         },
         stolen ? 0.3 : 0.15,
@@ -2460,7 +2490,10 @@ function generateTimeline(
 
   // 13. Mid teamfight (19-24)
   {
-    const t = jitter(19, Math.min(24, duration - 4));
+    // Math.max guards the upper bound: at the 22-min duration floor,
+    // duration-4=18 would collapse the [19, 24] range below the lower
+    // bound and jitter would produce times before minute 19.
+    const t = jitter(19, Math.max(20, Math.min(24, duration - 4)));
     const side = rollEventSide(t);
     const wp = picksOf(ctx, side);
     // Scale kill spread by relative fight strength at this game time.
@@ -2512,8 +2545,11 @@ function generateTimeline(
   {
     const lead = Math.abs(state.goldLead);
     const shutdownChance = lead >= 4500 ? 0.55 : lead >= 2500 ? 0.35 : 0;
-    if (Math.random() < shutdownChance) {
-      const t = jitter(21, Math.min(26, duration - 5));
+    if (Math.random() < shutdownChance && duration >= 22) {
+      // Same Math.max guard — duration <= 25 with the original
+      // Math.min would invert the jitter range. Also gate by minimum
+      // duration so a 22-min stomp doesn't try to fire a min 21+ event.
+      const t = jitter(21, Math.max(22, Math.min(26, duration - 5)));
       // Side that was BEHIND lands the shutdown — bounty flows to underdog.
       const side: Side = state.goldLead > 0 ? "red" : "blue";
       const wp = picksOf(ctx, side);
@@ -2564,11 +2600,21 @@ function generateTimeline(
     addKill(visionKda, side, finisherLane);
     addAssist(visionKda, side, "support");
     if (finisherLane !== "jungle") addAssist(visionKda, side, "jungle");
-    addDeath(
-      visionKda,
-      side === "blue" ? "red" : "blue",
-      Math.random() < 0.4 ? "support" : "middle",
-    );
+    // Victim distribution: most vision picks catch a carry out of
+    // position (ADC walking back, mid mage stranded), with the support
+    // and jungler rounding out the long tail. The earlier version
+    // hardcoded support/middle only, so opposing ADCs never showed up
+    // in the death column — KDA strips read flat for bot laners.
+    const victimRoll = Math.random();
+    const victimLane: Lane =
+      victimRoll < 0.35
+        ? "middle"
+        : victimRoll < 0.65
+        ? "bottom"
+        : victimRoll < 0.85
+        ? "support"
+        : "jungle";
+    addDeath(visionKda, side === "blue" ? "red" : "blue", victimLane);
     addEvent(
       "vision",
       t,
@@ -2608,8 +2654,17 @@ function generateTimeline(
         : "jungle";
     const outplayKda = makeKDA();
     addKill(outplayKda, side, heroLane, wKills);
+    // Outplays in the late mid-game catch any clumped enemies, not just
+    // top/jg/mid — bot+support are often the squishiest targets. Earlier
+    // version excluded bottom/support which left their KDA columns
+    // permanently zero in the replay's death tally.
+    const opposingSide: Side = side === "blue" ? "red" : "blue";
     for (let i = 0; i < wKills; i++) {
-      addDeath(outplayKda, side === "blue" ? "red" : "blue", pickRandom(["top", "jungle", "middle"] as Lane[]));
+      addDeath(
+        outplayKda,
+        opposingSide,
+        pickRandom(["top", "jungle", "middle", "bottom", "support"] as Lane[]),
+      );
     }
     addEvent(
       "outplay",
@@ -2704,7 +2759,13 @@ function generateTimeline(
           kills: stolen ? killsForSide(side, 0, stealK) : NO_KILLS,
           laneGoldDelta: spreadLaneGold(240, side),
           kdaDelta: stolen
-            ? objectiveKDA(side === "blue" ? "red" : "blue", stealK, 0, true)
+            ? objectiveKDA(
+                side === "blue" ? "red" : "blue",
+                stealK,
+                0,
+                true,
+                side,
+              )
             : NO_KDA,
         },
         stolen ? 0.3 : 0.18,
@@ -2847,7 +2908,17 @@ function generateTimeline(
   // objectives close fights regardless of who farmed mid. The phase
   // weight at `duration` (typically 28-40) lands ~0.6, so a 5k lead at
   // 35 min reads as a moderate edge, not a guaranteed win.
+  //
+  // `ctx.diff` carries the team-score difference INCLUDING the
+  // star-rating scoreBias from tournament context. Feeding it directly
+  // into the closing logit (0.028 weight) means a 4-star gap (diff ≈
+  // 36) contributes ~1.0 logit on its own → roughly +25pp toward the
+  // favorite at the closing fight. Without this term, star rating only
+  // mattered indirectly via biased event-side rolls, which the gold/
+  // momentum random walk could wash out — 5★ teams were losing to 1★
+  // teams more often than the rating gap implied.
   const closingLogit =
+    ctx.diff * 0.028 +
     (state.goldLead / 5000) * goldPhaseWeight(duration) +
     state.momentum * 0.9 +
     objectiveLogit() * 0.4 +

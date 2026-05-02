@@ -587,3 +587,61 @@ export function loadCounterOverride(): CounterPair[] | null {
     return null;
   }
 }
+
+// ─── Random power spikes ──────────────────────────────────────────────────
+//
+// Generates a randomized first-major-item spike minute per champion, capped
+// at 14 minutes. The simulator and UI then read this override instead of
+// the archetype-based default minute.
+//
+// Distribution choice: uniform integer minutes in [POWER_SPIKE_MIN_MINUTE,
+// POWER_SPIKE_MAX_MINUTE]. Later spikes (closer to the cap) are MORE
+// impactful — the simulator scales the power-spike event's gold delta and
+// momentum bump linearly with the minute, so a 14' spike materially
+// outweighs a 6' spike. Rationale: a champion who only "comes online" at
+// the 14-minute threshold has invested in a heavier item path, so the
+// payoff event should hit harder.
+
+export const POWER_SPIKE_MIN_MINUTE = 6;
+export const POWER_SPIKE_MAX_MINUTE = 14;
+
+export type PowerSpikeOverride = Record<string, number>;
+
+export function randomizePowerSpikes(
+  champions: Champion[],
+): PowerSpikeOverride {
+  const out: PowerSpikeOverride = {};
+  const span = POWER_SPIKE_MAX_MINUTE - POWER_SPIKE_MIN_MINUTE;
+  for (const c of champions) {
+    if (!CHAMPION_META[c.alias]) continue;
+    out[c.alias] =
+      POWER_SPIKE_MIN_MINUTE + Math.floor(Math.random() * (span + 1));
+  }
+  return out;
+}
+
+const POWER_SPIKE_STORAGE_KEY = "draftsim:powerSpikeOverride:v1";
+
+export function savePowerSpikeOverride(o: PowerSpikeOverride | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (o == null) localStorage.removeItem(POWER_SPIKE_STORAGE_KEY);
+    else localStorage.setItem(POWER_SPIKE_STORAGE_KEY, JSON.stringify(o));
+  } catch {
+    // ignore
+  }
+}
+
+export function loadPowerSpikeOverride(): PowerSpikeOverride | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(POWER_SPIKE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed == null || Array.isArray(parsed))
+      return null;
+    return parsed as PowerSpikeOverride;
+  } catch {
+    return null;
+  }
+}
