@@ -403,14 +403,21 @@ injected from a local fallback table.
 
 ## Screenshots
 
-> Add screenshots to `/docs/screenshots/` and reference them here:
->
-> ```
-> ![Draft view](docs/screenshots/draft.png)
-> ![Match simulation](docs/screenshots/sim.png)
-> ![Series recap](docs/screenshots/recap.png)
-> ![Team comparison](docs/screenshots/comparison.png)
-> ```
+**Draft** — pick/ban board with live role assignment, synergy badges, and the AI's hovered choice + rationale.
+
+![Draft view](docs/screenshots/draft.png)
+
+**Match simulation** — live event-driven playback with the win-probability curve, gold/KDA, comp identities, and playback controls.
+
+![Match simulation](docs/screenshots/sim.png)
+
+**Team comparison** — single tug-of-war panel: scouting report, composition snapshot, and per-metric pull toward the stronger side.
+
+![Team comparison](docs/screenshots/comparison.png)
+
+**Series recap** — series-complete view with the per-game MVP, biggest-swing narrative, and final pick/ban summary.
+
+![Series recap](docs/screenshots/recap.png)
 
 ---
 

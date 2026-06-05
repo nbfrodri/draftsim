@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  getActiveMetaOverride,
   getMetaTier,
   TIER_ORDER,
   type MetaTier,
@@ -27,6 +28,21 @@ const ROLES: readonly { lane: Lane; label: string }[] = [
   { lane: "bottom", label: "Bot" },
   { lane: "support", label: "Support" },
 ];
+
+// Whether a champion should appear in a role's tier list. Normally we gate on
+// Meraki's lane data so untagged baseline pocket picks (e.g. Pantheon mid)
+// don't leak into a role. But when an active override EXPLICITLY places a
+// champion in a role — including an off-role flex pick the user added in the
+// editor (e.g. a support dropped into the jungle list) — that placement is
+// intentional and authoritative, so it shows regardless of Meraki's lanes.
+function shownInRole(
+  c: Champion,
+  role: Lane,
+  override: ReturnType<typeof getActiveMetaOverride>,
+): boolean {
+  if (override?.[c.alias]?.[role] != null) return true;
+  return c.lanes.includes(role);
+}
 
 interface TierStyle {
   label: string;
@@ -139,12 +155,9 @@ export default function TierListView({ open, champions, overrideVersion = 0, onC
       D: [],
     };
     const term = search.trim().toLowerCase();
+    const override = getActiveMetaOverride();
     for (const c of champions) {
-      // Filter by Meraki's lanes data — same source of truth as champ select.
-      // Avoids champions leaking into tier lists for roles they don't actually
-      // play (e.g., Pantheon mid was a curated pocket pick but isn't tagged
-      // mid by Meraki, so he's hidden from the mid tier list).
-      if (!c.lanes.includes(activeRole)) continue;
+      if (!shownInRole(c, activeRole, override)) continue;
       const tier = getMetaTier(c.alias, activeRole);
       if (!tier) continue;
       if (
@@ -165,8 +178,9 @@ export default function TierListView({ open, champions, overrideVersion = 0, onC
 
   const totalForRole = useMemo(() => {
     let n = 0;
+    const override = getActiveMetaOverride();
     for (const c of champions) {
-      if (!c.lanes.includes(activeRole)) continue;
+      if (!shownInRole(c, activeRole, override)) continue;
       if (getMetaTier(c.alias, activeRole)) n++;
     }
     return n;

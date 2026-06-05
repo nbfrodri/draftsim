@@ -160,6 +160,11 @@ export default function MetaEditor({
   const [dropTarget, setDropTarget] = useState<MetaTier | null>(null);
   const [mounted, setMounted] = useState(false);
 
+  // "Add champion" picker state. The panel toggles open with a search box
+  // listing champions not already in the active role's tier list.
+  const [addOpen, setAddOpen] = useState(false);
+  const [addSearch, setAddSearch] = useState("");
+
   // Import / Export state. The import panel toggles open with a textarea
   // for pasting JSON. Status feedback (copied / imported / error) lives in
   // a single transient string that auto-clears on the next user action.
@@ -242,6 +247,12 @@ export default function MetaEditor({
     setEditing(seed);
   }, [open, champions, initialOverride]);
 
+  // Clear the add-picker search when switching roles so each role tab opens
+  // with a fresh list (the panel itself stays open if the user left it open).
+  useEffect(() => {
+    setAddSearch("");
+  }, [activeRole]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -255,7 +266,12 @@ export default function MetaEditor({
   }, [open, onClose]);
 
   // Champions to show in the active role, grouped by their current edited
-  // tier in that role. Champions without a tier in this role are excluded.
+  // tier in that role. The displayed list IS the role's tier list being
+  // built: any champion with a tier in `editing[alias][activeRole]` shows,
+  // regardless of whether Meraki tags them for the role. That's what lets a
+  // user flex an off-role pick (e.g. a support champion) into the jungle
+  // tier list and see it here. Champions without a tier in this role are
+  // excluded (they live in the "Add champion" picker instead).
   const grouped = useMemo(() => {
     const buckets: Record<MetaTier, Champion[]> = {
       "S+": [],
@@ -266,10 +282,6 @@ export default function MetaEditor({
       D: [],
     };
     for (const c of champions) {
-      // Use the union (Meraki ∪ CHAMPION_META) so newly-released champions
-      // whose positions Meraki hasn't yet shipped (e.g. Zaahen) still
-      // appear in the role they're tiered in.
-      if (!playableLanesFor(c).includes(activeRole)) continue;
       const tier = editing[c.alias]?.[activeRole];
       if (!tier) continue;
       buckets[tier].push(c);
@@ -280,6 +292,27 @@ export default function MetaEditor({
     return buckets;
   }, [champions, activeRole, editing]);
 
+  // Champions NOT yet in the active role's tier list — the pool the "Add
+  // champion" picker draws from. Includes every champion (any role) so the
+  // user can pull, say, a support into the jungle list. Filtered by the add
+  // search box and capped so an empty search doesn't render the whole roster.
+  const ADD_RESULT_CAP = 60;
+  const availableToAdd = useMemo(() => {
+    const term = addSearch.trim().toLowerCase();
+    return champions
+      .filter((c) => editing[c.alias]?.[activeRole] == null)
+      .filter(
+        (c) =>
+          !term ||
+          c.name.toLowerCase().includes(term) ||
+          c.alias.toLowerCase().includes(term),
+      )
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [champions, editing, activeRole, addSearch]);
+
+  // Set (or change) a champion's tier in the active role. Doubles as the
+  // "add to this role" action — assigning a tier to a champion that had none
+  // is exactly how it joins the role's tier list.
   const moveTier = (alias: string, newTier: MetaTier) => {
     setEditing((prev) => {
       const next: MetaOverride = { ...prev };
@@ -288,6 +321,30 @@ export default function MetaEditor({
       next[alias] = champTiers;
       return next;
     });
+  };
+
+  // Add a champion to the active role at the given tier, from the picker.
+  const addToRole = (champ: Champion, tier: MetaTier) => {
+    moveTier(champ.alias, tier);
+    setFeedback({
+      kind: "ok",
+      text: `Added ${champ.name} to ${activeRole} (${tier})`,
+    });
+  };
+
+  // Remove a champion from the active role's tier list entirely. Deleting
+  // the lane key drops it from this role only — its tiers in other roles are
+  // untouched. Because the saved override is authoritative per champion, an
+  // absent lane reads back as "not played here" (getMetaTier → null).
+  const removeFromRole = (champ: Champion) => {
+    setEditing((prev) => {
+      const next: MetaOverride = { ...prev };
+      const champTiers = { ...(next[champ.alias] ?? {}) };
+      delete champTiers[activeRole];
+      next[champ.alias] = champTiers;
+      return next;
+    });
+    setFeedback({ kind: "ok", text: `Removed ${champ.name} from ${activeRole}` });
   };
 
   const handleSave = () => {
@@ -375,7 +432,7 @@ export default function MetaEditor({
           </div>
           <div className="ornament">
             <span className="text-[9px] md:text-[10px] tracking-[0.4em] text-rift-gold/50 uppercase">
-              Drag champions between tiers · Save when done
+              Drag to retier · Add or remove champions · Save when done
             </span>
           </div>
 
@@ -515,6 +572,100 @@ export default function MetaEditor({
           </div>
         </div>
 
+        {/* Add champion to this role. Lets the user pull ANY champion into the
+            active role's tier list — including off-role picks (e.g. a support
+            into the jungle list). Collapsed by default; opens a searchable
+            list where clicking a tier chip places the champion. */}
+        <div className="px-4 md:px-6 pt-3">
+          <button
+            type="button"
+            onClick={() => {
+              setAddOpen((v) => !v);
+              if (!addOpen) setAddSearch("");
+            }}
+            aria-expanded={addOpen}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 border text-[10px] md:text-[11px] uppercase tracking-[0.25em] transition-all ${
+              addOpen
+                ? "border-rift-gold/60 text-rift-goldbright bg-rift-gold/10"
+                : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60 hover:bg-rift-gold/5"
+            }`}
+            title="Add a champion to this role's tier list"
+          >
+            <svg
+              viewBox="0 0 16 16"
+              className="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              aria-hidden
+            >
+              <path d="M8 3v10M3 8h10" strokeLinecap="round" />
+            </svg>
+            Add champion to{" "}
+            {ROLES.find((r) => r.lane === activeRole)?.label ?? activeRole}
+          </button>
+
+          {addOpen && (
+            <div className="mt-2 border border-rift-gold/30 bg-rift-bg/60 p-2.5">
+              <input
+                type="text"
+                value={addSearch}
+                onChange={(e) => setAddSearch(e.target.value)}
+                placeholder="Search champions…"
+                spellCheck={false}
+                autoFocus
+                className="w-full bg-rift-bg/80 border border-rift-line text-[12px] text-rift-mutedbright px-2.5 py-1.5 focus:outline-none focus:border-rift-gold/60 placeholder:text-rift-muted/60"
+              />
+              <div className="mt-2 max-h-48 overflow-y-auto custom-scroll divide-y divide-rift-line/30">
+                {availableToAdd.length === 0 ? (
+                  <div className="text-[10px] uppercase tracking-[0.3em] text-rift-muted/70 py-3 text-center italic">
+                    {addSearch.trim()
+                      ? "No matching champions"
+                      : "Every champion is already in this list"}
+                  </div>
+                ) : (
+                  availableToAdd.slice(0, ADD_RESULT_CAP).map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center gap-2 py-1.5 px-1"
+                    >
+                      <img
+                        src={c.iconUrl}
+                        alt={c.name}
+                        className="w-7 h-7 flex-shrink-0"
+                        loading="lazy"
+                        draggable={false}
+                      />
+                      <span className="text-[11px] text-rift-mutedbright font-display tracking-wider truncate flex-1 min-w-0">
+                        {c.name}
+                      </span>
+                      <div className="flex gap-1 flex-shrink-0">
+                        {TIER_ORDER.map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => addToRole(c, t)}
+                            className={`w-7 h-6 flex items-center justify-center border border-rift-line/60 ${TIER_STYLES[t].text} hover:border-rift-gold/60 hover:bg-rift-gold/10 text-[10px] font-display tracking-wide transition-all`}
+                            title={`Add ${c.name} to ${activeRole} at ${t}`}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              {availableToAdd.length > ADD_RESULT_CAP && (
+                <div className="text-[9px] uppercase tracking-[0.3em] text-rift-muted/70 pt-2 text-center">
+                  {availableToAdd.length - ADD_RESULT_CAP} more — refine your
+                  search
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Tier rows */}
         <div className="px-4 md:px-6 pt-4 pb-3 max-h-[58vh] overflow-y-auto custom-scroll space-y-2">
           {TIER_ORDER.map((tier) => {
@@ -561,6 +712,7 @@ export default function MetaEditor({
                         isDragging={draggedAlias === c.alias}
                         onDragStart={handleDragStart(c.alias)}
                         onDragEnd={handleDragEnd}
+                        onRemove={() => removeFromRole(c)}
                       />
                     ))
                   )}
@@ -600,19 +752,21 @@ function DraggableChampion({
   isDragging,
   onDragStart,
   onDragEnd,
+  onRemove,
 }: {
   champ: Champion;
   ring: string;
   isDragging: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
+  onRemove: () => void;
 }) {
   return (
     <div
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className={`group flex items-center gap-1.5 pl-0.5 pr-2 py-0.5 bg-rift-bg/80 border border-rift-line/60 ${ring} cursor-grab active:cursor-grabbing transition-all hover:bg-rift-bg hover:scale-[1.04] ${
+      className={`group relative flex items-center gap-1.5 pl-0.5 pr-2 py-0.5 bg-rift-bg/80 border border-rift-line/60 ${ring} cursor-grab active:cursor-grabbing transition-all hover:bg-rift-bg hover:scale-[1.04] ${
         isDragging ? "opacity-40 scale-95" : ""
       }`}
       title={`Drag ${champ.name} to change tier`}
@@ -627,6 +781,31 @@ function DraggableChampion({
       <span className="text-[10px] md:text-[11px] text-rift-mutedbright group-hover:text-rift-goldbright font-display tracking-wider truncate max-w-[6.5rem] md:max-w-[8rem] transition-colors pointer-events-none">
         {champ.name}
       </span>
+      {/* Remove from this role's tier list. Stop mousedown from bubbling so
+          clicking the × doesn't start a drag on the parent. */}
+      <button
+        type="button"
+        draggable={false}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        aria-label={`Remove ${champ.name} from this tier list`}
+        title={`Remove ${champ.name} from this role`}
+        className="absolute -top-1.5 -right-1.5 w-4 h-4 items-center justify-center bg-rift-reddeep border border-rift-red/70 text-rift-redbright hover:bg-rift-red hover:text-white hidden group-hover:flex transition-colors"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          className="w-2.5 h-2.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden
+        >
+          <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round" />
+        </svg>
+      </button>
     </div>
   );
 }
