@@ -6,8 +6,18 @@ import { useDraftStore } from "@/store/draftStore";
 import { currentGame } from "@/lib/series";
 import { assignLanesToPicks, currentAction } from "@/lib/draftEngine";
 import { getSynergy } from "@/lib/championMeta";
-import type { Champion, Lane, Side } from "@/lib/types";
+import { playerForLane, poolBias } from "@/lib/players";
+import type { Champion, Lane, PlayerTier, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
+
+// Per-tier styling for the small player-tier badge on a locked pick slot.
+const TIER_BADGE: Record<PlayerTier, string> = {
+  S: "text-rift-goldbright border-rift-gold/60 bg-rift-gold/10",
+  A: "text-rift-bluebright border-rift-blue/50 bg-rift-blue/10",
+  B: "text-rift-mutedbright border-rift-line",
+  C: "text-rift-muted border-rift-line/60",
+  D: "text-rift-muted border-rift-red/30",
+};
 
 interface Props {
   champions: Champion[];
@@ -25,6 +35,9 @@ export default function TeamPanel({ champions, side }: Props) {
   const picks = side === "blue" ? game.bluePicks : game.redPicks;
   const bans = side === "blue" ? game.blueBans : game.redBans;
   const teamName = side === "blue" ? series.blueTeam : series.redTeam;
+  // Player roster for this side (when configured). Drives the per-slot tier
+  // badge and the good/bad pool-fit indicator.
+  const roster = side === "blue" ? series.bluePlayers : series.redPlayers;
 
   const sideConfig = side === "blue"
     ? {
@@ -146,6 +159,8 @@ export default function TeamPanel({ champions, side }: Props) {
             action?.kind === "pick" &&
             action.side === side &&
             action.slot === slot;
+          const slotLane = id != null ? liveRoles[slot] : null;
+          const slotPlayer = playerForLane(roster, slotLane);
           return (
             <PickSlot
               key={`pick-${slot}`}
@@ -155,6 +170,8 @@ export default function TeamPanel({ champions, side }: Props) {
               side={side}
               locked={id != null}
               role={id != null ? liveRoles[slot] : null}
+              playerTier={id != null ? slotPlayer?.tier ?? null : null}
+              poolSign={id != null && slotPlayer ? poolBias(slotPlayer, id) : 0}
             />
           );
         })}
@@ -194,6 +211,8 @@ function PickSlot({
   side,
   locked,
   role,
+  playerTier = null,
+  poolSign = 0,
 }: {
   champ: Champion | undefined;
   isCurrent: boolean;
@@ -201,6 +220,8 @@ function PickSlot({
   side: Side;
   locked: boolean;
   role: Lane | null;
+  playerTier?: PlayerTier | null;
+  poolSign?: number;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const prevLockedRef = useRef(locked);
@@ -265,6 +286,16 @@ function PickSlot({
             <LaneIcon lane={role} size="xs" />
           </div>
         )}
+        {/* Pool-fit dot: green = the assigned player is comfortable on this
+            champion, red = it's one they're bad at. */}
+        {locked && poolSign !== 0 && (
+          <div
+            className={`absolute top-0.5 left-0.5 w-2 h-2 rounded-full ${
+              poolSign > 0 ? "bg-rift-support" : "bg-rift-red"
+            } ring-1 ring-black/50`}
+            title={poolSign > 0 ? "Player comfort pick" : "Off-pool for this player"}
+          />
+        )}
       </div>
 
       {/* Name + role — desktop only */}
@@ -279,6 +310,14 @@ function PickSlot({
                 {champ.roles.slice(0, 2).join(" · ")}
               </div>
             </div>
+            {playerTier && (
+              <div
+                className={`shrink-0 w-5 h-5 flex items-center justify-center border rounded-sm font-display text-[10px] ${TIER_BADGE[playerTier]}`}
+                title={`Player tier: ${playerTier}`}
+              >
+                {playerTier}
+              </div>
+            )}
             {role && (
               <div className="shrink-0 bg-black/40 border border-rift-gold/30 rounded-sm p-1 flex items-center justify-center">
                 <LaneIcon lane={role} size="sm" />

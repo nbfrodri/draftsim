@@ -6,12 +6,15 @@ import { useDraftStore } from "@/store/draftStore";
 import type {
   AIDifficulty,
   DraftMode,
+  Roster,
   SeriesFormat,
   Side,
 } from "@/lib/types";
+import { deriveStar, randomizeRoster } from "@/lib/players";
 import TierListView from "./TierListView";
 import MetaEditor from "./MetaEditor";
 import SynergyView from "./SynergyView";
+import RosterEditor from "./RosterEditor";
 
 const FORMATS: { value: SeriesFormat; label: string; sub: string }[] = [
   { value: "bo1", label: "Best of 1", sub: "Single game" },
@@ -81,6 +84,11 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
   const [tierListOpen, setTierListOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [synergyOpen, setSynergyOpen] = useState(false);
+  // Optional player rosters. Null = no roster (no win bias, classic behavior).
+  // When set, the team's star derives from it and the sim/AI use the players.
+  const [bluePlayers, setBluePlayers] = useState<Roster | null>(null);
+  const [redPlayers, setRedPlayers] = useState<Roster | null>(null);
+  const [rosterEditor, setRosterEditor] = useState<null | "blue" | "red">(null);
   const isCustomized = metaOverride != null;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -135,6 +143,8 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
         mode === "aivai" && perSideDifficulty ? blueAiDifficulty : undefined,
       redAiDifficulty:
         mode === "aivai" && perSideDifficulty ? redAiDifficulty : undefined,
+      bluePlayers: bluePlayers ?? undefined,
+      redPlayers: redPlayers ?? undefined,
     });
   };
 
@@ -376,6 +386,33 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
               value={redTeam}
               onChange={setRedTeam}
             />
+          </div>
+
+          {/* Player rosters (optional). When set, the team's star rating
+              derives from the roster and the sim/AI factor in each player's
+              tier and champion pools. Left unset → classic behavior. */}
+          <div className="cs-stagger mb-6">
+            <label className="block text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-3">
+              Player Rosters <span className="text-rift-muted normal-case tracking-normal">(optional — tiers + champ pools)</span>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <RosterCard
+                side="blue"
+                name={blueTeam || "Blue Side"}
+                roster={bluePlayers}
+                onEdit={() => setRosterEditor("blue")}
+                onRandomize={() => setBluePlayers(randomizeRoster({ champions }))}
+                onClear={() => setBluePlayers(null)}
+              />
+              <RosterCard
+                side="red"
+                name={redTeam || "Red Side"}
+                roster={redPlayers}
+                onEdit={() => setRosterEditor("red")}
+                onRandomize={() => setRedPlayers(randomizeRoster({ champions }))}
+                onClear={() => setRedPlayers(null)}
+              />
+            </div>
           </div>
 
           <div className="cs-stagger space-y-3 mb-8">
@@ -626,6 +663,95 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
         champions={champions}
         onClose={() => setSynergyOpen(false)}
       />
+
+      <RosterEditor
+        open={rosterEditor === "blue"}
+        champions={champions}
+        roster={bluePlayers}
+        teamLabel={blueTeam || "Blue Side"}
+        side="blue"
+        onSave={(r) => setBluePlayers(r)}
+        onClose={() => setRosterEditor(null)}
+      />
+      <RosterEditor
+        open={rosterEditor === "red"}
+        champions={champions}
+        roster={redPlayers}
+        teamLabel={redTeam || "Red Side"}
+        side="red"
+        onSave={(r) => setRedPlayers(r)}
+        onClose={() => setRosterEditor(null)}
+      />
+    </div>
+  );
+}
+
+// Compact card in the setup form for one team's optional roster: shows the
+// derived star when set, with Edit / Randomize / Clear actions.
+function RosterCard({
+  side,
+  name,
+  roster,
+  onEdit,
+  onRandomize,
+  onClear,
+}: {
+  side: "blue" | "red";
+  name: string;
+  roster: Roster | null;
+  onEdit: () => void;
+  onRandomize: () => void;
+  onClear: () => void;
+}) {
+  const accent = side === "blue" ? "text-rift-bluebright" : "text-rift-redbright";
+  const border =
+    side === "blue" ? "border-rift-blue/40" : "border-rift-red/40";
+  const star = roster ? deriveStar(roster) : null;
+  return (
+    <div className={`border ${border} bg-rift-bg/40 p-2.5`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className={`font-display text-xs uppercase tracking-[0.2em] truncate ${accent}`}>
+          {name}
+        </span>
+        {roster && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="text-rift-mutedbright/60 hover:text-rift-redbright text-[9px] uppercase tracking-[0.25em]"
+            title="Clear roster"
+          >
+            clear
+          </button>
+        )}
+      </div>
+      <div className="mt-1 text-sm tracking-tight" aria-hidden>
+        {star != null ? (
+          <span className="text-rift-gold">
+            {"★".repeat(star)}
+            <span className="text-rift-line">{"★".repeat(5 - star)}</span>
+          </span>
+        ) : (
+          <span className="text-[10px] uppercase tracking-[0.25em] text-rift-muted/70">
+            No roster set
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-1.5 mt-2">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60 hover:bg-rift-gold/5 text-[10px] uppercase tracking-[0.2em] transition-all"
+        >
+          {roster ? "Edit" : "Add"}
+        </button>
+        <button
+          type="button"
+          onClick={onRandomize}
+          className="py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60 hover:bg-rift-gold/5 text-[10px] uppercase tracking-[0.2em] transition-all"
+        >
+          Random
+        </button>
+      </div>
     </div>
   );
 }

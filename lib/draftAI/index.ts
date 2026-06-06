@@ -22,6 +22,7 @@ import type {
   DraftMode,
   GameDraft,
   Lane,
+  Roster,
   SeriesState,
   Side,
 } from "../types";
@@ -113,6 +114,11 @@ export interface SeriesAIContext {
     number,
     { games: number; wins: number; winRate: number }
   >;
+  // THIS AI's own player roster (the side it's drafting for). Lets scoring
+  // nudge toward champions the lane's player is comfortable on and away from
+  // ones they're bad at — weighed against meta tier, matchup, and synergy,
+  // never overriding them. Undefined outside roster-configured series.
+  myPlayers?: Roster;
 }
 
 export function seriesAIContextFrom(
@@ -219,6 +225,10 @@ export function seriesAIContextFrom(
     eliminationGame,
     closeoutGame,
     tournamentChampionWR,
+    // Roster for the side this AI is drafting. blue*/red* always track the
+    // current sides (startNextGame swaps them), so a simple side lookup is
+    // correct even after a mid-series side swap.
+    myPlayers: mySide === "blue" ? series.bluePlayers : series.redPlayers,
   };
 }
 

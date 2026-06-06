@@ -90,7 +90,11 @@ export default function BetweenGamesView({ champions }: Props) {
   // higher-rated roster. starRatingBias() returns 0 outside tournament
   // context so single-series sims behave identically.
   const simOptions = useMemo(
-    () => ({ scoreBias: starRatingBias(series) }),
+    () => ({
+      scoreBias: starRatingBias(series),
+      bluePlayers: series.bluePlayers,
+      redPlayers: series.redPlayers,
+    }),
     [series],
   );
 

@@ -1,9 +1,11 @@
 import { createGame } from "./draftEngine";
+import { deriveStar } from "./players";
 import type {
   AIDifficulty,
   DraftMode,
   GameDraft,
   GameRecap,
+  Roster,
   SeriesFormat,
   SeriesState,
   Side,
@@ -41,6 +43,10 @@ export function createSeries(params: {
   blueWinStreak?: number;
   redWinStreak?: number;
   tournamentRound?: "early" | "quarterfinal" | "semifinal" | "final";
+  // Optional player rosters. When provided and an explicit star rating
+  // isn't, the team's star derives from the roster (deriveStar).
+  bluePlayers?: Roster;
+  redPlayers?: Roster;
 }): SeriesState {
   return {
     id: `series-${Date.now()}`,
@@ -57,11 +63,21 @@ export function createSeries(params: {
     aiDifficulty: params.aiDifficulty,
     blueAiDifficulty: params.blueAiDifficulty,
     redAiDifficulty: params.redAiDifficulty,
-    blueStarRating: params.blueStarRating,
-    redStarRating: params.redStarRating,
+    // Star rating: explicit value wins; otherwise derive it from the roster
+    // (the roster is the source of truth for team strength). Stays undefined
+    // when neither is provided — non-tournament series with no rosters get
+    // no win bias, exactly as before.
+    blueStarRating:
+      params.blueStarRating ??
+      (params.bluePlayers ? deriveStar(params.bluePlayers) : undefined),
+    redStarRating:
+      params.redStarRating ??
+      (params.redPlayers ? deriveStar(params.redPlayers) : undefined),
     blueWinStreak: params.blueWinStreak,
     redWinStreak: params.redWinStreak,
     tournamentRound: params.tournamentRound,
+    bluePlayers: params.bluePlayers,
+    redPlayers: params.redPlayers,
   };
 }
 
@@ -267,6 +283,12 @@ export function startNextGame(
           redStarRating: series.blueStarRating,
           blueWinStreak: series.redWinStreak,
           redWinStreak: series.blueWinStreak,
+          // Player rosters follow their team across the side swap, so
+          // blue*/red* always describe the CURRENT sides (matching the
+          // star-rating convention above). Keeps the simulator's per-lane
+          // player effects and the AI's roster aligned to the right side.
+          bluePlayers: series.redPlayers,
+          redPlayers: series.bluePlayers,
         }
       : {}),
   };

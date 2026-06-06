@@ -13,12 +13,14 @@ import {
 import {
   createSeries,
   currentGame,
+  difficultyForSide,
   fearlessLockedSet,
   recordWinner,
   startNextGame,
   starRatingBias,
   winsByTeamName,
 } from "@/lib/series";
+import { optimizeRoleAssignment } from "@/lib/draftAI/roleAssign";
 import {
   chooseAIAction,
   chooseAIActionWithRationale,
@@ -81,6 +83,7 @@ import {
   type TournamentState,
 } from "@/lib/tournament";
 import { buildGameRecap, simulateMatch } from "@/lib/matchSimulator";
+import { randomizeRoster } from "@/lib/players";
 
 export const ACTION_SECONDS = 30;
 
@@ -342,6 +345,8 @@ function autoPlayMatch(
     blueWinStreak: tctx?.blueWinStreak,
     redWinStreak: tctx?.redWinStreak,
     tournamentRound: tctx?.roundDepth,
+    bluePlayers: blueTeam.players,
+    redPlayers: redTeam.players,
   });
   while (series.status !== "complete") {
     const crossLocked = crossMatchFearlessLocked(
@@ -367,13 +372,15 @@ function autoPlayMatch(
         locked.add(championId);
       }
     }
-    game = finalizeRoles(game, champions);
+    game = finalizeRoles(game, champions, series);
     series = {
       ...series,
       games: [...series.games.slice(0, -1), game],
     };
     const result = simulateMatch(game, champions, {
       scoreBias: starRatingBias(series),
+      bluePlayers: series.bluePlayers,
+      redPlayers: series.redPlayers,
     });
     const recap = buildGameRecap(game, champions, result);
     series = recordWinner(series, result.winner, recap);
@@ -465,15 +472,49 @@ function archiveCompletedTournament(
   return next.slice(0, 5);
 }
 
+// Is `side` driven by the AI in this series?
+function isAISide(series: SeriesState, side: Side): boolean {
+  if (series.mode === "aivai") return true;
+  if (series.mode === "pvai") return series.aiSide === side;
+  return false;
+}
+
+// Positional picks for one side. AI sides (above Easy) get the flex optimizer
+// — champions placed in the lanes that maximize meta tier + their player's
+// comfort. Human sides (and Easy AI) keep the greedy primary-lane assignment
+// and rely on the manual swap UI.
+function positionalPicksForSide(
+  picks: (number | null)[],
+  champions: Champion[],
+  series: SeriesState | undefined,
+  side: Side,
+): (number | null)[] {
+  if (
+    series &&
+    isAISide(series, side) &&
+    difficultyForSide(series, side) !== "easy"
+  ) {
+    const roster = side === "blue" ? series.bluePlayers : series.redPlayers;
+    return optimizeRoleAssignment(picks, champions, roster);
+  }
+  return reorderPicksByPosition(picks, champions);
+}
+
 // When a game completes, reorder picks into positional (top→support) order and
 // fix the role slots. After this, swap operations exchange champions between
-// positional slots while the role labels stay in place.
-function finalizeRoles(game: GameDraft, champions: Champion[]): GameDraft {
+// positional slots while the role labels stay in place. When `series` is
+// supplied, AI-controlled sides flex-optimize their assignment first (see
+// positionalPicksForSide) so the bots play their comfort/meta-best lanes.
+function finalizeRoles(
+  game: GameDraft,
+  champions: Champion[],
+  series?: SeriesState,
+): GameDraft {
   if (game.status !== "complete") return game;
   return {
     ...game,
-    bluePicks: reorderPicksByPosition(game.bluePicks, champions),
-    redPicks: reorderPicksByPosition(game.redPicks, champions),
+    bluePicks: positionalPicksForSide(game.bluePicks, champions, series, "blue"),
+    redPicks: positionalPicksForSide(game.redPicks, champions, series, "red"),
     blueRoles: [...POSITIONAL_LANES],
     redRoles: [...POSITIONAL_LANES],
   };
@@ -737,7 +778,7 @@ export const useDraftStore = create<DraftStore>()(
     playActionSound(action.kind, action.side);
 
     const locked = applyLock(game, selectedChampionId);
-    const finalized = finalizeRoles(locked, champions);
+    const finalized = finalizeRoles(locked, champions, series);
     const games = [...series.games];
     games[games.length - 1] = finalized;
     const nextSeries: SeriesState = {
@@ -788,7 +829,7 @@ export const useDraftStore = create<DraftStore>()(
       // back to the timeout path so the draft still advances.
       updatedGame = applyTimeout(game, allChampionIds(champions), locked);
     }
-    const finalized = finalizeRoles(updatedGame, champions);
+    const finalized = finalizeRoles(updatedGame, champions, series);
     const games = [...series.games];
     games[games.length - 1] = finalized;
     const nextSeries: SeriesState = {
@@ -866,7 +907,7 @@ export const useDraftStore = create<DraftStore>()(
       }
       action = currentAction(game);
     }
-    const finalized = finalizeRoles(game, champions);
+    const finalized = finalizeRoles(game, champions, series);
     const games = [...series.games];
     games[games.length - 1] = finalized;
     const nextSeries: SeriesState = {
@@ -903,7 +944,7 @@ export const useDraftStore = create<DraftStore>()(
       const locked = effectiveLockedSet(get().tournament, fearlessLockedSet(series));
       updatedGame = applyTimeout(game, allChampionIds(champions), locked);
     }
-    const finalized = finalizeRoles(updatedGame, champions);
+    const finalized = finalizeRoles(updatedGame, champions, series);
     const games = [...series.games];
     games[games.length - 1] = finalized;
     const nextSeries: SeriesState = {
@@ -984,10 +1025,28 @@ export const useDraftStore = create<DraftStore>()(
     // tournament is "played on this meta" regardless of what the user
     // changes globally afterward. Includes the synergy and counter
     // overrides so randomized pairings travel with the tournament.
-    const { metaOverride, metaEnabled, synergyOverride, counterOverride } =
-      get();
+    const {
+      metaOverride,
+      metaEnabled,
+      synergyOverride,
+      counterOverride,
+      champions,
+    } = get();
+    // Give every team a player roster generated to match its chosen star
+    // rating (the roster is the source of truth for team strength from here
+    // on; the user can re-randomize / edit it in setup). Teams that already
+    // carry a roster (e.g. an imported/edited one) keep it.
+    const teamsWithRosters = params.teams.map((t) =>
+      Array.isArray(t.players) && t.players.length === 5
+        ? t
+        : {
+            ...t,
+            players: randomizeRoster({ champions, star: t.starRating ?? 3 }),
+          },
+    );
     const tournament = createTournament({
       ...params,
+      teams: teamsWithRosters,
       metaSnapshot: params.metaSnapshot ?? {
         metaOverride: metaOverride ?? null,
         metaEnabled,
@@ -1150,6 +1209,10 @@ export const useDraftStore = create<DraftStore>()(
       blueWinStreak: tctx?.blueWinStreak,
       redWinStreak: tctx?.redWinStreak,
       tournamentRound: tctx?.roundDepth,
+      // Persistent player identities for this match (same roster every match
+      // in the tournament). Star already derives from these via teamStarRating.
+      bluePlayers: blueTeam.players,
+      redPlayers: redTeam.players,
     });
     // Mark the match as active and stash the live series on it so reload
     // can resume mid-match (the series is also held in `state.series`).

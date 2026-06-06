@@ -7,10 +7,12 @@
 import type {
   AIDifficulty,
   DraftMode,
+  Roster,
   SeriesFormat,
   SeriesState,
   Side,
 } from "./types";
+import { deriveStar, normalizeRoster, rosterFromStar } from "./players";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -128,6 +130,13 @@ export interface TournamentTeam {
   // tints the team name accent in match cards. Undefined = use the
   // default sider colors (blue/red).
   color?: string;
+  // Player roster (5 players, positional lane order). Persistent identity
+  // across every match the team plays. The team's effective star rating is
+  // DERIVED from this roster (see teamStarRating) — `starRating` above is
+  // kept for the legacy macro and as a generation seed. Undefined on teams
+  // created/persisted before this feature; filled on decode and at
+  // tournament creation.
+  players?: Roster;
 }
 
 // Curated 64-color palette for team accents. Designed to be visually
@@ -270,6 +279,12 @@ export type TeamIconKey = (typeof TEAM_ICON_KEYS)[number];
 // Effective star rating with a sane default for legacy / partial data.
 export function teamStarRating(team: TournamentTeam | null): number {
   if (!team) return 3;
+  // The roster is the source of truth: when a team has players, its star
+  // rating is the derived mean of their tiers. Falls back to the stored
+  // `starRating` for legacy teams that have no roster yet.
+  if (Array.isArray(team.players) && team.players.length > 0) {
+    return deriveStar(team.players);
+  }
   const r = team.starRating;
   if (typeof r !== "number" || !Number.isFinite(r)) return 3;
   return Math.max(1, Math.min(5, Math.round(r)));
@@ -2892,7 +2907,23 @@ export async function decodeTournament(
   ) {
     return { tournament: null, error: "Tournament shape invalid" };
   }
-  return { tournament: parsed as TournamentState, error: null };
+  // Ensure every team carries a well-formed roster. Codes exported before
+  // the players feature have none → synthesize a uniform roster from the
+  // stored star rating (deriveStar(result) === starRating). Codes that do
+  // carry rosters get normalized (capped/disjoint pools, valid tiers).
+  const withRosters: TournamentState = {
+    ...(parsed as TournamentState),
+    teams: (t.teams as TournamentTeam[]).map((team) => ({
+      ...team,
+      players:
+        Array.isArray(team.players) && team.players.length > 0
+          ? normalizeRoster(team.players)
+          : rosterFromStar(
+              typeof team.starRating === "number" ? team.starRating : 3,
+            ),
+    })),
+  };
+  return { tournament: withRosters, error: null };
 }
 
 // Tournament-wide champion crowning. For single-elim: winner of the

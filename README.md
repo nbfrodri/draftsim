@@ -145,6 +145,34 @@ the top-N. Notable strategic features:
 - Master toggle to disable the meta tier system entirely (AI / sim treat all
   champions as equivalent in their playable lanes).
 
+### Player identities (rosters)
+
+Optional per-team rosters of **5 players** (one per lane), each with a fixed skill
+**tier (S–D)** and **champion pools** (≤3 they play well, ≤3 they play badly).
+Available in single series and tournaments; randomizable or hand-edited via a
+dedicated editor, and **persistent** for the life of a series and — in tournaments
+— across every match (travels in the `TOUR1:` save code).
+
+- **Team rating derives from the roster** — the 1–5★ star is the mean of the five
+  player tiers, so a 5★ team can never be five D-tier players. Set a star to
+  generate a matching roster, or hand-edit the roster and the star follows.
+- **The simulator factors it in three ways, with no double-counting:** a team-wide
+  **macro** bias from the derived star; a **zero-sum per-lane micro** bias (a strong
+  toplaner over-performs in top *specifically*, without inflating the team's level);
+  and **champion-pool fit** (a laner on a liked champ over-performs, a disliked one
+  under-performs).
+- **The AI drafts for its players** — champions in the lane player's "good" pool get
+  a moderate scoring nudge (disliked ones a penalty), weighed *alongside* — never
+  overriding — meta tier, matchup, and synergy. A comfort pick on a D-tier champ
+  still loses to a clearly stronger option.
+- **Flex-pick role optimization** — before simulating, AI teams reassign their five
+  champions to the lanes that maximize meta tier + player comfort (respecting each
+  champion's playable lanes); humans keep the manual swap.
+
+Validated end-to-end (real sims): **5★ vs 1★ rosters win ~83%**, an all-comfort
+draft wins **~57%** vs a neutral one at equal rating, and equal rosters stay ~50%.
+Design doc: [`docs/players-feature.md`](docs/players-feature.md).
+
 ### Persistence
 
 - **Active series + tournament + history survive reload** via Zustand
@@ -414,6 +442,10 @@ injected from a local fallback table.
 **Team comparison** — single tug-of-war panel: scouting report, composition snapshot, and per-metric pull toward the stronger side.
 
 ![Team comparison](docs/screenshots/comparison.png)
+
+**Player roster editor** — per-team player tiers and champion pools (liked / disliked), with the team's star rating derived live.
+
+![Player roster editor](docs/screenshots/roster-editor.png)
 
 **Series recap** — series-complete view with the per-game MVP, biggest-swing narrative, and final pick/ban summary.
 

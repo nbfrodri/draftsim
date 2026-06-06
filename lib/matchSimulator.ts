@@ -1,4 +1,4 @@
-import type { Champion, GameDraft, Lane, Side } from "./types";
+import type { Champion, GameDraft, Lane, Roster, Side } from "./types";
 import {
   getMetaEnabled,
   getMetaTier,
@@ -12,6 +12,7 @@ import {
 import { getAbilityProfile, teamLockdownTotal } from "./championAbilities";
 import { buildStatsAt, getKeyPowerSpike } from "./championBuilds";
 import { hardCounterValue } from "./draftAI/helpers";
+import { PLAYER_TIER_VALUE, playerForLane, poolBias } from "./players";
 import type {
   AtakhanVariant,
   EventKDA,
@@ -1491,9 +1492,70 @@ function detectWeakside(
   return { weakLane: null, strongLane: null };
 }
 
+// Lane-gold swing per point of player tier-deviation gap. A lane whose player
+// sits one tier above their team average, facing one a tier below theirs,
+// gets ~+16 g/min there (gap of 2 × 8). Comparable to a champion meta-tier
+// step (tierDiff × 12). Calibratable — re-run `npm run calibrate` after
+// changing. Lives here next to the lane-advantage weights it joins.
+const PLAYER_LANE_BIAS_K = 8;
+
+// Mean tier-value of a roster (centered on B = 0). Used to express each
+// player's lane bias as a deviation from their OWN team's average, which makes
+// the per-lane player effect sum to zero across the five lanes — the team's
+// overall level is carried by the derived star (scoreBias), not re-added here.
+function rosterMeanTierValue(roster: Roster | undefined): number {
+  if (!roster || roster.length === 0) return 0;
+  return (
+    roster.reduce((s, p) => s + PLAYER_TIER_VALUE[p.tier], 0) / roster.length
+  );
+}
+
+// Lane-gold bias from the two players in a lane, each measured as a deviation
+// from their own team's mean tier. Returns 0 when either roster lacks the
+// lane. Exported (and pure) so the per-lane player effect can be unit-tested
+// without the random term inside computeLaneAdvantages. Sums to zero across
+// the five lanes by construction.
+export function playerLaneTierBias(
+  bluePlayers: Roster | undefined,
+  redPlayers: Roster | undefined,
+  lane: Lane,
+  k: number = PLAYER_LANE_BIAS_K,
+): number {
+  const bp = playerForLane(bluePlayers, lane);
+  const rp = playerForLane(redPlayers, lane);
+  if (!bp || !rp) return 0;
+  const blueDev = PLAYER_TIER_VALUE[bp.tier] - rosterMeanTierValue(bluePlayers);
+  const redDev = PLAYER_TIER_VALUE[rp.tier] - rosterMeanTierValue(redPlayers);
+  return (blueDev - redDev) * k;
+}
+
+// Lane-gold swing from champion-pool fit: a laner on one of their liked
+// champions over-performs in that lane; a disliked champion under-performs.
+// ~15 g/min per pool point, so a comfort pick facing a disliked one swings
+// ~30 g/min. Unlike the tier micro-bias this is ABSOLUTE, not zero-sum:
+// being comfortable on your champion doesn't make your teammates worse, and
+// the team-level upside (a well-drafted-for-its-players roster) emerges
+// naturally from the higher total lane gold rather than a separate channel.
+const POOL_LANE_K = 15;
+
+export function playerLanePoolBias(
+  bluePlayers: Roster | undefined,
+  redPlayers: Roster | undefined,
+  blueChampId: number | null,
+  redChampId: number | null,
+  lane: Lane,
+  k: number = POOL_LANE_K,
+): number {
+  const bp = playerForLane(bluePlayers, lane);
+  const rp = playerForLane(redPlayers, lane);
+  return (poolBias(bp, blueChampId) - poolBias(rp, redChampId)) * k;
+}
+
 function computeLaneAdvantages(
   bluePicks: (Champion | null)[],
   redPicks: (Champion | null)[],
+  bluePlayers?: Roster,
+  redPlayers?: Roster,
 ): Record<Lane, number> {
   const adv: Record<Lane, number> = {
     top: 0,
@@ -1535,6 +1597,20 @@ function computeLaneAdvantages(
       const surcharge = counterAbs > 3 ? (counterAbs - 3) * 18 : 0;
       counterAdvantage = (counterNet > 0 ? 1 : -1) * (base + surcharge);
     }
+    // Player micro-bias: each laner's tier measured against their OWN team's
+    // average. A strong toplaner on an otherwise weak team over-performs in
+    // top specifically, without inflating the team's overall level (which the
+    // derived-star scoreBias already carries). Sums to zero across the five
+    // lanes, so it only redistributes which lanes win — no double-count.
+    const playerBias = playerLaneTierBias(bluePlayers, redPlayers, lane);
+    // Champion-pool fit for the players actually assigned to this lane.
+    const poolLaneBias = playerLanePoolBias(
+      bluePlayers,
+      redPlayers,
+      blue.id,
+      red.id,
+      lane,
+    );
     adv[lane] =
       phaseDiff * 50 +
       ccDiff * 5 +
@@ -1543,6 +1619,8 @@ function computeLaneAdvantages(
       archetypeBonus +
       rangeAdv +
       counterAdvantage +
+      playerBias +
+      poolLaneBias +
       (Math.random() - 0.5) * 20;
   }
   // Apply weakside redistributions. The weak side bleeds ~25 g/min while
@@ -3090,6 +3168,13 @@ function generateTimeline(
 // scales them into prob). A bias of ±2 ≈ ±15% win-prob at the slope.
 export interface SimulateOptions {
   scoreBias?: number;
+  // Per-team player rosters. When present, each player's tier shapes their
+  // lane's advantage relative to their own team's average (a micro,
+  // zero-sum-across-lanes effect — see computeLaneAdvantages). The team-wide
+  // strength difference is carried separately by `scoreBias` (the derived
+  // star), so this does not double-count tier.
+  bluePlayers?: Roster;
+  redPlayers?: Roster;
 }
 
 export function simulateMatch(
@@ -3114,7 +3199,12 @@ export function simulateMatch(
   const blueProb = Math.min(0.97, Math.max(0.03, rawBlueProb + BLUE_SIDE_BONUS));
   const redProb = 1 - blueProb;
 
-  const laneAdvantages = computeLaneAdvantages(bluePicks, redPicks);
+  const laneAdvantages = computeLaneAdvantages(
+    bluePicks,
+    redPicks,
+    options?.bluePlayers,
+    options?.redPlayers,
+  );
 
   const ctx: TimelineCtx = {
     diff,

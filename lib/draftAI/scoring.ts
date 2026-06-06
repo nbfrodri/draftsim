@@ -7,6 +7,7 @@
 import { TIER_VALUE, getMetaEnabled, getMetaTier } from "../championMeta";
 import type { Archetype } from "../championMeta";
 import type { Champion, GameDraft, Lane, Side } from "../types";
+import { playerForLane, poolBias } from "../players";
 import {
   archetypeSynergyBonus,
   bestLaneTierValue,
@@ -142,6 +143,23 @@ export function scorePick(
   }
 
   add(`Lane fit (${bestLane}, tier×3)`, tierValue * 3);
+
+  // Player comfort: a moderate nudge toward champions the player assigned to
+  // this lane is good at, away from ones they're bad at. Intentionally small
+  // (±4 ≈ one meta-tier step, while Lane fit spans 3–18) so it only tiebreaks
+  // between comparable picks — it never makes the AI force a low-tier comfort
+  // champion over a clearly stronger one, and it's weighed alongside the
+  // matchup and synergy terms below rather than overriding them. Skipped on
+  // Easy so the weakest AI ignores player identity entirely.
+  if (ctx.series && ctx.series.difficulty !== "easy" && ctx.series.myPlayers) {
+    const comfort = poolBias(
+      playerForLane(ctx.series.myPlayers, bestLane),
+      candidate.id,
+    );
+    if (comfort > 0) add("Player comfort pick", comfort * 4);
+    else if (comfort < 0) add("Player off-pool pick", comfort * 4);
+  }
+
   const meta = metaFor(candidate);
 
   // Comp gap fillers.

@@ -17,8 +17,10 @@ import type {
   TournamentDefaults,
 } from "@/lib/tournament";
 import TeamIcon from "./TeamIcon";
-import type { AIDifficulty, DraftMode, SeriesFormat, Side } from "@/lib/types";
+import type { AIDifficulty, DraftMode, Roster, SeriesFormat, Side } from "@/lib/types";
+import { deriveStar, randomizeRoster } from "@/lib/players";
 import MetaPanel from "./MetaPanel";
+import RosterEditor from "./RosterEditor";
 
 // Team-count options. Single-elim now accepts any count from 2-8 with
 // bye support — top seeds auto-advance when paired with virtual byes.
@@ -179,6 +181,7 @@ interface Props {
 
 export default function TournamentSetup({ onCancel }: Props) {
   const startTournament = useDraftStore((s) => s.startTournament);
+  const champions = useDraftStore((s) => s.champions);
 
   // ─── Form state ────────────────────────────────────────────────────
   const [name, setName] = useState("Untitled Tournament");
@@ -188,6 +191,8 @@ export default function TournamentSetup({ onCancel }: Props) {
   const [teams, setTeams] = useState<TournamentTeam[]>(() =>
     defaultTeams(4),
   );
+  // Index of the team whose roster is open in the editor, or null.
+  const [playerEditorTeam, setPlayerEditorTeam] = useState<number | null>(null);
 
   // Per-match defaults — applied to every match.
   const [format, setFormat] = useState<SeriesFormat>("bo3");
@@ -280,9 +285,26 @@ export default function TournamentSetup({ onCancel }: Props) {
     });
   };
 
+  // Changing the star clears any hand-edited roster — the star is now the
+  // target and a matching roster is generated at submit (or via the Players
+  // editor). Keeps star and roster from drifting apart.
   const handleTeamRatingChange = (index: number, rating: number) => {
     setTeams((prev) =>
-      prev.map((t, i) => (i === index ? { ...t, starRating: rating } : t)),
+      prev.map((t, i) =>
+        i === index ? { ...t, starRating: rating, players: undefined } : t,
+      ),
+    );
+  };
+
+  // Saving a hand-edited roster makes it authoritative; keep starRating in
+  // sync with the derived value so the star display stays correct.
+  const handleTeamPlayersChange = (index: number, roster: Roster) => {
+    setTeams((prev) =>
+      prev.map((t, i) =>
+        i === index
+          ? { ...t, players: roster, starRating: deriveStar(roster) }
+          : t,
+      ),
     );
   };
 
@@ -672,11 +694,42 @@ export default function TournamentSetup({ onCancel }: Props) {
                     value={team.starRating ?? 3}
                     onChange={(r) => handleTeamRatingChange(i, r)}
                   />
-                  <AIDifficultyChip
-                    value={team.aiDifficulty}
-                    fallback={aiDifficulty}
-                    onChange={(d) => handleTeamAIDifficultyChange(i, d)}
-                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Seed a roster matching the team's star on first open
+                        // so the editor never starts blank for a rated team.
+                        if (!team.players) {
+                          handleTeamPlayersChange(
+                            i,
+                            randomizeRoster({
+                              champions,
+                              star: team.starRating ?? 3,
+                            }),
+                          );
+                        }
+                        setPlayerEditorTeam(i);
+                      }}
+                      className={`inline-flex items-center gap-1 px-2 py-1 border text-[9px] uppercase tracking-[0.2em] transition-all ${
+                        team.players
+                          ? "border-rift-gold/60 text-rift-goldbright bg-rift-gold/10"
+                          : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50"
+                      }`}
+                      title="Edit player tiers and champion pools"
+                    >
+                      <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+                        <circle cx="8" cy="5" r="2.5" />
+                        <path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4" strokeLinecap="round" />
+                      </svg>
+                      Players{team.players ? " ✓" : ""}
+                    </button>
+                    <AIDifficultyChip
+                      value={team.aiDifficulty}
+                      fallback={aiDifficulty}
+                      onChange={(d) => handleTeamAIDifficultyChange(i, d)}
+                    />
+                  </div>
                 </div>
               </div>
             ))}
@@ -844,6 +897,26 @@ export default function TournamentSetup({ onCancel }: Props) {
           >
             Cancel
           </button>
+          <RosterEditor
+            open={playerEditorTeam != null}
+            champions={champions}
+            roster={
+              playerEditorTeam != null
+                ? teams[playerEditorTeam]?.players ?? null
+                : null
+            }
+            teamLabel={
+              playerEditorTeam != null
+                ? teams[playerEditorTeam]?.name
+                : undefined
+            }
+            onSave={(r) => {
+              if (playerEditorTeam != null)
+                handleTeamPlayersChange(playerEditorTeam, r);
+            }}
+            onClose={() => setPlayerEditorTeam(null)}
+          />
+
           <button type="submit" className="btn-gold py-3 font-display text-base tracking-[0.25em]">
             Generate Bracket
           </button>

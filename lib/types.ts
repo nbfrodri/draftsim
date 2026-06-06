@@ -25,6 +25,32 @@ export interface Champion {
   lanes: Lane[];
 }
 
+// ─── Player identities ───────────────────────────────────────────────────────
+// Each team fields 5 players, one per lane. A player's identity — lane, skill
+// tier, and champion pools — is fixed for the life of a series, and in
+// tournament mode persists across every match. A team's star rating is DERIVED
+// from its roster (see `deriveStar` in lib/players.ts), not stored separately.
+export type PlayerTier = "S" | "A" | "B" | "C" | "D";
+
+export interface Player {
+  // Position the player occupies. Fixed identity — a player tagged `top`
+  // always drafts for top.
+  lane: Lane;
+  // Skill tier in their lane. Fixed identity. Feeds the derived team star
+  // (macro) and a per-lane performance bias (micro) in the simulator.
+  tier: PlayerTier;
+  // Up to 3 champions this player plays well — a bonus when they end up on
+  // one of these. Champion ids.
+  goodChamps: number[];
+  // Up to 3 champions this player plays badly — a penalty. Disjoint from
+  // goodChamps. Champion ids.
+  badChamps: number[];
+}
+
+// Exactly 5 players in positional lane order [top, jungle, middle, bottom,
+// support] so a roster lines up 1:1 with blueRoles/redRoles pick slots.
+export type Roster = Player[];
+
 export interface DraftAction {
   index: number;
   kind: ActionKind;
@@ -164,6 +190,14 @@ export interface SeriesState {
   // The latter two enable underdog protection. Undefined outside
   // tournaments.
   tournamentRound?: "early" | "quarterfinal" | "semifinal" | "final";
+  // Per-team player rosters (5 players each, positional lane order). Carry
+  // the player identities for the life of the series so the simulator and
+  // AI can apply per-lane tier and champion-pool effects. Optional /
+  // legacy-safe: undefined for series created before this feature, and for
+  // single series where the user didn't configure rosters. The team's star
+  // rating derives from this roster (see deriveStar in lib/players.ts).
+  bluePlayers?: Roster;
+  redPlayers?: Roster;
 }
 
 export interface SimulationSettings {
@@ -177,4 +211,8 @@ export interface SimulationSettings {
   aiDifficulty: AIDifficulty;
   blueAiDifficulty?: AIDifficulty;
   redAiDifficulty?: AIDifficulty;
+  // Optional player rosters for single-series mode. When set, the team's
+  // star rating derives from the roster and the macro win bias applies.
+  bluePlayers?: Roster;
+  redPlayers?: Roster;
 }
