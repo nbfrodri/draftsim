@@ -40,6 +40,7 @@ import {
   type ChampionMeta,
   type Phase,
 } from "@/lib/championMeta";
+import { strategySummary, type TeamStrategy } from "@/lib/sim/strategies";
 import type { Champion, Lane, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
 import EventIcon from "./EventIcon";
@@ -285,6 +286,24 @@ export default function BetweenGamesView({ champions }: Props) {
           />
         </div>
 
+        {/* Committed game plans — echoes what each team chose on the
+            StrategyView so the user can read the simulation against the plan.
+            Only present once strategies have been confirmed onto the game. */}
+        {game.blueStrategy && game.redStrategy && (
+          <div className="bg-fade grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-6">
+            <StrategyRecap
+              side="blue"
+              name={series.blueTeam}
+              strategy={game.blueStrategy}
+            />
+            <StrategyRecap
+              side="red"
+              name={series.redTeam}
+              strategy={game.redStrategy}
+            />
+          </div>
+        )}
+
         {/* AI decisions recap — only when at least one AI action was
             recorded for the just-finished game. Skip-fast-forwarded actions
             don't appear here (skip path bypasses rationale capture). */}
@@ -417,6 +436,46 @@ export default function BetweenGamesView({ champions }: Props) {
         }}
         onCancel={() => setExitOpen(false)}
       />
+    </div>
+  );
+}
+
+// Compact echo of a team's committed game plan, shown above the simulation
+// so the user can read the match story against what the team set out to do.
+function StrategyRecap({
+  side,
+  name,
+  strategy,
+}: {
+  side: Side;
+  name: string;
+  strategy: TeamStrategy;
+}) {
+  const text = side === "blue" ? "text-rift-blue" : "text-rift-red";
+  const border = side === "blue" ? "border-rift-blue/30" : "border-rift-red/30";
+  return (
+    <div className={`border ${border} bg-rift-bg/40 p-3`}>
+      <div className="flex items-baseline justify-between mb-2">
+        <div
+          className={`font-display ${text} uppercase tracking-[0.2em] text-xs truncate`}
+        >
+          {name}
+        </div>
+        <div className="text-[8px] uppercase tracking-[0.35em] text-rift-gold/60">
+          Game Plan
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {strategySummary(strategy).map((s) => (
+          <span
+            key={s.label}
+            title={s.label}
+            className="px-1.5 py-0.5 border border-rift-line bg-rift-panel/40 text-[9px] uppercase tracking-[0.15em] text-rift-mutedbright"
+          >
+            {s.value}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

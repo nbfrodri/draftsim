@@ -4,7 +4,7 @@
 
 **A League of Legends draft + match simulator with a strategic AI drafter and a full event-driven match engine.**
 
-Pick/ban against the AI (or watch AI vs AI), then play the match out as a live timeline of events — KDA, gold, a win-probability curve — finishing with an MVP card, damage-share breakdown, and a per-game / per-tournament recap. Run a single series or build a 32-team tournament.
+Pick/ban against the AI (or watch AI vs AI), commit a team **game plan** in the War Room, then play the match out as a live timeline of events — KDA, gold, a win-probability curve — finishing with an MVP card, damage-share breakdown, and a per-game / per-tournament recap. Run a single series or build a 32-team tournament.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
@@ -25,7 +25,7 @@ Pick/ban against the AI (or watch AI vs AI), then play the match out as a live t
 - [Gallery](#-gallery)
 - [Quick start](#-quick-start)
 - [Features](#-features)
-  - [Single series](#single-series) · [AI drafter](#ai-drafter) · [Match simulator](#match-simulator) · [Post-match](#post-match)
+  - [Single series](#single-series) · [AI drafter](#ai-drafter) · [Strategies (War Room)](#strategies-war-room) · [Match simulator](#match-simulator) · [Post-match](#post-match)
   - [Tournament mode](#tournament-mode) · [Meta tier list](#meta-tier-list) · [Player rosters](#player-rosters)
   - [Persistence](#persistence) · [Sound](#sound) · [UX](#ux--accessibility)
 - [Tech stack](#-tech-stack)
@@ -39,16 +39,17 @@ Pick/ban against the AI (or watch AI vs AI), then play the match out as a live t
 
 ## ✨ At a glance
 
-It's not just a draft tool — the draft feeds a real match. The simulator runs an
-event-driven game (kills, ganks, drakes, baron, soul, elder, ace, shutdowns,
-power-spikes…), and the AI's pick logic factors in identity targeting, lane prio,
-lookahead, opponent anticipation, series-state awareness, **enemy-roster scouting**,
-and side-aware drafting.
+It's not just a draft tool — the draft feeds a **game plan**, and the plan feeds a
+real match. The simulator runs an event-driven game (kills, ganks, drakes, baron,
+soul, elder, ace, shutdowns, power-spikes…), and the AI's pick logic factors in
+identity targeting, lane prio, lookahead, opponent anticipation, series-state
+awareness, **enemy-roster scouting**, and side-aware drafting.
 
 | | |
 |---|---|
 | 🧠 **Strategic AI** | Scores every legal pick/ban with ~30 weighted signals, samples from the top-N, and plays differently by **difficulty**, **side**, **series score**, **prior-game adaptation**, and the **opposing roster**. |
-| 🎲 **Real match sim** | ~30 event types with kill-driven lane gold, role-shaped KDA, item-build combat resolution, comeback mechanics, and a win-probability curve. |
+| 🗺️ **Team strategies** | A post-draft **War Room** of 16 game-plan levers (jungle, weakside, splitpush, objectives, tempo, risk…) that shape the match. Picking a plan that fits your draft is a win-prob tailwind; the AI auto-picks a **varied, context-aware** plan that adapts to the enemy draft/roster and the series scoreline. |
+| 🎲 **Real match sim** | ~30 event types with kill-driven lane gold, role-shaped KDA, item-build combat resolution, power-spike timing windows, late-game scaling payoffs, comeback mechanics, and a win-probability curve. |
 | 🏆 **Tournaments** | Six formats (single/double-elim, round-robin, Swiss, Swiss+playoffs, groups+playoffs), up to 32 teams, save/load, history, and a full post-tournament recap. |
 | 📚 **Hand-curated data** | 172 champions · 300+ synergies · 250+ counters · 11 comp-identity profiles · per-lane meta tiers — all tagged from 2024–2026 patches. |
 | 👥 **Player rosters** | Optional 5-player rosters with skill tiers and champion pools that bias both the AI's draft and the match outcome. |
@@ -132,6 +133,46 @@ the top-N.
 
 </details>
 
+### Strategies (War Room)
+
+After the draft locks and before the match simulates, each team commits a **game
+plan**. A plan is **16 levers in three groups**, and it genuinely changes the
+simulated game.
+
+<details>
+<summary><b>The 16 levers</b></summary>
+
+- **Team Plan** — Game Plan (early-snowball / teamfight / scaling) · Tempo (aggressive / standard / passive) · Risk (safe / standard / high-roll) · Macro (group / splitpush 1-3-1 / pick / siege) · Teamfight Style (front-to-back / flank / poke / balanced) · Objectives (dragon / herald / atakhan / baron / balanced) · Vision (proactive / standard / reactive)
+- **Map & Resources** — Jungle (invade / counter-jungle / gank / balanced / farm) · Weakside Lane (top / bottom / none) · Win Condition (funnel into a carry lane) · **Pick Target** (hunt the enemy's strongest carry lane) · **Lane Swap** (dodge a losing top matchup)
+- **Lane Assignments** — Top (group / splitpush / rotate) · Mid (hold / roam / push-prio) · Bot (trade / dive / scale) · Support (lane / roam / protect)
+
+</details>
+
+<details>
+<summary><b>How it affects the sim</b></summary>
+
+Two channels:
+
+- **Comp fit → win probability.** A plan that suits your draft is a small tailwind; a mismatched one backfires (scaling with an all-early comp, splitpush with no splitpusher, funnelling a tank…). A good-vs-bad plan is worth roughly ±10pp — meaningful, but below the roster/draft lever. A live **Plan Fit** meter (Strong / Balanced / Poor) updates as you toggle.
+- **Timeline flow.** Plans reshape *which* events fire and *who tends to win them* — gank frequency & side, mid-lane roams, dragon/baron/atakhan tilt, splitpush backdoors, **objective steal chances + closing-fight variance** (the Risk dial), and game length (scaling/passive stretch games toward the 24–50 min cap; aggressive ones shorten them). Pick Target denies the hunted enemy lane gold; Lane Swap softens a losing top.
+
+Neutral on every lever by default, so a game with no plan set simulates exactly as before.
+
+</details>
+
+<details>
+<summary><b>Varied, context-aware AI plans</b></summary>
+
+AI sides don't pick the same plan every game. `chooseAIStrategy` weights each
+lever by comp fit **and** match context, then *samples* — so two teams differ and
+the same team adapts across a series:
+
+- **Series-aware Risk** — facing elimination → `high-roll` (embrace variance); on match point → `safe` (close it out).
+- **Enemy scouting** — Pick Target hunts the opponent's highest-tier player / strongest carry; Lane Swap triggers when your toplaner is hard-countered or tier-outmatched.
+- Plans show **read-only** for AI sides (so you can counter-plan) and **editable** for human sides with the AI's suggestion marked. Tournaments use the same context-aware selector for auto-simmed matches.
+
+</details>
+
 ### Match simulator
 
 <details>
@@ -140,7 +181,9 @@ the top-N.
 - **Event-driven timeline** of ~30 event types (level-1 invade, scuttle, gank, counter-gank, plates, drake, herald, grubs, atakhan, soul, baron, elder, teamfight, skirmish, pick, vision, outplay, objective-trade, wave-crash, power-spike, ace, shutdown, backdoor, nexus…).
 - **Per-champion KDA** with role-shaped attribution (carries score kills, supports score assists, ADCs die more).
 - **Kill-driven lane gold** — each event's `kdaDelta` flows into per-lane gold via `kdaToLaneGold` (300g/kill, 100g/assist), so an 8/0 lane is visibly ahead.
-- **Power-spike events** fire when a key carry hits their first major item (build paths from `championBuilds.ts`).
+- **Power-spike timing windows** — each carry's key-item spike minute (build paths from `championBuilds.ts`) opens an "online" window; the team with more carries online tilts the mid-game fights (the real "fight on your item timing"). Up to two spike beats per side for multi-carry comps.
+- **Late-game scaling payoff** — the deciding fight has a duration-ramped term, so a scaling comp that drags the game past ~30 min genuinely out-classes an early comp (short games favor the early team; long games favor the scaler).
+- **Strategy-driven flow** — both teams' War Room plans bias event frequency, objective tilt, steal chances, closing-fight variance, and game length (see [Strategies](#strategies-war-room)).
 - **Combat resolution** uses per-champion damage / EHP estimated from item builds, archetype, and meta tier — the closing fight outcome emerges from state, not a pre-decided winner.
 - **Identity multipliers** — Wombo amped by no-disengage enemies, Dive amped vs unprotected carries, Tank Stack walls mono-damage comps, etc.
 - **Comeback mechanics** — momentum, shutdowns, baron-pivot, atakhan effects (Voracious +20% kill gold, Ruinous one-shot revive).
@@ -286,12 +329,14 @@ draftsim/
 │   │   ├── descriptions.ts       event flavor + KDA helpers + damage-share weights
 │   │   ├── identities.ts         11 IDENTITY_PROFILES + identityMatchupEdge
 │   │   ├── identitiesTypes.ts    GameDuration + IdentityVsIdentity types
+│   │   ├── strategies.ts         16-lever game plans: fit, timeline modifiers, varied AI selection
 │   │   └── types.ts              EventType / MatchEvent / EventKDA / SimulationResult
 │   └── data/                     Meraki-derived abilities.json + items.json
 ├── store/
 │   └── draftStore.ts             single Zustand store w/ persist (quota-safe, slim-archive, tournament actions)
-├── components/                   DraftApp, DraftView, TeamPanel, ChampionGrid, BetweenGamesView,
-│                                 SeriesCompleteView, RosterEditor, MetaEditor, TournamentDashboard, …
+├── components/                   DraftApp, DraftView, StrategyView, TeamPanel, ChampionGrid,
+│                                 BetweenGamesView, SeriesCompleteView, RosterEditor, MetaEditor,
+│                                 TournamentDashboard, …
 ├── scripts/
 │   ├── refresh-meraki-data.mjs   pulls latest Meraki ability + item data
 │   └── calibrate.ts              runs N drafts × M sims, reports TeamScore↔win-rate correlation
@@ -304,11 +349,12 @@ draftsim/
 <summary><b>Data flow</b></summary>
 
 1. `app/page.tsx` (server component) fetches champions + lanes from CommunityDragon + Meraki at build / daily ISR. Pending-release champions missing from CDragon are injected from a local fallback table.
-2. `<DraftApp>` populates the Zustand store and routes between four views by `series.status` (`null` / `drafting` / `between-games` / `complete`).
+2. `<DraftApp>` populates the Zustand store and routes by `series.status` (`null` / `drafting` / `strategy` / `between-games` / `complete`) — the **`strategy`** stage renders `<StrategyView>` (the War Room) between draft completion and the match.
 3. All state transitions go through the store; pure logic lives in `lib/draftEngine.ts` and `lib/series.ts`.
 4. AI decisions: `chooseAIActionWithRationale(game, champions, fearlessLocked, seriesCtx)` → samples from `scorePick` / `scoreBan` top-N. Lookahead and anticipation are gated by difficulty.
-5. Match sim: `simulateMatch(game, champions)` runs the event-timeline generator, with per-event side rolls weighted by comp diff, gold lead, momentum, objective state, and lane priority.
-6. `buildGameRecap(game, champions, result)` extracts a compact MVP + biggest-swing summary persisted on the GameDraft; the series-complete view reads it for the narrative.
+5. Game plans: `confirmStrategies(...)` stores each side's `TeamStrategy` on the GameDraft (AI sides via the context-aware `chooseAIStrategy`); `strategyFit` + `strategyTimelineModifiers` feed the sim.
+6. Match sim: `simulateMatch(game, champions)` runs the event-timeline generator, with per-event side rolls weighted by comp diff, gold lead, momentum, objective state, lane priority, **power-spike timing, and the teams' strategies**.
+7. `buildGameRecap(game, champions, result)` extracts a compact MVP + biggest-swing summary persisted on the GameDraft; the series-complete view reads it for the narrative.
 
 </details>
 
@@ -322,6 +368,7 @@ draftsim/
 - **Auto side-swap rule.** After each game the loser plays blue ("loser picks side, always picks blue").
 - **Draft-order vs positional-order picks.** Picks are indexed by lock-in order during draft, then reordered into positional order (`[0]` top → `[4]` support) with `blueRoles` frozen on completion.
 - **Identity-driven scoring.** The AI rewards picks that complete a converging comp identity rather than optimizing a single scalar.
+- **Strategies are neutral-by-default.** Every game plan lever has a neutral value that contributes zero to fit and zero to the timeline, so a game with no plan set simulates bit-identically to the pre-strategy build. AI plans are *sampled* (not argmax) from fit + context weights, so teams vary game-to-game; the deterministic `recommendStrategy` drives only the human-side suggestion markers.
 - **Tournament formats append matches.** Most generators emit the full match list up front; Swiss appends rounds dynamically, and playoff brackets / grand-final resets append on trigger.
 - **Deferred sim work for UI feedback.** All `Sim *` actions paint a loading overlay synchronously, then defer the heavy AI-vs-AI loop via `setTimeout(0)`, wrapped in `try / finally`.
 - **Modal via React portal.** Escapes the header's `backdrop-filter` containing block so it can cover the viewport.

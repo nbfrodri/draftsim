@@ -16,6 +16,7 @@ import {
   difficultyForSide,
   fearlessLockedSet,
   recordWinner,
+  requiredWins,
   startNextGame,
   starRatingBias,
   winsByTeamName,
@@ -84,6 +85,7 @@ import {
 } from "@/lib/tournament";
 import { buildGameRecap, simulateMatch } from "@/lib/matchSimulator";
 import { randomizeRoster } from "@/lib/players";
+import { chooseAIStrategy, type TeamStrategy } from "@/lib/sim/strategies";
 
 export const ACTION_SECONDS = 30;
 
@@ -206,6 +208,13 @@ interface DraftStore {
   // when an AI turn begins so the lock-in panel can render the breakdown.
   setAIRationale: (r: AIRationale | null) => void;
   tickTimer: () => void;
+  // Commit both teams' game plans (chosen on the StrategyView) onto the
+  // current game and advance the series from "strategy" → "between-games".
+  // No-op unless the series is currently in the "strategy" stage.
+  confirmStrategies: (
+    blueStrategy: TeamStrategy,
+    redStrategy: TeamStrategy,
+  ) => void;
   declareWinner: (side: Side, recap?: import("@/lib/types").GameRecap) => void;
   // Advance to the next game in the series. Side assignment is
   // automatic: the team that LOST the previous game gets blue side
@@ -373,6 +382,43 @@ function autoPlayMatch(
       }
     }
     game = finalizeRoles(game, champions, series);
+    // AI auto-play picks each side's game plan with the same context-aware,
+    // varied selector the StrategyView uses for AI sides — so plans differ
+    // between teams and games, and adapt to the series scoreline + the enemy
+    // draft/roster (deny their best carry, dodge a bad top, high-roll when
+    // facing elimination, etc.).
+    {
+      const byId = new Map(champions.map((c) => [c.id, c]));
+      const toChamps = (ids: (number | null)[]) =>
+        ids.map((id) => (id != null ? byId.get(id) ?? null : null));
+      const blueChamps = toChamps(game.bluePicks);
+      const redChamps = toChamps(game.redPicks);
+      const wins = winsByTeamName(series);
+      const blueWins = wins.get(game.blueTeam) ?? 0;
+      const redWins = wins.get(game.redTeam) ?? 0;
+      const gamesToWin = requiredWins(series.format);
+      game = {
+        ...game,
+        blueStrategy: chooseAIStrategy(blueChamps, {
+          enemyPicks: redChamps,
+          roster: series.bluePlayers,
+          enemyRoster: series.redPlayers,
+          selfWins: blueWins,
+          oppWins: redWins,
+          gamesToWin,
+          rng: Math.random,
+        }),
+        redStrategy: chooseAIStrategy(redChamps, {
+          enemyPicks: blueChamps,
+          roster: series.redPlayers,
+          enemyRoster: series.bluePlayers,
+          selfWins: redWins,
+          oppWins: blueWins,
+          gamesToWin,
+          rng: Math.random,
+        }),
+      };
+    }
     series = {
       ...series,
       games: [...series.games.slice(0, -1), game],
@@ -783,7 +829,7 @@ export const useDraftStore = create<DraftStore>()(
     games[games.length - 1] = finalized;
     const nextSeries: SeriesState = {
       ...series,
-      status: finalized.status === "complete" ? "between-games" : "drafting",
+      status: finalized.status === "complete" ? "strategy" : "drafting",
       games,
     };
     set({
@@ -834,7 +880,7 @@ export const useDraftStore = create<DraftStore>()(
     games[games.length - 1] = finalized;
     const nextSeries: SeriesState = {
       ...series,
-      status: finalized.status === "complete" ? "between-games" : "drafting",
+      status: finalized.status === "complete" ? "strategy" : "drafting",
       games,
     };
     // Append the rationale we surfaced during the hover phase to the
@@ -912,7 +958,7 @@ export const useDraftStore = create<DraftStore>()(
     games[games.length - 1] = finalized;
     const nextSeries: SeriesState = {
       ...series,
-      status: finalized.status === "complete" ? "between-games" : "drafting",
+      status: finalized.status === "complete" ? "strategy" : "drafting",
       games,
     };
     set({
@@ -949,7 +995,7 @@ export const useDraftStore = create<DraftStore>()(
     games[games.length - 1] = finalized;
     const nextSeries: SeriesState = {
       ...series,
-      status: finalized.status === "complete" ? "between-games" : "drafting",
+      status: finalized.status === "complete" ? "strategy" : "drafting",
       games,
     };
     set({
@@ -967,6 +1013,15 @@ export const useDraftStore = create<DraftStore>()(
     if (secondsLeft == null) return;
     if (secondsLeft <= 0) return;
     set({ secondsLeft: secondsLeft - 1 });
+  },
+
+  confirmStrategies: (blueStrategy, redStrategy) => {
+    const { series } = get();
+    if (!series || series.status !== "strategy") return;
+    const games = [...series.games];
+    const idx = games.length - 1;
+    games[idx] = { ...games[idx], blueStrategy, redStrategy };
+    set({ series: { ...series, games, status: "between-games" } });
   },
 
   declareWinner: (side, recap) => {

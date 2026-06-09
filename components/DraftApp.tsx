@@ -6,6 +6,7 @@ import { tournamentChampion, type TournamentState } from "@/lib/tournament";
 import type { Champion } from "@/lib/types";
 import CreateSimulationForm from "./CreateSimulationForm";
 import DraftView from "./DraftView";
+import StrategyView from "./StrategyView";
 import BetweenGamesView from "./BetweenGamesView";
 import SeriesCompleteView from "./SeriesCompleteView";
 import TournamentSetup from "./TournamentSetup";
@@ -53,6 +54,8 @@ export default function DraftApp({ champions }: Props) {
       // Active match in flight — use the existing series-stage routing.
       if (series.status === "drafting")
         return <DraftView champions={champions} />;
+      if (series.status === "strategy")
+        return <StrategyView champions={champions} />;
       if (series.status === "between-games")
         return <BetweenGamesView champions={champions} />;
       return <SeriesCompleteView champions={champions} />;
@@ -64,6 +67,8 @@ export default function DraftApp({ champions }: Props) {
   if (series) {
     if (series.status === "drafting")
       return <DraftView champions={champions} />;
+    if (series.status === "strategy")
+      return <StrategyView champions={champions} />;
     if (series.status === "between-games")
       return <BetweenGamesView champions={champions} />;
     return <SeriesCompleteView champions={champions} />;

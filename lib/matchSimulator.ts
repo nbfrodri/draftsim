@@ -13,6 +13,18 @@ import { getAbilityProfile, teamLockdownTotal } from "./championAbilities";
 import { buildStatsAt, getKeyPowerSpike } from "./championBuilds";
 import { hardCounterValue } from "./draftAI/helpers";
 import { PLAYER_TIER_VALUE, playerForLane, poolBias } from "./players";
+import {
+  applyCarryFocusToLaneAdv,
+  applyLaneSwapToLaneAdv,
+  applyPickTargetToLaneAdv,
+  applyWeaksideToLaneAdv,
+  backdoorBonusFor,
+  DEFAULT_STRATEGY,
+  strategyFit,
+  strategyTimelineModifiers,
+  type StrategyTimelineModifiers,
+  type TeamStrategy,
+} from "./sim/strategies";
 import type {
   AtakhanVariant,
   EventKDA,
@@ -588,16 +600,20 @@ function scalingAdvantageScore(
   const oppEarly = oppTeam.filter((m) => m.meta.phase === "early").length;
   const lateDiff = myLate - oppLate;
   const earlyDiff = myEarly - oppEarly;
-  // Symmetric base: late edge and early edge both count, weighted near
-  // equally (slightly favoring late since LoL games run longer than 25 min
-  // on average, but not the previous 3.5× margin).
-  const base = lateDiff * 0.9 + earlyDiff * 0.7;
-  // Snowball / scaling contrast bonus. Triggers when the matchup has a
-  // clear winner per phase. An early-heavy comp vs late-heavy comp gets
-  // an early advantage; the late comp gets a scaling advantage.
+  // Base: late edge is weighted ABOVE early edge — a scaling team's win
+  // condition (reaching the late game) is the stronger structural advantage,
+  // since games average well past 30 min and the late comp picks the fight
+  // timing once online.
+  const base = lateDiff * 1.5 + earlyDiff * 0.55;
+  // Snowball / scaling contrast bonus. Triggers when the matchup has a clear
+  // winner per phase. The early team gets an early-window edge, but it's
+  // softened (0.16) so it doesn't fully negate the scaling team's draft —
+  // the early comp must actually CONVERT that window in-game (which the
+  // duration-ramped closing payoff then lets the late comp punish if they
+  // don't). Previously this contrast made late comps static underdogs.
   const earlyContrast = Math.max(0, oppLate - myLate) * Math.max(0, myEarly);
   const lateContrast = Math.max(0, oppEarly - myEarly) * Math.max(0, myLate);
-  const contrastBonus = (earlyContrast - lateContrast) * 0.3;
+  const contrastBonus = (earlyContrast - lateContrast) * 0.12;
   const raw = base + contrastBonus;
   const score = Math.max(-5, Math.min(5, Math.round(raw)));
   return { score, lateCount: myLate, earlyCount: myEarly };
@@ -716,17 +732,45 @@ function teamFightFactor(
     if (!c) continue;
     const phase = metaFor(c).phase;
     if (phase === "early") {
-      factor += gameTime < 18 ? 1.2 : gameTime < 25 ? 0.85 : 0.5;
+      // Early champs fall off harder the longer the game runs (no items, no
+      // scaling) — by the 35-min mark they're dead weight in a fight.
+      factor += gameTime < 18 ? 1.2 : gameTime < 25 ? 0.85 : gameTime < 35 ? 0.5 : 0.35;
     } else if (phase === "mid") {
       factor += gameTime < 12 ? 0.7 : 1.0;
     } else if (phase === "mid-late") {
-      factor += gameTime < 22 ? 0.7 : 1.1;
+      factor += gameTime < 22 ? 0.7 : gameTime < 38 ? 1.1 : 1.3;
     } else {
-      // late
-      factor += gameTime < 22 ? 0.5 : gameTime < 32 ? 1.0 : 1.4;
+      // late — keeps scaling past 32 min instead of plateauing, so a comp
+      // that drags the game to 40+ genuinely out-classes the enemy in fights.
+      factor += gameTime < 22 ? 0.5 : gameTime < 32 ? 1.0 : gameTime < 40 ? 1.4 : 1.75;
     }
   }
   return Math.max(0.5, factor);
+}
+
+// ─── Power-spike timing ─────────────────────────────────────────────────────
+//
+// Each carry has a "key item" spike minute (championBuilds.getKeyPowerSpike).
+// A team fights better while MORE of its carries are online (past their spike)
+// than the enemy's — the classic "fight on your item timing" window. This is a
+// granular complement to phase: a 14-min Kraken spike vs a 20-min one creates a
+// real 14–20' window the early-spiker should fight in. Returns the carries'
+// spike minutes for a side (only carry-archetype champs generate a window).
+function carrySpikeMinutes(picks: (Champion | null)[]): number[] {
+  const out: number[] = [];
+  for (const c of picks) {
+    if (!c) continue;
+    const meta = metaFor(c);
+    const spike = getKeyPowerSpike(meta, c.alias);
+    if (spike.isCarrySpike) out.push(spike.minute);
+  }
+  return out;
+}
+
+function onlineSpikeCount(spikes: number[], time: number): number {
+  let n = 0;
+  for (const m of spikes) if (time >= m) n++;
+  return n;
 }
 
 // Ratio of blue's fight strength to red's at this point in the game.
@@ -1679,6 +1723,10 @@ interface TimelineCtx {
   blueName: string;
   redName: string;
   laneAdvantages: Record<Lane, number>;
+  // Each team's committed game plan. Always present (DEFAULT_STRATEGY when
+  // the caller didn't set one) so timeline code can read them unconditionally.
+  blueStrategy: TeamStrategy;
+  redStrategy: TeamStrategy;
 }
 
 interface MatchState {
@@ -1711,21 +1759,29 @@ function computeDuration(ctx: TimelineCtx): number {
   const redLate = lateScalingCount(ctx.redPicks);
   const blueEarly = earlyCount(ctx.bluePicks);
   const redEarly = earlyCount(ctx.redPicks);
-  let duration = 34 + (blueLate + redLate) * 0.8 - (blueEarly + redEarly) * 0.6;
+  let duration = 34 + (blueLate + redLate) * 1.3 - (blueEarly + redEarly) * 0.6;
   const absDiff = Math.abs(ctx.diff);
   if (absDiff > 25) duration -= 4;
   else if (absDiff > 15) duration -= 2;
   // Early-stomp acceleration. When the leading side is also the early-game
   // side, they're expected to convert their snowball into a fast end. A
   // bigger lead + more early-game presence → meaningfully shorter game.
-  // This is what makes "early-game comps win in 22 min" feel real.
+  // This is what makes "early-game comps win in 24 min" feel real.
   const leadingEarly =
     ctx.diff > 0 ? blueEarly : ctx.diff < 0 ? redEarly : 0;
   if (leadingEarly >= 2 && absDiff > 8) {
     duration -= leadingEarly * 1.2;
   }
+  // Strategy tempo: scaling / passive plans stretch the game out, early-
+  // snowball / aggressive plans shorten it (both teams' plans contribute).
+  duration += strategyTimelineModifiers(
+    ctx.blueStrategy,
+    ctx.redStrategy,
+  ).durationDelta;
   duration += Math.floor(Math.random() * 6) - 2;
-  return Math.max(22, Math.min(50, duration));
+  // Games are clamped to a 24–50 minute window: a hard-stomp can't end
+  // before 24, and the longest grind tops out at 50.
+  return Math.max(24, Math.min(50, duration));
 }
 
 // Event-driven timeline. No winner is pre-decided; each event resolves based
@@ -1769,6 +1825,35 @@ function generateTimeline(
     for (const lane of POSITIONAL_LANES) total += ctx.laneAdvantages[lane];
     return total / 1000;
   })();
+
+  // Strategy timeline modifiers — blue-positive biases + event-chance deltas
+  // derived from both teams' game plans (jungle focus, tempo, objective
+  // priority, macro). Applied at the relevant event sites below so the plan
+  // shapes which plays happen and who tends to win them.
+  const mods: StrategyTimelineModifiers = strategyTimelineModifiers(
+    ctx.blueStrategy,
+    ctx.redStrategy,
+  );
+  const clampChance = (p: number) => Math.max(0.1, Math.min(0.9, p));
+  // Objective steal probability, modulated by the teams' risk dials.
+  const stealChance = (base: number) =>
+    Math.max(0, Math.min(0.45, base + mods.stealChanceDelta));
+  // Power-spike fight window: blue-positive bias from how many carries each
+  // side has online (past their key item) at a given minute. Drives mid-game
+  // fights toward whoever spiked first; naturally fades to ~0 once both sides
+  // are fully online late. Capped so it nudges rather than dominates.
+  const blueSpikes = carrySpikeMinutes(ctx.bluePicks);
+  const redSpikes = carrySpikeMinutes(ctx.redPicks);
+  const spikeBias = (time: number) =>
+    Math.max(
+      -0.4,
+      Math.min(
+        0.4,
+        (onlineSpikeCount(blueSpikes, time) -
+          onlineSpikeCount(redSpikes, time)) *
+          0.13,
+      ),
+    );
 
   // Objectives that meaningfully tilt the win odds beyond raw gold:
   //   - drakes stack a small per-stack bonus (8% logit per drake-difference)
@@ -2032,7 +2117,7 @@ function generateTimeline(
   // either way — only the label and the kill-bounty bonus differ.
   {
     const t = jitter(3, 5.5);
-    const side = rollEventSide(t, 0.1);
+    const side = rollEventSide(t, 0.1 + mods.earlyAggroBias);
     const isFirstBlood = !firstKillTaken;
     const fbLanes: Lane[] = ["top", "jungle", "middle", "bottom"];
     const fbLane = pickRandom(fbLanes);
@@ -2108,8 +2193,8 @@ function generateTimeline(
   // who can fight over drake without losing a tower.
   {
     const t = jitter(6.5, 8.3);
-    const contestSide = rollEventSide(t, laneBias * 0.6);
-    const stolen = Math.random() < 0.08;
+    const contestSide = rollEventSide(t, laneBias * 0.6 + mods.drakeBias);
+    const stolen = Math.random() < stealChance(0.08);
     const side: Side = stolen
       ? contestSide === "blue"
         ? "red"
@@ -2148,9 +2233,9 @@ function generateTimeline(
   // 5. Gank (3.5-9.5) — 55% chance, biased to gankable lane. Lane prio
   // matters: a jungler with prio (i.e., on the team with more pushed lanes)
   // can roam to gank without giving up jungle camps.
-  if (Math.random() < 0.55) {
+  if (Math.random() < clampChance(0.55 + mods.gankChanceDelta)) {
     const t = jitter(3.5, 9.5);
-    const side = rollEventSide(t, laneBias * 0.5);
+    const side = rollEventSide(t, laneBias * 0.5 + mods.gankBias);
     const lane = pickGankableLane(ctx.laneAdvantages, side);
     addEvent(
       "gank",
@@ -2231,9 +2316,9 @@ function generateTimeline(
   // lane. Heavily biased by lane prio — the canonical "I have prio so I
   // can leave my lane" play. A roamer without prio loses CS and gets
   // dove on the way back.
-  if (Math.random() < 0.4) {
+  if (Math.random() < clampChance(0.4 + mods.roamChanceDelta)) {
     const t = jitter(9, 13);
-    const side = rollEventSide(t, laneBias * 0.9);
+    const side = rollEventSide(t, laneBias * 0.9 + mods.roamBias);
     const targetLane = pickRandom(["top", "bottom"] as Lane[]);
     addEvent(
       "roam",
@@ -2298,7 +2383,7 @@ function generateTimeline(
   // the next lost teamfight (loserKills -1).
   {
     const t = jitter(14, 16);
-    const side = rollEventSide(t, laneBias * 0.4);
+    const side = rollEventSide(t, laneBias * 0.4 + mods.atakhanBias);
     if (Math.random() < 0.6) {
       const atakhanVariant: AtakhanVariant =
         Math.random() < 0.5 ? "Voracious" : "Ruinous";
@@ -2338,18 +2423,15 @@ function generateTimeline(
 
   // 9b. Power spikes (13-16). Fire when a carry-archetype champion completes
   // their first major item — the "I'm online" moment that explains why the
-  // next teamfight tips a certain way. We pick the SINGLE most-impactful
-  // carry per side (highest archetype priority) and fire one event per side
-  // with 70% chance, slightly jittered so the two sides don't stack on the
-  // exact same minute. Tank/enchanter spikes are skipped (undramatic).
-  // Combat resolution already factors items via buildStatsAt, so this is
-  // pure flavor + a small momentum bump.
+  // next teamfight tips a certain way. We surface up to the TWO most-impactful
+  // carries per side (a 2-carry comp gets two spike beats), each on its own
+  // build minute. The momentum each spike carries is what tilts the mid-game
+  // spike window (see spikeBias); combat resolution also factors items via
+  // buildStatsAt. Tank/enchanter spikes are skipped (undramatic).
   for (const spikeSide of ["blue", "red"] as Side[]) {
-    if (Math.random() >= 0.7) continue;
     const sidePicks = picksOf(ctx, spikeSide);
-    // Find the highest-priority carry on this side. Sweep picks in order
-    // of typical-LoL impact: hyper-carry first, then burst/assassin, then
-    // skirmish/dive. The first match wins.
+    // Gather carries in order of typical-LoL impact (hyper-carry first), up to
+    // two distinct champions.
     const ARCHETYPE_PRIO: Archetype[] = [
       "hyper-carry",
       "burst",
@@ -2358,56 +2440,58 @@ function generateTimeline(
       "skirmish",
       "dive",
     ];
-    let chosen: { champ: Champion; meta: ChampionMeta } | null = null;
-    outer: for (const want of ARCHETYPE_PRIO) {
+    const carries: { champ: Champion; meta: ChampionMeta }[] = [];
+    for (const want of ARCHETYPE_PRIO) {
       for (const c of sidePicks) {
         if (!c) continue;
         const m = metaFor(c);
-        if (m.archetypes.includes(want)) {
-          chosen = { champ: c, meta: m };
-          break outer;
+        if (
+          m.archetypes.includes(want) &&
+          !carries.some((x) => x.champ === c)
+        ) {
+          carries.push({ champ: c, meta: m });
         }
       }
+      if (carries.length >= 2) break;
     }
-    if (!chosen) continue;
-    const spikeInfo = getKeyPowerSpike(chosen.meta, chosen.champ.alias);
-    if (!spikeInfo.isCarrySpike) continue;
-    // Side jitter so blue/red spikes don't share a minute. ±1 min around
-    // the build's spike minute, clamped so we don't fire before min 5.
-    const lo = Math.max(5, spikeInfo.minute - 1);
-    const hi = Math.max(lo + 0.5, spikeInfo.minute + 1);
-    const t = jitter(lo, hi);
-    // Later spikes hit harder. The default build minute is 14; randomized
-    // overrides span [6, 14]. We linearly scale gold delta and momentum
-    // impact between a 6' spike and a 14' spike: a 14' carry coming
-    // online drops a real momentum bomb, a 6' spike is mostly flavor.
-    const SPIKE_MIN = 6;
-    const SPIKE_MAX = 14;
-    const t01 = Math.max(
-      0,
-      Math.min(
-        1,
-        (spikeInfo.minute - SPIKE_MIN) / (SPIKE_MAX - SPIKE_MIN),
-      ),
-    );
-    const goldDelta = Math.round(60 + 180 * t01);
-    const momentumImpact = 0.04 + 0.1 * t01;
-    addEvent(
-      "power-spike",
-      t,
-      spikeSide,
-      describePowerSpike(chosen.champ, spikeInfo.keyItem),
-      { laneGoldDelta: spreadLaneGold(goldDelta, spikeSide) },
-      momentumImpact,
-    );
+    // Primary carry spike fires at 72%, the secondary at 45% — not every game
+    // shows both.
+    carries.slice(0, 2).forEach((chosen, idx) => {
+      if (Math.random() >= (idx === 0 ? 0.72 : 0.45)) return;
+      const spikeInfo = getKeyPowerSpike(chosen.meta, chosen.champ.alias);
+      if (!spikeInfo.isCarrySpike) return;
+      const lo = Math.max(5, spikeInfo.minute - 1);
+      const hi = Math.max(lo + 0.5, spikeInfo.minute + 1);
+      const t = jitter(lo, hi);
+      // Later spikes hit harder. Build minute spans [6, 14]; scale gold +
+      // momentum between a 6' spike (flavor) and a 14' spike (real bomb). The
+      // secondary carry's spike lands a touch softer.
+      const SPIKE_MIN = 6;
+      const SPIKE_MAX = 14;
+      const t01 = Math.max(
+        0,
+        Math.min(1, (spikeInfo.minute - SPIKE_MIN) / (SPIKE_MAX - SPIKE_MIN)),
+      );
+      const weight = idx === 0 ? 1 : 0.7;
+      const goldDelta = Math.round((60 + 180 * t01) * weight);
+      const momentumImpact = (0.04 + 0.1 * t01) * weight;
+      addEvent(
+        "power-spike",
+        t,
+        spikeSide,
+        describePowerSpike(chosen.champ, spikeInfo.keyItem),
+        { laneGoldDelta: spreadLaneGold(goldDelta, spikeSide) },
+        momentumImpact,
+      );
+    });
   }
 
   // 10. Second Drake (11.5-14.3) — 8% chance of a smite steal. Lane prio
   // still relevant for early-mid drakes.
   if (duration >= 18) {
     const t = jitter(11.5, 14.3);
-    const contestSide = rollEventSide(t, laneBias * 0.4);
-    const stolen = Math.random() < 0.08;
+    const contestSide = rollEventSide(t, laneBias * 0.4 + mods.drakeBias);
+    const stolen = Math.random() < stealChance(0.08);
     const side: Side = stolen
       ? contestSide === "blue"
         ? "red"
@@ -2458,10 +2542,11 @@ function generateTimeline(
     }
   }
 
-  // 11. Mid-game pick or skirmish (15.5-19)
+  // 11. Mid-game pick or skirmish (15.5-19) — tilts toward whoever has more
+  // carries online (power-spike window).
   {
     const t = jitter(15.5, 19);
-    const side = rollEventSide(t);
+    const side = rollEventSide(t, spikeBias(t));
     const winnerScore = side === "blue" ? ctx.blueScore : ctx.redScore;
     const winnerHasPick = winnerScore.identityLabel === "Pick Comp";
     const wp = picksOf(ctx, side);
@@ -2514,8 +2599,8 @@ function generateTimeline(
   // 12. Third Drake (16.5-20) — 10% steal as games heat up.
   if (duration >= 22) {
     const t = jitter(16.5, 20);
-    const contestSide = rollEventSide(t);
-    const stolen = Math.random() < 0.1;
+    const contestSide = rollEventSide(t, mods.drakeBias);
+    const stolen = Math.random() < stealChance(0.1);
     const side: Side = stolen
       ? contestSide === "blue"
         ? "red"
@@ -2664,9 +2749,9 @@ function generateTimeline(
   // bush leads to catching out a stray enemy. Pure positional play; no
   // teamfight, just one decisive moment. Biased by lane prio (a team
   // with prio can place vision deeper).
-  if (duration >= 22 && Math.random() < 0.28) {
+  if (duration >= 22 && Math.random() < clampChance(0.28 + mods.visionChanceDelta)) {
     const t = jitter(16, Math.min(22, duration - 5));
-    const side = rollEventSide(t, laneBias * 0.3);
+    const side = rollEventSide(t, laneBias * 0.3 + mods.visionBias);
     const wp = picksOf(ctx, side);
     const lp = picksOf(ctx, side === "blue" ? "red" : "blue");
     // Vision-pick: support places the ward/sees the catch, team collapses.
@@ -2799,8 +2884,8 @@ function generateTimeline(
   // 14. Fourth Drake / Soul (21-25)
   if (duration >= 26 && state.soulSide == null) {
     const t = jitter(21, Math.min(25, duration - 3));
-    const contestSide = rollEventSide(t);
-    const stolen = Math.random() < 0.1;
+    const contestSide = rollEventSide(t, mods.drakeBias);
+    const stolen = Math.random() < stealChance(0.1);
     const side: Side = stolen
       ? contestSide === "blue"
         ? "red"
@@ -2857,8 +2942,8 @@ function generateTimeline(
   if (duration >= 25) {
     const tMax = Math.min(duration - 4, 30);
     const t = jitter(20, Math.max(21, tMax));
-    const contestSide = rollEventSide(t, 0.05);
-    const stolen = Math.random() < 0.15;
+    const contestSide = rollEventSide(t, 0.05 + mods.baronBias);
+    const stolen = Math.random() < stealChance(0.15);
     const baronSide: Side = stolen
       ? contestSide === "blue"
         ? "red"
@@ -2910,7 +2995,7 @@ function generateTimeline(
   if (duration >= 32 && Math.random() < 0.65) {
     const t = jitter(duration - 7, duration - 3);
     const contestSide = rollEventSide(t);
-    const stolen = Math.random() < 0.18;
+    const stolen = Math.random() < stealChance(0.18);
     const elderSide: Side = stolen
       ? contestSide === "blue"
         ? "red"
@@ -2995,12 +3080,38 @@ function generateTimeline(
   // mattered indirectly via biased event-side rolls, which the gold/
   // momentum random walk could wash out — 5★ teams were losing to 1★
   // teams more often than the rating gap implied.
+  // ─── Late-game payoff ──────────────────────────────────────────────────
+  // The explicit "cash in on the long game" term. The longer the game runs,
+  // the more a scaling-heavy comp out-classes an early-game comp in the
+  // deciding fight — late carries are full-build while early champs have
+  // fallen off. Zero at/under 30 min (the early comp's window), then ramps
+  // up through the 50-min cap, so a team that drafted to scale is rewarded
+  // for dragging the game out, and an early comp that failed to close gets
+  // punished for it. Capped so a 50-min game isn't fully deterministic.
+  const blueLate = lateScalingCount(ctx.bluePicks);
+  const redLate = lateScalingCount(ctx.redPicks);
+  const blueEarly = earlyCount(ctx.bluePicks);
+  const redEarly = earlyCount(ctx.redPicks);
+  // Blue-positive scaling edge: late presence helps, enemy early presence
+  // helps too (it's rotted by now); own early presence slightly dampens it.
+  const scalingEdge =
+    blueLate - redLate + (redEarly - blueEarly) * 0.5;
+  const lateGameRamp = Math.max(0, (duration - 27) / 8); // 0 @27m → ~2.9 @50m
+  const scalingPayoff = Math.max(
+    -3,
+    Math.min(3, scalingEdge * lateGameRamp * 0.26),
+  );
+
   const closingLogit =
-    ctx.diff * 0.028 +
-    (state.goldLead / 5000) * goldPhaseWeight(duration) +
-    state.momentum * 0.9 +
-    objectiveLogit() * 0.4 +
-    Math.log(combat.ratio) * 0.7;
+    (ctx.diff * 0.028 +
+      (state.goldLead / 5000) * goldPhaseWeight(duration) +
+      state.momentum * 0.9 +
+      objectiveLogit() * 0.4 +
+      Math.log(combat.ratio) * 0.7 +
+      scalingPayoff) *
+    // Risk dial: high-roll flattens the deciding fight toward a coinflip
+    // (helps the underdog), safe sharpens it toward the favorite.
+    mods.closingRiskFactor;
   const closingProb = 1 / (1 + Math.exp(-closingLogit));
   const finalWinner: Side = Math.random() < closingProb ? "blue" : "red";
 
@@ -3047,7 +3158,14 @@ function generateTimeline(
     const hasSplitter = !!findByArchetype(winnerPicks, ["splitpush"]);
     const closeGame = Math.abs(state.goldLead) < 4000;
     const backdoorRoll = Math.random();
-    const useBackdoor = hasSplitter && closeGame && backdoorRoll < 0.12;
+    // Committing to a 1-3-1 / splitpush plan makes the sneaky map-ending
+    // backdoor meaningfully more likely for that team.
+    const winnerStrategy =
+      finalWinner === "blue" ? ctx.blueStrategy : ctx.redStrategy;
+    const useBackdoor =
+      hasSplitter &&
+      closeGame &&
+      backdoorRoll < 0.12 + backdoorBonusFor(winnerStrategy);
     if (useBackdoor) {
       const bdWk = rollInt(0, 1);
       const bdLk = rollInt(0, 1);
@@ -3175,6 +3293,11 @@ export interface SimulateOptions {
   // star), so this does not double-count tier.
   bluePlayers?: Roster;
   redPlayers?: Roster;
+  // Optional strategy overrides. When omitted, the strategies stored on the
+  // GameDraft are used (falling back to a neutral plan). Programmatic callers
+  // and tests can force a plan here without mutating the game.
+  blueStrategy?: TeamStrategy;
+  redStrategy?: TeamStrategy;
 }
 
 export function simulateMatch(
@@ -3193,18 +3316,39 @@ export function simulateMatch(
   const blueScore = teamScore(bluePicks, game.blueRoles, redPicks, game.redRoles);
   const redScore = teamScore(redPicks, game.redRoles, bluePicks, game.blueRoles);
 
+  // Committed game plans. Read off the GameDraft (set on the StrategyView /
+  // by the AI auto-picker); fall back to a neutral plan so older games and
+  // callers that skip the strategy step simulate exactly as before. `options`
+  // may override (used by tests / programmatic callers).
+  const blueStrategy =
+    options?.blueStrategy ?? game.blueStrategy ?? DEFAULT_STRATEGY;
+  const redStrategy =
+    options?.redStrategy ?? game.redStrategy ?? DEFAULT_STRATEGY;
+
   const scoreBias = options?.scoreBias ?? 0;
-  const diff = blueScore.total - redScore.total + scoreBias;
+  // Comp fit: a plan that suits the drafted comp earns a score tailwind; a
+  // mismatched plan a headwind. The DIFFERENCE of the two fits feeds the
+  // diff so good planning gains relative to a poorly-planned opponent.
+  const strategyBias =
+    strategyFit(blueStrategy, bluePicks) - strategyFit(redStrategy, redPicks);
+  const diff = blueScore.total - redScore.total + scoreBias + strategyBias;
   const rawBlueProb = 1 / (1 + Math.exp(-diff * SIGMOID_K));
   const blueProb = Math.min(0.97, Math.max(0.03, rawBlueProb + BLUE_SIDE_BONUS));
   const redProb = 1 - blueProb;
 
-  const laneAdvantages = computeLaneAdvantages(
+  // Strategy plans redistribute per-lane gold before the timeline reads it,
+  // in order: weakside starves a lane, win-condition funnels into one,
+  // pick-target denies the hunted enemy lane, lane-swap dodges a bad top.
+  let laneAdvantages = computeLaneAdvantages(
     bluePicks,
     redPicks,
     options?.bluePlayers,
     options?.redPlayers,
   );
+  laneAdvantages = applyWeaksideToLaneAdv(laneAdvantages, blueStrategy, redStrategy);
+  laneAdvantages = applyCarryFocusToLaneAdv(laneAdvantages, blueStrategy, redStrategy);
+  laneAdvantages = applyPickTargetToLaneAdv(laneAdvantages, blueStrategy, redStrategy);
+  laneAdvantages = applyLaneSwapToLaneAdv(laneAdvantages, blueStrategy, redStrategy);
 
   const ctx: TimelineCtx = {
     diff,
@@ -3215,6 +3359,8 @@ export function simulateMatch(
     blueName: game.blueTeam,
     redName: game.redTeam,
     laneAdvantages,
+    blueStrategy,
+    redStrategy,
   };
 
   const duration = computeDuration(ctx);

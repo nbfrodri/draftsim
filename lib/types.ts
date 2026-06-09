@@ -1,3 +1,5 @@
+import type { TeamStrategy } from "./sim/strategies";
+
 export type Side = "blue" | "red";
 export type ActionKind = "ban" | "pick";
 export type SeriesFormat = "bo1" | "bo3" | "bo5";
@@ -139,6 +141,13 @@ export interface GameDraft {
   actionIndex: number;
   status: "drafting" | "complete";
   winner: Side | null;
+  // Game plan each team commits to after the draft and before the match
+  // simulates (chosen on the StrategyView). Optional / legacy-safe: when
+  // absent, the simulator falls back to a neutral DEFAULT_STRATEGY so older
+  // persisted games (and any caller that skips the strategy step) behave
+  // exactly as before. Affects the simulation — see lib/sim/strategies.ts.
+  blueStrategy?: TeamStrategy;
+  redStrategy?: TeamStrategy;
   // Optional simulation summary, populated when the user resolves a game
   // via Apply Simulation. Manual winner declarations leave it null. The
   // series recap reads this to synthesize per-game storylines.
@@ -153,7 +162,11 @@ export interface SeriesState {
   blueTeam: string;
   redTeam: string;
   games: GameDraft[];
-  status: "drafting" | "between-games" | "complete";
+  // "strategy" sits between "drafting" and "between-games": the draft is
+  // locked and each team is choosing its game plan (StrategyView). On
+  // confirm the status advances to "between-games" and the chosen plans are
+  // written onto the current GameDraft.
+  status: "drafting" | "strategy" | "between-games" | "complete";
   winner: Side | null;
   mode: DraftMode;
   // Only meaningful when mode === "pvai"; null otherwise. The AI controls
