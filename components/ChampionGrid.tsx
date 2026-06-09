@@ -8,7 +8,11 @@ import { isChampionAvailable, currentAction } from "@/lib/draftEngine";
 import { isAITurn } from "@/lib/draftAI";
 import { LANES } from "@/lib/lanes";
 import { playSelectSound } from "@/lib/sounds";
-import { getMetaTier, type MetaTier } from "@/lib/championMeta";
+import {
+  getEffectiveTier,
+  getMetaTier,
+  type MetaTier,
+} from "@/lib/championMeta";
 import type { Champion, Lane } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
 import AIRationalePanel from "./AIRationalePanel";
@@ -364,10 +368,14 @@ const FALLBACK_TIER: MetaTier = "C";
 
 function bestTierFor(champ: Champion, lane: LaneFilter): MetaTier | null {
   if (lane !== "all") {
-    const t = getMetaTier(champ.alias, lane);
+    // getEffectiveTier returns the explicit tier when one exists, otherwise
+    // an off-position fallback derived from the champion's known tiers
+    // (median − 1) — the same value the simulator uses, so the badge matches
+    // how the pick actually performs off-role.
+    const t = getEffectiveTier(champ.alias, lane);
     if (t) return t;
-    // Champion plays this lane per Meraki but no explicit tier — show
-    // the fallback so the badge is never missing.
+    // Champion plays this lane per Meraki but has no tier data anywhere —
+    // show the flat fallback so the badge is never missing.
     return champ.lanes.includes(lane) ? FALLBACK_TIER : null;
   }
   let best: MetaTier | null = null;

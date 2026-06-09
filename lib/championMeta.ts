@@ -321,6 +321,72 @@ export function getMetaTiers(alias: string): Partial<Record<Lane, MetaTier>> {
   return CHAMPION_META[alias]?.metaTiers ?? {};
 }
 
+const ALL_LANES: readonly Lane[] = [
+  "top",
+  "jungle",
+  "middle",
+  "bottom",
+  "support",
+];
+
+// Map a numeric tier value back to its tier label. TIER_ORDER runs S+→D
+// for values 6→1, so the index is (6 - value).
+function tierForValue(value: number): MetaTier {
+  const clamped = Math.max(TIER_VALUE.D, Math.min(TIER_VALUE["S+"], value));
+  return TIER_ORDER[TIER_VALUE["S+"] - clamped];
+}
+
+// The tier a champion effectively has in a lane, INCLUDING an off-position
+// fallback. When the champion has an explicit tier for the lane, that wins.
+// Otherwise — a champion played off its meta roles — the tier is derived
+// from the tiers it DOES have: the median of its known tiers, floored to a
+// whole tier, then dropped one notch (floored at D). Rationale: an off-role
+// pick is meaningfully worse than the champion's real footprint, but a
+// strong champion flexed into a NEARBY role it can still play is better than
+// a baseline pocket pick, and a weak champion stays weak.
+//
+// When `playableLanes` is supplied (the champion's Meraki roles) and the
+// lane is NOT one of them, the champion is being forced into a role it can't
+// really play — it floors at "D" (hard off-meta) no matter how strong it is
+// in its real roles. That's the realistic outcome: a mid-only champion
+// jammed into support is bad regardless of its mid tier. A champion that CAN
+// play the lane but simply lacks a meta tier there gets the softer median-1
+// fallback. Omit `playableLanes` to skip the gate (callers that only want
+// the strength-based fallback, e.g. the champ-select badge, which already
+// renders only champions that play the filtered lane).
+//
+// Returns null only when meta is disabled, or the champion has no tier in
+// ANY lane (truly unknown) — callers keep their own last-resort default
+// (historically "C") for that case.
+export function getEffectiveTier(
+  alias: string,
+  lane: Lane,
+  playableLanes?: readonly Lane[],
+): MetaTier | null {
+  const explicit = getMetaTier(alias, lane);
+  if (explicit) return explicit;
+  // getMetaTier returns null when the meta is disabled; mirror that so the
+  // fallback never resurrects tier data the user turned off.
+  if (!_metaEnabled) return null;
+  const known: number[] = [];
+  for (const l of ALL_LANES) {
+    if (l === lane) continue;
+    const t = getMetaTier(alias, l);
+    if (t) known.push(TIER_VALUE[t]);
+  }
+  if (known.length === 0) return null;
+  // Out-of-position realism: a champion shoved into a lane it can't play is
+  // hard off-meta, full stop — strength in its real roles doesn't carry over.
+  if (playableLanes && !playableLanes.includes(lane)) return "D";
+  known.sort((a, b) => a - b);
+  const mid =
+    known.length % 2 === 1
+      ? known[(known.length - 1) / 2]
+      : (known[known.length / 2 - 1] + known[known.length / 2]) / 2;
+  // Floor the median toward the lower tier, then drop one notch.
+  return tierForValue(Math.floor(mid) - 1);
+}
+
 // ─── Meta override serialization ───────────────────────────────────────────
 //
 // Format used for exporting / importing custom meta tier lists. Wrapped in

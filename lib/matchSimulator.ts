@@ -1,7 +1,7 @@
 import type { Champion, GameDraft, Lane, Roster, Side } from "./types";
 import {
+  getEffectiveTier,
   getMetaEnabled,
-  getMetaTier,
   getSynergy,
   TIER_VALUE,
   type Archetype,
@@ -538,17 +538,15 @@ function metaStrengthScore(
     const c = picks[i];
     const lane = lanes[i];
     if (!c || !lane) continue;
-    // getMetaTier consults the active override (randomized meta) before the
-    // baseline dataset, so randomizing the meta affects all subsequent sims.
-    const tier = getMetaTier(c.alias, lane);
-    if (tier) {
-      total += TIER_VALUE[tier];
-      count++;
-    } else {
-      // Off-role pick: penalize as roughly C-tier equivalent.
-      total += TIER_VALUE.C;
-      count++;
-    }
+    // getEffectiveTier consults the active override (randomized meta) before
+    // the baseline dataset, so randomizing the meta affects all subsequent
+    // sims. For an off-role pick (no explicit tier in this lane) it derives a
+    // fallback from the champion's known tiers (median − 1), or floors at "D"
+    // when the lane isn't one it can play; only truly tier-less champions
+    // fall back to a flat "C".
+    const tier = getEffectiveTier(c.alias, lane, c.lanes) ?? "C";
+    total += TIER_VALUE[tier];
+    count++;
   }
   if (count === 0) return { score: 0, avg: 0 };
   const avg = total / count;
@@ -946,7 +944,9 @@ function champCombatProfile(
   // When the meta master switch is off, every champion gets the same
   // damage multiplier (1.0 = neutral) so comp differentiation in combat
   // comes from items + archetype + identity, not tier.
-  const tier = lane ? getMetaTier(champ.alias, lane) ?? "C" : "C";
+  const tier = lane
+    ? getEffectiveTier(champ.alias, lane, champ.lanes) ?? "C"
+    : "C";
   const tierMul = getMetaEnabled() ? 0.7 + TIER_VALUE[tier] * 0.08 : 1.0;
   const items = itemBuildProgress(gameTime, meta.phase);
   // Total damage budget for this champion at this minute.
@@ -1576,8 +1576,8 @@ function computeLaneAdvantages(
     const mobDiff = MOBILITY_VALUE[blueMeta.mobility] - MOBILITY_VALUE[redMeta.mobility];
     const archetypeBonus = laneArchetypeBonus(lane, blue, red);
     const rangeAdv = rangeBonus(lane, blue, red);
-    const blueTier = getMetaTier(blue.alias, lane) ?? "C";
-    const redTier = getMetaTier(red.alias, lane) ?? "C";
+    const blueTier = getEffectiveTier(blue.alias, lane, blue.lanes) ?? "C";
+    const redTier = getEffectiveTier(red.alias, lane, red.lanes) ?? "C";
     const tierDiff = TIER_VALUE[blueTier] - TIER_VALUE[redTier];
     // Curated hard-counter table — directly translates the matchup table
     // into lane gold. A bonus 5 hard counter (Yorick vs Nasus, Malphite
@@ -3325,44 +3325,41 @@ export function buildGameRecap(
     laneGoldDiff: number;
     score: number;
   };
+  // MVP is the Player of the Game — by convention it always goes to the
+  // WINNING team. Only the winning side's players are candidates, so a fed
+  // losing-team carry can never steal the award (and side swaps between
+  // games can't misattribute it). Score still ranks within the winners.
   const candidates: Cand[] = [];
   for (let i = 0; i < positionalLanes.length; i++) {
     const lane = positionalLanes[i];
-    const blueId = game.bluePicks[i];
-    if (blueId != null && byId.has(blueId)) {
-      const kda = blueKDA[lane];
-      const diff = finalLaneGold[lane];
-      candidates.push({
-        side: "blue",
-        lane,
-        championId: blueId,
-        kda,
-        laneGoldDiff: diff,
-        score:
-          kda.k +
-          kda.a * 0.7 -
-          kda.d * 0.5 +
-          diff / 1000 +
-          (result.winner === "blue" ? 1.5 : 0),
-      });
-    }
-    const redId = game.redPicks[i];
-    if (redId != null && byId.has(redId)) {
-      const kda = redKDA[lane];
-      const diff = -finalLaneGold[lane];
-      candidates.push({
-        side: "red",
-        lane,
-        championId: redId,
-        kda,
-        laneGoldDiff: diff,
-        score:
-          kda.k +
-          kda.a * 0.7 -
-          kda.d * 0.5 +
-          diff / 1000 +
-          (result.winner === "red" ? 1.5 : 0),
-      });
+    if (result.winner === "blue") {
+      const blueId = game.bluePicks[i];
+      if (blueId != null && byId.has(blueId)) {
+        const kda = blueKDA[lane];
+        const diff = finalLaneGold[lane];
+        candidates.push({
+          side: "blue",
+          lane,
+          championId: blueId,
+          kda,
+          laneGoldDiff: diff,
+          score: kda.k + kda.a * 0.7 - kda.d * 0.5 + diff / 1000,
+        });
+      }
+    } else {
+      const redId = game.redPicks[i];
+      if (redId != null && byId.has(redId)) {
+        const kda = redKDA[lane];
+        const diff = -finalLaneGold[lane];
+        candidates.push({
+          side: "red",
+          lane,
+          championId: redId,
+          kda,
+          laneGoldDiff: diff,
+          score: kda.k + kda.a * 0.7 - kda.d * 0.5 + diff / 1000,
+        });
+      }
     }
   }
   candidates.sort((a, b) => b.score - a.score);

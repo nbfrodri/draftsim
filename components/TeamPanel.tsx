@@ -1,13 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react";
 import gsap from "gsap";
 import { useDraftStore } from "@/store/draftStore";
-import { currentGame } from "@/lib/series";
+import { currentGame, fearlessLockedSet } from "@/lib/series";
 import { assignLanesToPicks, currentAction } from "@/lib/draftEngine";
 import { getSynergy } from "@/lib/championMeta";
 import { playerForLane, poolBias } from "@/lib/players";
-import type { Champion, Lane, PlayerTier, Side } from "@/lib/types";
+import type { Champion, Lane, PlayerTier, Roster, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
 
 // Per-tier styling for the small player-tier badge on a locked pick slot.
@@ -38,6 +44,27 @@ export default function TeamPanel({ champions, side }: Props) {
   // Player roster for this side (when configured). Drives the per-slot tier
   // badge and the good/bad pool-fit indicator.
   const roster = side === "blue" ? series.bluePlayers : series.redPlayers;
+
+  // Availability of any champion right now, for the pool display: champions
+  // banned/picked this game, or locked out by fearless from earlier games,
+  // are shown dimmed so the pool reflects what's actually still draftable.
+  const fearlessLocked = useMemo(() => fearlessLockedSet(series), [series]);
+  const champStatus = useCallback(
+    (id: number): ChampStatus => {
+      if (fearlessLocked.has(id)) return "fearless";
+      if (game.blueBans.includes(id) || game.redBans.includes(id))
+        return "banned";
+      if (game.bluePicks.includes(id) || game.redPicks.includes(id))
+        return "picked";
+      return "available";
+    },
+    [fearlessLocked, game],
+  );
+
+  // Whether this side has any champion-pool data to show.
+  const hasPools = !!roster?.some(
+    (p) => p.goodChamps.length > 0 || p.badChamps.length > 0,
+  );
 
   const sideConfig = side === "blue"
     ? {
@@ -145,8 +172,10 @@ export default function TeamPanel({ champions, side }: Props) {
         </div>
       </div>
 
-      {/* Picks — mobile: 5 small squares across. desktop: vertical list of horizontal rows */}
-      <div className="p-2 md:p-2 grid grid-cols-5 md:grid-cols-1 gap-1.5 md:gap-1.5 md:flex-1 md:min-h-0 md:content-start">
+      {/* Picks — mobile: 5 small squares across. desktop: vertical list of
+          horizontal rows. Natural height (shrink-0) so all five slots always
+          show; the info region below absorbs the leftover space. */}
+      <div className="p-2 md:p-2 grid grid-cols-5 md:grid-cols-1 gap-1.5 md:gap-1.5 md:content-start shrink-0">
         {picks.map((id, slot) => {
           const preview =
             previewing?.kind === "pick" && previewing.slot === slot
@@ -177,30 +206,230 @@ export default function TeamPanel({ champions, side }: Props) {
         })}
       </div>
 
-      {/* Live synergies — shown only when at least one pair fires. */}
-      {activeSynergies.length > 0 && (
-        <div
-          className={`border-t ${sideConfig.borderColor} px-2 py-1.5 shrink-0 max-h-[120px] overflow-y-auto custom-scroll`}
-        >
-          <div
-            className={`text-[8px] md:text-[9px] uppercase tracking-[0.35em] ${sideConfig.textColor}/70 mb-1 text-center`}
-          >
-            Synergies · {activeSynergies.length}
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {activeSynergies.map((s, i) => (
-              <span
-                key={`${s.tag}-${i}`}
-                className="text-[8px] md:text-[9px] uppercase tracking-[0.15em] px-1 py-px border border-rift-gold/50 bg-gradient-to-r from-rift-gold/10 to-rift-gold/5 text-rift-goldbright leading-tight"
-                title={`Bonus +${s.bonus}`}
+      {/* Info region — live synergies + champion pools share whatever vertical
+          space is left below the picks and scroll together. Keeping them in one
+          flex-1/min-h-0 scroll container means adding the synergies section (or
+          a long champion-pool list) never clips the panel or pushes a pick off
+          screen — the region just scrolls. */}
+      {(activeSynergies.length > 0 || hasPools) && (
+        <div className="md:flex-1 md:min-h-0 overflow-y-auto custom-scroll flex flex-col">
+          {/* Live synergies — shown only when at least one pair fires. */}
+          {activeSynergies.length > 0 && (
+            <div className={`border-t ${sideConfig.borderColor} px-2 py-1.5 shrink-0`}>
+              <div
+                className={`text-[8px] md:text-[9px] uppercase tracking-[0.35em] ${sideConfig.textColor}/70 mb-1 text-center`}
               >
-                ★ {s.tag}
-              </span>
+                Synergies · {activeSynergies.length}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {activeSynergies.map((s, i) => (
+                  <span
+                    key={`${s.tag}-${i}`}
+                    className="text-[8px] md:text-[9px] uppercase tracking-[0.15em] px-1 py-px border border-rift-gold/50 bg-gradient-to-r from-rift-gold/10 to-rift-gold/5 text-rift-goldbright leading-tight"
+                    title={`Bonus +${s.bonus}`}
+                  >
+                    ★ {s.tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Champion pools — each player's comfort (good) and weak (bad)
+              picks, plus a team aggregate, so the user can target bans and
+              anticipate picks during the draft. */}
+          {hasPools && roster && (
+            <ChampPools
+              roster={roster}
+              byId={byId}
+              champStatus={champStatus}
+              textColor={sideConfig.textColor}
+              borderColor={sideConfig.borderColor}
+            />
+          )}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+// Draftability of a pool champion right now. Anything not "available" is
+// off the board and rendered dimmed/struck-through.
+type ChampStatus = "available" | "banned" | "picked" | "fearless";
+
+const STATUS_LABEL: Record<Exclude<ChampStatus, "available">, string> = {
+  banned: "Banned this game",
+  picked: "Already picked",
+  fearless: "Used earlier — fearless lock",
+};
+
+// A single champion chip in a pool row. Green ring = comfort, red ring =
+// off-pool. When the champion is no longer draftable (banned/picked this
+// game, or fearless-locked from a prior game) it greys out with a slash so
+// the pool reflects what's actually still on the board.
+function PoolChip({
+  champ,
+  tone,
+  status,
+}: {
+  champ: Champion;
+  tone: "good" | "bad";
+  status: ChampStatus;
+}) {
+  const ring = tone === "good" ? "ring-rift-support/70" : "ring-rift-red/60";
+  const toneLabel = tone === "good" ? "Good" : "Bad";
+  const gone = status !== "available";
+  const title = gone
+    ? `${toneLabel}: ${champ.name} · ${STATUS_LABEL[status]}`
+    : `${toneLabel}: ${champ.name}`;
+  return (
+    <span className="relative inline-flex shrink-0" title={title}>
+      <img
+        src={champ.iconUrl}
+        alt={champ.name}
+        draggable={false}
+        className={`w-5 h-5 rounded-sm ring-1 ${ring} ${
+          gone ? "grayscale opacity-40" : ""
+        }`}
+      />
+      {gone && (
+        <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="w-[150%] h-[1.5px] bg-rift-redbright/80 rotate-45 rounded-full" />
+        </span>
+      )}
+    </span>
+  );
+}
+
+// One good/bad row: a coloured accent bar + tinted track + champion chips.
+// Returns null when empty so a player with only good (or only bad) picks
+// doesn't render a blank line.
+function PoolRow({
+  ids,
+  tone,
+  byId,
+  champStatus,
+}: {
+  ids: number[];
+  tone: "good" | "bad";
+  byId: Map<number, Champion>;
+  champStatus: (id: number) => ChampStatus;
+}) {
+  if (ids.length === 0) return null;
+  const isGood = tone === "good";
+  const bar = isGood ? "bg-rift-support" : "bg-rift-red";
+  const tint = isGood ? "bg-rift-support/[0.06]" : "bg-rift-red/[0.06]";
+  return (
+    <div className={`flex items-stretch gap-1.5 rounded-sm ${tint} pr-1`}>
+      <span className={`shrink-0 w-[2px] rounded-full ${bar}`} aria-hidden />
+      <div className="flex flex-wrap gap-0.5 py-0.5">
+        {ids.map((id) => {
+          const c = byId.get(id);
+          if (!c) return null;
+          return (
+            <PoolChip key={id} champ={c} tone={tone} status={champStatus(id)} />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Small dim section label ("Team", "By Player").
+function PoolSubhead({ children }: { children: ReactNode }) {
+  return (
+    <div className="text-[7px] uppercase tracking-[0.3em] text-rift-muted/70 mb-1">
+      {children}
+    </div>
+  );
+}
+
+function ChampPools({
+  roster,
+  byId,
+  champStatus,
+  textColor,
+  borderColor,
+}: {
+  roster: Roster;
+  byId: Map<number, Champion>;
+  champStatus: (id: number) => ChampStatus;
+  textColor: string;
+  borderColor: string;
+}) {
+  // Team aggregate = union of every player's pools. A champion someone is
+  // good at outranks one someone else is bad at, so it shows only as good.
+  const { teamGood, teamBad } = useMemo(() => {
+    const good = new Set<number>();
+    const bad = new Set<number>();
+    for (const p of roster) {
+      for (const id of p.goodChamps) good.add(id);
+      for (const id of p.badChamps) bad.add(id);
+    }
+    for (const id of good) bad.delete(id);
+    return { teamGood: [...good], teamBad: [...bad] };
+  }, [roster]);
+
+  // Only list players that actually have a pool configured.
+  const players = roster.filter(
+    (p) => p.goodChamps.length > 0 || p.badChamps.length > 0,
+  );
+
+  return (
+    <div className={`border-t ${borderColor} px-2 py-1.5 shrink-0`}>
+      <div
+        className={`text-[8px] md:text-[9px] uppercase tracking-[0.35em] ${textColor}/70 mb-0.5 text-center`}
+      >
+        Champion Pools
+      </div>
+      {/* Legend — teaches the green/red coding and the dimmed = taken rule. */}
+      <div className="flex items-center justify-center gap-2 mb-1.5 text-[7px] uppercase tracking-[0.15em] text-rift-muted/70">
+        <span className="flex items-center gap-0.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-rift-support" /> Good
+        </span>
+        <span className="flex items-center gap-0.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-rift-red" /> Bad
+        </span>
+        <span className="text-rift-muted/50">dimmed = taken</span>
+      </div>
+
+      {/* Team aggregate */}
+      <div className="mb-2 pb-2 border-b border-rift-line/40">
+        <PoolSubhead>Team</PoolSubhead>
+        <div className="space-y-0.5">
+          <PoolRow ids={teamGood} tone="good" byId={byId} champStatus={champStatus} />
+          <PoolRow ids={teamBad} tone="bad" byId={byId} champStatus={champStatus} />
+        </div>
+      </div>
+
+      {/* Per-player */}
+      {players.length > 0 && (
+        <div>
+          <PoolSubhead>By Player</PoolSubhead>
+          <div className="space-y-1.5">
+            {players.map((p, i) => (
+              <div key={`${p.lane}-${i}`} className="flex items-center gap-1.5">
+                <div className="shrink-0 flex items-center gap-1">
+                  <div className="bg-black/40 border border-rift-gold/20 rounded-sm p-0.5 flex items-center justify-center">
+                    <LaneIcon lane={p.lane} size="xs" />
+                  </div>
+                  <span
+                    className={`w-4 h-4 flex items-center justify-center border rounded-sm font-display text-[9px] ${TIER_BADGE[p.tier]}`}
+                    title={`Player tier: ${p.tier}`}
+                  >
+                    {p.tier}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                  <PoolRow ids={p.goodChamps} tone="good" byId={byId} champStatus={champStatus} />
+                  <PoolRow ids={p.badChamps} tone="bad" byId={byId} champStatus={champStatus} />
+                </div>
+              </div>
             ))}
           </div>
         </div>
       )}
-    </aside>
+    </div>
   );
 }
 

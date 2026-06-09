@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import gsap from "gsap";
 import type { Champion, Lane, PlayerTier, Roster } from "@/lib/types";
 import {
   deriveStar,
@@ -145,8 +146,45 @@ export default function RosterEditor({
     );
   };
 
+  // Refs for the randomize flourish: the five lane tabs reel in, the derived
+  // star pulses.
+  const tabsRef = useRef<HTMLDivElement | null>(null);
+  const starRef = useRef<HTMLSpanElement | null>(null);
+
+  // Slot-machine style reveal: each lane tab flips in on a stagger while the
+  // star rating pulses, selling the "re-roll" of the whole team.
+  const playRandomizeAnim = () => {
+    if (tabsRef.current) {
+      gsap.fromTo(
+        tabsRef.current.children,
+        { rotationX: -90, opacity: 0.15, transformPerspective: 500 },
+        {
+          rotationX: 0,
+          opacity: 1,
+          duration: 0.5,
+          ease: "back.out(1.7)",
+          stagger: 0.07,
+          transformOrigin: "50% 50%",
+        },
+      );
+    }
+    if (starRef.current) {
+      gsap.fromTo(
+        starRef.current,
+        { scale: 1.35, filter: "brightness(2.2)" },
+        {
+          scale: 1,
+          filter: "brightness(1)",
+          duration: 0.5,
+          ease: "power2.out",
+        },
+      );
+    }
+  };
+
   const randomizeAll = () => {
     setEditing(randomizeRoster({ champions }));
+    playRandomizeAnim();
   };
 
   // Randomize ONLY the champion pools (good/bad) for every lane, keeping the
@@ -233,7 +271,11 @@ export default function RosterEditor({
               <span className="text-[9px] uppercase tracking-[0.3em] text-rift-muted">
                 Team rating (derived)
               </span>
-              <span className="text-rift-gold text-sm tracking-tight" aria-label={`${star} of 5 stars`}>
+              <span
+                ref={starRef}
+                className="text-rift-gold text-sm tracking-tight inline-block"
+                aria-label={`${star} of 5 stars`}
+              >
                 {"★".repeat(star)}
                 <span className="text-rift-line">{"★".repeat(5 - star)}</span>
               </span>
@@ -270,7 +312,7 @@ export default function RosterEditor({
 
         {/* Lane tabs */}
         <div className="px-4 md:px-6 pt-3">
-          <div className="grid grid-cols-5 gap-1 md:gap-2">
+          <div ref={tabsRef} className="grid grid-cols-5 gap-1 md:gap-2">
             {LANE_ORDER.map((lane) => {
               const active = activeLane === lane;
               const p = editing[LANE_ORDER.indexOf(lane)];

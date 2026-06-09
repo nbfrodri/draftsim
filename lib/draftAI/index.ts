@@ -119,6 +119,11 @@ export interface SeriesAIContext {
   // ones they're bad at — weighed against meta tier, matchup, and synergy,
   // never overriding them. Undefined outside roster-configured series.
   myPlayers?: Roster;
+  // The OPPONENT's player roster. Lets scoring target-ban the enemy's
+  // signature picks (weighted by the enemy player's skill tier), deny those
+  // picks first, and avoid wasting bans on champions the enemy is weak on.
+  // Undefined outside roster-configured series.
+  oppPlayers?: Roster;
 }
 
 export function seriesAIContextFrom(
@@ -229,6 +234,8 @@ export function seriesAIContextFrom(
     // current sides (startNextGame swaps them), so a simple side lookup is
     // correct even after a mid-series side swap.
     myPlayers: mySide === "blue" ? series.bluePlayers : series.redPlayers,
+    // The opponent's roster — the OTHER side.
+    oppPlayers: mySide === "blue" ? series.redPlayers : series.bluePlayers,
   };
 }
 

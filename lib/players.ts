@@ -98,6 +98,56 @@ export function poolBias(
   return 0;
 }
 
+// How much an opposing player's comfort/discomfort on a champion should move
+// the AI's ban/deny decisions. A champion an S-tier player mains is a far
+// scarier signature pick than one a D-tier player dabbles in, so the weight
+// scales hard with skill. Range (0, 1].
+export const PLAYER_SKILL_WEIGHT: Record<PlayerTier, number> = {
+  S: 1.0,
+  A: 0.75,
+  B: 0.5,
+  C: 0.3,
+  D: 0.15,
+};
+
+// Strongest "comfort" any player on a roster has on a champion: the max skill
+// weight among players who list it in goodChamps (0 if none). Lets the AI
+// target the opponent's signature picks — weighted by how good the player
+// actually is — for bans (remove it) and denial (take it first).
+export function rosterComfortWeight(
+  roster: Roster | null | undefined,
+  championId: number | null | undefined,
+): number {
+  if (!roster || championId == null) return 0;
+  let best = 0;
+  for (const p of roster) {
+    if (p.goodChamps.includes(championId)) {
+      const w = PLAYER_SKILL_WEIGHT[p.tier];
+      if (w > best) best = w;
+    }
+  }
+  return best;
+}
+
+// Strongest "discomfort": max skill weight among players who list the
+// champion in badChamps (0 if none). Used to gently DISCOURAGE spending a ban
+// on a champion the opponent is weak on — better to leave it available so
+// they pick it themselves.
+export function rosterDiscomfortWeight(
+  roster: Roster | null | undefined,
+  championId: number | null | undefined,
+): number {
+  if (!roster || championId == null) return 0;
+  let best = 0;
+  for (const p of roster) {
+    if (p.badChamps.includes(championId)) {
+      const w = PLAYER_SKILL_WEIGHT[p.tier];
+      if (w > best) best = w;
+    }
+  }
+  return best;
+}
+
 // ── Random helpers ──────────────────────────────────────────────────────────
 
 function shuffle<T>(arr: readonly T[], rng: RNG): T[] {

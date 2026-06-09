@@ -184,7 +184,7 @@ export default function BetweenGamesView({ champions }: Props) {
         Main Menu
       </button>
 
-      <div className="w-full max-w-5xl">
+      <div className="w-full max-w-6xl">
         <div className="bg-fade text-center mb-6 md:mb-8">
           <div className="text-[10px] md:text-xs uppercase tracking-[0.5em] text-rift-gold/70">
             Game {game.gameNumber} · Draft Complete
@@ -1171,9 +1171,19 @@ function MatchTimelinePanel({
   // Team gold derives from lane sum so the totals match what's displayed
   // below in the Lane Gold strip — no off-by-N gold inconsistencies.
   const gold = useMemo(() => computeGold(laneGold, currentMin), [laneGold, currentMin]);
+
+  // Keep the newest event in view while the log is a bounded scroll column
+  // (large screens). During live playback we pin to the bottom as events
+  // reveal; once finished we leave it so the user can read from the top.
+  const logRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = logRef.current;
+    if (el && !isFinished) el.scrollTop = el.scrollHeight;
+  }, [revealedCount, isFinished]);
+
   return (
     <div className="border border-rift-gold/30 bg-rift-bg/40 p-3 md:p-4">
-      {/* Esports-style HUD: team identity strip + live gold + face-off metrics. */}
+      {/* Esports-style HUD: team identity strip + live gold (full width). */}
       <ScoreboardHeader
         blueTeam={blueTeam}
         redTeam={redTeam}
@@ -1181,68 +1191,94 @@ function MatchTimelinePanel({
         durationLabel={timeline.durationLabel}
         isFinished={isFinished}
       />
-      <Scoreboard stats={stats} gold={gold} />
-      <WinProbSparkline
-        events={timeline.events}
-        revealedCount={revealedCount}
-        durationMinutes={timeline.durationMinutes}
-      />
-      <GoldLeadSparkline
-        events={timeline.events}
-        revealedCount={revealedCount}
-        durationMinutes={timeline.durationMinutes}
-        currentMin={currentMin}
-        laneAdvantages={laneAdvantages}
-        laningEndMinute={timeline.laningEndMinute}
-        blueTeam={blueTeam}
-        redTeam={redTeam}
-      />
-      <LaneGoldStrip
-        laneGold={laneGold}
-        laneKDA={stats.laneKDA}
-        bluePicks={bluePicks}
-        redPicks={redPicks}
-        byId={byId}
-        currentMin={currentMin}
-        latestEvent={
-          latestEventIdx >= 0 && latestEventIdx < revealedCount
-            ? timeline.events[latestEventIdx]
-            : null
-        }
-        flashKey={latestEventIdx}
-      />
 
-      {/* Event log header */}
-      <div className="flex items-baseline justify-between mb-2 mt-4">
-        <div className="text-[9px] md:text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
-          Event Log
-        </div>
-        <div className="text-[9px] md:text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright tabular-nums">
-          {isFinished
-            ? timeline.durationLabel
-            : `${formatClock(currentMin)} / ${timeline.durationLabel}`}
-        </div>
-      </div>
-      <div className="space-y-1">
-        {visible.length === 0 && !isFinished && (
-          <div className="text-[10px] uppercase tracking-[0.3em] text-rift-muted/70 italic py-2">
-            Awaiting first action...
+      {/* Bento layout: the objective scoreboard, the win-prob / gold-lead
+          graphs, and the lane-gold strip occupy a wide main column, while the
+          event log sits ALONGSIDE them (large screens) in a column that fills
+          the same height and scrolls internally. This way the curves, scores,
+          drakes/towers, gold and the log are all on screen at once — no
+          scrolling up for the graph and down for the log. Below lg it falls
+          back to the original top-to-bottom stack. */}
+      <div className="mt-3 grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-4 lg:items-stretch">
+        {/* Main column — scores + graphs + lane gold */}
+        <div className="lg:col-span-7 min-w-0 flex flex-col">
+          <Scoreboard stats={stats} gold={gold} />
+          {/* Graphs side-by-side only on the widest screens (2xl); below that
+              they stack so each keeps a readable width and the event-log
+              column can stay wide. */}
+          <div className="grid grid-cols-1 2xl:grid-cols-2 gap-x-4">
+            <WinProbSparkline
+              events={timeline.events}
+              revealedCount={revealedCount}
+              durationMinutes={timeline.durationMinutes}
+            />
+            <GoldLeadSparkline
+              events={timeline.events}
+              revealedCount={revealedCount}
+              durationMinutes={timeline.durationMinutes}
+              currentMin={currentMin}
+              laneAdvantages={laneAdvantages}
+              laningEndMinute={timeline.laningEndMinute}
+              blueTeam={blueTeam}
+              redTeam={redTeam}
+            />
           </div>
-        )}
-        {visible.map((e, i) => (
-          <TimelineRow
-            key={`${e.type}-${i}`}
-            event={e}
-            blueTeam={blueTeam}
-            redTeam={redTeam}
-            isNew={i === latestEventIdx}
+          <LaneGoldStrip
+            laneGold={laneGold}
+            laneKDA={stats.laneKDA}
+            bluePicks={bluePicks}
+            redPicks={redPicks}
+            byId={byId}
+            currentMin={currentMin}
+            latestEvent={
+              latestEventIdx >= 0 && latestEventIdx < revealedCount
+                ? timeline.events[latestEventIdx]
+                : null
+            }
+            flashKey={latestEventIdx}
           />
-        ))}
-        {placeholderCount > 0 && (
-          <div className="text-[9px] uppercase tracking-[0.3em] text-rift-muted/40 pt-1.5 italic">
-            {placeholderCount} {placeholderCount === 1 ? "event" : "events"} unrevealed
+        </div>
+
+        {/* Event log — alongside the graphs, fills the row height and scrolls.
+            Gets a wide 5/12 column so full event descriptions fit. */}
+        <div className="lg:col-span-5 min-w-0 relative lg:min-h-[340px]">
+          <div className="lg:absolute lg:inset-0 flex flex-col border-t lg:border-t-0 lg:border-l border-rift-line/40 mt-4 lg:mt-0 pt-3 lg:pt-0 lg:pl-3 xl:pl-4">
+            <div className="flex items-baseline justify-between mb-2 shrink-0">
+              <div className="text-[9px] md:text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
+                Event Log
+              </div>
+              <div className="text-[9px] md:text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright tabular-nums">
+                {isFinished
+                  ? timeline.durationLabel
+                  : `${formatClock(currentMin)} / ${timeline.durationLabel}`}
+              </div>
+            </div>
+            <div
+              ref={logRef}
+              className="space-y-1 lg:flex-1 lg:overflow-y-auto custom-scroll lg:pr-1"
+            >
+              {visible.length === 0 && !isFinished && (
+                <div className="text-[10px] uppercase tracking-[0.3em] text-rift-muted/70 italic py-2">
+                  Awaiting first action...
+                </div>
+              )}
+              {visible.map((e, i) => (
+                <TimelineRow
+                  key={`${e.type}-${i}`}
+                  event={e}
+                  blueTeam={blueTeam}
+                  redTeam={redTeam}
+                  isNew={i === latestEventIdx}
+                />
+              ))}
+              {placeholderCount > 0 && (
+                <div className="text-[9px] uppercase tracking-[0.3em] text-rift-muted/40 pt-1.5 italic">
+                  {placeholderCount} {placeholderCount === 1 ? "event" : "events"} unrevealed
+                </div>
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -2593,44 +2629,40 @@ function MVPCard({
       score: number;
     };
 
+    // MVP is the Player of the Game — by convention it always goes to the
+    // WINNING team, so only the winning side's players are candidates. This
+    // keeps the award off a fed losing-team carry and matches buildGameRecap.
     const candidates: Candidate[] = [];
     for (let i = 0; i < LANE_ORDER.length; i++) {
       const lane = LANE_ORDER[i];
-      const blueId = bluePicks[i];
-      if (blueId != null) {
-        const kda = finalStats.laneKDA.blue[lane];
-        const diff = finalLaneGold[lane]; // blue-positive
-        candidates.push({
-          side: "blue",
-          lane,
-          championId: blueId,
-          kda,
-          laneGoldDiff: diff,
-          score:
-            kda.k +
-            kda.a * 0.7 -
-            kda.d * 0.5 +
-            diff / 1000 +
-            (winner === "blue" ? 1.5 : 0),
-        });
-      }
-      const redId = redPicks[i];
-      if (redId != null) {
-        const kda = finalStats.laneKDA.red[lane];
-        const diff = -finalLaneGold[lane]; // red player: negate so + = ahead
-        candidates.push({
-          side: "red",
-          lane,
-          championId: redId,
-          kda,
-          laneGoldDiff: diff,
-          score:
-            kda.k +
-            kda.a * 0.7 -
-            kda.d * 0.5 +
-            diff / 1000 +
-            (winner === "red" ? 1.5 : 0),
-        });
+      if (winner === "blue") {
+        const blueId = bluePicks[i];
+        if (blueId != null) {
+          const kda = finalStats.laneKDA.blue[lane];
+          const diff = finalLaneGold[lane]; // blue-positive
+          candidates.push({
+            side: "blue",
+            lane,
+            championId: blueId,
+            kda,
+            laneGoldDiff: diff,
+            score: kda.k + kda.a * 0.7 - kda.d * 0.5 + diff / 1000,
+          });
+        }
+      } else {
+        const redId = redPicks[i];
+        if (redId != null) {
+          const kda = finalStats.laneKDA.red[lane];
+          const diff = -finalLaneGold[lane]; // red player: negate so + = ahead
+          candidates.push({
+            side: "red",
+            lane,
+            championId: redId,
+            kda,
+            laneGoldDiff: diff,
+            score: kda.k + kda.a * 0.7 - kda.d * 0.5 + diff / 1000,
+          });
+        }
       }
     }
     if (candidates.length === 0) return null;
@@ -3118,9 +3150,10 @@ function TimelineRow({
           )}
         </div>
         <div
-          className={`text-[11px] md:text-xs mt-0.5 ${
+          title={event.description}
+          className={`text-[11px] md:text-xs mt-0.5 break-words ${
             isEmphasis ? "text-rift-goldbright/95" : "text-rift-mutedbright"
-          } truncate`}
+          }`}
         >
           {event.description}
         </div>

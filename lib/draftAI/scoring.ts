@@ -7,7 +7,13 @@
 import { TIER_VALUE, getMetaEnabled, getMetaTier } from "../championMeta";
 import type { Archetype } from "../championMeta";
 import type { Champion, GameDraft, Lane, Side } from "../types";
-import { playerForLane, poolBias } from "../players";
+import {
+  PLAYER_SKILL_WEIGHT,
+  playerForLane,
+  poolBias,
+  rosterComfortWeight,
+  rosterDiscomfortWeight,
+} from "../players";
 import {
   archetypeSynergyBonus,
   bestLaneTierValue,
@@ -465,7 +471,16 @@ export function scorePick(
       const extra = Math.min(6, 2 + overshoot * 1.2);
       amplified += matchup > 0 ? extra : -extra;
     }
-    const value = amplified * matchupMul;
+    let value = amplified * matchupMul;
+    // Respect the enemy laner's skill: a counter-pick into an S-tier player is
+    // worth more (it neutralizes their edge) and a losing matchup into one is
+    // more dangerous, while bullying a D-tier player's lane matters a touch
+    // less. Modest, bounded scale (~0.89× at D, 1.15× at S) so it nudges
+    // without overriding the calibrated matchup. Roster series + non-Easy only.
+    if (ctx.series && ctx.series.difficulty !== "easy" && ctx.series.oppPlayers) {
+      const enemyP = playerForLane(ctx.series.oppPlayers, bestLane);
+      if (enemyP) value *= 1 + 0.3 * (PLAYER_SKILL_WEIGHT[enemyP.tier] - 0.5);
+    }
     if (value !== 0) {
       const severity = absMatchup >= 4 ? "Hard " : "";
       add(
@@ -513,6 +528,15 @@ export function scorePick(
     denyValue += 1;
   if (denyValue > 0.5) {
     add("Denies enemy counter", Math.min(6, denyValue));
+  }
+
+  // Deny an enemy player's signature champ — taking their comfort pick off
+  // the board, weighted by how good that player is on it. Separate from the
+  // counter-based deny above and bounded (S main → +4) so it competes with a
+  // strong pick without steamrolling comp needs. Roster series + non-Easy.
+  if (ctx.series && ctx.series.difficulty !== "easy" && ctx.series.oppPlayers) {
+    const mainW = rosterComfortWeight(ctx.series.oppPlayers, candidate.id);
+    if (mainW > 0) add("Denies enemy main", 4 * mainW);
   }
 
   // Team-level counter-comp.
@@ -908,6 +932,25 @@ export function scoreBan(
   const synWithOpp = synergyWith(candidate, ctx.oppPicks, ctx.byId);
   if (synWithOpp > 0) {
     add("Denies enemy synergy", synWithOpp * (ctx.isPhase2 ? 2.0 : 1.0));
+  }
+
+  // ─── Enemy roster: target-ban signature picks ────────────────────────────
+  // If a champion is in an opposing player's good pool, banning it denies a
+  // comfort pick — and the better that player is on it (skill tier), the more
+  // valuable the ban. Conversely, if the enemy is WEAK on a champion (and no
+  // one mains it), spending a ban on it is wasteful — they'd rather we leave
+  // it for them. Easy AI ignores scouting entirely.
+  if (ctx.series && ctx.series.difficulty !== "easy" && ctx.series.oppPlayers) {
+    const comfort = rosterComfortWeight(ctx.series.oppPlayers, candidate.id);
+    if (comfort > 0) {
+      add("Bans enemy comfort pick", (ctx.isPhase2 ? 6 : 5) * comfort);
+    } else {
+      const discomfort = rosterDiscomfortWeight(
+        ctx.series.oppPlayers,
+        candidate.id,
+      );
+      if (discomfort > 0) add("Enemy weak on it", -2 * discomfort);
+    }
   }
 
   // Anticipation.
