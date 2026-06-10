@@ -44,6 +44,8 @@ const DEFAULT_LEAGUE_CONFIG: SeasonLeagueConfig = {
   playoffTeams: 4,
   regularSeries: "bo1",
   playoffSeries: "bo5",
+  semifinalSeries: "bo5",
+  finalsSeries: "bo5",
 };
 
 // Canonical international shapes (mirrors defaultIntlConfig in the
@@ -53,18 +55,21 @@ const DEFAULT_INTL_CONFIGS: Record<InternationalId, SeasonIntlConfig> = {
   "first-stand": {
     format: "single-elim",
     earlySeries: "bo3",
+    semifinalSeries: "bo5",
     finalsSeries: "bo5",
     playoffTeams: 8,
   },
   msi: {
     format: "swiss-playoffs-de",
     earlySeries: "bo3",
+    semifinalSeries: "bo5",
     finalsSeries: "bo5",
     playoffTeams: 8,
   },
   worlds: {
     format: "groups-playoffs",
     earlySeries: "bo3",
+    semifinalSeries: "bo5",
     finalsSeries: "bo5",
     playoffTeams: 8,
   },
@@ -84,12 +89,51 @@ function intlFormatHasPlayoffSize(format: TournamentFormat): boolean {
   return format !== "single-elim";
 }
 
-// Shared select styling: dark control + dark native dropdown.
-// [color-scheme:dark] makes the popup chrome render dark in Chromium/
-// WebView2; the descendant `_option` selector (not `>option`) also
-// covers options nested inside <optgroup> (the team picker).
+// Shared select styling: dark control with cut corners + gold chevron
+// (.select-rift in globals.css replaces the native arrow, so reserve
+// right padding) and a dark native dropdown. [color-scheme:dark] makes
+// the popup chrome render dark in Chromium/WebView2; the descendant
+// `_option` selector (not `>option`) also covers options nested inside
+// <optgroup> (the team picker).
 const SELECT_CLS =
-  "bg-rift-bg/60 border border-rift-line text-rift-mutedbright text-xs px-2 py-1.5 outline-none focus:border-rift-gold/60 [color-scheme:dark] [&_option]:bg-rift-panel [&_option]:text-rift-mutedbright [&_optgroup]:bg-rift-panel [&_optgroup]:text-rift-gold/80";
+  "select-rift cursor-pointer bg-rift-bg/60 border border-rift-line text-rift-mutedbright text-xs pl-2.5 pr-7 py-1.5 outline-none transition-colors hover:border-rift-gold/50 hover:text-rift-goldbright focus:border-rift-gold/70 focus:text-rift-goldbright [color-scheme:dark] [&_option]:bg-rift-panel [&_option]:text-rift-mutedbright [&_optgroup]:bg-rift-panel [&_optgroup]:text-rift-gold/80";
+
+// One labeled BO1/BO3/BO5 dropdown — the format cards render several of
+// these per row, so the label + select + disabled plumbing lives here.
+function SeriesSelect({
+  label,
+  value,
+  onChange,
+  disabled,
+  title,
+}: {
+  label: string;
+  value: SeriesFormat;
+  onChange: (v: SeriesFormat) => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <label className={`flex flex-col gap-1 ${disabled ? "opacity-40" : ""}`}>
+      <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+        {label}
+      </span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value as SeriesFormat)}
+        className={SELECT_CLS}
+        title={title}
+      >
+        {SERIES_OPTIONS.map((s) => (
+          <option key={s} value={s}>
+            {s.toUpperCase()}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 export default function SeasonSetup({ onCancel }: Props) {
   const champions = useDraftStore((s) => s.champions);
@@ -320,55 +364,33 @@ export default function SeasonSetup({ onCancel }: Props) {
               updateIntlConfig(key, { playoffTeams: Number(e.target.value) })
             }
             className={SELECT_CLS}
-            title="Bracket size after the regular stage. Groups round it to a per-group count; double-elim brackets snap to a power of two."
+            title="Bracket size after the regular stage. Groups round it to a per-group count."
           >
             <option value={4}>Top 4</option>
+            <option value={6}>Top 6</option>
             <option value={8}>Top 8</option>
+            <option value={12}>Top 12</option>
             <option value={16}>Top 16</option>
           </select>
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
-            Early Rounds
-          </span>
-          <select
-            value={cfg.earlySeries}
-            onChange={(e) =>
-              updateIntlConfig(key, {
-                earlySeries: e.target.value as SeriesFormat,
-              })
-            }
-            className={SELECT_CLS}
-            title="Series length for early rounds / the regular stage"
-          >
-            {SERIES_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s.toUpperCase()}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
-            Finals / Bracket
-          </span>
-          <select
-            value={cfg.finalsSeries}
-            onChange={(e) =>
-              updateIntlConfig(key, {
-                finalsSeries: e.target.value as SeriesFormat,
-              })
-            }
-            className={SELECT_CLS}
-            title="Series length for the playoff bracket / finals"
-          >
-            {SERIES_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s.toUpperCase()}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SeriesSelect
+          label="Early Rounds"
+          value={cfg.earlySeries}
+          onChange={(v) => updateIntlConfig(key, { earlySeries: v })}
+          title="Series length for early rounds / the regular stage"
+        />
+        <SeriesSelect
+          label="Semifinals"
+          value={cfg.semifinalSeries ?? cfg.finalsSeries}
+          onChange={(v) => updateIntlConfig(key, { semifinalSeries: v })}
+          title="Series length for the semifinals — the matches feeding the final (in double-elim: winners + losers finals)"
+        />
+        <SeriesSelect
+          label="Finals / Bracket"
+          value={cfg.finalsSeries}
+          onChange={(v) => updateIntlConfig(key, { finalsSeries: v })}
+          title="Series length for the playoff bracket and the final"
+        />
         {event === "worlds" && (
           <span className="text-[9px] text-rift-muted/70 pb-1.5">
             Main event only — the play-in stays single-elim
@@ -419,54 +441,39 @@ export default function SeasonSetup({ onCancel }: Props) {
               updateConfig(key, { playoffTeams: Number(e.target.value) })
             }
             className={SELECT_CLS}
-            title="Double-elim brackets need a power of two — Top 6 rounds down to 4 there"
+            title="Top 6: the top 2 seeds get a first-round bye (works for single- and double-elim playoffs)"
           >
             <option value={4}>Top 4</option>
             <option value={6}>Top 6</option>
             <option value={8}>Top 8</option>
           </select>
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
-            Regular Series
-          </span>
-          <select
-            value={cfg.regularSeries}
-            onChange={(e) =>
-              updateConfig(key, {
-                regularSeries: e.target.value as SeriesFormat,
-              })
-            }
-            className={SELECT_CLS}
-          >
-            {SERIES_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s.toUpperCase()}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={`flex flex-col gap-1 ${hasPlayoffs ? "" : "opacity-40"}`}>
-          <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
-            Playoff Series
-          </span>
-          <select
-            value={cfg.playoffSeries}
-            disabled={!hasPlayoffs}
-            onChange={(e) =>
-              updateConfig(key, {
-                playoffSeries: e.target.value as SeriesFormat,
-              })
-            }
-            className={SELECT_CLS}
-          >
-            {SERIES_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s.toUpperCase()}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SeriesSelect
+          label="Regular Series"
+          value={cfg.regularSeries}
+          onChange={(v) => updateConfig(key, { regularSeries: v })}
+        />
+        <SeriesSelect
+          label="Playoff Series"
+          value={cfg.playoffSeries}
+          disabled={!hasPlayoffs}
+          onChange={(v) => updateConfig(key, { playoffSeries: v })}
+          title="Series length for early playoff rounds"
+        />
+        <SeriesSelect
+          label="Semifinals"
+          value={cfg.semifinalSeries ?? cfg.playoffSeries}
+          disabled={!hasPlayoffs}
+          onChange={(v) => updateConfig(key, { semifinalSeries: v })}
+          title="Series length for the semifinals — the matches feeding the final (in double-elim: winners + losers finals)"
+        />
+        <SeriesSelect
+          label="Finals"
+          value={cfg.finalsSeries ?? cfg.playoffSeries}
+          disabled={!hasPlayoffs}
+          onChange={(v) => updateConfig(key, { finalsSeries: v })}
+          title="Series length for the final / grand final"
+        />
       </div>
     );
   };

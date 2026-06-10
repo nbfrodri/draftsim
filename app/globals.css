@@ -238,6 +238,27 @@ body::before {
 }
 .btn-gold:hover::after { left: 130%; }
 
+/* Styled <select>: hexagonal-cut corners + gold chevron replacing the
+   native arrow. Colors/spacing come from the caller's utility classes;
+   callers must reserve right padding (pr-7) so text never runs under
+   the chevron. */
+.select-rift {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23c8aa6e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6.5l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 0.65rem;
+  clip-path: polygon(
+    0.35rem 0%, 100% 0%, 100% calc(100% - 0.35rem),
+    calc(100% - 0.35rem) 100%, 0% 100%, 0% 0.35rem
+  );
+}
+.select-rift:disabled {
+  cursor: not-allowed;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235b5a56' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6.5l4 4 4-4'/%3E%3C/svg%3E");
+}
+
 /* Hover reveal */
 .reveal {
   opacity: 0;

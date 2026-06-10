@@ -94,12 +94,19 @@ export interface SeasonLeagueConfig {
   // Tournament format for the league split (round-robin,
   // round-robin-playoffs, groups-playoffs(-de), swiss(-playoffs)(-de)).
   format: TournamentFormat;
-  // Teams advancing to the split playoffs (clamped to a power of 2 for
-  // double-elim brackets by the engine). Ignored for non-playoff formats.
+  // Teams advancing to the split playoffs (double-elim brackets snap to
+  // the nearest supported size — 4/6/8 all work; Top 6 gives the top 2
+  // seeds a first-round bye). Ignored for non-playoff formats.
   playoffTeams: number;
   // Series length for regular-stage matches and playoff matches.
   regularSeries: SeriesFormat;
   playoffSeries: SeriesFormat;
+  // Series length for the playoff semifinals (the matches feeding the
+  // final — in double-elim: W-Final + L-Final) and the final itself
+  // (the DE grand final). Optional for seasons saved before these
+  // existed; both fall back to playoffSeries.
+  semifinalSeries?: SeriesFormat;
+  finalsSeries?: SeriesFormat;
 }
 
 // Per-international format configuration. Optional on SeasonConfig —
@@ -113,8 +120,12 @@ export interface SeasonIntlConfig {
   // playoff bracket / late single-elim rounds.
   earlySeries: SeriesFormat;
   finalsSeries: SeriesFormat;
+  // Series length for the semifinals (the matches feeding the final —
+  // in double-elim: W-Final + L-Final). Optional for seasons saved
+  // before this existed; falls back to finalsSeries.
+  semifinalSeries?: SeriesFormat;
   // Teams advancing to the playoff bracket for stage+playoffs formats
-  // (clamped to a power of 2 for double-elim brackets by the engine).
+  // (double-elim brackets snap to the nearest supported size).
   playoffTeams: number;
 }
 

@@ -512,3 +512,76 @@ describe("applyPatchShift", () => {
     expect(tiers.some((t) => t !== "A")).toBe(true);
   });
 });
+
+// ── Top 6 playoffs + per-round series escalation ────────────────────────────
+
+describe("Top 6 playoffs with semifinal/final series", () => {
+  it("promotes 6 teams (top 2 seeds bye) and escalates bo3 → bo5", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(3));
+    const config = makeConfig();
+    for (const l of LEAGUE_IDS) {
+      config.leagueConfigs[l] = {
+        format: "round-robin-playoffs",
+        playoffTeams: 6,
+        regularSeries: "bo1",
+        playoffSeries: "bo3",
+        semifinalSeries: "bo5",
+        finalsSeries: "bo5",
+      };
+    }
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    const rng = rngFrom(11);
+    const t0 = nextPendingTournament(s)!;
+    expect(t0.rrPlayoffsAdvancing).toBe(6);
+    const done = resolveTournament(t0, rng);
+    expect(done.status).toBe("complete");
+
+    const playoff = done.matches.filter((m) => m.bracket != null);
+    // Full 6-team DE = 10 matches (+1 if the grand final reset fired).
+    expect([10, 11]).toContain(playoff.length);
+    const inBracket = new Set(
+      playoff.flatMap((m) => [m.blueTeamId, m.redTeamId]).filter(Boolean),
+    );
+    expect(inBracket.size).toBe(6);
+    // Seeds 1-2 byed past W-R1: only 2 first-round matches.
+    expect(
+      playoff.filter((m) => m.bracket === "winners" && m.round === 1),
+    ).toHaveLength(2);
+
+    // Series escalation: regular stage bo1; early playoff rounds bo3;
+    // W-Final + L-Final (the semifinals) and the grand final bo5.
+    expect(done.matches.filter((m) => !m.bracket).every((m) => m.format === "bo1")).toBe(true);
+    const wFinal = playoff.find((m) => m.bracket === "winners" && m.round === 3)!;
+    expect(wFinal.format).toBe("bo5");
+    const losers = playoff.filter((m) => m.bracket === "losers");
+    const lMax = Math.max(...losers.map((m) => m.round));
+    expect(losers.find((m) => m.round === lMax)!.format).toBe("bo5");
+    expect(losers.filter((m) => m.round < lMax).every((m) => m.format === "bo3")).toBe(true);
+    expect(
+      playoff
+        .filter((m) => m.bracket === "winners" && m.round < 3)
+        .every((m) => m.format === "bo3"),
+    ).toBe(true);
+    for (const m of playoff) {
+      if (m.bracket === "grand-final" || m.bracket === "grand-final-reset") {
+        expect(m.format).toBe("bo5");
+      }
+    }
+
+    // The rest of the year still runs to a champion.
+    s = applyTournamentUpdate(s, done, champions);
+    s = runSeason(s, champions);
+    expect(s.status).toBe("complete");
+    expect(s.champion).not.toBeNull();
+  });
+});

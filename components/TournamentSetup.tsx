@@ -3,6 +3,9 @@
 import { useMemo, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import {
+  clampDEAdvancing,
+  DE_PLAYOFF_SIZES,
+  dePlayoffRounds,
   formatHasPlayoffs,
   inferGroupsConfig,
   makeTeamId,
@@ -31,13 +34,13 @@ import { PersonalityChipSelect } from "./PersonalitySelect";
 // Round-robin accepts 3-8 plus 10 (full pro-style group of ten).
 // Double-elim restricted to powers of 2 ≥ 4. Swiss requires even N ≥ 4.
 // The DE-playoff variants (swiss-playoffs-de / groups-playoffs-de /
-// round-robin-playoffs) trim to the largest power-of-2 ≤ advancing
-// count at promotion time, so any team count works — but the option
-// list nudges users toward counts that produce clean 4 / 8 / 16 DE
-// brackets without any wasted teams.
+// round-robin-playoffs) trim to the largest supported DE size (powers
+// of 2 plus the bye-friendly 6/12) ≤ advancing count at promotion
+// time, so any team count works — but the option list nudges users
+// toward counts that fill a DE bracket without any wasted teams.
 const ELIM_COUNTS = [2, 3, 4, 5, 6, 7, 8] as const;
 const RR_COUNTS = [3, 4, 5, 6, 7, 8, 10] as const;
-const DOUBLE_ELIM_COUNTS = [4, 8, 16, 32] as const;
+const DOUBLE_ELIM_COUNTS = [4, 6, 8, 12, 16, 32] as const;
 const SWISS_COUNTS = [4, 6, 8, 10, 12, 16] as const;
 const GROUPS_PLAYOFFS_COUNTS = [4, 6, 8, 12, 16, 24, 32] as const;
 // Round-robin-playoffs needs at least 5 teams so the round-robin stage
@@ -1061,7 +1064,9 @@ function nextPow2(n: number): number {
 //   16 teams = 30 matches · 11 rounds
 function doubleElimSummary(n: number): string {
   if (n === 4) return "5 rounds · 6 matches · winners + losers + grand final";
+  if (n === 6) return "7 rounds · 10 matches · top 2 seeds bye round 1";
   if (n === 8) return "8 rounds · 14 matches · winners + losers + grand final";
+  if (n === 12) return "10 rounds · 22 matches · top 4 seeds bye round 1";
   if (n === 16) return "11 rounds · 30 matches · winners + losers + grand final";
   if (n === 32) return "14 rounds · 62 matches · winners + losers + grand final";
   return `${n} teams`;
@@ -1074,10 +1079,7 @@ function doubleElimSummary(n: number): string {
 // DE bracket is impractically large for a stage-based tournament.
 function dePlayoffAdvancingFor(teamCount: number): number {
   const half = Math.floor(teamCount / 2);
-  const target = Math.min(16, Math.max(4, half));
-  if (target >= 16) return 16;
-  if (target >= 8) return 8;
-  return 4;
+  return clampDEAdvancing(Math.min(16, Math.max(4, half)));
 }
 
 function defaultTeams(n: number): TournamentTeam[] {
@@ -1375,15 +1377,17 @@ function computeRoundOverrideRows(
     }
   }
   if (format === "double-elim") {
-    const k = Math.log2(teamCount);
-    for (let r = 1; r <= k; r++) {
+    // dePlayoffRounds knows the real round shape, including the
+    // bye-friendly 6/12-team brackets (which pad to the next power of
+    // 2 for W rounds and skip L-R1 entirely).
+    const { wRounds, lRounds } = dePlayoffRounds(teamCount);
+    for (let r = 1; r <= wRounds; r++) {
       rows.push({
         key: `wb:${r}`,
-        label: bracketRoundLabel(r, k, "de-w"),
+        label: bracketRoundLabel(r, wRounds, "de-w"),
         section: "Winners Bracket",
       });
     }
-    const lRounds = 2 * (k - 1);
     for (let r = 1; r <= lRounds; r++) {
       rows.push({
         key: `lb:${r}`,
@@ -1443,16 +1447,18 @@ function computeRoundOverrideRows(
         });
       }
     } else {
-      const k = Math.log2(effectiveAdvancing);
-      if (Number.isFinite(k) && k >= 2) {
-        for (let r = 1; r <= k; r++) {
+      // Round shape comes from the generator's own helper so the rows
+      // match the actual bracket, including the bye-friendly 6/12
+      // sizes (which skip L-R1 entirely).
+      if (effectiveAdvancing >= 4) {
+        const { wRounds, lRounds } = dePlayoffRounds(effectiveAdvancing);
+        for (let r = 1; r <= wRounds; r++) {
           rows.push({
             key: `po:wb:${r}`,
-            label: bracketRoundLabel(r, k, "po-de-w"),
+            label: bracketRoundLabel(r, wRounds, "po-de-w"),
             section: "Playoff Winners",
           });
         }
-        const lRounds = 2 * (k - 1);
         for (let r = 1; r <= lRounds; r++) {
           rows.push({
             key: `po:lb:${r}`,
@@ -1476,7 +1482,12 @@ function computeRoundOverrideRows(
   return rows;
 }
 
-// Pretty round name based on its position in a bracket.
+// Pretty round name based on its position in a bracket. SE contexts use
+// the classic Quarterfinal/Semifinal/Final names (the last round IS the
+// final there). DE contexts deliberately avoid "Semi": the W-Final and
+// L-Final are the matches feeding the grand final — calling W-R(N-1)
+// "W-Semi" would clash with the Semifinals series-format concept that
+// targets the two finals.
 function bracketRoundLabel(
   round: number,
   totalRounds: number,
@@ -1493,12 +1504,10 @@ function bracketRoundLabel(
   }
   if (ctx === "de-w") {
     if (isFinal) return "W-Final";
-    if (isSemi) return "W-Semi";
     return `W-R${round}`;
   }
   if (ctx === "de-l") {
     if (isFinal) return "L-Final";
-    if (isSemi) return "L-Semi";
     return `L-R${round}`;
   }
   if (ctx === "po-se") {
@@ -1509,12 +1518,10 @@ function bracketRoundLabel(
   }
   if (ctx === "po-de-w") {
     if (isFinal) return "Playoff W-Final";
-    if (isSemi) return "Playoff W-Semi";
     return `Playoff W-R${round}`;
   }
   // po-de-l
   if (isFinal) return "Playoff L-Final";
-  if (isSemi) return "Playoff L-Semi";
   return `Playoff L-R${round}`;
 }
 
@@ -1573,12 +1580,10 @@ function AdvancedSettingsPanel({
     if (advancingOverride != null) {
       const kind = playoffBracketKindFor(format);
       if (kind === "double-elim") {
-        // Snap to nearest power-of-2 ≥ 4 ≤ 16 to stay within the
-        // generator's preconditions. Same rule applies at submit time.
-        const v = Math.min(16, Math.max(4, advancingOverride));
-        if (v >= 16) return 16;
-        if (v >= 8) return 8;
-        return 4;
+        // Snap to the nearest supported DE bracket size (powers of 2
+        // plus the bye-friendly 6/12) to stay within the generator's
+        // preconditions. Same rule applies at submit time.
+        return clampDEAdvancing(Math.min(16, advancingOverride));
       }
       return Math.max(2, Math.min(teamCount, advancingOverride));
     }
@@ -1854,13 +1859,13 @@ function AdvancingCountControl({
 }) {
   const effective = value ?? fallback;
   if (kind === "double-elim") {
-    const options = [4, 8, 16].filter((n) => n <= teamCount);
+    const options = DE_PLAYOFF_SIZES.filter((n) => n <= teamCount);
     return (
       <div>
         <div className="text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright mb-1">
           Teams in Playoffs
           <span className="ml-2 text-[9px] text-rift-mutedbright/55 normal-case">
-            (DE bracket — must be a power of 2)
+            (DE bracket — 6/12 give the top seeds a first-round bye)
           </span>
         </div>
         <div className="flex gap-1.5">

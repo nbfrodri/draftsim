@@ -116,6 +116,7 @@ export function RoundColumn({
   tournament,
   onStartMatch,
   onViewMatch,
+  kind = "se",
 }: {
   round: number;
   totalRounds: number;
@@ -123,9 +124,20 @@ export function RoundColumn({
   tournament: TournamentState;
   onStartMatch: (matchId: string) => void;
   onViewMatch?: (matchId: string) => void;
+  // "se": this column belongs to a single-elim tree, so the last round
+  // IS the final and SE names (Quarterfinals/Semifinals/Final) apply.
+  // "de-winners": this is the upper bracket of a double-elim — its last
+  // round feeds the GRAND final, so SE names would mislabel rounds
+  // (the "Semifinals" series-format setting targets the Winners +
+  // Losers Finals, not Winners round N-1). Use DE names instead.
+  kind?: "se" | "de-winners";
 }) {
   const roundLabel =
-    round === totalRounds
+    kind === "de-winners"
+      ? round === totalRounds
+        ? "Winners Final"
+        : `Winners Round ${round}`
+      : round === totalRounds
       ? "Final"
       : round === totalRounds - 1
       ? "Semifinals"
@@ -154,8 +166,11 @@ export function RoundColumn({
   );
 }
 
-// Losers-bracket round labels differ from W-side. R1 is "Losers R1",
-// terminal round is "Losers Final", penultimate is "Losers Semifinal".
+// Losers-bracket round labels differ from W-side. Terminal round is
+// "Losers Final" (one of the two matches feeding the grand final, so
+// it pairs with "Winners Final"); everything before is a numbered
+// round — deliberately NOT "Losers Semi", which would clash with the
+// Semifinals series-format setting that targets only the two finals.
 export function LosersRoundColumn({
   round,
   totalRounds,
@@ -172,11 +187,7 @@ export function LosersRoundColumn({
   onViewMatch?: (matchId: string) => void;
 }) {
   const roundLabel =
-    round === totalRounds
-      ? "Losers Final"
-      : round === totalRounds - 1
-      ? "Losers Semi"
-      : `Losers R${round}`;
+    round === totalRounds ? "Losers Final" : `Losers Round ${round}`;
   return (
     <div className="flex-1 min-w-[200px] md:min-w-[220px] flex flex-col">
       <div className="text-[9px] md:text-[10px] uppercase tracking-[0.4em] text-rift-redbright/55 text-center mb-3">
@@ -249,6 +260,7 @@ export function DoubleElimView({
                 tournament={tournament}
                 onStartMatch={onStartMatch}
                 onViewMatch={onViewMatch}
+                kind="de-winners"
               />
             ))}
           </div>
@@ -449,6 +461,7 @@ export function PlayoffBracketSection({
                     tournament={tournament}
                     onStartMatch={onStartMatch}
                     onViewMatch={onViewMatch}
+                    kind="de-winners"
                   />
                 ))}
               </div>

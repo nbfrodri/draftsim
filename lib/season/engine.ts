@@ -76,6 +76,12 @@ export const LEAGUE_FORMAT_OPTIONS: Array<{
 function seriesOverrides(
   regular: SeriesFormat,
   playoffs: SeriesFormat,
+  // Semifinals (the matches feeding the final — DE: W-Final + L-Final)
+  // and the final / grand final. The generators look the semantic
+  // "semis"/"final" keys up BEFORE the positional ones, so these win
+  // for their rounds regardless of bracket size.
+  semis: SeriesFormat = playoffs,
+  finals: SeriesFormat = playoffs,
 ): FormatOverrides {
   const fo: FormatOverrides = { main: regular };
   for (let r = 1; r <= 40; r++) fo[`main:${r}`] = regular;
@@ -87,24 +93,33 @@ function seriesOverrides(
     fo[`lb:${r}`] = playoffs;
     fo[`po:lb:${r}`] = playoffs;
   }
-  fo["gf"] = playoffs;
-  fo["po:gf"] = playoffs;
+  fo["semis"] = semis;
+  fo["po:semis"] = semis;
+  fo["final"] = finals;
+  fo["po:final"] = finals;
+  fo["gf"] = finals;
+  fo["po:gf"] = finals;
   return fo;
 }
 
 // Single-elim events with an escalating series length: every round at
-// `early`, the final at `final`. `teamCount` decides the round count
-// (the bracket pads to the next power of 2).
+// `early`, the semifinals at `semis`, the final at `final`. The
+// semantic semis/final keys make the escalation robust to the actual
+// bracket size; the positional writes (`teamCount` decides the round
+// count, padding to the next power of 2) remain as a fallback.
 function singleElimOverrides(
   teamCount: number,
   early: SeriesFormat,
   final: SeriesFormat,
+  semis?: SeriesFormat,
 ): FormatOverrides {
   const rounds = Math.ceil(Math.log2(Math.max(2, teamCount)));
   const fo: FormatOverrides = {};
   for (let r = 1; r <= rounds; r++) {
     fo[`wb:${r}`] = r === rounds ? final : early;
   }
+  fo["final"] = final;
+  if (semis) fo["semis"] = semis;
   return fo;
 }
 
@@ -224,6 +239,10 @@ export function defaultIntlConfig(
       : event === "msi"
         ? "swiss-playoffs-de"
         : "groups-playoffs";
+  // semifinalSeries is deliberately NOT defaulted here: a config that
+  // sets finalsSeries but no semifinalSeries should have its semis
+  // follow ITS finals (intlOverridesFor falls back at use time), not a
+  // canonical value baked in by the spread in intlConfigFor.
   return { format, earlySeries: early, finalsSeries: finals, playoffTeams: 8 };
 }
 
@@ -240,15 +259,17 @@ export function intlConfigFor(
 }
 
 // Format overrides for an international: single-elim escalates from
-// early-round series to the finals length; stage+playoffs formats play
-// the stage at the early length and the whole bracket at finals length.
+// early-round series through the semifinals to the finals length;
+// stage+playoffs formats play the stage at the early length and the
+// bracket at finals length, with the semifinals separately tunable.
 function intlOverridesFor(
   cfg: SeasonIntlConfig,
   teamCount: number,
 ): FormatOverrides {
+  const semis = cfg.semifinalSeries ?? cfg.finalsSeries;
   return cfg.format === "single-elim"
-    ? singleElimOverrides(teamCount, cfg.earlySeries, cfg.finalsSeries)
-    : seriesOverrides(cfg.earlySeries, cfg.finalsSeries);
+    ? singleElimOverrides(teamCount, cfg.earlySeries, cfg.finalsSeries, semis)
+    : seriesOverrides(cfg.earlySeries, cfg.finalsSeries, semis, cfg.finalsSeries);
 }
 
 // Format-specific createTournament params for an international event.
@@ -559,7 +580,12 @@ function createSplitTournament(
     format: cfg.format,
     teams: ordered.map((team, i) => toTournamentTeam(team, i + 1)),
     defaults: defaultsFor(season.config, cfg.regularSeries),
-    formatOverrides: seriesOverrides(cfg.regularSeries, cfg.playoffSeries),
+    formatOverrides: seriesOverrides(
+      cfg.regularSeries,
+      cfg.playoffSeries,
+      cfg.semifinalSeries ?? cfg.playoffSeries,
+      cfg.finalsSeries ?? cfg.playoffSeries,
+    ),
     rrPlayoffsAdvancingOverride: cfg.playoffTeams,
     swissPlayoffsAdvancingOverride: cfg.playoffTeams,
     groupsConfigOverride:

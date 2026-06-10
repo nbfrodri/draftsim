@@ -603,6 +603,13 @@ export interface TournamentDefaults {
 //   "po:lb:<round>" — playoff losers-bracket round (DE *-playoffs)
 //   "po:gf"         — playoff grand final (DE *-playoffs)
 //
+// Semantic keys — looked up BEFORE the positional keys above, so a
+// stage-agnostic "make the semis bo5" setting lands on the right round
+// regardless of bracket size (season mode writes these):
+//   "semis" / "po:semis" — the matches feeding the final: the SE round
+//                          before the final, or the DE W-Final + L-Final
+//   "final" / "po:final" — the SE final / the DE grand final
+//
 // Missing keys fall back to defaults.format. Saving a key with the
 // same value as defaults.format is harmless but redundant.
 export type FormatOverrides = Record<string, SeriesFormat>;
@@ -810,6 +817,15 @@ export function generateSingleElimBracket(
   // "po:" when this single-elim acts as a playoff bracket. Round-N
   // matches look up `${keyPrefix}wb:${round}`.
   keyPrefix: string = "",
+  // Semantic override-key role. "tournament" (default): the last round
+  // is the tournament final → it answers to `${keyPrefix}final` and the
+  // round before it to `${keyPrefix}semis`, ahead of the positional
+  // wb:N keys. "de-winners": this bracket is the W side of a double-
+  // elim — its last round feeds the grand final, so it answers to
+  // `semis` (the grand final itself owns `final`). Missing semantic
+  // keys fall through to wb:N, so standalone setups that only write
+  // positional keys behave exactly as before.
+  role: "tournament" | "de-winners" = "tournament",
 ): TournamentMatch[] {
   const n = teams.length;
   if (n < 2) {
@@ -818,6 +834,17 @@ export function generateSingleElimBracket(
   // Pad to next power of 2 — the rest are virtual byes (null).
   const padded = nextPowerOfTwo(n);
   const totalRounds = Math.log2(padded);
+  const formatKeysFor = (r: number): string[] => {
+    const keys: string[] = [];
+    if (role === "tournament") {
+      if (r === totalRounds) keys.push(`${keyPrefix}final`);
+      else if (r === totalRounds - 1) keys.push(`${keyPrefix}semis`);
+    } else if (r === totalRounds) {
+      keys.push(`${keyPrefix}semis`);
+    }
+    keys.push(`${keyPrefix}wb:${r}`);
+    return keys;
+  };
   const seedOrder = bracketSeedOrder(padded);
   const bySeed = new Map<number, TournamentTeam>();
   for (const t of teams) bySeed.set(t.seed, t);
@@ -847,7 +874,7 @@ export function generateSingleElimBracket(
         round: 1,
         blueTeamId: teamA.id,
         redTeamId: teamB.id,
-        format: pickFormat(defaults, formatOverrides, `${keyPrefix}wb:1`),
+        format: pickFormat(defaults, formatOverrides, ...formatKeysFor(1)),
         fearless: defaults.fearless,
         mode: defaults.mode,
         aiSide: defaults.aiSide,
@@ -890,7 +917,7 @@ export function generateSingleElimBracket(
         // when the previous-round match still needs to resolve.
         blueTeamId: slotA.kind === "bye" ? slotA.teamId : null,
         redTeamId: slotB.kind === "bye" ? slotB.teamId : null,
-        format: pickFormat(defaults, formatOverrides, `${keyPrefix}wb:${r}`),
+        format: pickFormat(defaults, formatOverrides, ...formatKeysFor(r)),
         fearless: defaults.fearless,
         mode: defaults.mode,
         aiSide: defaults.aiSide,
@@ -1109,9 +1136,13 @@ export function generateGroupStageMatches(
 //       losers.
 // Total L rounds = 2 * (k - 1).
 //
-// Restricted to powers of 2 ≥ 4. The dashboard view is verified for
-// 4, 8, and 16-team layouts; sizes beyond that are mathematically
-// supported but UI density may need tuning.
+// Accepts powers of 2 ≥ 4, plus non-power-of-2 counts where at most a
+// quarter of the (padded) bracket is byes — i.e. 6 (8-bracket, seeds
+// 1-2 bye), 7, 12 (16-bracket, seeds 1-4 bye), 13-15. Top seeds skip
+// W-R1; the W-R1 loser whose pair contains a bye has no L-R1 partner
+// and passes straight through to the first L drop-in round. The
+// bracketSeedOrder spread guarantees byes land in distinct L-R1 pairs,
+// so no L-side match ever has BOTH slots empty.
 
 export function generateDoubleElimBracket(
   teams: TournamentTeam[],
@@ -1123,20 +1154,25 @@ export function generateDoubleElimBracket(
   keyPrefix: string = "",
 ): TournamentMatch[] {
   const n = teams.length;
-  if (n < 4 || (n & (n - 1)) !== 0) {
+  const padded = nextPowerOfTwo(n);
+  if (n < 4 || padded - n > padded / 4) {
     throw new Error(
-      `Double-elim requires a power-of-2 team count ≥ 4 (got ${n})`,
+      `Double-elim requires ≥ 4 teams with at most a quarter of the bracket as byes (got ${n})`,
     );
   }
-  // Step 1: build the W-side bracket (re-use single-elim shape).
+  // Step 1: build the W-side bracket (re-use single-elim shape; byes
+  // auto-advance the top seeds into W-R2). "de-winners" role: the
+  // W-Final feeds the grand final, so it answers to the "semis"
+  // semantic override key rather than "final".
   const wMatches = generateSingleElimBracket(
     teams,
     defaults,
     formatOverrides,
     keyPrefix,
+    "de-winners",
   );
   for (const m of wMatches) m.bracket = "winners";
-  const wRoundCount = Math.log2(n);
+  const wRoundCount = Math.log2(padded);
   const wByRound: TournamentMatch[][] = [];
   for (let r = 1; r <= wRoundCount; r++) {
     wByRound.push(wMatches.filter((m) => m.round === r));
@@ -1156,65 +1192,41 @@ export function generateDoubleElimBracket(
     // filled when that W-side match completes.
     | { kind: "wLoser"; wMatchId: string };
 
-  // L-R1: drop-in W-R1 losers paired up. N/4 matches for N teams.
-  // For N=4 there's only 1 match (2 W-R1 losers). For N=8 there are 2.
+  // Reconstruct the W-R1 SLOT structure (real match vs bye) in bracket
+  // order — generateSingleElimBracket creates round-1 matches in
+  // seed-pair iteration order, so walking the seed order and consuming
+  // matches in sequence recovers which bracket positions were byes.
+  const seedOrder = bracketSeedOrder(padded);
+  const presentSeeds = new Set(teams.map((t) => t.seed));
+  type WSlotPair = { match: TournamentMatch } | { bye: true };
+  const wPairs: WSlotPair[] = [];
+  {
+    let wIdx = 0;
+    for (let i = 0; i < seedOrder.length; i += 2) {
+      const hasA = presentSeeds.has(seedOrder[i]);
+      const hasB = presentSeeds.has(seedOrder[i + 1]);
+      if (hasA && hasB) wPairs.push({ match: wByRound[0][wIdx++] });
+      else wPairs.push({ bye: true });
+    }
+  }
+
+  // L-R1: drop-in W-R1 losers paired up, in bracket order. N/4 matches
+  // for a full bracket (1 for N=4, 2 for N=8). When a pair of W-R1
+  // slots contains a bye, the real slot's loser has nobody to play —
+  // it passes straight through to the next L round as a wLoser queue
+  // item (and L-R1 itself may end up with no matches at all, e.g. the
+  // 6-team bracket).
   let lQueue: LQueueItem[] = [];
   let lRoundIdx = 1;
-  const wR1Losers = wByRound[0];
   const r1Matches: TournamentMatch[] = [];
-  for (let i = 0; i < wR1Losers.length; i += 2) {
-    const wA = wR1Losers[i];
-    const wB = wR1Losers[i + 1];
-    const m: TournamentMatch = {
-      id: makeMatchId(),
-      round: lRoundIdx,
-      // Slot is filled when the corresponding W-side match completes.
-      blueTeamId: null,
-      redTeamId: null,
-      format: pickFormat(
-        defaults,
-        formatOverrides,
-        `${keyPrefix}lb:${lRoundIdx}`,
-      ),
-      fearless: defaults.fearless,
-      mode: defaults.mode,
-      aiSide: defaults.aiSide,
-      aiDifficulty: defaults.aiDifficulty,
-      series: null,
-      winner: null,
-      feedsInto: null,
-      bracket: "losers",
-      losersFeedsInto: undefined,
-    };
-    // Wire the W-side matches to drop their losers into this L match.
-    wA.losersFeedsInto = { matchId: m.id, slot: "blue" };
-    if (wB) wB.losersFeedsInto = { matchId: m.id, slot: "red" };
-    r1Matches.push(m);
-  }
-  lMatches.push(...r1Matches);
-  lQueue = r1Matches.map((m) => ({ kind: "match", matchId: m.id }));
-  lRoundIdx++;
-
-  // For each subsequent W round (R2..Rk), drop-in. Between drops, a
-  // consolidate round if needed. The consolidate happens AFTER the drop
-  // round in the standard layout (the merged queue then halves itself
-  // before the next drop), except no consolidate after the very last
-  // drop (the queue's winner heads straight to the grand final).
-  for (let wRound = 2; wRound <= wRoundCount; wRound++) {
-    const wLosers = wByRound[wRound - 1]; // 0-indexed
-    // Drop-in round: pair lQueue (in order) against wLosers (in order).
-    if (lQueue.length !== wLosers.length) {
-      throw new Error(
-        `Double-elim L-bracket alignment broken at L round ${lRoundIdx}: queue=${lQueue.length} W=${wLosers.length}`,
-      );
-    }
-    const dropMatches: TournamentMatch[] = [];
-    for (let i = 0; i < wLosers.length; i++) {
-      const queueItem = lQueue[i];
-      const wL = wLosers[i];
+  for (let i = 0; i < wPairs.length; i += 2) {
+    const pairA = wPairs[i];
+    const pairB = wPairs[i + 1];
+    if ("match" in pairA && "match" in pairB) {
       const m: TournamentMatch = {
         id: makeMatchId(),
         round: lRoundIdx,
+        // Slot is filled when the corresponding W-side match completes.
         blueTeamId: null,
         redTeamId: null,
         format: pickFormat(
@@ -1232,10 +1244,84 @@ export function generateDoubleElimBracket(
         bracket: "losers",
         losersFeedsInto: undefined,
       };
+      // Wire the W-side matches to drop their losers into this L match.
+      pairA.match.losersFeedsInto = { matchId: m.id, slot: "blue" };
+      pairB.match.losersFeedsInto = { matchId: m.id, slot: "red" };
+      r1Matches.push(m);
+      lQueue.push({ kind: "match", matchId: m.id });
+    } else if ("match" in pairA || "match" in pairB) {
+      // One side is a bye — the real match's loser passes through to
+      // the next L round (wired when that round's match is created).
+      const real = "match" in pairA ? pairA.match : (pairB as { match: TournamentMatch }).match;
+      lQueue.push({ kind: "wLoser", wMatchId: real.id });
+    } else {
+      // Both byes — excluded by the byes ≤ padded/4 precondition.
+      throw new Error("Double-elim L-bracket: adjacent W-R1 byes");
+    }
+  }
+  lMatches.push(...r1Matches);
+  // Keep L round numbering dense: when every L-R1 pairing was a bye
+  // pass-through (6/12-team brackets), the first real L round is the
+  // drop-in — number it 1.
+  if (r1Matches.length > 0) lRoundIdx++;
+
+  // For each subsequent W round (R2..Rk), drop-in. Between drops, a
+  // consolidate round if needed. The consolidate happens AFTER the drop
+  // round in the standard layout (the merged queue then halves itself
+  // before the next drop), except no consolidate after the very last
+  // drop (the queue's winner heads straight to the grand final).
+  for (let wRound = 2; wRound <= wRoundCount; wRound++) {
+    const wLosers = wByRound[wRound - 1]; // 0-indexed
+    // Drop-in round: pair lQueue (in order) against wLosers (in order).
+    if (lQueue.length !== wLosers.length) {
+      throw new Error(
+        `Double-elim L-bracket alignment broken at L round ${lRoundIdx}: queue=${lQueue.length} W=${wLosers.length}`,
+      );
+    }
+    const dropMatches: TournamentMatch[] = [];
+    // The last drop-in (taking the W-Final loser) is the L-Final — it
+    // feeds the grand final, so it answers to the "semis" semantic
+    // override key first (like the W-Final).
+    const isLFinal = wRound === wRoundCount;
+    for (let i = 0; i < wLosers.length; i++) {
+      const queueItem = lQueue[i];
+      const wL = wLosers[i];
+      const m: TournamentMatch = {
+        id: makeMatchId(),
+        round: lRoundIdx,
+        blueTeamId: null,
+        redTeamId: null,
+        format: isLFinal
+          ? pickFormat(
+              defaults,
+              formatOverrides,
+              `${keyPrefix}semis`,
+              `${keyPrefix}lb:${lRoundIdx}`,
+            )
+          : pickFormat(
+              defaults,
+              formatOverrides,
+              `${keyPrefix}lb:${lRoundIdx}`,
+            ),
+        fearless: defaults.fearless,
+        mode: defaults.mode,
+        aiSide: defaults.aiSide,
+        aiDifficulty: defaults.aiDifficulty,
+        series: null,
+        winner: null,
+        feedsInto: null,
+        bracket: "losers",
+        losersFeedsInto: undefined,
+      };
       // Wire previous-L queue winner → blue slot of this match.
       if (queueItem.kind === "match") {
         const prev = lMatches.find((x) => x.id === queueItem.matchId);
         if (prev) prev.feedsInto = { matchId: m.id, slot: "blue" };
+      } else {
+        // Bye pass-through: the W-R1 loser drops directly into this
+        // match's blue slot when its W-side match completes.
+        const wPrev = wMatches.find((x) => x.id === queueItem.wMatchId);
+        if (wPrev) wPrev.losersFeedsInto = { matchId: m.id, slot: "blue" };
       }
       // Wire W-side loser → red slot.
       wL.losersFeedsInto = { matchId: m.id, slot: "red" };
@@ -1314,7 +1400,12 @@ export function generateDoubleElimBracket(
     round: lRoundIdx,
     blueTeamId: null,
     redTeamId: null,
-    format: pickFormat(defaults, formatOverrides, `${keyPrefix}gf`),
+    format: pickFormat(
+      defaults,
+      formatOverrides,
+      `${keyPrefix}final`,
+      `${keyPrefix}gf`,
+    ),
     fearless: defaults.fearless,
     mode: defaults.mode,
     aiSide: defaults.aiSide,
@@ -1910,11 +2001,12 @@ export function createTournament(
         ? params.swissPlayoffsAdvancingOverride ??
           Math.min(8, Math.max(4, Math.floor(teams.length / 2)))
         : params.format === "swiss-playoffs-de"
-          ? // DE playoffs require a power-of-2 ≥ 4 advancing count, so
-            // snap to the nearest power-of-2 in {4, 8, 16}. User
+          ? // DE playoffs require a bracket size the generator supports
+            // (powers of 2 plus the bye-friendly 6/12), so snap to the
+            // largest supported size ≤ the requested count. User
             // overrides also get clamped so the playoff generator
             // doesn't choke on an invalid count.
-            clampToPowerOf2AtLeast4(
+            clampDEAdvancing(
               params.swissPlayoffsAdvancingOverride ??
                 Math.min(16, Math.max(4, Math.floor(teams.length / 2))),
             )
@@ -1926,7 +2018,7 @@ export function createTournament(
         : undefined,
     rrPlayoffsAdvancing:
       params.format === "round-robin-playoffs"
-        ? clampToPowerOf2AtLeast4(
+        ? clampDEAdvancing(
             params.rrPlayoffsAdvancingOverride ??
               Math.min(16, Math.max(4, Math.floor(teams.length / 2))),
           )
@@ -2218,11 +2310,10 @@ function applySingleElimReseed(
 //     grand-final / bracket-reset for any tournament whose finished
 //     match has bracket==="grand-final").
 //
-// The double-elim path requires the seeded team list to be a power of 2
-// ≥ 4 — caller is responsible for trimming. We don't pad with phantom
-// byes here because mid-bracket byes in a DE generator are awkward
-// (drop-ins from W-side don't have a clean partner). The advancing
-// count UI restricts to 4 / 8 / 16 to avoid this case.
+// The double-elim path requires a seeded team list the DE generator
+// supports (a power of 2 ≥ 4, or the bye-friendly 6/12 counts where
+// top seeds skip W-R1) — caller is responsible for trimming via
+// clampDEAdvancing.
 function buildPlayoffMatches(
   seededTeams: TournamentTeam[],
   defaults: TournamentDefaults,
@@ -2268,13 +2359,16 @@ export function startSwissPlayoffs(
   if (tournament.swissPlayoffsStarted) return tournament;
   const kind = playoffBracketKindFor(tournament.format);
   let advancing = tournament.swissPlayoffsAdvancing ?? 4;
-  if (kind === "double-elim") advancing = clampToPowerOf2AtLeast4(advancing);
+  if (kind === "double-elim") advancing = clampDEAdvancing(advancing);
   const standings = computeSwissStandings(tournament);
   if (standings.length < 2) return tournament;
-  const top = standings.slice(0, advancing);
+  let top = standings.slice(0, advancing);
   if (top.length < 2) return tournament;
-  if (kind === "double-elim" && !isPowerOfTwoAtLeast4(top.length)) {
-    return tournament;
+  // Fewer teams than the configured advancing count (short standings)
+  // — re-snap to a bracket size the DE generator supports.
+  if (kind === "double-elim" && !isSupportedDESize(top.length)) {
+    if (top.length < 4) return tournament;
+    top = top.slice(0, clampDEAdvancing(top.length));
   }
   // Re-seed: standings rank → bracket seed.
   const reseededTeams: TournamentTeam[] = top.map((s, i) => ({
@@ -2308,13 +2402,15 @@ export function startRoundRobinPlayoffs(
   if (tournament.rrPlayoffsStarted) return tournament;
   const kind = playoffBracketKindFor(tournament.format); // always "double-elim"
   let advancing = tournament.rrPlayoffsAdvancing ?? 4;
-  if (kind === "double-elim") advancing = clampToPowerOf2AtLeast4(advancing);
+  if (kind === "double-elim") advancing = clampDEAdvancing(advancing);
   const standings = computeStandings(tournament);
   if (standings.length < 2) return tournament;
-  const top = standings.slice(0, advancing);
+  let top = standings.slice(0, advancing);
   if (top.length < 2) return tournament;
-  if (kind === "double-elim" && !isPowerOfTwoAtLeast4(top.length)) {
-    return tournament;
+  // Short standings — re-snap to a supported DE bracket size.
+  if (kind === "double-elim" && !isSupportedDESize(top.length)) {
+    if (top.length < 4) return tournament;
+    top = top.slice(0, clampDEAdvancing(top.length));
   }
   const reseededTeams: TournamentTeam[] = top.map((s, i) => ({
     ...s.team,
@@ -2334,19 +2430,50 @@ export function startRoundRobinPlayoffs(
   };
 }
 
-// Snap an arbitrary advancing count to the largest power of 2 ≥ 4 that
-// is ≤ the input. 4 → 4; 5..7 → 4; 8..15 → 8; 16+ → 16. Caps at 16
-// because a 32-team DE playoff is impractically large for stage-based
-// tournaments (the standalone double-elim format covers that).
-function clampToPowerOf2AtLeast4(n: number): number {
-  if (n < 4) return 4;
-  if (n >= 16) return 16;
-  if (n >= 8) return 8;
+// Bracket sizes the double-elim generator supports, ascending. Powers
+// of 2 plus the "three quarters" sizes (6 and 12) where the top seeds
+// get a first-round bye — the generator handles up to padded/4 byes.
+// Capped at 16 because a 32-team DE playoff is impractically large for
+// stage-based tournaments (the standalone double-elim format covers
+// that).
+export const DE_PLAYOFF_SIZES = [4, 6, 8, 12, 16] as const;
+
+// Snap an arbitrary advancing count to the largest supported DE
+// bracket size ≤ the input (4 → 4; 5 → 4; 6/7 → 6; 8..11 → 8;
+// 12..15 → 12; 16+ → 16).
+export function clampDEAdvancing(n: number): number {
+  for (let i = DE_PLAYOFF_SIZES.length - 1; i >= 0; i--) {
+    if (DE_PLAYOFF_SIZES[i] <= n) return DE_PLAYOFF_SIZES[i];
+  }
   return 4;
 }
 
-function isPowerOfTwoAtLeast4(n: number): boolean {
-  return n >= 4 && (n & (n - 1)) === 0;
+function isSupportedDESize(n: number): boolean {
+  return (DE_PLAYOFF_SIZES as readonly number[]).includes(n);
+}
+
+// Round shape of a DE playoff bracket of the given size — used by the
+// setup UI to render one format-override row per actual round. The
+// 6/12-team brackets have NO L-R1 (every would-be pairing contains a
+// bye, so the W-R1 losers pass straight through to the first drop-in
+// round), hence one fewer L round than the padded bracket.
+export function dePlayoffRounds(advancing: number): {
+  wRounds: number;
+  lRounds: number;
+} {
+  // Any count the generator accepts (byes ≤ padded/4) is used as-is —
+  // including the 32-team standalone bracket; invalid counts snap to
+  // the largest supported playoff size below them.
+  const n = Math.max(4, Math.floor(advancing));
+  let size = n;
+  {
+    const padded = nextPowerOfTwo(n);
+    if (padded - n > padded / 4) size = clampDEAdvancing(n);
+  }
+  const padded = nextPowerOfTwo(size);
+  const wRounds = Math.log2(padded);
+  const lbR1Empty = padded - size === padded / 4;
+  return { wRounds, lRounds: 2 * (wRounds - 1) - (lbR1Empty ? 1 : 0) };
 }
 
 // Compute standings restricted to a single group (groups+playoffs).
@@ -2403,17 +2530,16 @@ export function startGroupsPlayoffs(
     }
   }
   if (advancing.length < 2) return tournament;
-  // For DE playoffs, trim to the largest power-of-2 ≥ 4 — the DE
-  // generator can't accept arbitrary counts. Trims from the bottom
-  // (lowest-seeded promoted team gets bumped if needed). The setup UI
-  // restricts groupCount × advancingPerGroup so this rarely fires, but
-  // we belt-and-brace here because saved tournaments can have legacy
-  // configs.
+  // For DE playoffs, trim to the largest supported bracket size — the
+  // DE generator accepts powers of 2 plus the bye-friendly 6/12. Trims
+  // from the bottom (lowest-seeded promoted team gets bumped if
+  // needed). The setup UI restricts groupCount × advancingPerGroup so
+  // this rarely fires, but we belt-and-brace here because saved
+  // tournaments can have legacy configs.
   let trimmed = advancing;
   if (kind === "double-elim") {
-    const target = largestPowerOf2AtLeast4LessThanOrEqual(advancing.length);
-    if (target < 4) return tournament;
-    trimmed = advancing.slice(0, target);
+    if (advancing.length < 4) return tournament;
+    trimmed = advancing.slice(0, clampDEAdvancing(advancing.length));
   }
   // Re-seed by promotion order. Snake order above gives reasonable
   // pairings: top-of-group-A vs top-of-group-B in the final, etc.
@@ -2436,16 +2562,6 @@ export function startGroupsPlayoffs(
     },
     updatedAt: Date.now(),
   };
-}
-
-// Largest power of 2 ≥ 4 that is ≤ n. Used to trim a top-N list down to
-// a DE-bracket-friendly size when the user's group config produces
-// e.g. 6 advancing teams (→ 4 spots).
-function largestPowerOf2AtLeast4LessThanOrEqual(n: number): number {
-  if (n < 4) return 0;
-  if (n >= 16) return 16;
-  if (n >= 8) return 8;
-  return 4;
 }
 
 // ─── Lookups ──────────────────────────────────────────────────────────────

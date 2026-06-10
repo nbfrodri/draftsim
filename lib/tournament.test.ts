@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   bracketSeedOrder,
+  clampDEAdvancing,
   computeGroupStandings,
   computeStandings,
   computeSwissStandings,
   createTournament,
   crossMatchFearlessLocked,
+  dePlayoffRounds,
   generateDoubleElimBracket,
   generateRoundRobinMatches,
   generateSingleElimBracket,
   generateSwissBracket,
   recordMatchWinner,
+  startRoundRobinPlayoffs,
   teamStreak,
   teamWinStreak,
   type CreateTournamentParams,
@@ -241,10 +244,11 @@ describe("generateRoundRobinMatches", () => {
 // ─── Double-elimination bracket ───────────────────────────────────────────
 
 describe("generateDoubleElimBracket", () => {
-  it("throws for non-power-of-2 team count", () => {
-    expect(() =>
-      generateDoubleElimBracket(makeTeams(6), DEFAULTS),
-    ).toThrow();
+  it("throws for unsupported team counts (too many byes)", () => {
+    // 5 teams would need 3 byes in an 8-bracket (> padded/4) — and
+    // anything below 4 can't form a DE bracket at all.
+    expect(() => generateDoubleElimBracket(makeTeams(5), DEFAULTS)).toThrow();
+    expect(() => generateDoubleElimBracket(makeTeams(3), DEFAULTS)).toThrow();
   });
 
   it("generates W and L bracket matches for 4 teams", () => {
@@ -276,6 +280,181 @@ describe("generateDoubleElimBracket", () => {
       (m) => m.bracket === "winners" && m.round === 1,
     );
     expect(wR1.every((m) => m.losersFeedsInto != null)).toBe(true);
+  });
+
+  it("builds a 6-team bracket: seeds 1-2 bye into W-R2, no L-R1", () => {
+    const matches = generateDoubleElimBracket(makeTeams(6), DEFAULTS);
+    // 5 W (2+2+1) + 4 L (2 drop + 1 consolidate + 1 final) + 1 GF = 10.
+    expect(matches).toHaveLength(10);
+    const wR1 = matches.filter(
+      (m) => m.bracket === "winners" && m.round === 1,
+    );
+    expect(wR1).toHaveLength(2);
+    const r1Ids = wR1.flatMap((m) => [m.blueTeamId, m.redTeamId]);
+    expect(r1Ids).not.toContain("team-1");
+    expect(r1Ids).not.toContain("team-2");
+    // The byes pre-seed the top seeds straight into the W semifinals.
+    const wR2 = matches.filter(
+      (m) => m.bracket === "winners" && m.round === 2,
+    );
+    const wR2Ids = wR2.flatMap((m) => [m.blueTeamId, m.redTeamId]);
+    expect(wR2Ids).toContain("team-1");
+    expect(wR2Ids).toContain("team-2");
+    // Every W-R1 loser passes straight through to an L drop-in match —
+    // there is no L round pairing the W-R1 losers against each other.
+    expect(wR1.every((m) => m.losersFeedsInto != null)).toBe(true);
+    expect(matches.filter((m) => m.bracket === "losers")).toHaveLength(4);
+  });
+
+  it("6-team double-elim plays to completion", () => {
+    const tournament = createTournament(
+      baseTournamentParams("double-elim", 6),
+    );
+    const completed = simulateTournamentTo(tournament, 500);
+    expect(completed.status).toBe("complete");
+    expect(completed.matches.every((m) => !m.winner || m.blueTeamId)).toBe(
+      true,
+    );
+  });
+
+  it("builds a 12-team bracket (16-bracket with 4 byes) and completes", () => {
+    const matches = generateDoubleElimBracket(makeTeams(12), DEFAULTS);
+    const wR1 = matches.filter(
+      (m) => m.bracket === "winners" && m.round === 1,
+    );
+    expect(wR1).toHaveLength(4);
+    const r1Ids = wR1.flatMap((m) => [m.blueTeamId, m.redTeamId]);
+    for (const seed of [1, 2, 3, 4]) {
+      expect(r1Ids).not.toContain(`team-${seed}`);
+    }
+    const tournament = createTournament(
+      baseTournamentParams("double-elim", 12),
+    );
+    const completed = simulateTournamentTo(tournament, 500);
+    expect(completed.status).toBe("complete");
+  });
+});
+
+// ─── DE advancing-count clamp + round shape ────────────────────────────────
+
+describe("clampDEAdvancing / dePlayoffRounds", () => {
+  it("snaps to the largest supported DE size", () => {
+    expect(clampDEAdvancing(4)).toBe(4);
+    expect(clampDEAdvancing(5)).toBe(4);
+    expect(clampDEAdvancing(6)).toBe(6);
+    expect(clampDEAdvancing(7)).toBe(6);
+    expect(clampDEAdvancing(8)).toBe(8);
+    expect(clampDEAdvancing(11)).toBe(8);
+    expect(clampDEAdvancing(12)).toBe(12);
+    expect(clampDEAdvancing(100)).toBe(16);
+    expect(clampDEAdvancing(2)).toBe(4);
+  });
+
+  it("reports the bracket round shape, including the skipped L-R1", () => {
+    expect(dePlayoffRounds(4)).toEqual({ wRounds: 2, lRounds: 2 });
+    expect(dePlayoffRounds(6)).toEqual({ wRounds: 3, lRounds: 3 });
+    expect(dePlayoffRounds(8)).toEqual({ wRounds: 3, lRounds: 4 });
+    expect(dePlayoffRounds(12)).toEqual({ wRounds: 4, lRounds: 5 });
+    expect(dePlayoffRounds(16)).toEqual({ wRounds: 4, lRounds: 6 });
+  });
+
+  it("matches the actual L-round numbering the generator produces", () => {
+    for (const size of [4, 6, 8, 12, 16]) {
+      const matches = generateDoubleElimBracket(makeTeams(size), DEFAULTS);
+      const lRounds = new Set(
+        matches.filter((m) => m.bracket === "losers").map((m) => m.round),
+      );
+      const expected = dePlayoffRounds(size).lRounds;
+      expect(Math.max(...lRounds)).toBe(expected);
+      expect(lRounds.size).toBe(expected); // dense 1..lRounds
+    }
+  });
+});
+
+// ─── Top-6 playoffs from a round-robin stage ───────────────────────────────
+
+describe("round-robin-playoffs with Top 6", () => {
+  it("promotes exactly the top 6 of the standings into the DE bracket", () => {
+    let t = createTournament(
+      baseTournamentParams("round-robin-playoffs", 10, {
+        rrPlayoffsAdvancingOverride: 6,
+      }),
+    );
+    expect(t.rrPlayoffsAdvancing).toBe(6);
+    // Play out the regular season.
+    t = simulateTournamentTo(t, 500);
+    expect(t.status).toBe("in-progress"); // playoffs not started yet
+    const top6 = computeStandings(t)
+      .slice(0, 6)
+      .map((s) => s.team.id);
+    t = startRoundRobinPlayoffs(t);
+    const playoff = t.matches.filter((m) => m.bracket != null);
+    expect(playoff).toHaveLength(10); // full 6-team DE
+    // Teams visible at bracket creation: W-R1 participants + the two
+    // byes pre-seeded into W-R2 — exactly the standings top 6.
+    const inBracket = new Set(
+      playoff.flatMap((m) => [m.blueTeamId, m.redTeamId]).filter(Boolean),
+    );
+    expect(inBracket).toEqual(new Set(top6));
+    // And the whole thing plays out to a champion.
+    t = simulateTournamentTo(t, 500);
+    expect(t.status).toBe("complete");
+  });
+});
+
+// ─── Semantic semis/final format keys ──────────────────────────────────────
+
+describe("semis/final format overrides", () => {
+  it("single-elim: semis + final keys outrank positional wb:N keys", () => {
+    const matches = generateSingleElimBracket(makeTeams(8), DEFAULTS, {
+      "wb:1": "bo1",
+      "wb:2": "bo1",
+      "wb:3": "bo1",
+      semis: "bo5",
+      final: "bo5",
+    });
+    const byRound = (r: number) => matches.filter((m) => m.round === r);
+    expect(byRound(1).every((m) => m.format === "bo1")).toBe(true);
+    expect(byRound(2).every((m) => m.format === "bo5")).toBe(true); // semis
+    expect(byRound(3).every((m) => m.format === "bo5")).toBe(true); // final
+  });
+
+  it("double-elim: W-Final + L-Final answer to semis, grand final to final", () => {
+    const matches = generateDoubleElimBracket(makeTeams(8), DEFAULTS, {
+      "wb:3": "bo1",
+      "lb:4": "bo1",
+      gf: "bo1",
+      semis: "bo5",
+      final: "bo5",
+    });
+    const wFinal = matches.find(
+      (m) => m.bracket === "winners" && m.round === 3,
+    )!;
+    const lMax = Math.max(
+      ...matches.filter((m) => m.bracket === "losers").map((m) => m.round),
+    );
+    const lFinal = matches.find(
+      (m) => m.bracket === "losers" && m.round === lMax,
+    )!;
+    const gf = matches.find((m) => m.bracket === "grand-final")!;
+    expect(wFinal.format).toBe("bo5");
+    expect(lFinal.format).toBe("bo5");
+    expect(gf.format).toBe("bo5");
+    // Earlier rounds keep their positional formats.
+    const wR1 = matches.filter(
+      (m) => m.bracket === "winners" && m.round === 1,
+    );
+    expect(wR1.every((m) => m.format === "bo3")).toBe(true); // defaults
+  });
+
+  it("standalone brackets without semantic keys behave as before", () => {
+    const matches = generateSingleElimBracket(makeTeams(8), DEFAULTS, {
+      "wb:3": "bo5",
+    });
+    const final = matches.find((m) => m.round === 3)!;
+    expect(final.format).toBe("bo5");
+    const semis = matches.filter((m) => m.round === 2);
+    expect(semis.every((m) => m.format === "bo3")).toBe(true);
   });
 });
 
