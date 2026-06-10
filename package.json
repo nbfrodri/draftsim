@@ -10,10 +10,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "refresh-data": "node scripts/refresh-meraki-data.mjs",
-    "calibrate": "tsx scripts/calibrate.ts"
+    "calibrate": "tsx scripts/calibrate.ts",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build"
   },
   "dependencies": {
     "@tabler/icons-react": "^3.41.1",
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
     "gsap": "3.12.7",
     "next": "^16.2.4",
     "react": "19.0.0",
@@ -22,6 +27,7 @@
     "zustand": "5.0.3"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2",
     "@types/node": "22.10.5",
     "@types/react": "19.0.7",
     "@types/react-dom": "19.0.3",

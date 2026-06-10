@@ -11,6 +11,7 @@ import {
   type Mobility,
   type Phase,
 } from "../championMeta";
+import type { RNG } from "../rng";
 import type { AtakhanVariant, EventKDA, EventKills, LaneKDA } from "./types";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -48,16 +49,19 @@ export function formatTime(min: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function pickRandom<T>(arr: readonly T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+// Randomized helpers. Each takes an optional trailing RNG (defaults to
+// Math.random) so existing callers keep working while seeded callers
+// (matchSimulator with SimulateOptions.rng, tests) stay deterministic.
+export function pickRandom<T>(arr: readonly T[], rng: RNG = Math.random): T {
+  return arr[Math.floor(rng() * arr.length)];
 }
 
-export function rollInt(lo: number, hi: number): number {
-  return Math.floor(Math.random() * (hi - lo + 1)) + lo;
+export function rollInt(lo: number, hi: number, rng: RNG = Math.random): number {
+  return Math.floor(rng() * (hi - lo + 1)) + lo;
 }
 
-export function jitter(min: number, max: number): number {
-  return min + Math.random() * (max - min);
+export function jitter(min: number, max: number, rng: RNG = Math.random): number {
+  return min + rng() * (max - min);
 }
 
 export function killsForSide(
@@ -213,15 +217,17 @@ function teamName(
 
 // Verbs flavored by the killer's archetype — assassins all-in, picks land
 // hooks, divers tower-dive, skirmishers outduel. Falls back to "catches".
-function killVerb(killer: Champion): string {
+function killVerb(killer: Champion, rng: RNG = Math.random): string {
   const meta = metaFor(killer);
   const has = (a: Archetype) => meta.archetypes.includes(a);
-  if (has("pick")) return pickRandom(["lands a hook on", "snipes", "catches"]);
-  if (has("assassin")) return pickRandom(["all-ins", "deletes", "blows up"]);
+  if (has("pick"))
+    return pickRandom(["lands a hook on", "snipes", "catches"], rng);
+  if (has("assassin"))
+    return pickRandom(["all-ins", "deletes", "blows up"], rng);
   if (has("dive") && has("engage"))
-    return pickRandom(["tower-dives", "flank-engages on"]);
-  if (has("skirmish")) return pickRandom(["outduels", "1v1s"]);
-  if (has("burst")) return pickRandom(["one-shots", "burns down"]);
+    return pickRandom(["tower-dives", "flank-engages on"], rng);
+  if (has("skirmish")) return pickRandom(["outduels", "1v1s"], rng);
+  if (has("burst")) return pickRandom(["one-shots", "burns down"], rng);
   if (has("hyper-carry")) return "kites down";
   return "catches";
 }
@@ -281,6 +287,7 @@ export function describeFirstBlood(
   winnerPicks: (Champion | null)[],
   loserPicks: (Champion | null)[],
   earlyTime: number,
+  rng: RNG = Math.random,
 ): string {
   const killer =
     findByArchetype(winnerPicks, ["assassin", "skirmish", "pick", "dive"]) ??
@@ -298,7 +305,7 @@ export function describeFirstBlood(
   else if (earlyTime > 5.0) prefix = "Late first blood — ";
 
   if (killer && victim) {
-    return `${prefix}${killer.name} ${killVerb(killer)} ${victim.name} ${pickRandom(places)}`;
+    return `${prefix}${killer.name} ${killVerb(killer, rng)} ${victim.name} ${pickRandom(places, rng)}`;
   }
   return `${prefix}First blood for ${teamName(side, "Blue", "Red")}`;
 }
@@ -360,9 +367,10 @@ export function describeHerald(
   side: Side,
   blueName: string,
   redName: string,
+  rng: RNG = Math.random,
 ): string {
   const lanes: Lane[] = ["top", "middle"];
-  const lane = pickRandom(lanes);
+  const lane = pickRandom(lanes, rng);
   return `${teamName(side, blueName, redName)} grabs Rift Herald, smashes ${lane} tier-1`;
 }
 
@@ -372,9 +380,10 @@ export function describeTower(
   blueName: string,
   redName: string,
   isFirst: boolean,
+  rng: RNG = Math.random,
 ): string {
   const splitPush = findByArchetype(picks, ["splitpush"]);
-  if (splitPush && Math.random() < 0.55) {
+  if (splitPush && rng() < 0.55) {
     const sideLane: Lane = splitPush.lanes.includes("top")
       ? "top"
       : splitPush.lanes.includes("bottom")
@@ -384,7 +393,7 @@ export function describeTower(
   }
   const lanes: Lane[] = ["top", "middle", "bottom"];
   const tier = isFirst ? "outer" : "inner";
-  return `${teamName(side, blueName, redName)} takes the ${tier} ${pickRandom(lanes)} tower`;
+  return `${teamName(side, blueName, redName)} takes the ${tier} ${pickRandom(lanes, rng)} tower`;
 }
 
 export function describeInhibitor(
@@ -392,11 +401,12 @@ export function describeInhibitor(
   picks: (Champion | null)[],
   blueName: string,
   redName: string,
+  rng: RNG = Math.random,
 ): string {
   const splitPush = findByArchetype(picks, ["splitpush"]);
   const lanes: Lane[] = ["top", "middle", "bottom"];
-  const lane = pickRandom(lanes);
-  if (splitPush && Math.random() < 0.4) {
+  const lane = pickRandom(lanes, rng);
+  if (splitPush && rng() < 0.4) {
     return `${splitPush.name} cracks the ${lane} inhibitor — super minions inbound`;
   }
   return `${teamName(side, blueName, redName)} breaks the ${lane} inhibitor`;
@@ -406,6 +416,7 @@ export function describePick(
   side: Side,
   winnerPicks: (Champion | null)[],
   loserPicks: (Champion | null)[],
+  rng: RNG = Math.random,
 ): string {
   const hooker = findByArchetype(winnerPicks, ["pick"]);
   const target = findSquishy(loserPicks);
@@ -416,7 +427,7 @@ export function describePick(
       "after a back",
       "near Baron pit",
     ];
-    return `${hooker.name} ${killVerb(hooker)} ${target.name} ${pickRandom(places)}`;
+    return `${hooker.name} ${killVerb(hooker, rng)} ${target.name} ${pickRandom(places, rng)}`;
   }
   return `${teamName(side, "Blue", "Red")} picks off a stray`;
 }
@@ -426,6 +437,7 @@ export function describeSkirmish(
   winnerPicks: (Champion | null)[],
   winnerKills: number,
   loserKills: number,
+  rng: RNG = Math.random,
 ): string {
   const carry =
     findByArchetype(winnerPicks, [
@@ -436,8 +448,8 @@ export function describeSkirmish(
       "skirmish",
     ]) ?? winnerPicks.find((c) => c != null);
   const places = ["the river", "bot side jungle", "top side jungle", "mid lane"];
-  const where = pickRandom(places);
-  const fightSize = pickRandom(["2v2", "3v3", "3v2"]);
+  const where = pickRandom(places, rng);
+  const fightSize = pickRandom(["2v2", "3v3", "3v2"], rng);
   if (carry) {
     return `${carry.name} wins a ${fightSize} in ${where} (${winnerKills}-${loserKills})`;
   }
@@ -450,10 +462,11 @@ export function describeTeamfight(
   winnerLabel: string | null,
   winnerKills: number,
   loserKills: number,
+  rng: RNG = Math.random,
 ): string {
   const score = `${winnerKills}-${loserKills}`;
   const places = ["dragon pit", "Baron pit", "mid lane", "river", "tri-bush"];
-  const place = pickRandom(places);
+  const place = pickRandom(places, rng);
   const tag = winnerLabel ? ` — ${winnerLabel} hits` : "";
   const carry = findByArchetype(winnerPicks, [
     "wombo",
@@ -462,7 +475,7 @@ export function describeTeamfight(
     "engage",
   ]);
   const opener = winnerKills - loserKills >= 4 ? "MASSIVE fight at" : "5v5 at";
-  if (carry && Math.random() < 0.6) {
+  if (carry && rng() < 0.6) {
     return `${opener} ${place}, ${carry.name} pops off ${score}${tag}`;
   }
   return `${opener} ${place}, ${teamName(side, "Blue", "Red")} wins ${score}${tag}`;
@@ -475,12 +488,13 @@ export function describeBaron(
   redName: string,
   stolen: boolean,
   contestKills: { winner: number; loser: number },
+  rng: RNG = Math.random,
 ): string {
   const smiter = laneOf(winnerPicks, "jungle");
   if (stolen && smiter) {
     return `STOLEN! ${smiter.name} smites Baron Nashor away`;
   }
-  if (smiter && Math.random() < 0.4) {
+  if (smiter && rng() < 0.4) {
     return `${smiter.name} secures Baron Nashor (${contestKills.winner}-${contestKills.loser})`;
   }
   return `${teamName(side, blueName, redName)} takes Baron Nashor (${contestKills.winner}-${contestKills.loser})`;
@@ -561,10 +575,11 @@ export function describePlates(
   picks: (Champion | null)[],
   blueName: string,
   redName: string,
+  rng: RNG = Math.random,
 ): string {
   const pusher = findByArchetype(picks, ["splitpush", "poke"]);
   const lanes: Lane[] = ["top", "middle", "bottom"];
-  const lane = pickRandom(lanes);
+  const lane = pickRandom(lanes, rng);
   const laneShort = lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
   if (pusher) {
     return `${pusher.name} cracks all plates ${laneShort}`;
@@ -578,17 +593,16 @@ export function describeInvade(
   loserPicks: (Champion | null)[],
   blueName: string,
   redName: string,
+  rng: RNG = Math.random,
 ): string {
   const engager =
     findByArchetype(winnerPicks, ["engage", "pick", "tank"]) ??
     winnerPicks.find((c) => c != null);
   const victim = findSquishy(loserPicks);
-  const place = pickRandom([
-    "enemy red buff",
-    "enemy blue buff",
-    "enemy raptors",
-    "tri-bush",
-  ]);
+  const place = pickRandom(
+    ["enemy red buff", "enemy blue buff", "enemy raptors", "tri-bush"],
+    rng,
+  );
   if (engager && victim) {
     return `LEVEL ONE — ${engager.name} catches ${victim.name} at ${place}`;
   }
@@ -600,9 +614,10 @@ export function describeScuttle(
   picks: (Champion | null)[],
   blueName: string,
   redName: string,
+  rng: RNG = Math.random,
 ): string {
   const jg = picks[POSITIONAL_LANES.indexOf("jungle")];
-  const where = pickRandom(["bot side", "top side"]);
+  const where = pickRandom(["bot side", "top side"], rng);
   if (jg) {
     return `${jg.name} fights for ${where} scuttler — wins the crab`;
   }
@@ -639,9 +654,10 @@ export function describeBuffSteal(
   picks: (Champion | null)[],
   blueName: string,
   redName: string,
+  rng: RNG = Math.random,
 ): string {
   const jg = picks[POSITIONAL_LANES.indexOf("jungle")];
-  const buff = pickRandom(["red buff", "blue buff", "raptors", "krugs"]);
+  const buff = pickRandom(["red buff", "blue buff", "raptors", "krugs"], rng);
   if (jg) {
     return `${jg.name} invades the enemy jungle, steals ${buff}`;
   }
@@ -652,6 +668,7 @@ export function describeShutdown(
   side: Side,
   winnerPicks: (Champion | null)[],
   loserPicks: (Champion | null)[],
+  rng: RNG = Math.random,
 ): string {
   const killer =
     findByArchetype(winnerPicks, ["assassin", "pick", "burst", "skirmish"]) ??
@@ -659,7 +676,7 @@ export function describeShutdown(
   const victim =
     findByArchetype(loserPicks, ["hyper-carry", "burst", "assassin"]) ??
     findSquishy(loserPicks);
-  const bounty = pickRandom([1000, 1000, 1500]);
+  const bounty = pickRandom([1000, 1000, 1500], rng);
   if (killer && victim) {
     return `SHUTDOWN! ${killer.name} collects ${bounty}g bounty on ${victim.name}`;
   }
@@ -689,19 +706,23 @@ export function describeVision(
   loserPicks: (Champion | null)[],
   blueName: string,
   redName: string,
+  rng: RNG = Math.random,
 ): string {
   const watcher =
     findByArchetype(winnerPicks, ["pick", "engage", "tank"]) ??
     laneOf(winnerPicks, "support") ??
     winnerPicks.find((c) => c != null);
   const victim = findSquishy(loserPicks);
-  const place = pickRandom([
-    "the Baron pit bush",
-    "tri-bush",
-    "drake pit",
-    "river entrance",
-    "the lane brush",
-  ]);
+  const place = pickRandom(
+    [
+      "the Baron pit bush",
+      "tri-bush",
+      "drake pit",
+      "river entrance",
+      "the lane brush",
+    ],
+    rng,
+  );
   if (watcher && victim) {
     return `${watcher.name} drops a control ward in ${place} — ${victim.name} steps on it`;
   }
@@ -713,18 +734,18 @@ export function describeOutplay(
   winnerPicks: (Champion | null)[],
   loserPicks: (Champion | null)[],
   outnumberedBy: number,
+  rng: RNG = Math.random,
 ): string {
   const star =
     findByArchetype(winnerPicks, ["assassin", "skirmish", "hyper-carry", "burst"]) ??
     winnerPicks.find((c) => c != null);
-  const place = pickRandom(["the side lane", "river", "tri-bush", "their own jungle"]);
+  const place = pickRandom(
+    ["the side lane", "river", "tri-bush", "their own jungle"],
+    rng,
+  );
   const ratio = outnumberedBy >= 3 ? "1v3" : "1v2";
   if (star) {
-    const flair = pickRandom([
-      "OUTPLAY!",
-      "INSANE!",
-      "WHAT A PLAY!",
-    ]);
+    const flair = pickRandom(["OUTPLAY!", "INSANE!", "WHAT A PLAY!"], rng);
     return `${flair} ${star.name} wins a ${ratio} in ${place}`;
   }
   return `Outplay — ${teamName(side, "Blue", "Red")} wins a ${ratio} in ${place}`;
@@ -762,10 +783,34 @@ export function describeWaveCrash(
   return `${teamName(side, blueName, redName)} wins the wave-crash ${laneShort}`;
 }
 
-export function describePowerSpike(champion: Champion, keyItem: string): string {
+// Mid-game strategic pivot (adaptiveMidgame). The losing side tears up its
+// game plan around minute 20 — the copy names the NEW plan so the comeback
+// (or the failed gamble) reads as a coaching decision in the replay.
+export function describeStrategicPivot(
+  side: Side,
+  blueName: string,
+  redName: string,
+  kind: "all-in" | "splitpush" | "objective-rush",
+): string {
+  const team = teamName(side, blueName, redName);
+  switch (kind) {
+    case "all-in":
+      return `PLAN PIVOT — ${team} abandons the slow game: hunt picks, force Baron`;
+    case "splitpush":
+      return `PLAN PIVOT — ${team} splits 1-3-1 to crack the siege, backdoor on the table`;
+    case "objective-rush":
+      return `PLAN PIVOT — ${team} sells out for objectives, trading everything for the next take`;
+  }
+}
+
+export function describePowerSpike(
+  champion: Champion,
+  keyItem: string,
+  rng: RNG = Math.random,
+): string {
   // Real LoL casters describe spikes with verbs that match the item:
   // "completes" for purchases, "comes online" / "powers up" for moments.
-  const verb = pickRandom(["completes", "powers up with", "finishes"]);
+  const verb = pickRandom(["completes", "powers up with", "finishes"], rng);
   return `POWER SPIKE — ${champion.name} ${verb} ${keyItem}`;
 }
 
@@ -868,9 +913,9 @@ export function addDeath(
   laneBucket(kda[side], lane).d += n;
 }
 
-function pickWeighted(weights: Record<Lane, number>): Lane {
+function pickWeighted(weights: Record<Lane, number>, rng: RNG = Math.random): Lane {
   const total = LANE_LIST.reduce((s, l) => s + weights[l], 0);
-  let r = Math.random() * total;
+  let r = rng() * total;
   for (const lane of LANE_LIST) {
     r -= weights[lane];
     if (r <= 0) return lane;
@@ -917,6 +962,7 @@ export function teamfightKDA(
   winnerSide: Side,
   winnerKills: number,
   loserKills: number,
+  rng: RNG = Math.random,
 ): EventKDA {
   const k = makeKDA();
   const loserSide: Side = winnerSide === "blue" ? "red" : "blue";
@@ -925,27 +971,27 @@ export function teamfightKDA(
   // assist per kill plus an extra assist for half the kills. Keeps numbers
   // believable for early skirmishes (3-1 fight: 3K, 4-5A spread).
   for (let i = 0; i < winnerKills; i++) {
-    addKill(k, winnerSide, pickWeighted(KILL_WEIGHTS));
+    addKill(k, winnerSide, pickWeighted(KILL_WEIGHTS, rng));
   }
   const assists = Math.max(0, Math.floor(winnerKills * 1.5));
   for (let i = 0; i < assists; i++) {
-    addAssist(k, winnerSide, pickWeighted(ASSIST_WEIGHTS));
+    addAssist(k, winnerSide, pickWeighted(ASSIST_WEIGHTS, rng));
   }
   // Each winner kill = 1 death somewhere on the losing team.
   for (let i = 0; i < winnerKills; i++) {
-    addDeath(k, loserSide, pickWeighted(DEATH_WEIGHTS));
+    addDeath(k, loserSide, pickWeighted(DEATH_WEIGHTS, rng));
   }
 
   // Loser kills (the few they got back).
   for (let i = 0; i < loserKills; i++) {
-    addKill(k, loserSide, pickWeighted(KILL_WEIGHTS));
+    addKill(k, loserSide, pickWeighted(KILL_WEIGHTS, rng));
   }
   const loserAssists = Math.max(0, Math.floor(loserKills * 1.3));
   for (let i = 0; i < loserAssists; i++) {
-    addAssist(k, loserSide, pickWeighted(ASSIST_WEIGHTS));
+    addAssist(k, loserSide, pickWeighted(ASSIST_WEIGHTS, rng));
   }
   for (let i = 0; i < loserKills; i++) {
-    addDeath(k, winnerSide, pickWeighted(DEATH_WEIGHTS));
+    addDeath(k, winnerSide, pickWeighted(DEATH_WEIGHTS, rng));
   }
   return k;
 }
@@ -980,8 +1026,9 @@ export function objectiveKDA(
   loserKills: number,
   smiterStolen: boolean,
   smiterSide: Side = winnerSide,
+  rng: RNG = Math.random,
 ): EventKDA {
-  const k = teamfightKDA(winnerSide, winnerKills, loserKills);
+  const k = teamfightKDA(winnerSide, winnerKills, loserKills, rng);
   if (smiterStolen) {
     // Smiter (jungle) gets bonus credit — they made the play happen.
     addAssist(k, smiterSide, "jungle");

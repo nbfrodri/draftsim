@@ -619,7 +619,8 @@ export function chooseAIStrategy(
   const macro = choose<MacroStyle>(
     [
       { value: "splitpush", weight: hasSplit ? 6 : 0.3 },
-      { value: "pick", weight: pickPotential >= 2 ? 4 : 1 },
+      // A loaded pick comp (3+ catch tools) commits to the pick game harder.
+      { value: "pick", weight: pickPotential >= 3 ? 5 : pickPotential >= 2 ? 4 : 1 },
       { value: "siege", weight: pokeCount >= 2 ? 4 : 0.4 },
       { value: "group", weight: 3.5 },
     ],
@@ -647,10 +648,12 @@ export function chooseAIStrategy(
     rng,
   );
 
-  // Vision now varies instead of defaulting to proactive every game.
+  // Vision now varies instead of defaulting to proactive every game. A real
+  // pick comp still leans proactive on argmax (deep wards ARE the win
+  // condition), but standard stays competitive so sampled games vary.
   const vision = choose<VisionControl>(
     [
-      { value: "proactive", weight: pickPotential >= 2 ? 3 : 1.2 },
+      { value: "proactive", weight: pickPotential >= 2 ? 4.5 : 1.2 },
       { value: "reactive", weight: scaling ? 3 : 1.2 },
       { value: "standard", weight: 4 },
     ],
@@ -764,6 +767,172 @@ export function chooseAIStrategy(
     botPlay,
     supportPlay,
   };
+}
+
+// ─── Series adaptation (AI strategy across a Bo3/Bo5) ────────────────────────
+//
+// chooseAIStrategy() plans one game in isolation. chooseAIStrategyForGame()
+// adds series memory: the AI looks at how its previous games went — which
+// plan it ran, whether it won, how badly, and what the opponent ran — and
+// shifts the plan in a principled (not random) way. The input is plain data
+// so the store can build it from SeriesState/GameDraft/GameRecap without
+// this module importing series code.
+
+// One finished game from THIS team's perspective.
+export interface PriorGameSummary {
+  // The plan this team committed to in that game.
+  strategy: TeamStrategy;
+  won: boolean;
+  // Final team-gold difference, signed from this team's perspective
+  // (negative = finished behind). Optional — use `stomp` when unknown.
+  goldDiff?: number;
+  // Coarse closeness flag for callers without gold data: true when the game
+  // was one-sided (e.g. |gold diff| ≥ ~7k or a sub-26-minute loss).
+  stomp?: boolean;
+  durationMinutes?: number;
+  // The opponent's plan, when known (AI knows its own AI plans; vs a human
+  // the store can pass the human's confirmed strategy).
+  opponentStrategy?: TeamStrategy;
+  // Opponent identity — lets a caller pass a longer history and have games
+  // vs other teams filtered out.
+  opponentName?: string;
+}
+
+export interface SeriesStrategyInput {
+  // This game's draft (positional order: top, jungle, mid, bot, support).
+  picks: (Champion | null)[];
+  // Same draft/series context chooseAIStrategy takes (enemy picks, rosters,
+  // series score). Optional.
+  context?: StrategyContext;
+  // Prior games in chronological order. Empty/omitted → game 1 behavior.
+  priorGames?: PriorGameSummary[];
+  // When set, prior games tagged with a different opponentName are ignored.
+  opponentName?: string;
+  // RNG for the base plan's sampled variety. Defaults to Math.random — AI
+  // teams should vary; pass a seeded rng in tests.
+  rng?: () => number;
+}
+
+// How bad was a lost game? "stomp" triggers the desperation dial.
+function wasStomped(g: PriorGameSummary): boolean {
+  if (g.stomp != null) return g.stomp;
+  if (g.goldDiff != null) return g.goldDiff <= -7000;
+  return false;
+}
+
+export function chooseAIStrategyForGame(
+  input: SeriesStrategyInput,
+): TeamStrategy {
+  const rng = input.rng ?? Math.random;
+  const picks = input.picks;
+  // Base plan: comp + context driven, sampled for variety. Always recomputed
+  // for THIS game's draft — adaptation below only overrides specific levers,
+  // so comp-derived choices (weakside, win condition, lane assignments) stay
+  // coherent with the new picks.
+  const base = chooseAIStrategy(picks, { ...input.context, rng });
+
+  const history = (input.priorGames ?? []).filter(
+    (g) =>
+      !input.opponentName ||
+      !g.opponentName ||
+      g.opponentName === input.opponentName,
+  );
+  const last = history[history.length - 1];
+  // Rule 0 — game 1 (or no relevant history): nothing to adapt to; play the
+  // draft-driven plan.
+  if (!last) return base;
+
+  const early = earlyCount(picks);
+  const late = lateScalingCount(picks);
+  const hasSplit = !!findByArchetype(picks, ["splitpush"]);
+
+  if (last.won) {
+    // Rule W — won the last game: don't fix what works. Carry over the
+    // winning plan's strategic identity (gamePlan / tempo / macro /
+    // objective); everything comp-specific (weakside, carries, lane
+    // assignments, risk) comes fresh from `base`, which already provides
+    // the "minor variation" via sampling. One veto: a carried splitpush
+    // macro is dropped if the new draft has no splitpusher to run it.
+    const macro =
+      last.strategy.macro === "splitpush" && !hasSplit
+        ? base.macro
+        : last.strategy.macro;
+    return {
+      ...base,
+      gamePlan: last.strategy.gamePlan,
+      tempo: last.strategy.tempo,
+      macro,
+      objective: last.strategy.objective,
+    };
+  }
+
+  // ── Lost the last game → shift the plan meaningfully ──────────────────
+  const out: TeamStrategy = { ...base };
+
+  if (
+    last.strategy.gamePlan === "scaling" ||
+    last.strategy.tempo === "passive"
+  ) {
+    // Rule L1 — lost playing slow: the wait-and-scale plan never reached its
+    // payoff (or reached it and still lost). Take tempo into our own hands:
+    // aggressive early plan, gank-heavy jungle, Herald for early towers.
+    // Early-snowball only if the draft has at least one early-game champion;
+    // otherwise a proactive teamfight plan is the honest aggressive option.
+    out.gamePlan = early >= 1 ? "early-snowball" : "teamfight";
+    out.tempo = "aggressive";
+    out.jungle = "gank";
+    out.objective = "herald";
+  } else if (
+    last.strategy.gamePlan === "early-snowball" ||
+    last.strategy.tempo === "aggressive"
+  ) {
+    // Rule L2 — lost playing fast: our aggression fed the enemy snowball.
+    // Flip to a safer scaling posture: passive tempo, farming jungle,
+    // dragon stacking, bot farms to its spike with the support glued on.
+    out.gamePlan = late >= 1 ? "scaling" : "teamfight";
+    out.tempo = "passive";
+    out.jungle = "farm";
+    out.objective = "dragon";
+    out.botPlay = "scale";
+    out.supportPlay = "protect";
+  } else if (hasSplit) {
+    // Rule L3a — lost a standard mid-tempo game and the draft has a
+    // splitpusher: change the SHAPE of the map instead of the speed — 1-3-1
+    // pressure forces the opponent out of the grouped game that beat us.
+    out.macro = "splitpush";
+    out.topPlay = "splitpush";
+  } else {
+    // Rule L3b — lost a standard game with no splitpusher: hunt picks.
+    // Proactive vision + catches deny the opponent the 5v5s they won.
+    out.macro = "pick";
+    out.vision = "proactive";
+  }
+
+  // Counter-rules: how the OPPONENT beat us takes priority over how our own
+  // plan failed, so these override the macro/vision chosen above.
+  if (
+    last.opponentStrategy &&
+    (last.opponentStrategy.macro === "splitpush" ||
+      last.opponentStrategy.topPlay === "splitpush")
+  ) {
+    // Rule L4 — lost to a splitpush: answer the 1-3-1 with grouped force,
+    // deep vision on the side lanes, and shutdown pressure on the splitter.
+    out.macro = "group";
+    out.vision = "proactive";
+    out.pickTarget = "top";
+  } else if (last.opponentStrategy?.macro === "pick") {
+    // Rule L5 — lost to a pick squad: stop getting caught. Sweep/counter-
+    // ward proactively, stay grouped, support babysits the carry.
+    out.macro = "group";
+    out.vision = "proactive";
+    out.supportPlay = "protect";
+  }
+
+  // Rule L6 — stomped: a lever tweak won't close a 7k-gold class gap.
+  // Embrace variance (coinflip smites, all-ins) to break serve.
+  if (wasStomped(last)) out.risk = "high-roll";
+
+  return out;
 }
 
 // ─── Comp fit → score-diff bias ───────────────────────────────────────────────

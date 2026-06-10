@@ -15,6 +15,7 @@ import {
   type Archetype,
   type ChampionMeta,
 } from "../championMeta";
+import type { RNG } from "../rng";
 import type { Champion, GameDraft, Lane, Side } from "../types";
 import {
   AP_BUILDERS_OVERRIDE,
@@ -486,11 +487,13 @@ export function identityTarget(
 
 // ─── Sampling ───────────────────────────────────────────────────────────────
 
-// Softmax-weighted sample from the top-N candidates by score.
+// Softmax-weighted sample from the top-N candidates by score. Takes an
+// optional RNG (defaults to Math.random) so seeded callers are deterministic.
 export function sampleTopN<T>(
   scored: { item: T; score: number }[],
   n: number,
   temperature: number,
+  rng: RNG = Math.random,
 ): T | null {
   if (scored.length === 0) return null;
   const sorted = [...scored].sort((a, b) => b.score - a.score);
@@ -499,7 +502,7 @@ export function sampleTopN<T>(
   const weights = top.map((t) => Math.exp((t.score - max) / temperature));
   const sum = weights.reduce((a, b) => a + b, 0);
   if (sum <= 0) return top[0].item;
-  let r = Math.random() * sum;
+  let r = rng() * sum;
   for (let i = 0; i < top.length; i++) {
     r -= weights[i];
     if (r <= 0) return top[i].item;

@@ -137,6 +137,13 @@ export interface TournamentTeam {
   // created/persisted before this feature; filled on decode and at
   // tournament creation.
   players?: Roster;
+  // Draft personality id for this team (see lib/draftAI/personalities.ts).
+  // When set, the AI uses the named personality's scoring weights and
+  // sampling overrides for every draft action this team takes in the
+  // tournament. Undefined → 'balanced' (exact historical behavior).
+  // Randomly assigned at tournament creation for AI teams that don't have
+  // one pre-set, so every tournament has varied drafting styles.
+  personalityId?: string;
 }
 
 // Curated 64-color palette for team accents. Designed to be visually
@@ -481,6 +488,14 @@ export interface TournamentMatch {
   // Empty string is treated the same as undefined for compatibility
   // with snapshots that pre-date multi-group support.
   groupId?: string;
+  // Swiss only: true when this is a synthetic bye match generated because
+  // the team count is odd. The match is pre-resolved with the bye
+  // recipient as winner (blueTeamId set, redTeamId null, winner populated
+  // at creation). Consumers that iterate matches to start/simulate skip
+  // it (blueTeamId && redTeamId guard already handles this), and
+  // computeSwissStandings handles it specially so the bye win is credited
+  // without a real opponent entry that would skew Buchholz.
+  isBye?: boolean;
 }
 
 export interface TournamentFearlessConfig {
@@ -626,6 +641,27 @@ export interface TournamentState {
     synergyOverride?: import("./championMeta").Synergy[] | null;
     counterOverride?: import("./championMeta").CounterPair[] | null;
   };
+  // Side-assignment rule applied to all series created from this tournament.
+  // Omitted → "loser-blue" (default). Stored so newly-started matches
+  // (and resume-from-export) use the same rule the tournament was created with.
+  sideRule?: import("./series").SideRule;
+  // ─── Live meta evolution (opt-in, see lib/metaEvolution.ts) ─────────
+  // When true, the meta snapshot EVOLVES between rounds: after every
+  // completed round the store calls evolveMetaForTournament, which
+  // shifts champion tiers (±1 max per event) based on observed
+  // presence + win rate and stores the result back here. All three
+  // fields are optional so legacy snapshots, serialization and
+  // default-created tournaments (flag absent → feature off) are
+  // completely unaffected.
+  liveMeta?: boolean;
+  // Append-only log of tier changes produced by evolution events —
+  // what moved, where, why, and after which round. Rendered by the
+  // dashboard as a "patch notes" feed.
+  metaEvolutionLog?: import("./metaEvolution").MetaChange[];
+  // Round keys (see listCompletedRounds in lib/metaEvolution.ts) that
+  // already triggered an evolution event. Guards double-processing
+  // when the store re-checks after every match.
+  metaEvolvedRounds?: string[];
 }
 
 // ─── Bracket seeding algorithm ────────────────────────────────────────────
@@ -1235,11 +1271,20 @@ function generateSwissRound1(
   formatOverrides?: FormatOverrides,
 ): TournamentMatch[] {
   const sorted = [...teams].sort((a, b) => a.seed - b.seed);
-  const half = sorted.length / 2;
+  const isOdd = sorted.length % 2 === 1;
+  // For an odd count, the lowest-seeded team (last in sorted order)
+  // receives the bye in round 1 — they are the highest seed number.
+  let byeTeam: TournamentTeam | null = null;
+  let active = sorted;
+  if (isOdd) {
+    byeTeam = sorted[sorted.length - 1];
+    active = sorted.slice(0, sorted.length - 1);
+  }
+  const half = active.length / 2;
   const matches: TournamentMatch[] = [];
   for (let i = 0; i < half; i++) {
-    const blue = sorted[i];
-    const red = sorted[i + half];
+    const blue = active[i];
+    const red = active[i + half];
     matches.push({
       id: makeMatchId(),
       round: 1,
@@ -1255,7 +1300,34 @@ function generateSwissRound1(
       feedsInto: null,
     });
   }
+  if (byeTeam) {
+    matches.push(makeBye(byeTeam, 1, defaults, formatOverrides));
+  }
   return matches;
+}
+
+// Build a synthetic pre-resolved bye match for the given team/round.
+function makeBye(
+  team: TournamentTeam,
+  round: number,
+  defaults: TournamentDefaults,
+  formatOverrides?: FormatOverrides,
+): TournamentMatch {
+  return {
+    id: makeMatchId(),
+    round,
+    blueTeamId: team.id,
+    redTeamId: null,
+    format: pickFormat(defaults, formatOverrides, `main:${round}`, "main"),
+    fearless: defaults.fearless,
+    mode: defaults.mode,
+    aiSide: defaults.aiSide,
+    aiDifficulty: defaults.aiDifficulty,
+    series: null,
+    winner: { teamId: team.id, blueWins: 1, redWins: 0 },
+    feedsInto: null,
+    isBye: true,
+  };
 }
 
 export function generateSwissBracket(
@@ -1267,8 +1339,8 @@ export function generateSwissBracket(
   totalRoundsOverride?: number,
 ): { matches: TournamentMatch[]; totalRounds: number } {
   const n = teams.length;
-  if (n < 4 || n % 2 !== 0) {
-    throw new Error(`Swiss requires an even team count ≥ 4 (got ${n})`);
+  if (n < 4) {
+    throw new Error(`Swiss requires at least 4 teams (got ${n})`);
   }
   const totalRounds =
     typeof totalRoundsOverride === "number" &&
@@ -1322,7 +1394,19 @@ export function computeSwissStandings(
     opponents.set(team.id, []);
   }
   for (const m of tournament.matches) {
-    if (!m.winner || !m.blueTeamId || !m.redTeamId) continue;
+    if (!m.winner) continue;
+    // Swiss bye: synthetic match with only the bye recipient set. Credit
+    // their win without adding an opponent (no Buchholz contribution).
+    if (m.isBye) {
+      const byeId = m.winner.teamId;
+      wins.set(byeId, (wins.get(byeId) ?? 0) + 1);
+      // played count is tracked via the opponents list length; for byes
+      // we push a sentinel empty string so `played` increments by 1 while
+      // the Buchholz sum contribution stays 0 (wins.get("") returns 0).
+      opponents.get(byeId)!.push("");
+      continue;
+    }
+    if (!m.blueTeamId || !m.redTeamId) continue;
     const blueId = m.blueTeamId;
     const redId = m.redTeamId;
     opponents.get(blueId)!.push(redId);
@@ -1382,6 +1466,13 @@ export function computeSwissStandings(
 // Generate the matches for round (currentRound+1) in a Swiss tournament.
 // Returns an empty array when the tournament has reached its total
 // rounds (caller should mark it complete).
+//
+// Odd-team-count handling: when the number of teams is odd, exactly one
+// team cannot be paired each round. Standard Swiss rules award that team
+// an automatic bye win. The bye recipient is chosen as the lowest-ranked
+// unpaired team that has NOT yet received a bye this tournament — if all
+// remaining candidates have had a bye already, the lowest-ranked is picked
+// again (minimises repeat byes).
 function generateNextSwissRound(
   tournament: TournamentState,
   currentRound: number,
@@ -1400,12 +1491,43 @@ function generateNextSwissRound(
     prevOpponents.get(m.blueTeamId)!.add(m.redTeamId);
     prevOpponents.get(m.redTeamId)!.add(m.blueTeamId);
   }
+
+  const round = currentRound + 1;
+  const isOdd = tournament.teams.length % 2 === 1;
+
+  // Determine which teams have already received a bye so we can prefer
+  // teams that haven't had one yet.
+  const byeRecipients = new Set<string>();
+  for (const m of tournament.matches) {
+    if (m.isBye && m.winner) byeRecipients.add(m.winner.teamId);
+  }
+
+  // For odd team count: pre-select the bye recipient before greedy
+  // pairing so the remaining even pool pairs cleanly.
+  let byeTeam: TournamentTeam | null = null;
+  if (isOdd) {
+    // Walk standings bottom-to-top; pick the first team that hasn't had a
+    // bye. If every team has had one, fall back to the lowest-ranked.
+    for (let i = standings.length - 1; i >= 0; i--) {
+      const candidate = standings[i].team;
+      if (!byeRecipients.has(candidate.id)) {
+        byeTeam = candidate;
+        break;
+      }
+    }
+    if (!byeTeam) {
+      // All have had a bye — give it to the lowest-ranked team.
+      byeTeam = standings[standings.length - 1].team;
+    }
+  }
+
   // Greedy: walk standings top to bottom, pair each unmatched team
   // with the next unmatched team they haven't played, falling back to
   // a rematch if no fresh pairing is left.
   const paired = new Set<string>();
+  if (byeTeam) paired.add(byeTeam.id); // exclude bye recipient from regular pairing
   const result: TournamentMatch[] = [];
-  const round = currentRound + 1;
+
   for (let i = 0; i < standings.length; i++) {
     const a = standings[i].team;
     if (paired.has(a.id)) continue;
@@ -1452,6 +1574,19 @@ function generateNextSwissRound(
       feedsInto: null,
     });
   }
+
+  // Append the bye match last so it sorts with its round peers.
+  if (byeTeam) {
+    result.push(
+      makeBye(
+        byeTeam,
+        round,
+        tournament.defaults,
+        tournament.formatOverrides,
+      ),
+    );
+  }
+
   return result;
 }
 
@@ -1507,6 +1642,17 @@ export function computeStandings(
     // (winners/losers/grand-final). Plain RR / group / swiss-stage
     // matches leave it undefined.
     if (match.bracket !== undefined) continue;
+    // Swiss bye: credit the win without a real opponent.
+    if (match.isBye) {
+      const byeRow = standings.get(match.winner.teamId);
+      if (byeRow) {
+        byeRow.played++;
+        byeRow.wins++;
+        byeRow.gamesWon += match.winner.blueWins;
+        byeRow.gameDiff += match.winner.blueWins;
+      }
+      continue;
+    }
     const blueId = match.blueTeamId;
     const redId = match.redTeamId;
     if (blueId == null || redId == null) continue;
@@ -1594,6 +1740,13 @@ export interface CreateTournamentParams {
     synergyOverride?: import("./championMeta").Synergy[] | null;
     counterOverride?: import("./championMeta").CounterPair[] | null;
   };
+  // Opt-in live meta evolution (see TournamentState.liveMeta). Omitted
+  // or false → the meta snapshot stays fixed for the whole tournament,
+  // exactly as before this feature existed.
+  liveMeta?: boolean;
+  // Side-assignment rule applied to all series in this tournament. Omitted
+  // → "loser-blue" (pre-existing default behavior).
+  sideRule?: import("./series").SideRule;
 }
 
 export function createTournament(
@@ -1665,6 +1818,9 @@ export function createTournament(
     reseedBetweenRounds: params.reseedBetweenRounds ?? false,
     trueGrandFinal: params.trueGrandFinal ?? false,
     metaSnapshot: params.metaSnapshot,
+    // Only materialize the flag when ON so default tournaments
+    // serialize byte-identically to pre-feature snapshots.
+    ...(params.liveMeta ? { liveMeta: true } : {}),
     swissTotalRounds,
     swissPlayoffsAdvancing:
       params.format === "swiss-playoffs"
@@ -1707,6 +1863,9 @@ export function createTournament(
     createdAt: now,
     updatedAt: now,
     activeMatchId: null,
+    // Only materialize sideRule when explicitly set — keeps default
+    // tournaments byte-identical to pre-feature snapshots.
+    ...(params.sideRule ? { sideRule: params.sideRule } : {}),
   };
 }
 

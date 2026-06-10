@@ -13,6 +13,7 @@ import { getAbilityProfile, teamLockdownTotal } from "./championAbilities";
 import { buildStatsAt, getKeyPowerSpike } from "./championBuilds";
 import { hardCounterValue } from "./draftAI/helpers";
 import { PLAYER_TIER_VALUE, playerForLane, poolBias } from "./players";
+import { formTierBias, type SideForms } from "./playerForm";
 import type { RNG } from "./rng";
 import {
   applyCarryFocusToLaneAdv,
@@ -1641,6 +1642,27 @@ export function playerLanePoolBias(
   return (poolBias(bp, blueChampId) - poolBias(rp, redChampId)) * k;
 }
 
+// Lane-gold swing from current player FORM (hot/cold streaks tracked across
+// games — see lib/playerForm.ts). Applied at the same seam and in the same
+// units as the tier micro-bias: formTierBias converts form ([-1,+1]) into
+// tier-value units (max ±0.5 = half a tier step), scaled by the same
+// PLAYER_LANE_BIAS_K. Max form swing is ±4 g/min per lane — a third of a
+// champion meta-tier step — so a hot streak colors lanes without dominating
+// champion/tier effects. Returns exactly 0 when neither side supplies forms,
+// keeping default simulations byte-identical.
+export function playerLaneFormBias(
+  blueForms: SideForms | undefined,
+  redForms: SideForms | undefined,
+  lane: Lane,
+  k: number = PLAYER_LANE_BIAS_K,
+): number {
+  if (!blueForms && !redForms) return 0;
+  return (
+    (formTierBias(blueForms?.[lane] ?? 0) - formTierBias(redForms?.[lane] ?? 0)) *
+    k
+  );
+}
+
 // Deterministic per-lane g/min advantages from the drafted matchups and
 // rosters. PURE — no noise here. The per-game lane variance (players having
 // a good/bad day) is applied separately at the call site in simulateMatch
@@ -1651,6 +1673,8 @@ function computeLaneAdvantages(
   redPicks: (Champion | null)[],
   bluePlayers?: Roster,
   redPlayers?: Roster,
+  blueForms?: SideForms,
+  redForms?: SideForms,
 ): Record<Lane, number> {
   const adv: Record<Lane, number> = {
     top: 0,
@@ -1706,6 +1730,9 @@ function computeLaneAdvantages(
       red.id,
       lane,
     );
+    // Hot/cold form for the players in this lane (lib/playerForm.ts). Exactly
+    // 0 when the caller passes no forms — the default path stays unchanged.
+    const formLaneBias = playerLaneFormBias(blueForms, redForms, lane);
     adv[lane] =
       phaseDiff * 50 +
       ccDiff * 5 +
@@ -1715,7 +1742,8 @@ function computeLaneAdvantages(
       rangeAdv +
       counterAdvantage +
       playerBias +
-      poolLaneBias;
+      poolLaneBias +
+      formLaneBias;
   }
   // Apply weakside redistributions. The weak side bleeds ~25 g/min while
   // the strong side gets +15 g/min — net negative for the team, but the
@@ -1969,6 +1997,15 @@ export interface SimulateOptions {
   // star), so this does not double-count tier.
   bluePlayers?: Roster;
   redPlayers?: Roster;
+  // Per-side, per-lane player FORM in [-1, +1] (hot/cold streak state from
+  // lib/playerForm.ts; build with sideFormsFor). Applied at the same seam as
+  // the player tier micro-bias, with max form worth half a tier step in lane
+  // gold. Default undefined (or all-zero forms) is exactly neutral — the
+  // simulation output is byte-identical to a run without this option.
+  playerForms?: {
+    blue?: SideForms;
+    red?: SideForms;
+  };
   // Optional strategy overrides. When omitted, the strategies stored on the
   // GameDraft are used (falling back to a neutral plan). Programmatic callers
   // and tests can force a plan here without mutating the game.
@@ -1978,6 +2015,14 @@ export interface SimulateOptions {
   // from lib/rng to make the whole simulation deterministic (same seed →
   // identical SimulationResult).
   rng?: RNG;
+  // Opt-in mid-game strategic pivot (see lib/sim/timeline/context.ts and
+  // ./fights). When true, a side that is clearly behind at ~min 20 will
+  // shift to a desperation strategy for the remainder of the game —
+  // "all-in" Baron rush, side-lane splitpush, or objective-rush. This
+  // adds a small amount of variance to simulated games that is otherwise
+  // absent; intentionally off by default so golden/calibration tests are
+  // unaffected.
+  adaptiveMidgame?: boolean;
 }
 
 export function simulateMatch(
@@ -2039,6 +2084,8 @@ export function simulateMatch(
     redPicks,
     options?.bluePlayers,
     options?.redPlayers,
+    options?.playerForms?.blue,
+    options?.playerForms?.red,
   );
   laneAdvantages = applyLaneNoise(laneAdvantages, bluePicks, redPicks, rng);
   laneAdvantages = applyWeaksideToLaneAdv(laneAdvantages, blueStrategy, redStrategy);
@@ -2057,6 +2104,7 @@ export function simulateMatch(
     laneAdvantages,
     blueStrategy,
     redStrategy,
+    adaptiveMidgame: options?.adaptiveMidgame,
   };
 
   const duration = computeDuration(ctx, rng);
@@ -2078,6 +2126,103 @@ export function simulateMatch(
     timeline,
     laneAdvantages,
   };
+}
+
+// ─── Per-player game ratings ────────────────────────────────────────────────
+//
+// 1-10 performance rating per pick (one decimal), football-manager style.
+// Blend of four signals:
+//   • KDA quality — kills + 0.7·assists vs deaths, squashed through tanh so
+//     a 13-2 carry game saturates near the cap instead of scaling linearly.
+//   • Involvement — kill participation (k+a over the team's total kills),
+//     centered on 45% so a bystander loses a little and a playmaker gains.
+//   • Lane outcome — per-lane gold diff from the player's perspective,
+//     ±2000 g saturating at ±1 rating point.
+//   • Result — winners get +0.45, losers −0.45: winners skew higher, but a
+//     hard-carried loss (huge KDA + winning lane) can still rate 7.5+ while
+//     a carried winner can sit ~6.
+//
+// Calibration (see lib/playerForm.test.ts): stomp winner's carry ≈ 8-10,
+// feeding loser ≈ 2-4, unremarkable game ≈ 5-6.5. Strictly monotone in
+// kills/assists (up) and deaths (down), all else equal.
+
+const RATING_BASE = 5.0;
+const RATING_KDA_SCALE = 2.4;
+const RATING_KDA_DIVISOR = 7;
+const RATING_ASSIST_WEIGHT = 0.7;
+const RATING_INVOLVEMENT_CENTER = 0.45;
+const RATING_INVOLVEMENT_SCALE = 1.2;
+const RATING_GOLD_SATURATION = 2000;
+const RATING_RESULT_BONUS = 0.45;
+
+function ratePlayerGame(
+  k: number,
+  d: number,
+  a: number,
+  laneGoldDiff: number,
+  won: boolean,
+  teamKills: number,
+): number {
+  const killPoints = k + a * RATING_ASSIST_WEIGHT;
+  const kdaScore =
+    RATING_KDA_SCALE * Math.tanh((killPoints - d) / RATING_KDA_DIVISOR);
+  const participation = Math.min(1, (k + a) / Math.max(1, teamKills));
+  const involvement =
+    (participation - RATING_INVOLVEMENT_CENTER) * RATING_INVOLVEMENT_SCALE;
+  const goldScore = Math.max(
+    -1,
+    Math.min(1, laneGoldDiff / RATING_GOLD_SATURATION),
+  );
+  const result = won ? RATING_RESULT_BONUS : -RATING_RESULT_BONUS;
+  const raw = RATING_BASE + kdaScore + involvement + goldScore + result;
+  return Math.round(Math.max(1, Math.min(10, raw)) * 10) / 10;
+}
+
+// Lane-ordered (top, jungle, middle, bottom, support) ratings per side —
+// aligned with GameRecap.perPickKDA.
+export interface GameRatings {
+  blue: number[];
+  red: number[];
+}
+
+// Pure rating derivation from a recap's per-pick stats. Exported so the UI
+// can also compute ratings for HISTORICAL recaps persisted before the
+// `ratings` field existed (winner comes from the GameDraft, not the recap).
+// Returns null when the recap predates perPickKDA entirely.
+export function computeGameRatings(
+  recap: Pick<
+    import("./types").GameRecap,
+    "perPickKDA" | "laneGoldDiff" | "durationMinutes"
+  >,
+  winner: Side,
+): GameRatings | null {
+  const kda = recap.perPickKDA;
+  if (!kda) return null;
+  const lanes: Lane[] = ["top", "jungle", "middle", "bottom", "support"];
+  const sum = (side: Array<{ k: number; d: number; a: number }>) =>
+    side.reduce((s, e) => s + (e?.k ?? 0), 0);
+  const blueKills = sum(kda.blue);
+  const redKills = sum(kda.red);
+  const rate = (side: Side): number[] =>
+    lanes.map((lane, i) => {
+      const entry = (side === "blue" ? kda.blue : kda.red)[i] ?? {
+        k: 0,
+        d: 0,
+        a: 0,
+      };
+      // laneGoldDiff is signed from BLUE's perspective; flip for red.
+      const goldBlue = recap.laneGoldDiff?.[lane] ?? 0;
+      const gold = side === "blue" ? goldBlue : -goldBlue;
+      return ratePlayerGame(
+        entry.k,
+        entry.d,
+        entry.a,
+        gold,
+        winner === side,
+        side === "blue" ? blueKills : redKills,
+      );
+    });
+  return { blue: rate("blue"), red: rate("red") };
 }
 
 // Build a compact recap summary (MVP + biggest swing) from a finished
@@ -2303,6 +2448,15 @@ export function buildGameRecap(
     })),
   };
 
+  // Per-player game ratings (1-10) derived from the same per-pick KDA and
+  // lane-gold numbers above. Optional on the type (legacy recaps lack it);
+  // always populated for freshly built recaps.
+  const ratings =
+    computeGameRatings(
+      { durationMinutes: result.timeline.durationMinutes, laneGoldDiff, perPickKDA },
+      result.winner,
+    ) ?? undefined;
+
   return {
     durationMinutes: result.timeline.durationMinutes,
     mvp,
@@ -2312,5 +2466,6 @@ export function buildGameRecap(
     goldLeadTimeline,
     notableEvents,
     perPickKDA,
+    ratings,
   };
 }

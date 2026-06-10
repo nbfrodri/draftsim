@@ -36,7 +36,10 @@ export default function TeamPanel({ champions, side }: Props) {
   const game = currentGame(series);
   const action = currentAction(game);
 
-  const byId = new Map(champions.map((c) => [c.id, c]));
+  const byId = useMemo(
+    () => new Map(champions.map((c) => [c.id, c])),
+    [champions],
+  );
 
   const picks = side === "blue" ? game.bluePicks : game.redPicks;
   const bans = side === "blue" ? game.blueBans : game.redBans;

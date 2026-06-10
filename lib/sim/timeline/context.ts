@@ -44,6 +44,24 @@ export interface TimelineCtx {
   // the caller didn't set one) so timeline code can read them unconditionally.
   blueStrategy: TeamStrategy;
   redStrategy: TeamStrategy;
+  // Opt-in mid-game adaptation: around minute ~20, a side that is clearly
+  // behind pivots its effective strategy for the remainder (see
+  // maybeMidgamePivot in ./fights). undefined/false → the timeline code path
+  // is completely unchanged (golden-locked behavior).
+  adaptiveMidgame?: boolean;
+}
+
+// How a losing team pivots at the ~min-20 checkpoint (adaptiveMidgame):
+//   "all-in"         — a failed slow/scaling plan flips to desperation picks
+//                      + a Baron-or-bust call.
+//   "splitpush"      — behind against a grouped siege, send the side lanes
+//                      wide and threaten the backdoor.
+//   "objective-rush" — default: trade everything for the next neutral take.
+export type PivotKind = "all-in" | "splitpush" | "objective-rush";
+
+export interface MidgamePivot {
+  side: Side;
+  kind: PivotKind;
 }
 
 export interface MatchState {
@@ -97,6 +115,11 @@ export interface TimelineContext {
   // already drew first blood, the actual first-blood event becomes an
   // "early kill" instead so the timeline doesn't claim two first bloods.
   firstKillTaken: boolean;
+  // Set by maybeMidgamePivot (./fights) when ctx.adaptiveMidgame is on and
+  // one side committed to a mid-game pivot. Read by phaseClosingFight (a
+  // splitpush pivot raises the winner's backdoor odds). Optional so the
+  // orchestrator's literal — and every default-path game — never sets it.
+  pivot?: MidgamePivot | null;
 }
 
 export const clampChance = (p: number) => Math.max(0.1, Math.min(0.9, p));

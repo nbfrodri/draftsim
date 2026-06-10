@@ -1,0 +1,2213 @@
+{
+  "Aatrox": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "skirmish",
+      "sustain"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "S+"
+    }
+  },
+  "Ahri": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "pick",
+      "assassin"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "S"
+    }
+  },
+  "Akali": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin",
+      "burst"
+    ],
+    "cc": "none",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "S+",
+      "top": "A"
+    }
+  },
+  "Akshan": {
+    "phase": "mid",
+    "archetypes": [
+      "skirmish",
+      "pick"
+    ],
+    "cc": "none",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "B",
+      "bottom": "A"
+    }
+  },
+  "Alistar": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "support": "S"
+    }
+  },
+  "Ambessa": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "skirmish"
+    ],
+    "cc": "soft",
+    "mobility": "high",
+    "metaTiers": {
+      "top": "S+"
+    }
+  },
+  "Amumu": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "B",
+      "support": "C"
+    }
+  },
+  "Anivia": {
+    "phase": "late",
+    "archetypes": [
+      "burst",
+      "poke",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
+  "Annie": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "B",
+      "support": "A"
+    }
+  },
+  "Aphelios": {
+    "phase": "mid-late",
+    "archetypes": [
+      "hyper-carry"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "bottom": "S"
+    }
+  },
+  "Ashe": {
+    "phase": "mid",
+    "archetypes": [
+      "poke",
+      "pick",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "bottom": "S",
+      "support": "B"
+    }
+  },
+  "AurelionSol": {
+    "phase": "late",
+    "archetypes": [
+      "burst",
+      "wombo",
+      "poke"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
+  "Aurora": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "peel"
+    ],
+    "cc": "soft",
+    "mobility": "medium",
+    "metaTiers": {
+      "middle": "S",
+      "top": "B"
+    }
+  },
+  "Azir": {
+    "phase": "late",
+    "archetypes": [
+      "wombo",
+      "poke",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
+  "Bard": {
+    "phase": "mid",
+    "archetypes": [
+      "pick",
+      "peel",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "support": "S+"
+    }
+  },
+  "Belveth": {
+    "phase": "mid-late",
+    "archetypes": [
+      "skirmish",
+      "dive",
+      "hyper-carry"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "S+"
+    }
+  },
+  "Blitzcrank": {
+    "phase": "mid",
+    "archetypes": [
+      "pick",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "A"
+    }
+  },
+  "Brand": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "wombo",
+      "poke"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "A",
+      "middle": "B"
+    }
+  },
+  "Braum": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "peel",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "S"
+    }
+  },
+  "Briar": {
+    "phase": "mid",
+    "archetypes": [
+      "skirmish",
+      "dive",
+      "sustain"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "S+"
+    }
+  },
+  "Caitlyn": {
+    "phase": "mid-late",
+    "archetypes": [
+      "poke",
+      "hyper-carry"
+    ],
+    "cc": "soft",
+    "mobility": "medium",
+    "metaTiers": {
+      "bottom": "S+"
+    }
+  },
+  "Camille": {
+    "phase": "mid",
+    "archetypes": [
+      "splitpush",
+      "dive",
+      "skirmish"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "top": "S+",
+      "jungle": "B"
+    }
+  },
+  "Cassiopeia": {
+    "phase": "late",
+    "archetypes": [
+      "poke",
+      "burst",
+      "skirmish"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "S",
+      "top": "B"
+    }
+  },
+  "Chogath": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "B",
+      "jungle": "C"
+    }
+  },
+  "Corki": {
+    "phase": "mid-late",
+    "archetypes": [
+      "poke",
+      "burst"
+    ],
+    "cc": "none",
+    "mobility": "medium",
+    "metaTiers": {
+      "middle": "B",
+      "bottom": "A"
+    }
+  },
+  "Darius": {
+    "phase": "early",
+    "archetypes": [
+      "dive",
+      "skirmish",
+      "sustain"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "S"
+    }
+  },
+  "Diana": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin",
+      "dive",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "S",
+      "middle": "A"
+    }
+  },
+  "DrMundo": {
+    "phase": "late",
+    "archetypes": [
+      "tank",
+      "sustain"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "B"
+    }
+  },
+  "Draven": {
+    "phase": "early",
+    "archetypes": [
+      "hyper-carry",
+      "skirmish"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "bottom": "A"
+    }
+  },
+  "Ekko": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "S",
+      "middle": "A"
+    }
+  },
+  "Elise": {
+    "phase": "early",
+    "archetypes": [
+      "dive",
+      "pick"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "B",
+      "support": "C"
+    }
+  },
+  "Evelynn": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin",
+      "pick"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "B"
+    }
+  },
+  "Ezreal": {
+    "phase": "mid-late",
+    "archetypes": [
+      "poke",
+      "skirmish"
+    ],
+    "cc": "none",
+    "mobility": "high",
+    "metaTiers": {
+      "bottom": "S",
+      "middle": "B"
+    }
+  },
+  "Fiddlesticks": {
+    "phase": "mid",
+    "archetypes": [
+      "wombo",
+      "burst"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "jungle": "A",
+      "support": "C"
+    }
+  },
+  "Fiora": {
+    "phase": "mid",
+    "archetypes": [
+      "splitpush",
+      "skirmish"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "S+"
+    }
+  },
+  "Fizz": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin",
+      "burst"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "A",
+      "top": "C"
+    }
+  },
+  "Galio": {
+    "phase": "mid",
+    "archetypes": [
+      "engage",
+      "wombo",
+      "tank"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "middle": "S",
+      "support": "A"
+    }
+  },
+  "Gangplank": {
+    "phase": "late",
+    "archetypes": [
+      "splitpush",
+      "poke"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "A",
+      "middle": "C"
+    }
+  },
+  "Garen": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "skirmish"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "S",
+      "support": "C"
+    }
+  },
+  "Gnar": {
+    "phase": "mid",
+    "archetypes": [
+      "poke",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "A"
+    }
+  },
+  "Gragas": {
+    "phase": "mid",
+    "archetypes": [
+      "engage",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "B",
+      "top": "C",
+      "middle": "C"
+    }
+  },
+  "Graves": {
+    "phase": "mid",
+    "archetypes": [
+      "skirmish"
+    ],
+    "cc": "soft",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "S"
+    }
+  },
+  "Gwen": {
+    "phase": "mid-late",
+    "archetypes": [
+      "skirmish",
+      "sustain",
+      "splitpush"
+    ],
+    "cc": "none",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "A",
+      "jungle": "C"
+    }
+  },
+  "Hecarim": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "S+"
+    }
+  },
+  "Heimerdinger": {
+    "phase": "mid",
+    "archetypes": [
+      "poke",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "B",
+      "support": "A",
+      "middle": "C"
+    }
+  },
+  "Hwei": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "poke",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "S",
+      "support": "B"
+    }
+  },
+  "Illaoi": {
+    "phase": "mid",
+    "archetypes": [
+      "skirmish",
+      "sustain"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "B"
+    }
+  },
+  "Irelia": {
+    "phase": "mid",
+    "archetypes": [
+      "skirmish",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "top": "A",
+      "middle": "B"
+    }
+  },
+  "Ivern": {
+    "phase": "mid",
+    "archetypes": [
+      "peel",
+      "enchanter"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "jungle": "B"
+    }
+  },
+  "Janna": {
+    "phase": "mid",
+    "archetypes": [
+      "peel",
+      "enchanter"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "S"
+    }
+  },
+  "JarvanIV": {
+    "phase": "mid",
+    "archetypes": [
+      "engage",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A"
+    }
+  },
+  "Jax": {
+    "phase": "mid-late",
+    "archetypes": [
+      "splitpush",
+      "skirmish"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "top": "S+",
+      "jungle": "B"
+    }
+  },
+  "Jayce": {
+    "phase": "mid",
+    "archetypes": [
+      "poke"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "A",
+      "middle": "C"
+    }
+  },
+  "Jhin": {
+    "phase": "mid",
+    "archetypes": [
+      "poke",
+      "hyper-carry",
+      "pick"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "bottom": "S+"
+    }
+  },
+  "Jinx": {
+    "phase": "late",
+    "archetypes": [
+      "hyper-carry"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "bottom": "S"
+    }
+  },
+  "KSante": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage",
+      "skirmish"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "S"
+    }
+  },
+  "Kaisa": {
+    "phase": "mid-late",
+    "archetypes": [
+      "hyper-carry",
+      "dive"
+    ],
+    "cc": "soft",
+    "mobility": "high",
+    "metaTiers": {
+      "bottom": "S+"
+    }
+  },
+  "Kalista": {
+    "phase": "mid",
+    "archetypes": [
+      "hyper-carry",
+      "pick"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "bottom": "B"
+    }
+  },
+  "Karma": {
+    "phase": "mid",
+    "archetypes": [
+      "enchanter",
+      "poke",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "S+",
+      "middle": "C"
+    }
+  },
+  "Karthus": {
+    "phase": "late",
+    "archetypes": [
+      "wombo",
+      "burst"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "jungle": "S",
+      "middle": "B"
+    }
+  },
+  "Kassadin": {
+    "phase": "late",
+    "archetypes": [
+      "assassin",
+      "skirmish"
+    ],
+    "cc": "soft",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
+  "Katarina": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin",
+      "wombo"
+    ],
+    "cc": "none",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "B"
+    }
+  },
+  "Kayle": {
+    "phase": "late",
+    "archetypes": [
+      "hyper-carry",
+      "splitpush"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "A",
+      "middle": "C"
+    }
+  },
+  "Kayn": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin",
+      "skirmish",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "A"
+    }
+  },
+  "Kennen": {
+    "phase": "mid",
+    "archetypes": [
+      "wombo",
+      "burst"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "B",
+      "middle": "C"
+    }
+  },
+  "Khazix": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin"
+    ],
+    "cc": "soft",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "S"
+    }
+  },
+  "Kindred": {
+    "phase": "mid-late",
+    "archetypes": [
+      "hyper-carry",
+      "skirmish"
+    ],
+    "cc": "soft",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A"
+    }
+  },
+  "Kled": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "B",
+      "jungle": "C"
+    }
+  },
+  "KogMaw": {
+    "phase": "late",
+    "archetypes": [
+      "hyper-carry"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "bottom": "A"
+    }
+  },
+  "Leblanc": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin",
+      "burst",
+      "pick"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "S"
+    }
+  },
+  "LeeSin": {
+    "phase": "early",
+    "archetypes": [
+      "skirmish",
+      "dive",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "S"
+    }
+  },
+  "Leona": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "support": "S"
+    }
+  },
+  "Lillia": {
+    "phase": "mid",
+    "archetypes": [
+      "skirmish",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "S+",
+      "top": "C"
+    }
+  },
+  "Lissandra": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
+  "Lucian": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "skirmish"
+    ],
+    "cc": "none",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "A",
+      "bottom": "S"
+    }
+  },
+  "Lulu": {
+    "phase": "mid",
+    "archetypes": [
+      "peel",
+      "enchanter"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "S+",
+      "middle": "C",
+      "top": "C"
+    }
+  },
+  "Lux": {
+    "phase": "mid",
+    "archetypes": [
+      "poke",
+      "burst",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "A",
+      "middle": "B"
+    }
+  },
+  "Malphite": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "A",
+      "support": "B"
+    }
+  },
+  "Malzahar": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "pick"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
+  "Maokai": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "S",
+      "top": "A",
+      "jungle": "C"
+    }
+  },
+  "MasterYi": {
+    "phase": "mid-late",
+    "archetypes": [
+      "skirmish",
+      "splitpush"
+    ],
+    "cc": "none",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "S"
+    }
+  },
+  "Mel": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "S+",
+      "support": "B"
+    }
+  },
+  "Milio": {
+    "phase": "mid",
+    "archetypes": [
+      "peel",
+      "enchanter"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "S+"
+    }
+  },
+  "MissFortune": {
+    "phase": "mid",
+    "archetypes": [
+      "wombo",
+      "poke"
+    ],
+    "cc": "soft",
+    "mobility": "medium",
+    "metaTiers": {
+      "bottom": "S",
+      "support": "B"
+    }
+  },
+  "MonkeyKing": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "B",
+      "jungle": "A"
+    }
+  },
+  "Mordekaiser": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "skirmish",
+      "sustain"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "S",
+      "jungle": "C"
+    }
+  },
+  "Morgana": {
+    "phase": "mid",
+    "archetypes": [
+      "peel",
+      "pick"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "S",
+      "middle": "B"
+    }
+  },
+  "Naafiri": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin",
+      "dive"
+    ],
+    "cc": "none",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "S",
+      "jungle": "C"
+    }
+  },
+  "Nami": {
+    "phase": "mid",
+    "archetypes": [
+      "enchanter",
+      "peel",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "S+"
+    }
+  },
+  "Nasus": {
+    "phase": "late",
+    "archetypes": [
+      "splitpush",
+      "skirmish",
+      "sustain"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "B"
+    }
+  },
+  "Nautilus": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage",
+      "pick"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "support": "S"
+    }
+  },
+  "Neeko": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "middle": "A",
+      "support": "A"
+    }
+  },
+  "Nidalee": {
+    "phase": "early",
+    "archetypes": [
+      "poke",
+      "skirmish"
+    ],
+    "cc": "soft",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "B"
+    }
+  },
+  "Nilah": {
+    "phase": "mid-late",
+    "archetypes": [
+      "hyper-carry",
+      "skirmish"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "bottom": "A"
+    }
+  },
+  "Nocturne": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "engage",
+      "assassin"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "A",
+      "middle": "C"
+    }
+  },
+  "Nunu": {
+    "phase": "mid",
+    "archetypes": [
+      "engage",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "jungle": "A"
+    }
+  },
+  "Olaf": {
+    "phase": "early",
+    "archetypes": [
+      "skirmish",
+      "dive"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "A",
+      "jungle": "S"
+    }
+  },
+  "Orianna": {
+    "phase": "mid",
+    "archetypes": [
+      "wombo",
+      "peel",
+      "poke"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "S"
+    }
+  },
+  "Ornn": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "B"
+    }
+  },
+  "Pantheon": {
+    "phase": "early",
+    "archetypes": [
+      "dive",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "support": "A",
+      "top": "B",
+      "middle": "C",
+      "jungle": "C"
+    }
+  },
+  "Poppy": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "A",
+      "support": "A",
+      "jungle": "B"
+    }
+  },
+  "Pyke": {
+    "phase": "mid",
+    "archetypes": [
+      "pick",
+      "assassin",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "support": "S+",
+      "middle": "C"
+    }
+  },
+  "Qiyana": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
+  "Quinn": {
+    "phase": "mid",
+    "archetypes": [
+      "splitpush",
+      "skirmish"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "top": "A",
+      "middle": "C"
+    }
+  },
+  "Rakan": {
+    "phase": "mid",
+    "archetypes": [
+      "engage",
+      "peel",
+      "enchanter"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "support": "S+"
+    }
+  },
+  "Rammus": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A",
+      "top": "C"
+    }
+  },
+  "RekSai": {
+    "phase": "mid",
+    "archetypes": [
+      "skirmish",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "B"
+    }
+  },
+  "Rell": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "support": "A",
+      "jungle": "C"
+    }
+  },
+  "Renata": {
+    "phase": "mid",
+    "archetypes": [
+      "enchanter",
+      "peel",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "A"
+    }
+  },
+  "Renekton": {
+    "phase": "early",
+    "archetypes": [
+      "dive",
+      "skirmish"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "A"
+    }
+  },
+  "Rengar": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin"
+    ],
+    "cc": "soft",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "S",
+      "top": "C"
+    }
+  },
+  "Riven": {
+    "phase": "mid-late",
+    "archetypes": [
+      "skirmish",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "top": "S"
+    }
+  },
+  "Rumble": {
+    "phase": "mid",
+    "archetypes": [
+      "wombo",
+      "skirmish"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "B",
+      "middle": "C"
+    }
+  },
+  "Ryze": {
+    "phase": "mid-late",
+    "archetypes": [
+      "burst",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "B",
+      "top": "C"
+    }
+  },
+  "Samira": {
+    "phase": "mid",
+    "archetypes": [
+      "wombo",
+      "skirmish",
+      "hyper-carry"
+    ],
+    "cc": "soft",
+    "mobility": "medium",
+    "metaTiers": {
+      "bottom": "A"
+    }
+  },
+  "Sejuani": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A"
+    }
+  },
+  "Senna": {
+    "phase": "late",
+    "archetypes": [
+      "hyper-carry",
+      "poke"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "S",
+      "bottom": "A"
+    }
+  },
+  "Seraphine": {
+    "phase": "mid-late",
+    "archetypes": [
+      "wombo",
+      "peel",
+      "enchanter"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "A",
+      "middle": "B",
+      "bottom": "C"
+    }
+  },
+  "Sett": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "skirmish",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "S",
+      "support": "A",
+      "middle": "C"
+    }
+  },
+  "Shaco": {
+    "phase": "early",
+    "archetypes": [
+      "assassin",
+      "pick"
+    ],
+    "cc": "none",
+    "mobility": "high",
+    "metaTiers": {
+      "jungle": "S",
+      "support": "B"
+    }
+  },
+  "Shen": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "peel",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "B",
+      "support": "B"
+    }
+  },
+  "Shyvana": {
+    "phase": "mid-late",
+    "archetypes": [
+      "skirmish",
+      "dive",
+      "poke"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A",
+      "top": "C"
+    }
+  },
+  "Singed": {
+    "phase": "mid",
+    "archetypes": [
+      "splitpush"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "B"
+    }
+  },
+  "Sion": {
+    "phase": "mid-late",
+    "archetypes": [
+      "tank",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "B",
+      "support": "C"
+    }
+  },
+  "Sivir": {
+    "phase": "mid-late",
+    "archetypes": [
+      "hyper-carry",
+      "peel"
+    ],
+    "cc": "soft",
+    "mobility": "medium",
+    "metaTiers": {
+      "bottom": "A"
+    }
+  },
+  "Skarner": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A",
+      "top": "C"
+    }
+  },
+  "Smolder": {
+    "phase": "late",
+    "archetypes": [
+      "hyper-carry"
+    ],
+    "cc": "soft",
+    "mobility": "medium",
+    "metaTiers": {
+      "bottom": "S"
+    }
+  },
+  "Sona": {
+    "phase": "mid",
+    "archetypes": [
+      "enchanter",
+      "peel",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "A",
+      "middle": "C"
+    }
+  },
+  "Soraka": {
+    "phase": "mid",
+    "archetypes": [
+      "enchanter",
+      "peel"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "S"
+    }
+  },
+  "Swain": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "wombo",
+      "sustain"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "A",
+      "top": "B",
+      "middle": "B"
+    }
+  },
+  "Sylas": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "skirmish"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "S+",
+      "top": "A"
+    }
+  },
+  "Syndra": {
+    "phase": "mid-late",
+    "archetypes": [
+      "burst",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
+  "TahmKench": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "peel",
+      "sustain"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "support": "A",
+      "top": "A"
+    }
+  },
+  "Taliyah": {
+    "phase": "mid",
+    "archetypes": [
+      "wombo",
+      "poke"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "middle": "A",
+      "jungle": "A"
+    }
+  },
+  "Talon": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin"
+    ],
+    "cc": "soft",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "A",
+      "jungle": "B"
+    }
+  },
+  "Taric": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "peel",
+      "engage"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "A"
+    }
+  },
+  "Teemo": {
+    "phase": "mid-late",
+    "archetypes": [
+      "splitpush",
+      "poke"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "B",
+      "middle": "C",
+      "support": "C"
+    }
+  },
+  "Thresh": {
+    "phase": "mid-late",
+    "archetypes": [
+      "pick",
+      "engage",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "S+"
+    }
+  },
+  "Tristana": {
+    "phase": "mid-late",
+    "archetypes": [
+      "hyper-carry",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "bottom": "S",
+      "middle": "B"
+    }
+  },
+  "Trundle": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "skirmish",
+      "splitpush"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "jungle": "A",
+      "top": "A"
+    }
+  },
+  "Tryndamere": {
+    "phase": "mid-late",
+    "archetypes": [
+      "splitpush",
+      "skirmish"
+    ],
+    "cc": "soft",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "A"
+    }
+  },
+  "TwistedFate": {
+    "phase": "mid",
+    "archetypes": [
+      "pick",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "middle": "A",
+      "support": "C"
+    }
+  },
+  "Twitch": {
+    "phase": "late",
+    "archetypes": [
+      "hyper-carry",
+      "poke"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "bottom": "S",
+      "jungle": "C"
+    }
+  },
+  "Udyr": {
+    "phase": "mid",
+    "archetypes": [
+      "skirmish",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A"
+    }
+  },
+  "Urgot": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "sustain"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "A"
+    }
+  },
+  "Varus": {
+    "phase": "mid",
+    "archetypes": [
+      "poke",
+      "hyper-carry"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "bottom": "A",
+      "support": "B"
+    }
+  },
+  "Vayne": {
+    "phase": "late",
+    "archetypes": [
+      "hyper-carry",
+      "splitpush"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "bottom": "S+",
+      "top": "C"
+    }
+  },
+  "Veigar": {
+    "phase": "late",
+    "archetypes": [
+      "burst",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "S",
+      "support": "B"
+    }
+  },
+  "Velkoz": {
+    "phase": "mid",
+    "archetypes": [
+      "poke",
+      "burst"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "A",
+      "support": "A"
+    }
+  },
+  "Vex": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "middle": "A",
+      "support": "B"
+    }
+  },
+  "Vi": {
+    "phase": "mid",
+    "archetypes": [
+      "engage",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A"
+    }
+  },
+  "Viego": {
+    "phase": "mid",
+    "archetypes": [
+      "skirmish",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A"
+    }
+  },
+  "Viktor": {
+    "phase": "mid-late",
+    "archetypes": [
+      "wombo",
+      "burst"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
+  "Vladimir": {
+    "phase": "mid-late",
+    "archetypes": [
+      "sustain",
+      "burst",
+      "wombo"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "B",
+      "top": "B"
+    }
+  },
+  "Volibear": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "skirmish"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "A",
+      "jungle": "A"
+    }
+  },
+  "Warwick": {
+    "phase": "mid",
+    "archetypes": [
+      "dive",
+      "skirmish",
+      "sustain"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A",
+      "top": "B"
+    }
+  },
+  "Xayah": {
+    "phase": "mid-late",
+    "archetypes": [
+      "hyper-carry",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "bottom": "S"
+    }
+  },
+  "Xerath": {
+    "phase": "mid",
+    "archetypes": [
+      "poke",
+      "burst"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "B",
+      "support": "A"
+    }
+  },
+  "XinZhao": {
+    "phase": "mid",
+    "archetypes": [
+      "engage",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A"
+    }
+  },
+  "Yasuo": {
+    "phase": "mid",
+    "archetypes": [
+      "skirmish",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "S+",
+      "top": "A"
+    }
+  },
+  "Yone": {
+    "phase": "mid",
+    "archetypes": [
+      "skirmish",
+      "dive"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "S+",
+      "top": "A"
+    }
+  },
+  "Yorick": {
+    "phase": "mid-late",
+    "archetypes": [
+      "splitpush",
+      "sustain"
+    ],
+    "cc": "soft",
+    "mobility": "low",
+    "metaTiers": {
+      "top": "A"
+    }
+  },
+  "Yunara": {
+    "phase": "mid-late",
+    "archetypes": [
+      "hyper-carry",
+      "skirmish"
+    ],
+    "cc": "soft",
+    "mobility": "medium",
+    "metaTiers": {
+      "bottom": "S+"
+    }
+  },
+  "Yuumi": {
+    "phase": "mid",
+    "archetypes": [
+      "enchanter",
+      "peel"
+    ],
+    "cc": "hard",
+    "mobility": "high",
+    "metaTiers": {
+      "support": "S+"
+    }
+  },
+  "Zac": {
+    "phase": "mid",
+    "archetypes": [
+      "tank",
+      "engage",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "jungle": "A",
+      "support": "C"
+    }
+  },
+  "Zaahen": {
+    "phase": "mid-late",
+    "archetypes": [
+      "skirmish",
+      "dive",
+      "sustain"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "top": "S+",
+      "jungle": "A"
+    }
+  },
+  "Zed": {
+    "phase": "mid",
+    "archetypes": [
+      "assassin"
+    ],
+    "cc": "soft",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
+  "Zeri": {
+    "phase": "mid-late",
+    "archetypes": [
+      "hyper-carry",
+      "skirmish"
+    ],
+    "cc": "soft",
+    "mobility": "high",
+    "metaTiers": {
+      "bottom": "S+"
+    }
+  },
+  "Ziggs": {
+    "phase": "mid-late",
+    "archetypes": [
+      "poke",
+      "burst"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "middle": "B",
+      "bottom": "A"
+    }
+  },
+  "Zilean": {
+    "phase": "mid",
+    "archetypes": [
+      "peel",
+      "enchanter"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "A",
+      "middle": "C"
+    }
+  },
+  "Zoe": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "pick"
+    ],
+    "cc": "hard",
+    "mobility": "medium",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
+  "Zyra": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "wombo"
+    ],
+    "cc": "hard",
+    "mobility": "low",
+    "metaTiers": {
+      "support": "A",
+      "middle": "C"
+    }
+  }
+}

@@ -13,6 +13,12 @@
 
 import itemsData from "./data/items.json";
 import type { ChampionMeta } from "./championMeta";
+import {
+  sanitizeBoolean,
+  sanitizeNumber,
+  sanitizeString,
+  SanitizationLog,
+} from "./dataValidation";
 
 export interface ItemStats {
   ad: number;
@@ -36,8 +42,42 @@ interface MerakiItem extends ItemStats {
   isAntiHeal: boolean;
 }
 
-const ITEMS: Readonly<Record<string, MerakiItem>> =
-  itemsData as Record<string, MerakiItem>;
+// Validate and sanitize all item entries at module load.
+// Malformed numeric fields are coerced to 0; a single aggregated warning is
+// emitted listing every bad path so issues are visible without crashing the app.
+function loadAndSanitizeItems(): Readonly<Record<string, MerakiItem>> {
+  const raw = itemsData as Record<string, unknown>;
+  const log = new SanitizationLog();
+  const sanitized: Record<string, MerakiItem> = {};
+
+  for (const [key, entry] of Object.entries(raw)) {
+    const p = `items.${key}`;
+    const e = (entry ?? {}) as Record<string, unknown>;
+    sanitized[key] = {
+      name: sanitizeString(e["name"], `${p}.name`, log, key),
+      ad: sanitizeNumber(e["ad"], `${p}.ad`, log),
+      ap: sanitizeNumber(e["ap"], `${p}.ap`, log),
+      armor: sanitizeNumber(e["armor"], `${p}.armor`, log),
+      mr: sanitizeNumber(e["mr"], `${p}.mr`, log),
+      hp: sanitizeNumber(e["hp"], `${p}.hp`, log),
+      abilityHaste: sanitizeNumber(e["abilityHaste"], `${p}.abilityHaste`, log),
+      attackSpeed: sanitizeNumber(e["attackSpeed"], `${p}.attackSpeed`, log),
+      crit: sanitizeNumber(e["crit"], `${p}.crit`, log),
+      armorPen: sanitizeNumber(e["armorPen"], `${p}.armorPen`, log),
+      magicPen: sanitizeNumber(e["magicPen"], `${p}.magicPen`, log),
+      lifesteal: sanitizeNumber(e["lifesteal"], `${p}.lifesteal`, log),
+      omnivamp: sanitizeNumber(e["omnivamp"], `${p}.omnivamp`, log),
+      movespeed: sanitizeNumber(e["movespeed"], `${p}.movespeed`, log),
+      cost: sanitizeNumber(e["cost"], `${p}.cost`, log),
+      isAntiHeal: sanitizeBoolean(e["isAntiHeal"], `${p}.isAntiHeal`, log),
+    };
+  }
+
+  log.flush("items.json");
+  return sanitized;
+}
+
+const ITEMS: Readonly<Record<string, MerakiItem>> = loadAndSanitizeItems();
 
 const ZERO: ItemStats = {
   ad: 0,

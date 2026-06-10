@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { isDesktop, createDesktopLazyStorage, migrateWebStorageToDesktop } from "@/lib/desktopStorage";
 import {
   applyLock,
   applyTimeout,
@@ -11,10 +12,14 @@ import {
   swapChampions as swapChampionsPure,
 } from "@/lib/draftEngine";
 import {
+  applySideChoice,
+  chooseSideAI,
   createSeries,
   currentGame,
   difficultyForSide,
+  effectiveSideRule,
   fearlessLockedSet,
+  nextGameSides,
   recordWinner,
   requiredWins,
   startNextGame,
@@ -83,18 +88,39 @@ import {
   type TournamentMatch,
   type TournamentState,
 } from "@/lib/tournament";
-import { buildGameRecap, simulateMatch } from "@/lib/matchSimulator";
+import { buildGameRecap, computeGameRatings, simulateMatch } from "@/lib/matchSimulator";
 import { randomizeRoster } from "@/lib/players";
-import { chooseAIStrategy, type TeamStrategy } from "@/lib/sim/strategies";
+import { chooseAIStrategyForGame, type PriorGameSummary, type TeamStrategy } from "@/lib/sim/strategies";
+import {
+  applyRatingsToForms,
+  sideFormsFor,
+  type PlayerFormMap,
+} from "@/lib/playerForm";
+import {
+  PERSONALITY_LIST,
+  getPersonality,
+} from "@/lib/draftAI";
+import { evolveMetaForTournament } from "@/lib/metaEvolution";
+import {
+  compactEncodeTournamentForPersist,
+  decodeRecapHeavyFields,
+  type RecapCompact,
+} from "@/lib/recapCompression";
 
 export const ACTION_SECONDS = 30;
 
-// localStorage wrapper that gracefully handles QuotaExceededError. When
-// the persisted state grows past the ~5MB browser quota (most common
-// cause: large tournamentHistory), we drop the heaviest field and
-// retry. If the retry also fails we drop tournamentHistory entirely
-// and only keep the active tournament + ephemeral state. Last resort:
-// swallow the error so the in-memory store stays usable.
+// localStorage wrapper that gracefully handles QuotaExceededError.
+//
+// Fallback chain on QuotaExceededError:
+//   1. Drop tournamentHistory (largest field) and retry.
+//   2. If still over quota, fall back to the OLD slimming strategy for the
+//      active tournament: strip compact-encoded recap data back to just the
+//      lightweight summary fields (winProbTimeline etc. removed, recapC
+//      removed too). This is a last resort — replay charts will be lost on
+//      the next reload, but the save will succeed.
+//   3. Drop tournamentHistory entirely from the already-slimmed payload and
+//      retry one final time.
+//   4. Remove the key entirely so the next render proceeds in-memory only.
 const quotaSafeStorage =
   typeof window === "undefined"
     ? undefined
@@ -110,19 +136,65 @@ const quotaSafeStorage =
                 err.code === 22 ||
                 err.code === 1014);
             if (!isQuota) throw err;
+
+            // Step 1: drop tournamentHistory and retry.
+            let parsed: { state?: Record<string, unknown> } | null = null;
             try {
-              const parsed = JSON.parse(value) as {
-                state?: Record<string, unknown>;
-              };
-              if (parsed?.state) {
-                // Drop the largest field (tournamentHistory) and retry.
+              parsed = JSON.parse(value) as { state?: Record<string, unknown> };
+            } catch {
+              // Unparseable — fall through to key removal.
+            }
+            if (parsed?.state) {
+              try {
                 delete parsed.state.tournamentHistory;
                 window.localStorage.setItem(key, JSON.stringify(parsed));
+                console.warn("[draftsim] QuotaExceededError: dropped tournamentHistory to fit quota.");
                 return;
+              } catch {
+                // Step 2: also slim the active tournament by removing recapC.
+                try {
+                  const t = parsed.state.tournament as {
+                    matches?: Array<{
+                      series?: {
+                        games?: Array<{
+                          recap?: { recapC?: unknown };
+                        }>;
+                      };
+                    }>;
+                  } | null | undefined;
+                  if (t?.matches) {
+                    for (const m of t.matches) {
+                      if (!m.series) continue;
+                      for (const g of m.series.games ?? []) {
+                        if (!g.recap) continue;
+                        // Remove compact payload and fall back to full slim
+                        // (strip the heavy fields if they somehow reappeared).
+                        const rc = g.recap as Record<string, unknown>;
+                        delete rc.recapC;
+                        delete rc.winProbTimeline;
+                        delete rc.goldLeadTimeline;
+                        delete rc.notableEvents;
+                        delete rc.perPickKDA;
+                      }
+                    }
+                  }
+                  window.localStorage.setItem(key, JSON.stringify(parsed));
+                  console.warn("[draftsim] QuotaExceededError: dropped recapC + heavy fields from active tournament.");
+                  return;
+                } catch {
+                  // Step 3: also drop tournamentHistory from this slimmed copy.
+                  try {
+                    delete parsed.state.tournamentHistory;
+                    window.localStorage.setItem(key, JSON.stringify(parsed));
+                    console.warn("[draftsim] QuotaExceededError: dropped history + recapC from active tournament.");
+                    return;
+                  } catch {
+                    // Step 4: last resort — remove the key entirely.
+                  }
+                }
               }
-            } catch {
-              // Fall through to silent drop.
             }
+
             try {
               window.localStorage.removeItem(key);
             } catch {
@@ -177,6 +249,42 @@ interface DraftStore {
   // by the post-draft "AI decisions" recap. Skip-fast-forwarded actions
   // are NOT recorded (skip prioritises speed over instrumentation).
   aiRationaleHistory: Array<{ actionIndex: number; rationale: AIRationale }>;
+  // ─── Player form (feature 5) ────────────────────────────────────────────
+  // Flat map of player form values keyed by `${teamKey}:${lane}`. Updated
+  // after every applied/simulated game. Tournament-scoped when a tournament
+  // is active (survives reload via persistence; resets per-tournament via
+  // startTournament). Series-scoped for single-series play (resets on
+  // startSimulation).
+  playerForms: PlayerFormMap;
+  // ─── Pre-tournament meta snapshot (feature 6 — live-meta rollback) ──────
+  // Captured in startTournament for live-meta tournaments so the user's own
+  // meta override (built in MetaEditor / via randomizeMeta) can be fully
+  // restored when the tournament ends or is abandoned.
+  //
+  // Relationship with tournament.metaSnapshot:
+  //   tournament.metaSnapshot = meta the TOURNAMENT was CREATED with (and
+  //     the current evolved state for live-meta tournaments — it mutates as
+  //     rounds complete). This is what every match and the AI uses for the
+  //     duration of the event.
+  //   preTournamentMetaSnapshot = meta the USER had configured BEFORE
+  //     startTournament was called. This is what we restore to on exit/end
+  //     so the evolved tiers don't bleed into subsequent standalone drafts.
+  //
+  // For non-live-meta tournaments the two snapshots are identical, so
+  // we only save/restore for live-meta. Persisted so a reload mid-tournament
+  // still restores cleanly. Cleared (set to null) after restore.
+  preTournamentMetaSnapshot: {
+    metaOverride: MetaOverride | null;
+    metaSource: MetaSource;
+    metaEnabled: boolean;
+    synergyOverride: Synergy[] | null;
+    counterOverride: CounterPair[] | null;
+  } | null;
+  // ─── Side choice pending state (feature 4 / loser-picks) ───────────────
+  // Set to true when the active series is under "loser-picks" and the human
+  // team is the one that holds the side choice. UI renders a picker;
+  // cleared when chooseSide() is called.
+  sideChoicePending: boolean;
 
   setChampions: (champions: Champion[]) => void;
   setSoundEnabled: (v: boolean) => void;
@@ -242,10 +350,15 @@ interface DraftStore {
   // localStorage payload small.
   tournamentHistory: TournamentState[];
   // Transient flag set while a sim-one-match or sim-all-remaining run is
-  // in progress. The actions set it true → defer the sim work to the
-  // next event-loop tick → run → set back to null. Lets the UI paint a
-  // loading overlay before blocking on the synchronous sim.
+  // in progress. The bulk actions run an async loop that yields to the
+  // event loop between matches (so the UI thread breathes) and commits
+  // batched state updates; the flag drives the SimulatingOverlay and
+  // guards against re-entry.
   simulating: null | "match" | "all";
+  // Lightweight progress readout for the SimulatingOverlay while a bulk
+  // sim runs ("23/56 matches"). Intentionally NOT persisted (partialize
+  // whitelist) and only two numbers, so the per-update set() is cheap.
+  simProgress: { done: number; total: number } | null;
   // Open a history entry for review — sets it as the active tournament.
   // The dashboard renders it in its already-complete state.
   loadFromHistory: (tournamentId: string) => void;
@@ -303,6 +416,11 @@ interface DraftStore {
   // active match — won't persist mid-match progress beyond what's
   // already in `series`.
   exitTournament: () => void;
+  // ─── Feature 4: loser-picks side choice ────────────────────────────────
+  /** Apply the human's side choice under "loser-picks". No-op when there
+   *  is no pending choice or the series isn't between games. Clears
+   *  `sideChoicePending` and starts the next game. */
+  chooseSide: (side: "blue" | "red") => void;
 }
 
 function allChampionIds(champs: Champion[]): number[] {
@@ -310,7 +428,7 @@ function allChampionIds(champs: Champion[]): number[] {
 }
 
 // Auto-play a single tournament match in AI-vs-AI mode end-to-end.
-// Returns the updated tournament state after recording the match
+// Returns [updatedTournament, updatedPlayerForms] after recording the match
 // winner, advancing the bracket, and appending picks to cross-match
 // histories. Pure: never reads or writes the store. Used by both
 // simulateOneMatch (single-match) and simulateAllRemaining (loop).
@@ -318,12 +436,13 @@ function autoPlayMatch(
   workingTournament: TournamentState,
   matchId: string,
   champions: Champion[],
-): TournamentState {
+  playerForms: PlayerFormMap = {},
+): [TournamentState, PlayerFormMap] {
   const match = workingTournament.matches.find((m) => m.id === matchId);
-  if (!match) return workingTournament;
-  if (match.winner) return workingTournament;
+  if (!match) return [workingTournament, playerForms];
+  if (match.winner) return [workingTournament, playerForms];
   if (match.blueTeamId == null || match.redTeamId == null) {
-    return workingTournament;
+    return [workingTournament, playerForms];
   }
   const blueTeam = workingTournament.teams.find(
     (t) => t.id === match.blueTeamId,
@@ -331,7 +450,7 @@ function autoPlayMatch(
   const redTeam = workingTournament.teams.find(
     (t) => t.id === match.redTeamId,
   );
-  if (!blueTeam || !redTeam) return workingTournament;
+  if (!blueTeam || !redTeam) return [workingTournament, playerForms];
   const allIds = allChampionIds(champions);
   // Tournament momentum context — star ratings + win streaks +
   // round-depth in one lookup. Falls back to plain star ratings if the
@@ -347,8 +466,8 @@ function autoPlayMatch(
     mode: "aivai",
     aiSide: null,
     aiDifficulty: match.aiDifficulty,
-    blueAiDifficulty: undefined,
-    redAiDifficulty: undefined,
+    blueAiDifficulty: blueTeam.aiDifficulty,
+    redAiDifficulty: redTeam.aiDifficulty,
     blueStarRating: tctx?.blueStarRating ?? teamStarRating(blueTeam),
     redStarRating: tctx?.redStarRating ?? teamStarRating(redTeam),
     blueWinStreak: tctx?.blueWinStreak,
@@ -356,7 +475,13 @@ function autoPlayMatch(
     tournamentRound: tctx?.roundDepth,
     bluePlayers: blueTeam.players,
     redPlayers: redTeam.players,
+    // Personality ids follow teams.
+    bluePersonalityId: blueTeam.personalityId,
+    redPersonalityId: redTeam.personalityId,
+    // Side-assignment rule from the tournament.
+    sideRule: workingTournament.sideRule,
   });
+  let currentForms = playerForms;
   while (series.status !== "complete") {
     const crossLocked = crossMatchFearlessLocked(
       workingTournament,
@@ -368,11 +493,17 @@ function autoPlayMatch(
     let game = currentGame(series);
     while (currentAction(game)) {
       const action = currentAction(game)!;
+      // Use the personality for whichever side is currently acting.
+      const personality = getPersonality(
+        action.side === "blue" ? series.bluePersonalityId : series.redPersonalityId,
+      );
       const championId = chooseAIAction(
         game,
         champions,
         locked,
         seriesAIContextFrom(series, action.side, champions, tournamentWR),
+        Math.random,
+        personality,
       );
       if (championId == null) {
         game = applyTimeout(game, allIds, locked);
@@ -382,11 +513,10 @@ function autoPlayMatch(
       }
     }
     game = finalizeRoles(game, champions, series);
-    // AI auto-play picks each side's game plan with the same context-aware,
-    // varied selector the StrategyView uses for AI sides — so plans differ
-    // between teams and games, and adapt to the series scoreline + the enemy
-    // draft/roster (deny their best carry, dodge a bad top, high-roll when
-    // facing elimination, etc.).
+    // AI auto-play picks each side's game plan using series-adaptive
+    // chooseAIStrategyForGame so plans evolve within the match based on
+    // how prior games went (deny their best carry, flip tempo after a
+    // loss, etc.).
     {
       const byId = new Map(champions.map((c) => [c.id, c]));
       const toChamps = (ids: (number | null)[]) =>
@@ -397,24 +527,39 @@ function autoPlayMatch(
       const blueWins = wins.get(game.blueTeam) ?? 0;
       const redWins = wins.get(game.redTeam) ?? 0;
       const gamesToWin = requiredWins(series.format);
+      // Build prior-game summaries (team-following — pass team names).
+      const bluePrior = buildPriorGamesForTeam(series, game.blueTeam, game.redTeam);
+      const redPrior = buildPriorGamesForTeam(series, game.redTeam, game.blueTeam);
       game = {
         ...game,
-        blueStrategy: chooseAIStrategy(blueChamps, {
-          enemyPicks: redChamps,
-          roster: series.bluePlayers,
-          enemyRoster: series.redPlayers,
-          selfWins: blueWins,
-          oppWins: redWins,
-          gamesToWin,
+        blueStrategy: chooseAIStrategyForGame({
+          picks: blueChamps,
+          context: {
+            enemyPicks: redChamps,
+            roster: series.bluePlayers,
+            enemyRoster: series.redPlayers,
+            selfWins: blueWins,
+            oppWins: redWins,
+            gamesToWin,
+            rng: Math.random,
+          },
+          priorGames: bluePrior,
+          opponentName: game.redTeam,
           rng: Math.random,
         }),
-        redStrategy: chooseAIStrategy(redChamps, {
-          enemyPicks: blueChamps,
-          roster: series.redPlayers,
-          enemyRoster: series.bluePlayers,
-          selfWins: redWins,
-          oppWins: blueWins,
-          gamesToWin,
+        redStrategy: chooseAIStrategyForGame({
+          picks: redChamps,
+          context: {
+            enemyPicks: blueChamps,
+            roster: series.redPlayers,
+            enemyRoster: series.bluePlayers,
+            selfWins: redWins,
+            oppWins: blueWins,
+            gamesToWin,
+            rng: Math.random,
+          },
+          priorGames: redPrior,
+          opponentName: game.blueTeam,
           rng: Math.random,
         }),
       };
@@ -423,19 +568,63 @@ function autoPlayMatch(
       ...series,
       games: [...series.games.slice(0, -1), game],
     };
+    // Feature 5: pass player forms to the simulator.
+    const blueKey = blueTeam.id;
+    const redKey = redTeam.id;
     const result = simulateMatch(game, champions, {
       scoreBias: starRatingBias(series),
       bluePlayers: series.bluePlayers,
       redPlayers: series.redPlayers,
+      playerForms: {
+        blue: sideFormsFor(currentForms, blueKey),
+        red: sideFormsFor(currentForms, redKey),
+      },
+      adaptiveMidgame: true,
     });
     const recap = buildGameRecap(game, champions, result);
+    // Update forms after the game.
+    if (recap.ratings) {
+      currentForms = applyRatingsToForms(currentForms, blueKey, recap.ratings.blue);
+      currentForms = applyRatingsToForms(currentForms, redKey, recap.ratings.red);
+    } else {
+      const derived = computeGameRatings(recap, result.winner);
+      if (derived) {
+        currentForms = applyRatingsToForms(currentForms, blueKey, derived.blue);
+        currentForms = applyRatingsToForms(currentForms, redKey, derived.red);
+      }
+    }
     series = recordWinner(series, result.winner, recap);
     if (series.status === "between-games") {
-      const lastGame = series.games[series.games.length - 1];
-      const swap = lastGame?.winner === "blue";
-      const newBlue = swap ? series.redTeam : series.blueTeam;
-      const newRed = swap ? series.blueTeam : series.redTeam;
-      series = startNextGame(series, newBlue, newRed);
+      // Feature 4: respect the tournament's sideRule.
+      const rule = effectiveSideRule(series);
+      if (rule === "loser-picks") {
+        // In bulk auto-sim both teams are AI — resolve the choice immediately.
+        const chooser = series.sideChooser;
+        if (chooser) {
+          const chooserTeam = chooser === blueTeam.name ? blueTeam : redTeam;
+          const teamPicks: number[] = [];
+          for (const g of series.games) {
+            const picksArr = g.blueTeam === chooser ? g.bluePicks : g.redPicks;
+            for (const id of picksArr) if (id != null) teamPicks.push(id);
+          }
+          const chosenSide = chooseSideAI(
+            { players: chooserTeam.players, pickHistory: teamPicks },
+            Math.random,
+          );
+          series = applySideChoice(series, chosenSide);
+        }
+      } else {
+        const sides = nextGameSides(series);
+        if (sides) {
+          series = startNextGame(series, sides.blueTeam, sides.redTeam);
+        } else {
+          const lastGame = series.games[series.games.length - 1];
+          const swap = lastGame?.winner === "blue";
+          const newBlue = swap ? series.redTeam : series.blueTeam;
+          const newRed = swap ? series.blueTeam : series.redTeam;
+          series = startNextGame(series, newBlue, newRed);
+        }
+      }
     }
   }
   const wins = winsByTeamName(series);
@@ -463,11 +652,12 @@ function autoPlayMatch(
     matches: matchesWithSeries,
   };
   const withPicks = appendMatchPicks(tournamentWithSeries, matchId, series);
-  return recordMatchWinner(withPicks, matchId, {
+  const finalTournament = recordMatchWinner(withPicks, matchId, {
     teamId: winningTeamId,
     blueWins,
     redWins,
   });
+  return [finalTournament, currentForms];
 }
 
 // Strip heavy per-game fields from a tournament snapshot before
@@ -504,18 +694,121 @@ function slimTournamentForArchive(
   };
 }
 
+// Compact encoding for the active tournament's recaps (v6 persistence
+// format) now lives in lib/recapCompression.ts — memoized by object
+// identity so partialize (which runs on EVERY set) only pays encoding
+// cost for recaps/matches that actually changed. Archived history still
+// uses slimTournamentForArchive on web (no chart data at all).
+
+// Decode compact-encoded recaps in a tournament back to their full form.
+// Inverse of compactEncodeTournamentForPersist. Called in onRehydrateStorage
+// so all consumers (replay modal, charts, recap panels) see normal data.
+function decodeCompactTournament(tournament: TournamentState): TournamentState {
+  return {
+    ...tournament,
+    matches: tournament.matches.map((m) => {
+      if (!m.series) return m;
+      return {
+        ...m,
+        series: {
+          ...m.series,
+          games: m.series.games.map((g) => {
+            if (!g.recap) return g;
+            // Check for compact payload — may be absent (archived history
+            // recaps, or legacy v5 slim recaps which have no recapC).
+            const recap = g.recap as typeof g.recap & { recapC?: RecapCompact };
+            const compact = recap.recapC;
+            if (!compact) return g;
+            // Decode and strip the storage-only recapC sentinel field.
+            const full = decodeRecapHeavyFields(recap, compact);
+            const withoutC = { ...full } as typeof full & { recapC?: unknown };
+            delete withoutC.recapC;
+            return { ...g, recap: withoutC };
+          }),
+        },
+      };
+    }),
+  };
+}
+
 // Snapshot a completed tournament into the history list. No-op if the
-// tournament isn't complete or already exists in history. Caps the
-// history at 5 entries (newest first) — combined with the slim-down
-// above this keeps localStorage well under the 5 MB quota.
+// tournament isn't complete or already exists in history.
+//
+// Desktop mode: cap raised to 200; full recaps are kept with compact
+// encoding (recapC) so replay charts survive in history. The file-based
+// storage has no 5 MB quota so we don't need to slim down.
+//
+// Web mode: cap is 5 and recaps are slimmed to stay under localStorage
+// quota (same behaviour as before).
 function archiveCompletedTournament(
   tournament: TournamentState,
   history: TournamentState[],
 ): TournamentState[] {
   if (tournament.status !== "complete") return history;
   if (history.some((t) => t.id === tournament.id)) return history;
+  if (isDesktop()) {
+    // Keep full recaps with compact encoding on desktop — files have no
+    // meaningful quota, and compact encoding keeps sizes reasonable.
+    const compact = compactEncodeTournamentForPersist(tournament);
+    const next = [compact, ...history];
+    return next.slice(0, 200);
+  }
   const next = [slimTournamentForArchive(tournament), ...history];
   return next.slice(0, 5);
+}
+
+// Apply the pre-tournament meta snapshot back to the active module
+// singletons and return a Zustand-compatible partial state patch. Called
+// by exitTournament and tournament-completion paths when a live-meta
+// tournament ends so the evolved tiers don't bleed into subsequent
+// standalone drafts. When `snap` is null (non-live-meta tournament, or
+// no snapshot was saved), returns an empty patch — nothing to restore.
+function buildMetaRestorePatch(
+  snap: {
+    metaOverride: MetaOverride | null;
+    metaSource: MetaSource;
+    metaEnabled: boolean;
+    synergyOverride: Synergy[] | null;
+    counterOverride: CounterPair[] | null;
+  } | null,
+  currentMetaVersion: number,
+  currentSynergyVersion: number,
+  currentCounterVersion: number,
+): Partial<{
+  metaOverride: MetaOverride | null;
+  metaSource: MetaSource;
+  metaEnabled: boolean;
+  metaVersion: number;
+  synergyOverride: Synergy[] | null;
+  synergyVersion: number;
+  counterOverride: CounterPair[] | null;
+  counterVersion: number;
+  preTournamentMetaSnapshot: null;
+}> {
+  if (!snap) return {};
+  // Apply to imperative singletons so AI scoring and the draft engine
+  // immediately see the restored tiers.
+  setActiveMetaOverride(snap.metaOverride);
+  setMetaEnabled(snap.metaEnabled);
+  saveMetaOverride(snap.metaOverride);
+  saveMetaSource(snap.metaSource);
+  saveMetaEnabled(snap.metaEnabled);
+  setActiveSynergyOverride(snap.synergyOverride);
+  saveSynergyOverride(snap.synergyOverride);
+  setActiveCounterOverride(snap.counterOverride);
+  saveCounterOverride(snap.counterOverride);
+  return {
+    metaOverride: snap.metaOverride,
+    metaSource: snap.metaSource,
+    metaEnabled: snap.metaEnabled,
+    metaVersion: currentMetaVersion + 1,
+    synergyOverride: snap.synergyOverride,
+    synergyVersion: currentSynergyVersion + 1,
+    counterOverride: snap.counterOverride,
+    counterVersion: currentCounterVersion + 1,
+    // Consume the snapshot — clear it so a second exit call is a no-op.
+    preTournamentMetaSnapshot: null,
+  };
 }
 
 // Is `side` driven by the AI in this series?
@@ -523,6 +816,57 @@ function isAISide(series: SeriesState, side: Side): boolean {
   if (series.mode === "aivai") return true;
   if (series.mode === "pvai") return series.aiSide === side;
   return false;
+}
+
+// Build the PriorGameSummary history for a given team (by NAME) from a series.
+// Follows the team across side swaps so the history covers all completed games
+// regardless of which side the team occupied. Used by chooseAIStrategyForGame.
+function buildPriorGamesForTeam(
+  series: SeriesState,
+  teamName: string,
+  opponentName: string,
+): PriorGameSummary[] {
+  const result: PriorGameSummary[] = [];
+  // Walk all completed games except the current (last) one.
+  const completedGames = series.games.slice(0, -1);
+  for (const game of completedGames) {
+    if (game.winner == null) continue;
+    const teamIsBlue = game.blueTeam === teamName;
+    const teamSide: Side = teamIsBlue ? "blue" : "red";
+    const won = game.winner === teamSide;
+    const strategy = teamIsBlue ? game.blueStrategy : game.redStrategy;
+    const oppStrategy = teamIsBlue ? game.redStrategy : game.blueStrategy;
+    if (!strategy) continue; // skip games without strategy data
+    // Gold diff from this team's perspective. goldLeadTimeline is
+    // blue-positive; flip for red.
+    const goldTimeline = game.recap?.goldLeadTimeline;
+    const finalGoldBlue = goldTimeline?.at(-1)?.goldLead ?? null;
+    const goldDiff =
+      finalGoldBlue != null
+        ? teamIsBlue
+          ? finalGoldBlue
+          : -finalGoldBlue
+        : undefined;
+    const stomp =
+      goldDiff != null ? Math.abs(goldDiff) >= 7000 : undefined;
+    result.push({
+      strategy,
+      won,
+      goldDiff: goldDiff ?? undefined,
+      stomp,
+      durationMinutes: game.recap?.durationMinutes,
+      opponentStrategy: oppStrategy,
+      opponentName,
+    });
+  }
+  return result;
+}
+
+// Pick a random personality id from PERSONALITY_LIST. Used when assigning
+// personalities to AI tournament teams at creation time.
+function randomPersonalityId(): string {
+  const idx = Math.floor(Math.random() * PERSONALITY_LIST.length);
+  return PERSONALITY_LIST[idx].id;
 }
 
 // Positional picks for one side. AI sides (above Easy) get the flex optimizer
@@ -590,6 +934,10 @@ export const useDraftStore = create<DraftStore>()(
   tournament: null,
   tournamentHistory: [],
   simulating: null,
+  simProgress: null,
+  playerForms: {},
+  sideChoicePending: false,
+  preTournamentMetaSnapshot: null,
 
   loadFromHistory: (tournamentId) => {
     const state = get();
@@ -808,6 +1156,10 @@ export const useDraftStore = create<DraftStore>()(
       secondsLeft: settings.timerEnabled ? ACTION_SECONDS : null,
       aiRationale: null,
       aiRationaleHistory: [],
+      // Fresh single-series play resets form — no carry-over from a
+      // previous session (unlike tournament which persists across matches).
+      playerForms: {},
+      sideChoicePending: false,
     });
   },
 
@@ -859,6 +1211,9 @@ export const useDraftStore = create<DraftStore>()(
     const tournamentWR = tournament
       ? computeTournamentChampionWR(tournament)
       : undefined;
+    const personality = getPersonality(
+      action.side === "blue" ? series.bluePersonalityId : series.redPersonalityId,
+    );
     const championId =
       preDecidedId ??
       chooseAIAction(
@@ -866,6 +1221,8 @@ export const useDraftStore = create<DraftStore>()(
         champions,
         locked,
         seriesAIContextFrom(series, action.side, champions, tournamentWR),
+        Math.random,
+        personality,
       );
     let updatedGame: GameDraft;
     if (championId != null) {
@@ -934,11 +1291,16 @@ export const useDraftStore = create<DraftStore>()(
         champions,
         tournamentWR,
       );
+      const personality = getPersonality(
+        action.side === "blue" ? series.bluePersonalityId : series.redPersonalityId,
+      );
       const decision = chooseAIActionWithRationale(
         game,
         champions,
         locked,
         seriesCtx,
+        Math.random,
+        personality,
       );
       if (decision == null) {
         // Falls through to timeout if the roster is exhausted (extremely
@@ -1027,28 +1389,100 @@ export const useDraftStore = create<DraftStore>()(
   declareWinner: (side, recap) => {
     const { series } = get();
     if (!series || series.status !== "between-games") return;
-    set({ series: recordWinner(series, side, recap) });
+    const updatedSeries = recordWinner(series, side, recap);
+    // Update player forms if recap has ratings.
+    if (recap) {
+      const { playerForms, tournament } = get();
+      const game = series.games[series.games.length - 1];
+      const ratings = recap.ratings ?? null;
+      if (ratings) {
+        const blueKey = tournament
+          ? (tournament.teams.find((t) => t.name === game.blueTeam)?.id ?? game.blueTeam)
+          : game.blueTeam;
+        const redKey = tournament
+          ? (tournament.teams.find((t) => t.name === game.redTeam)?.id ?? game.redTeam)
+          : game.redTeam;
+        const newForms = applyRatingsToForms(
+          applyRatingsToForms(playerForms, blueKey, ratings.blue),
+          redKey,
+          ratings.red,
+        );
+        set({ series: updatedSeries, playerForms: newForms });
+        return;
+      }
+    }
+    set({ series: updatedSeries });
   },
 
   proceedToNextGame: (swapSides) => {
     const { series } = get();
     if (!series || series.status !== "between-games") return;
-    // Auto-rule: loser of last game gets blue side. If the BLUE team
-    // won the last game, RED lost → red team should move to blue → swap
-    // sides. If RED won, BLUE lost → blue stays blue → no swap.
-    // Caller can still pass an explicit boolean to override this.
-    const lastGame = series.games[series.games.length - 1];
-    const autoSwap = lastGame?.winner === "blue";
-    const swap = swapSides ?? autoSwap;
-    const blue = swap ? series.redTeam : series.blueTeam;
-    const red = swap ? series.blueTeam : series.redTeam;
+
+    const rule = effectiveSideRule(series);
+
+    if (rule === "loser-picks" && swapSides == null) {
+      // Under "loser-picks" the chooser must explicitly call chooseSide().
+      // If the sideChooser is an AI team, auto-resolve immediately.
+      const chooser = series.sideChooser;
+      if (!chooser) return;
+      const isAI =
+        series.mode === "aivai" ||
+        (series.mode === "pvai" &&
+          ((series.aiSide === "blue" && series.blueTeam === chooser) ||
+            (series.aiSide === "red" && series.redTeam === chooser)));
+      if (isAI) {
+        // Gather the team's pick history for the AI heuristic.
+        const teamPicks: number[] = [];
+        for (const g of series.games) {
+          const picksArr =
+            g.blueTeam === chooser ? g.bluePicks : g.redPicks;
+          for (const id of picksArr) if (id != null) teamPicks.push(id);
+        }
+        const players =
+          series.blueTeam === chooser
+            ? series.bluePlayers
+            : series.redPlayers;
+        const chosenSide = chooseSideAI(
+          { players, pickHistory: teamPicks },
+          Math.random,
+        );
+        const next = applySideChoice(series, chosenSide);
+        set({
+          series: next,
+          selectedChampionId: null,
+          secondsLeft: next.timerEnabled ? ACTION_SECONDS : null,
+          aiRationaleHistory: [],
+          sideChoicePending: false,
+        });
+      } else {
+        // Human chooser — expose pending state for the UI.
+        set({ sideChoicePending: true });
+      }
+      return;
+    }
+
+    // All other rules: compute sides deterministically.
+    const sides = nextGameSides(series);
+    let blue: string;
+    let red: string;
+    if (sides) {
+      blue = sides.blueTeam;
+      red = sides.redTeam;
+    } else {
+      // Fallback: use the historical auto-swap (loser-blue).
+      const lastGame = series.games[series.games.length - 1];
+      const autoSwap = lastGame?.winner === "blue";
+      const swap = swapSides ?? autoSwap;
+      blue = swap ? series.redTeam : series.blueTeam;
+      red = swap ? series.blueTeam : series.redTeam;
+    }
     const next = startNextGame(series, blue, red);
     set({
       series: next,
       selectedChampionId: null,
       secondsLeft: next.timerEnabled ? ACTION_SECONDS : null,
-      // Fresh game — clear last game's AI rationale history.
       aiRationaleHistory: [],
+      sideChoicePending: false,
     });
   },
 
@@ -1063,6 +1497,22 @@ export const useDraftStore = create<DraftStore>()(
 
   setAIRationale: (r) => set({ aiRationale: r }),
 
+  /** Apply the human's side choice under "loser-picks" rule. */
+  chooseSide: (side) => {
+    const { series } = get();
+    if (!series || series.status !== "between-games") return;
+    if (effectiveSideRule(series) !== "loser-picks") return;
+    const next = applySideChoice(series, side);
+    if (next === series) return; // no-op: no chooser set
+    set({
+      series: next,
+      selectedChampionId: null,
+      secondsLeft: next.timerEnabled ? ACTION_SECONDS : null,
+      aiRationaleHistory: [],
+      sideChoicePending: false,
+    });
+  },
+
   resetAll: () =>
     set({
       series: null,
@@ -1071,6 +1521,8 @@ export const useDraftStore = create<DraftStore>()(
       aiRationale: null,
       aiRationaleHistory: [],
       tournament: null,
+      playerForms: {},
+      sideChoicePending: false,
     }),
 
   // ─── Tournament actions ──────────────────────────────────────────────
@@ -1091,14 +1543,25 @@ export const useDraftStore = create<DraftStore>()(
     // rating (the roster is the source of truth for team strength from here
     // on; the user can re-randomize / edit it in setup). Teams that already
     // carry a roster (e.g. an imported/edited one) keep it.
-    const teamsWithRosters = params.teams.map((t) =>
-      Array.isArray(t.players) && t.players.length === 5
-        ? t
-        : {
-            ...t,
-            players: randomizeRoster({ champions, star: t.starRating ?? 3 }),
-          },
-    );
+    // Also assign a random draft personality to every AI team that doesn't
+    // already have one — so every tournament has varied drafters.
+    const teamsWithRosters = params.teams.map((t) => {
+      const withRoster =
+        Array.isArray(t.players) && t.players.length === 5
+          ? t
+          : {
+              ...t,
+              players: randomizeRoster({ champions, star: t.starRating ?? 3 }),
+            };
+      // Assign a random personality if not already set. All teams in a
+      // tournament are AI-controlled in auto-sim; in interactive matches
+      // only the AI side drafts automatically but having a personality
+      // persisted is harmless for the human side.
+      if (!withRoster.personalityId) {
+        return { ...withRoster, personalityId: randomPersonalityId() };
+      }
+      return withRoster;
+    });
     const tournament = createTournament({
       ...params,
       teams: teamsWithRosters,
@@ -1109,8 +1572,23 @@ export const useDraftStore = create<DraftStore>()(
         counterOverride: counterOverride ?? null,
       },
     });
+    // Snapshot the user's current meta override BEFORE the tournament
+    // takes ownership of the active meta. Only needed for live-meta
+    // tournaments (static ones never mutate the active override), but we
+    // always save it — the cost is negligible and it avoids an extra
+    // branch. Restored by restorePreTournamentMeta() on exit/end.
+    const preTournamentMetaSnapshot = params.liveMeta
+      ? {
+          metaOverride: metaOverride ?? null,
+          metaSource: get().metaSource,
+          metaEnabled,
+          synergyOverride: synergyOverride ?? null,
+          counterOverride: counterOverride ?? null,
+        }
+      : null;
     set({
       tournament,
+      preTournamentMetaSnapshot,
       // Clear any leftover single-series state so DraftApp routes to
       // the tournament dashboard cleanly.
       series: null,
@@ -1118,6 +1596,9 @@ export const useDraftStore = create<DraftStore>()(
       secondsLeft: null,
       aiRationale: null,
       aiRationaleHistory: [],
+      // Fresh tournament — reset per-player form tracking.
+      playerForms: {},
+      sideChoicePending: false,
     });
   },
 
@@ -1268,6 +1749,11 @@ export const useDraftStore = create<DraftStore>()(
       // in the tournament). Star already derives from these via teamStarRating.
       bluePlayers: blueTeam.players,
       redPlayers: redTeam.players,
+      // Draft personality ids follow each team across matches.
+      bluePersonalityId: blueTeam.personalityId,
+      redPersonalityId: redTeam.personalityId,
+      // Side-assignment rule from the tournament.
+      sideRule: tournament.sideRule,
     });
     // Mark the match as active and stash the live series on it so reload
     // can resume mid-match (the series is also held in `state.series`).
@@ -1291,6 +1777,7 @@ export const useDraftStore = create<DraftStore>()(
       secondsLeft: tournament.defaults.timerEnabled ? ACTION_SECONDS : null,
       aiRationale: null,
       aiRationaleHistory: [],
+      sideChoicePending: false,
     });
   },
 
@@ -1337,19 +1824,72 @@ export const useDraftStore = create<DraftStore>()(
       blueWins,
       redWins,
     });
-    set((state) => ({
-      tournament: advanced,
-      tournamentHistory: archiveCompletedTournament(
-        advanced,
-        state.tournamentHistory,
-      ),
-      // Clear the active series so DraftApp routes back to the dashboard.
-      series: null,
-      selectedChampionId: null,
-      secondsLeft: null,
-      aiRationale: null,
-      aiRationaleHistory: [],
-    }));
+
+    // ── Feature 5: update player forms from all games in the just-finished series ──
+    let updatedForms = get().playerForms;
+    for (const game of series.games) {
+      if (game.winner == null || !game.recap) continue;
+      const recap = game.recap;
+      const ratings = recap.ratings ?? null;
+      if (!ratings) {
+        // Attempt to derive ratings via computeGameRatings.
+        const derived = computeGameRatings(recap, game.winner);
+        if (!derived) continue;
+        const bKey = tournament.teams.find((t) => t.name === game.blueTeam)?.id ?? game.blueTeam;
+        const rKey = tournament.teams.find((t) => t.name === game.redTeam)?.id ?? game.redTeam;
+        updatedForms = applyRatingsToForms(updatedForms, bKey, derived.blue);
+        updatedForms = applyRatingsToForms(updatedForms, rKey, derived.red);
+      } else {
+        const bKey = tournament.teams.find((t) => t.name === game.blueTeam)?.id ?? game.blueTeam;
+        const rKey = tournament.teams.find((t) => t.name === game.redTeam)?.id ?? game.redTeam;
+        updatedForms = applyRatingsToForms(updatedForms, bKey, ratings.blue);
+        updatedForms = applyRatingsToForms(updatedForms, rKey, ratings.red);
+      }
+    }
+
+    // ── Feature 6: live meta evolution ──
+    const evo = evolveMetaForTournament(advanced, get().champions);
+    let tournamentAfterEvo = evo.tournament;
+    if (evo.tournament !== advanced) {
+      // The meta snapshot changed — apply the evolved override globally.
+      setActiveMetaOverride(evo.snapshot?.metaOverride ?? null);
+      saveMetaOverride(evo.snapshot?.metaOverride ?? null);
+    }
+
+    set((state) => {
+      // When the tournament reaches "complete" (champion decided), restore
+      // the user's pre-tournament meta so evolved tiers don't persist into
+      // subsequent standalone drafts. buildMetaRestorePatch is a no-op for
+      // non-live-meta tournaments (preTournamentMetaSnapshot is null).
+      const isComplete = tournamentAfterEvo.status === "complete";
+      const restorePatch = isComplete
+        ? buildMetaRestorePatch(
+            state.preTournamentMetaSnapshot,
+            state.metaVersion,
+            state.synergyVersion,
+            state.counterVersion,
+          )
+        : {};
+      return {
+        tournament: tournamentAfterEvo,
+        ...(evo.tournament !== advanced && !isComplete
+          ? { metaOverride: evo.snapshot?.metaOverride ?? null, metaVersion: state.metaVersion + 1 }
+          : {}),
+        tournamentHistory: archiveCompletedTournament(
+          tournamentAfterEvo,
+          state.tournamentHistory,
+        ),
+        // Clear the active series so DraftApp routes back to the dashboard.
+        series: null,
+        selectedChampionId: null,
+        secondsLeft: null,
+        aiRationale: null,
+        aiRationaleHistory: [],
+        playerForms: updatedForms,
+        sideChoicePending: false,
+        ...restorePatch,
+      };
+    });
   },
 
   generatePlayoffBracket: () => {
@@ -1379,15 +1919,27 @@ export const useDraftStore = create<DraftStore>()(
     set({ simulating: "match" });
     setTimeout(() => {
       try {
-        const { tournament: cur, champions } = get();
+        const { tournament: cur, champions, playerForms } = get();
         if (!cur) return;
-        const after = autoPlayMatch(cur, matchId, champions);
+        const [after, newForms] = autoPlayMatch(cur, matchId, champions, playerForms);
+        // Feature 6: evolve meta after recording the match result.
+        const evo = evolveMetaForTournament(after, champions);
+        const finalTournament = evo.tournament;
+        const metaChanged = evo.tournament !== after;
+        if (metaChanged) {
+          setActiveMetaOverride(evo.snapshot?.metaOverride ?? null);
+          saveMetaOverride(evo.snapshot?.metaOverride ?? null);
+        }
         set((state) => ({
-          tournament: after === cur ? state.tournament : after,
+          tournament: after === cur ? state.tournament : finalTournament,
+          ...(metaChanged && after !== cur
+            ? { metaOverride: evo.snapshot?.metaOverride ?? null, metaVersion: state.metaVersion + 1 }
+            : {}),
           tournamentHistory:
             after === cur
               ? state.tournamentHistory
-              : archiveCompletedTournament(after, state.tournamentHistory),
+              : archiveCompletedTournament(finalTournament, state.tournamentHistory),
+          playerForms: after === cur ? state.playerForms : newForms,
         }));
       } finally {
         // Always release the overlay even if autoPlayMatch threw.
@@ -1400,13 +1952,29 @@ export const useDraftStore = create<DraftStore>()(
     const { tournament, simulating } = get();
     if (!tournament || simulating) return;
     if (matchIds.length === 0) return;
-    set({ simulating: "all" });
-    setTimeout(() => {
+    set({ simulating: "all", simProgress: { done: 0, total: matchIds.length } });
+    // Async chunked loop: one MATCH at a time, yielding to the event loop
+    // between matches so the UI thread breathes (overlay spinner animates,
+    // progress text updates, OS doesn't flag the window as frozen). State
+    // commits are batched — at most one set() per match, every BATCH
+    // matches for large runs — so the dashboard doesn't re-render per game.
+    void (async () => {
       try {
-        const { tournament: cur, champions } = get();
+        // Yield once so the overlay paints before sim work starts.
+        await new Promise((r) => setTimeout(r, 0));
+        const { tournament: cur, champions, playerForms } = get();
         if (!cur) return;
+        const runId = cur.id;
         let working = cur;
+        let currentForms = playerForms;
+        const BATCH = matchIds.length > 16 ? 4 : 1;
+        let sinceCommit = 0;
+        let done = 0;
         for (const id of matchIds) {
+          // Abort if the tournament was exited/replaced mid-run (e.g. the
+          // user navigated away). Never resurrect stale state.
+          if (get().tournament?.id !== runId) return;
+          done++;
           // Skip already-finished matches (idempotent if the user clicks
           // sim multiple times) and skip ids that no longer exist (Swiss
           // generates rounds dynamically — a previous round's id might
@@ -1414,37 +1982,81 @@ export const useDraftStore = create<DraftStore>()(
           const m = working.matches.find((x) => x.id === id);
           if (!m || m.winner) continue;
           if (m.blueTeamId == null || m.redTeamId == null) continue;
-          working = autoPlayMatch(working, id, champions);
+          const [next, nextForms] = autoPlayMatch(working, id, champions, currentForms);
+          working = next;
+          currentForms = nextForms;
+          // Feature 6: evolve meta after each match (order preserved —
+          // exactly one evolve call after each autoPlayMatch, same as the
+          // previous synchronous loop).
+          const evo = evolveMetaForTournament(working, champions);
+          if (evo.tournament !== working) {
+            setActiveMetaOverride(evo.snapshot?.metaOverride ?? null);
+            saveMetaOverride(evo.snapshot?.metaOverride ?? null);
+            working = evo.tournament;
+          }
+          sinceCommit++;
+          if (sinceCommit >= BATCH) {
+            sinceCommit = 0;
+            if (get().tournament?.id !== runId) return;
+            set({
+              tournament: working,
+              playerForms: currentForms,
+              simProgress: { done, total: matchIds.length },
+            });
+          }
+          // Let the UI thread breathe between matches.
+          await new Promise((r) => setTimeout(r, 0));
         }
+        if (get().tournament?.id !== runId) return;
         set((state) => ({
           tournament: working,
           tournamentHistory: archiveCompletedTournament(
             working,
             state.tournamentHistory,
           ),
+          playerForms: currentForms,
+          ...(working !== cur && working.metaSnapshot?.metaOverride !== cur.metaSnapshot?.metaOverride
+            ? { metaOverride: working.metaSnapshot?.metaOverride ?? null, metaVersion: state.metaVersion + 1 }
+            : {}),
         }));
       } finally {
-        set({ simulating: null });
+        set({ simulating: null, simProgress: null });
       }
-    }, 0);
+    })();
   },
 
   simulateAllRemaining: () => {
     const { tournament, simulating } = get();
     if (!tournament || simulating) return;
     if (tournament.status === "complete") return;
-    // Two-phase: paint loading overlay first, then run the heavy sync
-    // work. setTimeout(0) yields to the browser for one paint cycle.
-    set({ simulating: "all" });
-    setTimeout(() => {
+    set({
+      simulating: "all",
+      simProgress: {
+        done: tournament.matches.filter((m) => m.winner).length,
+        total: tournament.matches.length,
+      },
+    });
+    // Async chunked loop: one MATCH at a time, yielding to the event loop
+    // between matches so the UI never freezes. Commits are batched (at
+    // most one set() per match; every BATCH matches for big tournaments)
+    // so the dashboard bracket re-renders a bounded number of times.
+    void (async () => {
       // Always release the loading overlay even if the inner loop
       // throws — without try/finally, an unhandled error inside
       // autoPlayMatch / generateNextSwissRound would leave the
       // simulating flag stuck "all" and the UI permanently locked.
       try {
-        const { tournament: cur, champions } = get();
+        // Yield once so the overlay paints before sim work starts.
+        await new Promise((r) => setTimeout(r, 0));
+        const { tournament: cur, champions, playerForms } = get();
         if (!cur) return;
+        const runId = cur.id;
         let working = cur;
+        let currentForms = playerForms;
+        let metaChangedOverall = false;
+        const remainingAtStart = cur.matches.filter((m) => !m.winner).length;
+        const BATCH = remainingAtStart > 16 ? 4 : 1;
+        let sinceCommit = 0;
         // Bound the loop defensively. We can't cap by initial match
         // count because Swiss generates rounds dynamically and
         // groups-playoffs appends a playoff bracket mid-loop — the
@@ -1452,6 +2064,9 @@ export const useDraftStore = create<DraftStore>()(
         // reasonable.
         const safetyCap = 200;
         for (let safety = 0; safety < safetyCap; safety++) {
+          // Abort if the tournament was exited/replaced mid-run — never
+          // resurrect stale state with a late commit.
+          if (get().tournament?.id !== runId) return;
           const startable = working.matches.find(
             (m) => !m.winner && m.blueTeamId != null && m.redTeamId != null,
           );
@@ -1490,27 +2105,84 @@ export const useDraftStore = create<DraftStore>()(
             }
             break;
           }
-          working = autoPlayMatch(working, startable.id, champions);
+          const [next, nextForms] = autoPlayMatch(working, startable.id, champions, currentForms);
+          working = next;
+          currentForms = nextForms;
+          // Feature 6: evolve meta after each match (sim-call order is
+          // identical to the previous synchronous loop).
+          const evo = evolveMetaForTournament(working, champions);
+          if (evo.tournament !== working) {
+            setActiveMetaOverride(evo.snapshot?.metaOverride ?? null);
+            saveMetaOverride(evo.snapshot?.metaOverride ?? null);
+            working = evo.tournament;
+            metaChangedOverall = true;
+          }
+          sinceCommit++;
+          if (sinceCommit >= BATCH) {
+            sinceCommit = 0;
+            if (get().tournament?.id !== runId) return;
+            set({
+              tournament: working,
+              playerForms: currentForms,
+              simProgress: {
+                done: working.matches.filter((m) => m.winner).length,
+                total: working.matches.length,
+              },
+            });
+          }
+          // Let the UI thread breathe between matches.
+          await new Promise((r) => setTimeout(r, 0));
         }
-        set((state) => ({
-          tournament: working,
-          tournamentHistory: archiveCompletedTournament(
-            working,
-            state.tournamentHistory,
-          ),
-          series: null,
-          selectedChampionId: null,
-          secondsLeft: null,
-          aiRationale: null,
-          aiRationaleHistory: [],
-        }));
+        if (get().tournament?.id !== runId) return;
+        set((state) => {
+          // When bulk-sim completes the tournament, restore the user's
+          // pre-tournament meta so evolved tiers don't persist into
+          // subsequent standalone drafts.
+          const isComplete = working.status === "complete";
+          const restorePatch = isComplete
+            ? buildMetaRestorePatch(
+                state.preTournamentMetaSnapshot,
+                state.metaVersion,
+                state.synergyVersion,
+                state.counterVersion,
+              )
+            : {};
+          return {
+            tournament: working,
+            tournamentHistory: archiveCompletedTournament(
+              working,
+              state.tournamentHistory,
+            ),
+            series: null,
+            selectedChampionId: null,
+            secondsLeft: null,
+            aiRationale: null,
+            aiRationaleHistory: [],
+            playerForms: currentForms,
+            ...(metaChangedOverall && !isComplete
+              ? { metaOverride: working.metaSnapshot?.metaOverride ?? null, metaVersion: state.metaVersion + 1 }
+              : {}),
+            ...restorePatch,
+          };
+        });
       } finally {
-        set({ simulating: null });
+        set({ simulating: null, simProgress: null });
       }
-    }, 0);
+    })();
   },
 
-  exitTournament: () =>
+  exitTournament: () => {
+    const state = get();
+    // Feature 6: restore the user's pre-tournament meta override so the
+    // evolved tiers don't bleed into subsequent standalone drafts.
+    // buildMetaRestorePatch is a no-op when preTournamentMetaSnapshot is
+    // null (non-live-meta tournament or snapshot already cleared).
+    const restorePatch = buildMetaRestorePatch(
+      state.preTournamentMetaSnapshot,
+      state.metaVersion,
+      state.synergyVersion,
+      state.counterVersion,
+    );
     set({
       tournament: null,
       series: null,
@@ -1518,7 +2190,11 @@ export const useDraftStore = create<DraftStore>()(
       secondsLeft: null,
       aiRationale: null,
       aiRationaleHistory: [],
-    }),
+      playerForms: {},
+      sideChoicePending: false,
+      ...restorePatch,
+    });
+  },
   }),
   {
     // ─── Persistence config ────────────────────────────────────────────
@@ -1537,28 +2213,54 @@ export const useDraftStore = create<DraftStore>()(
     // tournamentHistory list, double-elim bracket fields, etc. v5:
     // slimmer history snapshots (per-game timelines stripped) + cap
     // reduced from 20 → 5 so we don't blow the 5MB localStorage quota.
-    version: 5,
-    storage: createJSONStorage(() => quotaSafeStorage ?? localStorage),
+    // v6: compact-encode active tournament recaps (recapC field) instead
+    // of deleting heavy fields — replay charts survive reloads. Archived
+    // tournamentHistory keeps the v5 slim treatment (no chart data).
+    version: 6,
+    // Desktop: file-backed LAZY storage — setItem receives the persisted
+    // state OBJECT and defers JSON.stringify into the 500ms debounced
+    // flush, so per-set() serialization cost is eliminated (critical for
+    // bulk simulation which commits state many times per second).
+    //
+    // Web: keep createJSONStorage + quotaSafeStorage. localStorage writes
+    // are synchronous anyway and the quota-exceeded fallback chain
+    // operates on serialized strings; web payloads are also much smaller
+    // (slim history, cap 5). Bulk-sim batching (≤1 set per match) keeps
+    // the per-set stringify acceptable there.
+    storage: isDesktop()
+      ? createDesktopLazyStorage()
+      : createJSONStorage(() => quotaSafeStorage ?? localStorage),
     partialize: (state) => ({
       series: state.series,
       soundEnabled: state.soundEnabled,
       volume: state.volume,
       aiRationaleHistory: state.aiRationaleHistory,
-      // Live tournament gets the same slim-down treatment as archived
-      // history before persisting — strip the per-game replay payload
-      // (winProbTimeline / notableEvents / perPickKDA) from completed
-      // matches. The full payload stays in memory for the current
-      // session; only the localStorage write is slimmed. Reload loses
-      // the per-game chart data but keeps everything else.
+      // Live tournament: compact-encode each game recap's heavy fields
+      // into a single `recapC` field rather than deleting them. On
+      // rehydration (onRehydrateStorage) we decode back to full recaps
+      // so ALL consumers (replay modal, charts, recap panels) see normal
+      // data without requiring any changes to those components.
+      // Archived tournamentHistory keeps the slim treatment (no chart
+      // data — history is for score-browsing, not full replay).
       tournament: state.tournament
-        ? slimTournamentForArchive(state.tournament)
+        ? compactEncodeTournamentForPersist(state.tournament)
         : null,
       tournamentHistory: state.tournamentHistory,
+      // Persist player form so it survives reload (tournament-scoped;
+      // resets when a new tournament is started).
+      playerForms: state.playerForms,
+      // Persist pending side choice so UI state survives reload.
+      sideChoicePending: state.sideChoicePending,
+      // Persist so live-meta restore works after a reload mid-tournament.
+      preTournamentMetaSnapshot: state.preTournamentMetaSnapshot,
     }),
     // Defensive validator: if the persisted series is missing critical
     // fields (e.g. `mode` from an older build), drop it. Otherwise the
     // user could end up in a draft view where isAITurn always returns
     // false because mode is undefined — making PvAI behave as PvP.
+    // v5 → v6 migration: the v5 format had slim recaps with no recapC.
+    // Those recaps simply pass through — decodeCompactTournament in
+    // onRehydrateStorage is a no-op when recapC is absent (legacy-safe).
     migrate: (persisted: unknown, _version: number) => {
       const ps = persisted as { series?: unknown } | undefined;
       if (ps && typeof ps === "object" && "series" in ps && ps.series) {
@@ -1596,6 +2298,29 @@ export const useDraftStore = create<DraftStore>()(
         ) {
           state.series = null;
         }
+      }
+      // Decode compact-encoded recaps in the active tournament back to
+      // their full form. This is the inverse of compactEncodeTournamentForPersist
+      // called in partialize. v5 slim recaps (no recapC) pass through
+      // unchanged — decodeCompactTournament is a no-op for them.
+      if (state?.tournament) {
+        state.tournament = decodeCompactTournament(state.tournament);
+      }
+      // Desktop: history entries were archived with compact encoding — decode
+      // them so replay charts work from the history panel as well.
+      if (state?.tournamentHistory && isDesktop()) {
+        state.tournamentHistory = state.tournamentHistory.map((t) =>
+          decodeCompactTournament(t),
+        );
+      }
+      // One-time migration: on first desktop run, import localStorage data
+      // so a user moving from web to desktop build keeps their state.
+      // This is async and runs after hydration so it only affects the
+      // *next* Zustand persist cycle (i.e. the next write will capture
+      // the migrated data). Called here rather than at module scope so
+      // it never runs during SSG.
+      if (isDesktop()) {
+        void migrateWebStorageToDesktop("draftsim-store");
       }
     },
   },

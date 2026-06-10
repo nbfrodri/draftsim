@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import { useDraftStore } from "@/store/draftStore";
-import { currentGame, requiredWins, seriesScore } from "@/lib/series";
+import { currentGame, requiredWins, seriesScore, winsByTeamName } from "@/lib/series";
 import {
-  chooseAIStrategy,
+  chooseAIStrategyForGame,
   fitTier,
   recommendStrategy,
   strategyFit,
@@ -13,6 +13,7 @@ import {
   STRATEGY_GROUP_ORDER,
   STRATEGY_LEVERS,
   type FitTier,
+  type PriorGameSummary,
   type TeamStrategy,
 } from "@/lib/sim/strategies";
 import type { Champion, Lane, Side } from "@/lib/types";
@@ -76,35 +77,98 @@ export default function StrategyView({ champions }: Props) {
   const gamesToWin = requiredWins(series.format);
 
   // Initial plan per side, rolled ONCE (lazy initializer): AI sides get the
-  // varied, context-aware plan (adapts to the enemy draft/roster + scoreline);
-  // human sides start from the stable suggestion. AI controls are read-only so
-  // their state never changes after this.
-  const [blueStrategy, setBlueStrategy] = useState<TeamStrategy>(() =>
-    blueIsAI
-      ? chooseAIStrategy(bluePicks, {
-          enemyPicks: redPicks,
-          roster: series.bluePlayers,
-          enemyRoster: series.redPlayers,
-          selfWins: score.blue,
-          oppWins: score.red,
-          gamesToWin,
-          rng: Math.random,
-        })
-      : blueRec,
-  );
-  const [redStrategy, setRedStrategy] = useState<TeamStrategy>(() =>
-    redIsAI
-      ? chooseAIStrategy(redPicks, {
-          enemyPicks: bluePicks,
-          roster: series.redPlayers,
-          enemyRoster: series.bluePlayers,
-          selfWins: score.red,
-          oppWins: score.blue,
-          gamesToWin,
-          rng: Math.random,
-        })
-      : redRec,
-  );
+  // varied, context-aware, series-adaptive plan (adapts to enemy draft +
+  // roster + scoreline + how the team's prior games went); human sides start
+  // from the stable recommendation. AI controls are read-only so their state
+  // never changes after this.
+  const [blueStrategy, setBlueStrategy] = useState<TeamStrategy>(() => {
+    if (!blueIsAI) return blueRec;
+    // Build prior-game history for the blue team (follows team by name across
+    // side swaps). Skips the current game (last in the array).
+    const wins = winsByTeamName(series);
+    const priorGames: PriorGameSummary[] = (series.games
+      .slice(0, -1)
+      .filter((g) => g.winner != null)
+      .map((g): PriorGameSummary | null => {
+        const blueWasBlue = g.blueTeam === series.blueTeam;
+        const side = blueWasBlue ? "blue" : "red";
+        const won = g.winner === side;
+        const strat = blueWasBlue ? g.blueStrategy : g.redStrategy;
+        if (!strat) return null;
+        const oppStrat = blueWasBlue ? g.redStrategy : g.blueStrategy;
+        const finalGold = g.recap?.goldLeadTimeline?.at(-1)?.goldLead ?? null;
+        const goldDiff = finalGold != null ? (blueWasBlue ? finalGold : -finalGold) : undefined;
+        const entry: PriorGameSummary = {
+          strategy: strat,
+          won,
+          opponentName: series.redTeam,
+        };
+        if (goldDiff != null) entry.goldDiff = goldDiff;
+        if (goldDiff != null) entry.stomp = Math.abs(goldDiff) >= 7000;
+        if (g.recap?.durationMinutes != null) entry.durationMinutes = g.recap.durationMinutes;
+        if (oppStrat) entry.opponentStrategy = oppStrat;
+        return entry;
+      })
+      .filter((g) => g != null)) as PriorGameSummary[];
+    return chooseAIStrategyForGame({
+      picks: bluePicks,
+      context: {
+        enemyPicks: redPicks,
+        roster: series.bluePlayers,
+        enemyRoster: series.redPlayers,
+        selfWins: wins.get(series.blueTeam) ?? score.blue,
+        oppWins: wins.get(series.redTeam) ?? score.red,
+        gamesToWin,
+        rng: Math.random,
+      },
+      priorGames,
+      opponentName: series.redTeam,
+      rng: Math.random,
+    });
+  });
+  const [redStrategy, setRedStrategy] = useState<TeamStrategy>(() => {
+    if (!redIsAI) return redRec;
+    const wins = winsByTeamName(series);
+    const priorGames: PriorGameSummary[] = (series.games
+      .slice(0, -1)
+      .filter((g) => g.winner != null)
+      .map((g): PriorGameSummary | null => {
+        const redWasRed = g.redTeam === series.redTeam;
+        const side = redWasRed ? "red" : "blue";
+        const won = g.winner === side;
+        const strat = redWasRed ? g.redStrategy : g.blueStrategy;
+        if (!strat) return null;
+        const oppStrat = redWasRed ? g.blueStrategy : g.redStrategy;
+        const finalGold = g.recap?.goldLeadTimeline?.at(-1)?.goldLead ?? null;
+        const goldDiff = finalGold != null ? (redWasRed ? -finalGold : finalGold) : undefined;
+        const entry: PriorGameSummary = {
+          strategy: strat,
+          won,
+          opponentName: series.blueTeam,
+        };
+        if (goldDiff != null) entry.goldDiff = goldDiff;
+        if (goldDiff != null) entry.stomp = Math.abs(goldDiff) >= 7000;
+        if (g.recap?.durationMinutes != null) entry.durationMinutes = g.recap.durationMinutes;
+        if (oppStrat) entry.opponentStrategy = oppStrat;
+        return entry;
+      })
+      .filter((g) => g != null)) as PriorGameSummary[];
+    return chooseAIStrategyForGame({
+      picks: redPicks,
+      context: {
+        enemyPicks: bluePicks,
+        roster: series.redPlayers,
+        enemyRoster: series.bluePlayers,
+        selfWins: wins.get(series.redTeam) ?? score.red,
+        oppWins: wins.get(series.blueTeam) ?? score.blue,
+        gamesToWin,
+        rng: Math.random,
+      },
+      priorGames,
+      opponentName: series.blueTeam,
+      rng: Math.random,
+    });
+  });
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { createGame } from "./draftEngine";
 import { deriveStar } from "./players";
+import type { RNG } from "./rng";
 import type {
   AIDifficulty,
   DraftMode,
@@ -10,6 +11,42 @@ import type {
   SeriesState,
   Side,
 } from "./types";
+
+// ─── Side selection between games ───────────────────────────────────────────
+// How blue/red are assigned for game 2+ of a Bo3/Bo5.
+//
+// "loser-blue"  — DEFAULT. Reproduces the pre-existing behavior exactly: the
+//                 store's auto-advance swapped sides whenever the previous
+//                 game's winner was on blue, which means the LOSER of every
+//                 game always lands on blue side for the next one (a small
+//                 built-in comeback mechanic, since blue carries
+//                 BLUE_SIDE_BONUS + first pick). `sideRule: undefined`
+//                 behaves identically.
+// "fixed"       — teams keep their current sides for the whole series.
+// "alternate"   — teams swap sides every game regardless of results.
+// "loser-picks" — competitive standard: the loser of the previous game
+//                 chooses its side for the next game. recordWinner records
+//                 the chooser on `sideChooser`; the caller (human UI or
+//                 chooseSideAI) then calls applySideChoice to start the
+//                 next game.
+export type SideRule = "loser-blue" | "fixed" | "alternate" | "loser-picks";
+
+// Augment SeriesState with the (optional, legacy-safe) side-selection fields.
+// Declared here rather than in lib/types.ts so the whole feature lives in
+// this module. Both fields are optional: series created before this feature
+// (or with the default rule) never set them and behave exactly as before.
+declare module "./types" {
+  interface SeriesState {
+    // Side-assignment rule for games 2+. undefined ⇒ "loser-blue" (the
+    // pre-existing behavior — see effectiveSideRule).
+    sideRule?: SideRule;
+    // Only used under "loser-picks": the team NAME (not side — names are
+    // stable across swaps) that holds side choice for the upcoming game.
+    // Set by recordWinner when a non-final game resolves; cleared when the
+    // next game starts. null/undefined ⇒ no pending choice.
+    sideChooser?: string | null;
+  }
+}
 
 export function requiredWins(format: SeriesFormat): number {
   if (format === "bo1") return 1;
@@ -47,6 +84,13 @@ export function createSeries(params: {
   // isn't, the team's star derives from the roster (deriveStar).
   bluePlayers?: Roster;
   redPlayers?: Roster;
+  // Side-assignment rule for games 2+. Omitted ⇒ default ("loser-blue",
+  // the pre-existing behavior).
+  sideRule?: SideRule;
+  // Draft personality ids for each side's AI. Follow the team across swaps.
+  // Undefined → 'balanced' (exact historical behavior).
+  bluePersonalityId?: string;
+  redPersonalityId?: string;
 }): SeriesState {
   return {
     id: `series-${Date.now()}`,
@@ -78,7 +122,48 @@ export function createSeries(params: {
     tournamentRound: params.tournamentRound,
     bluePlayers: params.bluePlayers,
     redPlayers: params.redPlayers,
+    // Only persist the rule when explicitly set — keeps the default state
+    // shape byte-identical to pre-feature series.
+    ...(params.sideRule ? { sideRule: params.sideRule } : {}),
+    // Only persist personality ids when explicitly set.
+    ...(params.bluePersonalityId ? { bluePersonalityId: params.bluePersonalityId } : {}),
+    ...(params.redPersonalityId ? { redPersonalityId: params.redPersonalityId } : {}),
   };
+}
+
+// Resolve the active side rule. undefined means the series predates the
+// feature (or didn't opt in) — that's the historical "loser ends up on
+// blue" auto-swap, named "loser-blue".
+export function effectiveSideRule(series: SeriesState): SideRule {
+  return series.sideRule ?? "loser-blue";
+}
+
+// Compute the next game's side assignment under the active rule, as
+// { blueTeam, redTeam } team names ready for startNextGame. Returns null
+// when the assignment isn't determined by the rule alone:
+//   - "loser-picks": a choice is pending — read `sideChooser` and call
+//     applySideChoice (human UI) or chooseSideAI + applySideChoice (AI).
+//   - the previous game has no winner yet, or the series isn't between games.
+export function nextGameSides(
+  series: SeriesState,
+): { blueTeam: string; redTeam: string } | null {
+  if (series.status !== "between-games") return null;
+  const rule = effectiveSideRule(series);
+  if (rule === "fixed") {
+    return { blueTeam: series.blueTeam, redTeam: series.redTeam };
+  }
+  if (rule === "alternate") {
+    return { blueTeam: series.redTeam, redTeam: series.blueTeam };
+  }
+  if (rule === "loser-picks") return null;
+  // "loser-blue" (default): the loser of the last game takes blue side.
+  // Identical to the store's historical auto-swap (swap iff blue just won).
+  const last = series.games[series.games.length - 1];
+  if (!last?.winner) return null;
+  const swap = last.winner === "blue";
+  return swap
+    ? { blueTeam: series.redTeam, redTeam: series.blueTeam }
+    : { blueTeam: series.blueTeam, redTeam: series.redTeam };
 }
 
 // Convert a series's per-team star ratings into a score-diff bias for
@@ -242,10 +327,91 @@ export function recordWinner(
   if (decided) {
     updated.status = "complete";
     updated.winner = decided;
+    // No upcoming game — drop any stale pending choice.
+    if (updated.sideChooser != null) updated.sideChooser = null;
   } else {
     updated.status = "between-games";
+    // Under "loser-picks" the LOSER of this game holds side choice for the
+    // next one. Recorded by team NAME so the entitlement survives any side
+    // bookkeeping. Other rules (incl. the default) never set this field, so
+    // pre-feature behavior is untouched.
+    if (effectiveSideRule(updated) === "loser-picks") {
+      const last = games[games.length - 1];
+      updated.sideChooser = winner === "blue" ? last.redTeam : last.blueTeam;
+    }
   }
   return updated;
+}
+
+// Apply the pending side choice under "loser-picks": put the chooser's team
+// on `side` for the upcoming game and start it. No-op (returns the series
+// unchanged) when there's no pending chooser or the series isn't between
+// games — mirroring startNextGame's guard style.
+export function applySideChoice(series: SeriesState, side: Side): SeriesState {
+  if (series.status !== "between-games") return series;
+  const chooser = series.sideChooser;
+  if (!chooser) return series;
+  const other =
+    chooser === series.blueTeam ? series.redTeam : series.blueTeam;
+  const blueTeam = side === "blue" ? chooser : other;
+  const redTeam = side === "blue" ? other : chooser;
+  return startNextGame(series, blueTeam, redTeam);
+}
+
+// ─── AI side choice ─────────────────────────────────────────────────────────
+// Plain-data input so callers (store, tournament auto-sim) don't need to
+// thread full series state through.
+export interface SideChoiceInput {
+  // The chooser's roster, if known. Players' goodChamps describe the team's
+  // known champion pools.
+  players?: Roster;
+  // Champion ids this team itself picked in earlier games of the series.
+  pickHistory?: number[];
+}
+
+// Blue-side base preference: blue gets first pick + BLUE_SIDE_BONUS in the
+// simulator, so a generic team should want it most of the time.
+const SIDE_AI_BLUE_BASE = 0.85;
+// How much a maximal counter-pick signal can pull toward red. At full
+// signal blueProb = 0.85 - 0.5 = 0.35, i.e. the team actually prefers red.
+const SIDE_AI_RED_PULL = 0.5;
+// Pool size at which a roster counts as maximally flexible: 3 goodChamps
+// per player × 5 players, all distinct.
+const SIDE_AI_FULL_POOL = 15;
+
+// Heuristic side choice for the AI under "loser-picks".
+//
+// Rationale: blue is preferred by default (draft priority + side bonus).
+// Red's compensation is the counter-pick slot (last pick), which only pays
+// off for teams flexible enough to actually flex into counters. We proxy
+// "counter-pick style" with two cheap, plain-data signals:
+//   - pool breadth: distinct champions across the roster's goodChamps
+//     (wide known pools ⇒ can comfortably pick reactively), and
+//   - pick diversity: distinct champions / total picks in the team's own
+//     series history so far (never repeating ⇒ flexible drafting), weighted
+//     by history depth so one game's trivially-distinct 5 picks don't read
+//     as a style statement (full weight from 2 games / 10 picks on).
+// The stronger of the two scales a pull from the blue-leaning base toward
+// red. With no signal available the choice stays blue-leaning with mild
+// rng variation (15% red), so it never becomes fully deterministic.
+export function chooseSideAI(
+  input: SideChoiceInput,
+  rng: RNG = Math.random,
+): Side {
+  let signal = 0;
+  if (input.players && input.players.length > 0) {
+    const pool = new Set<number>();
+    for (const p of input.players) for (const id of p.goodChamps) pool.add(id);
+    signal = Math.max(signal, Math.min(1, pool.size / SIDE_AI_FULL_POOL));
+  }
+  if (input.pickHistory && input.pickHistory.length > 0) {
+    const len = input.pickHistory.length;
+    const distinct = new Set(input.pickHistory).size;
+    const diversity = (distinct / len) * Math.min(1, len / 10);
+    signal = Math.max(signal, diversity);
+  }
+  const blueProb = SIDE_AI_BLUE_BASE - SIDE_AI_RED_PULL * signal;
+  return rng() < blueProb ? "blue" : "red";
 }
 
 // Start next game. Caller decides which side is which (side-swap UI).
@@ -269,6 +435,10 @@ export function startNextGame(
     redTeam,
     status: "drafting",
     games: [...series.games, createGame(nextGameNumber, blueTeam, redTeam)],
+    // The choice (if any) has been consumed — clear it. Conditional spread
+    // keeps the state shape of non-loser-picks series byte-identical to
+    // pre-feature behavior.
+    ...(series.sideChooser != null ? { sideChooser: null } : {}),
     ...(swap
       ? {
           aiSide:
@@ -289,6 +459,10 @@ export function startNextGame(
           // player effects and the AI's roster aligned to the right side.
           bluePlayers: series.redPlayers,
           redPlayers: series.bluePlayers,
+          // Draft personalities follow their team across side swaps — each
+          // team always uses its own personality regardless of side.
+          bluePersonalityId: series.redPersonalityId,
+          redPersonalityId: series.bluePersonalityId,
         }
       : {}),
   };

@@ -24,6 +24,7 @@ import {
   type MetaTier,
   type Synergy,
 } from "./championMeta";
+import { shuffle as shuffleWith, type RNG } from "./rng";
 import type { Champion, Lane } from "./types";
 
 // Baseline target proportion of each tier in any given role. Sums to 1.0.
@@ -50,21 +51,17 @@ const LANES: readonly Lane[] = [
   "support",
 ];
 
-function shuffle<T>(arr: readonly T[]): T[] {
-  const out = [...arr];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
+// Local convenience wrapper around the shared Fisher–Yates in lib/rng.
+function shuffle<T>(arr: readonly T[], rng: RNG = Math.random): T[] {
+  return shuffleWith(rng, arr);
 }
 
 // Per-randomization perturbation of TARGET_PROPS. Each tier's weight is
 // multiplied by a random factor in [0.75, 1.25], then the whole vector is
 // renormalized so it sums to 1. Result: noticeable run-to-run variance in
 // how many S+ vs A vs B champs end up in each role.
-function variedProps(): Record<MetaTier, number> {
-  const factor = (): number => 0.75 + Math.random() * 0.5;
+function variedProps(rng: RNG = Math.random): Record<MetaTier, number> {
+  const factor = (): number => 0.75 + rng() * 0.5;
   const adjusted: Record<MetaTier, number> = {
     "S+": TARGET_PROPS["S+"] * factor(),
     S: TARGET_PROPS.S * factor(),
@@ -108,7 +105,10 @@ function targetCounts(
   return counts;
 }
 
-export function randomizeMeta(champions: Champion[]): MetaOverride {
+export function randomizeMeta(
+  champions: Champion[],
+  rng: RNG = Math.random,
+): MetaOverride {
   // 1. Group champions by lane. Two filters apply:
   //    a) The champion must actually be played in that lane per Meraki's data
   //       (champion.lanes) — same source of truth as champ select. This stops
@@ -147,12 +147,12 @@ export function randomizeMeta(champions: Champion[]): MetaOverride {
   }
 
   // 2. Generate this run's perturbed tier proportions.
-  const props = variedProps();
+  const props = variedProps(rng);
 
   // 3. For each lane, shuffle pool and bucket-fill into target counts.
   const override: MetaOverride = {};
   for (const lane of LANES) {
-    const shuffled = shuffle(laneToChamps[lane]);
+    const shuffled = shuffle(laneToChamps[lane], rng);
     const counts = targetCounts(shuffled.length, props);
     let idx = 0;
     for (const tier of TIER_ORDER) {
@@ -283,8 +283,8 @@ const DEFAULT_SYNERGY_COUNT = 120;
 // Triangular-ish bonus distribution. Returns 1, 2, or 3 with probability
 // roughly 0.45/0.40/0.15. Matches CHAMPION_SYNERGIES (mostly 2s, some 1s,
 // rare 3s).
-function randomSynergyBonus(): number {
-  const r = Math.random();
+function randomSynergyBonus(rng: RNG = Math.random): number {
+  const r = rng();
   if (r < 0.45) return 1;
   if (r < 0.85) return 2;
   return 3;
@@ -294,10 +294,8 @@ function randomSynergyBonus(): number {
 // per-champion seed phase; extras are added on top up to the target count.
 const MIN_SYNERGIES_PER_CHAMP = 5;
 
-function pickSynergyTag(): string {
-  return RANDOM_SYNERGY_TAGS[
-    Math.floor(Math.random() * RANDOM_SYNERGY_TAGS.length)
-  ];
+function pickSynergyTag(rng: RNG = Math.random): string {
+  return RANDOM_SYNERGY_TAGS[Math.floor(rng() * RANDOM_SYNERGY_TAGS.length)];
 }
 
 function pairKey(a: string, b: string): string {
@@ -307,6 +305,7 @@ function pairKey(a: string, b: string): string {
 export function randomizeSynergies(
   champions: Champion[],
   count: number = DEFAULT_SYNERGY_COUNT,
+  rng: RNG = Math.random,
 ): Synergy[] {
   // Use only champions that exist in CHAMPION_META so the synergy list
   // stays in sync with the rest of the data layer (alias mismatches → no
@@ -328,8 +327,8 @@ export function randomizeSynergies(
     seen.add(key);
     out.push({
       champs: a < b ? [a, b] : [b, a],
-      bonus: randomSynergyBonus(),
-      tag: pickSynergyTag(),
+      bonus: randomSynergyBonus(rng),
+      tag: pickSynergyTag(rng),
     });
     synergyCount[a]++;
     synergyCount[b]++;
@@ -343,7 +342,7 @@ export function randomizeSynergies(
   // every other alias to guarantee we exhaust the partner space — random
   // sampling can otherwise leave a champion stuck if it keeps hitting
   // already-paired partners.
-  for (const alias of shuffle(aliases)) {
+  for (const alias of shuffle(aliases, rng)) {
     while (synergyCount[alias] < MIN_SYNERGIES_PER_CHAMP) {
       // Prefer partners also below the minimum — addPair returns false
       // for duplicates so we naturally skip pairs we've already made.
@@ -351,6 +350,7 @@ export function randomizeSynergies(
         aliases.filter(
           (a) => a !== alias && synergyCount[a] < MIN_SYNERGIES_PER_CHAMP,
         ),
+        rng,
       );
       let progress = false;
       for (const partner of underMin) {
@@ -363,7 +363,7 @@ export function randomizeSynergies(
       // Fallback — exhaust every other alias in shuffled order. This
       // can't loop forever: if every possible partner is already paired
       // with us, we break out and accept whatever count we have.
-      const fallback = shuffle(aliases.filter((a) => a !== alias));
+      const fallback = shuffle(aliases.filter((a) => a !== alias), rng);
       for (const partner of fallback) {
         if (addPair(alias, partner)) {
           progress = true;
@@ -381,8 +381,8 @@ export function randomizeSynergies(
   let attempts = 0;
   while (out.length < target && attempts < maxAttempts) {
     attempts++;
-    const i = Math.floor(Math.random() * aliases.length);
-    let j = Math.floor(Math.random() * aliases.length);
+    const i = Math.floor(rng() * aliases.length);
+    let j = Math.floor(rng() * aliases.length);
     if (i === j) j = (j + 1) % aliases.length;
     addPair(aliases[i], aliases[j]);
   }
@@ -422,11 +422,11 @@ export function loadSynergyOverride(): Synergy[] | null {
 
 const DEFAULT_COUNTER_COUNT = 90;
 
-function randomCounterBonus(): number {
+function randomCounterBonus(rng: RNG = Math.random): number {
   // Bias toward 2-3 (medium counters), some 4-5 (hard), rare 6 (extreme).
-  const r = Math.random();
-  if (r < 0.55) return 2 + Math.floor(Math.random() * 2); // 2 or 3
-  if (r < 0.9) return 4 + Math.floor(Math.random() * 2); // 4 or 5
+  const r = rng();
+  if (r < 0.55) return 2 + Math.floor(rng() * 2); // 2 or 3
+  if (r < 0.9) return 4 + Math.floor(rng() * 2); // 4 or 5
   return 6;
 }
 
@@ -441,6 +441,7 @@ const MIN_COUNTERS_INCOMING = 5;
 export function randomizeCounters(
   champions: Champion[],
   count: number = DEFAULT_COUNTER_COUNT,
+  rng: RNG = Math.random,
 ): CounterPair[] {
   // Bucket champions by lane so we can pull pairs from within a single
   // lane. Keeps every counter relationship "same role/lane" by
@@ -488,7 +489,7 @@ export function randomizeCounters(
     if (seen.has(`${victim}>${counter}`)) return false;
     seen.add(key);
     seen.add(`${victim}>${counter}`);
-    out.push([counter, victim, randomCounterBonus()]);
+    out.push([counter, victim, randomCounterBonus(rng)]);
     outgoing[counter]++;
     incoming[victim]++;
     return true;
@@ -502,7 +503,7 @@ export function randomizeCounters(
     if (!myLanes.length) return null;
     // Try each of the alias's lanes in random order so we don't always
     // funnel the same alias into the same lane's pool.
-    const shuffled = shuffle(myLanes);
+    const shuffled = shuffle(myLanes, rng);
     for (const lane of shuffled) {
       const pool = laneToChamps[lane];
       if (pool.length < 2) continue;
@@ -510,7 +511,7 @@ export function randomizeCounters(
       // the lane is essentially saturated. We bail on saturation rather
       // than burning attempts on dead lookups.
       for (let i = 0; i < 30; i++) {
-        const cand = pool[Math.floor(Math.random() * pool.length)];
+        const cand = pool[Math.floor(rng() * pool.length)];
         if (cand !== alias) return cand;
       }
     }
@@ -520,7 +521,7 @@ export function randomizeCounters(
   // Phase 1a — every champion counters ≥ MIN_COUNTERS_OUTGOING others.
   // Iterate in shuffled order so the seed pairs aren't biased toward
   // alphabetical winners.
-  for (const alias of shuffle(aliases)) {
+  for (const alias of shuffle(aliases, rng)) {
     let attempts = 0;
     while (
       outgoing[alias] < MIN_COUNTERS_OUTGOING &&
@@ -534,7 +535,7 @@ export function randomizeCounters(
   }
   // Phase 1b — every champion is countered by ≥ MIN_COUNTERS_INCOMING
   // others. Adds counter→alias pairs where alias is the victim.
-  for (const alias of shuffle(aliases)) {
+  for (const alias of shuffle(aliases, rng)) {
     let attempts = 0;
     while (
       incoming[alias] < MIN_COUNTERS_INCOMING &&
@@ -553,10 +554,10 @@ export function randomizeCounters(
   let attempts = 0;
   while (out.length < target && attempts < maxAttempts) {
     attempts++;
-    const lane = lanes[Math.floor(Math.random() * lanes.length)];
+    const lane = lanes[Math.floor(rng() * lanes.length)];
     const pool = laneToChamps[lane];
-    const i = Math.floor(Math.random() * pool.length);
-    let j = Math.floor(Math.random() * pool.length);
+    const i = Math.floor(rng() * pool.length);
+    let j = Math.floor(rng() * pool.length);
     if (i === j) j = (j + 1) % pool.length;
     addPair(pool[i], pool[j]);
   }
@@ -609,13 +610,13 @@ export type PowerSpikeOverride = Record<string, number>;
 
 export function randomizePowerSpikes(
   champions: Champion[],
+  rng: RNG = Math.random,
 ): PowerSpikeOverride {
   const out: PowerSpikeOverride = {};
   const span = POWER_SPIKE_MAX_MINUTE - POWER_SPIKE_MIN_MINUTE;
   for (const c of champions) {
     if (!CHAMPION_META[c.alias]) continue;
-    out[c.alias] =
-      POWER_SPIKE_MIN_MINUTE + Math.floor(Math.random() * (span + 1));
+    out[c.alias] = POWER_SPIKE_MIN_MINUTE + Math.floor(rng() * (span + 1));
   }
   return out;
 }

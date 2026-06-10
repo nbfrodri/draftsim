@@ -123,6 +123,15 @@ export interface GameRecap {
     blue: Array<{ k: number; d: number; a: number }>;
     red: Array<{ k: number; d: number; a: number }>;
   };
+  // Per-pick performance ratings on a 1-10 scale (one decimal), 5 entries
+  // per side indexed by positional lane like perPickKDA. Blends KDA quality,
+  // lane gold outcome, kill involvement and win/loss — see computeGameRatings
+  // in lib/matchSimulator.ts. Optional / legacy-safe: recaps persisted before
+  // this feature lack it; the UI can recompute via computeGameRatings.
+  ratings?: {
+    blue: number[];
+    red: number[];
+  };
 }
 
 export interface GameDraft {
@@ -211,6 +220,12 @@ export interface SeriesState {
   // rating derives from this roster (see deriveStar in lib/players.ts).
   bluePlayers?: Roster;
   redPlayers?: Roster;
+  // Draft personality id for the blue/red AI (see lib/draftAI/personalities.ts).
+  // These follow the TEAM (not side) across mid-series side swaps so each
+  // team always uses its own personality regardless of which side it's on.
+  // Undefined → 'balanced' (exact historical behavior).
+  bluePersonalityId?: string;
+  redPersonalityId?: string;
 }
 
 export interface SimulationSettings {
@@ -228,4 +243,9 @@ export interface SimulationSettings {
   // star rating derives from the roster and the macro win bias applies.
   bluePlayers?: Roster;
   redPlayers?: Roster;
+  // Side-assignment rule for games 2+ of a Bo3/Bo5. Omitted → "loser-blue".
+  sideRule?: import("./series").SideRule;
+  // Draft personality ids for the blue/red AI. Omitted → 'balanced'.
+  bluePersonalityId?: string;
+  redPersonalityId?: string;
 }

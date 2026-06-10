@@ -21,6 +21,9 @@ import type { AIDifficulty, DraftMode, Roster, SeriesFormat, Side } from "@/lib/
 import { deriveStar, randomizeRoster } from "@/lib/players";
 import MetaPanel from "./MetaPanel";
 import RosterEditor from "./RosterEditor";
+import { PERSONALITY_LIST } from "@/lib/draftAI";
+import type { SideRule } from "@/lib/series";
+import { PersonalityChipSelect } from "./PersonalitySelect";
 
 // Team-count options. Single-elim now accepts any count from 2-8 with
 // bye support — top seeds auto-advance when paired with virtual byes.
@@ -202,6 +205,11 @@ export default function TournamentSetup({ onCancel }: Props) {
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>("normal");
   const [timerEnabled, setTimerEnabled] = useState(true);
 
+  // Live meta evolution — tiers shift between rounds based on results.
+  const [liveMeta, setLiveMeta] = useState(false);
+  // Side-assignment rule for series within the tournament.
+  const [sideRule, setSideRule] = useState<SideRule>("loser-blue");
+
   // Re-seed between rounds — Phase 4. Single-elim only; meaningful when
   // upsets reshape the survivor pool.
   const [reseedBetweenRounds, setReseedBetweenRounds] = useState(false);
@@ -317,6 +325,16 @@ export default function TournamentSetup({ onCancel }: Props) {
     );
   };
 
+  // null → omit personalityId (store will assign randomly at tournament start).
+  const handleTeamPersonalityChange = (
+    index: number,
+    personalityId: string | undefined,
+  ) => {
+    setTeams((prev) =>
+      prev.map((t, i) => (i === index ? { ...t, personalityId } : t)),
+    );
+  };
+
   const handleRandomSeed = () => {
     setTeams((prev) => {
       const shuffled = [...prev]
@@ -393,6 +411,20 @@ export default function TournamentSetup({ onCancel }: Props) {
     );
   };
 
+  // Assign a random personality from PERSONALITY_LIST to every team at once.
+  // Picks with replacement (multiple teams can share the same personality),
+  // and uses the same Math.random() pattern as the other randomize handlers.
+  const handleRandomizeAllPersonalities = () => {
+    setTeams((prev) =>
+      prev.map((t) => ({
+        ...t,
+        personalityId:
+          PERSONALITY_LIST[Math.floor(Math.random() * PERSONALITY_LIST.length)]
+            .id,
+      })),
+    );
+  };
+
   const handleTeamNameChange = (index: number, value: string) => {
     setTeams((prev) =>
       prev.map((t, i) => (i === index ? { ...t, name: value } : t)),
@@ -421,6 +453,8 @@ export default function TournamentSetup({ onCancel }: Props) {
         perTeam: false,
         global: false,
       },
+      liveMeta: liveMeta || undefined,
+      sideRule: sideRule !== "loser-blue" ? sideRule : undefined,
       reseedBetweenRounds:
         tournamentFormat === "single-elim" ? reseedBetweenRounds : undefined,
       trueGrandFinal:
@@ -657,6 +691,14 @@ export default function TournamentSetup({ onCancel }: Props) {
               >
                 # Seed
               </button>
+              <button
+                type="button"
+                onClick={handleRandomizeAllPersonalities}
+                title="Assign a random AI personality to every team"
+                className="text-[10px] uppercase tracking-[0.25em] px-2 py-1 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60 hover:bg-rift-gold/5 transition-all"
+              >
+                &#9684; Style
+              </button>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -686,15 +728,15 @@ export default function TournamentSetup({ onCancel }: Props) {
                     maxLength={24}
                   />
                 </div>
-                {/* Row 2: rating stars + AI difficulty select. Separate
-                    line so the select has room to breathe and never
-                    overflows the team box. */}
-                <div className="flex items-center justify-between gap-2 mt-1 pl-8">
+                {/* Row 2: rating stars + per-team controls. flex-wrap lets
+                    the control cluster drop to its own line when the box is
+                    narrow (2-col grid) instead of overflowing the border. */}
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mt-1 pl-8">
                   <StarPicker
                     value={team.starRating ?? 3}
                     onChange={(r) => handleTeamRatingChange(i, r)}
                   />
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 min-w-0">
                     <button
                       type="button"
                       onClick={() => {
@@ -728,6 +770,10 @@ export default function TournamentSetup({ onCancel }: Props) {
                       value={team.aiDifficulty}
                       fallback={aiDifficulty}
                       onChange={(d) => handleTeamAIDifficultyChange(i, d)}
+                    />
+                    <PersonalityChipSelect
+                      value={team.personalityId}
+                      onChange={(p) => handleTeamPersonalityChange(i, p)}
                     />
                   </div>
                 </div>
@@ -818,6 +864,56 @@ export default function TournamentSetup({ onCancel }: Props) {
                 className="accent-rift-gold"
               />
               30s timer
+            </label>
+          </div>
+
+          {/* Side rule selector */}
+          <div className="mt-3 pt-3 border-t border-rift-line/30">
+            <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
+              Side Rule
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(["loser-blue", "fixed", "alternate", "loser-picks"] as SideRule[]).map((sr) => {
+                const labels: Record<SideRule, string> = {
+                  "loser-blue": "Loser Blue",
+                  fixed: "Fixed",
+                  alternate: "Alternate",
+                  "loser-picks": "Loser Picks",
+                };
+                const active = sideRule === sr;
+                return (
+                  <button
+                    key={sr}
+                    type="button"
+                    onClick={() => setSideRule(sr)}
+                    className={`py-1.5 border text-[9px] uppercase tracking-[0.2em] transition-all text-center ${
+                      active
+                        ? "border-rift-gold bg-rift-gold/10 text-rift-goldbright"
+                        : "border-rift-line text-rift-mutedbright hover:border-rift-gold/50 hover:text-rift-goldbright hover:bg-rift-gold/5"
+                    }`}
+                  >
+                    {labels[sr]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Live meta toggle */}
+          <div className="mt-3 pt-3 border-t border-rift-line/30">
+            <label className="flex items-start gap-2 cursor-pointer text-[10px] uppercase tracking-[0.2em] text-rift-mutedbright">
+              <input
+                type="checkbox"
+                checked={liveMeta}
+                onChange={(e) => setLiveMeta(e.target.checked)}
+                className="accent-rift-gold mt-0.5"
+              />
+              <span>
+                <span className={liveMeta ? "text-rift-goldbright" : ""}>Live Meta</span>
+                <span className="block text-[9px] tracking-[0.15em] text-rift-mutedbright/55 normal-case mt-0.5">
+                  Champion tiers evolve between rounds based on tournament results.
+                </span>
+              </span>
             </label>
           </div>
 
@@ -1195,6 +1291,7 @@ function AIDifficultyChip({
     </select>
   );
 }
+
 
 function StarPicker({
   value,

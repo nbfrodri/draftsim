@@ -3,6 +3,9 @@ node_modules
 .claude
 .sixth
 out
+src-tauri/target
+src-tauri/gen
 .env*.local
+tsconfig.tsbuildinfo
 .DS_Store
 *.log

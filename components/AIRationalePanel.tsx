@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { AIAlternative, AIRationale, ScoreComponent } from "@/lib/draftAI";
+import { getPersonality } from "@/lib/draftAI";
 import type { Champion, Lane } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
 
@@ -51,7 +52,7 @@ export default function AIRationalePanel({
         </div>
       )}
       <div className="min-w-0 flex-1">
-        {/* Top line: AI Hover · TOP / BAN */}
+        {/* Top line: AI Hover · TOP / BAN + optional personality chip */}
         <div className="flex items-center gap-1.5 text-[9px] md:text-[10px] uppercase tracking-[0.3em] text-rift-goldbright">
           <span>AI Hover</span>
           {isBan ? (
@@ -66,6 +67,17 @@ export default function AIRationalePanel({
               <span>{rationale.intendedLane}</span>
             </>
           ) : null}
+          {rationale.personalityId && (
+            <>
+              <span className="text-rift-muted">·</span>
+              <span
+                className="px-1.5 py-px border border-rift-gold/40 bg-rift-gold/10 text-rift-goldbright/80 normal-case tracking-normal text-[9px] font-display"
+                title={getPersonality(rationale.personalityId).description}
+              >
+                {getPersonality(rationale.personalityId).name}
+              </span>
+            </>
+          )}
           {hasMore && (
             <>
               <span className="text-rift-muted">·</span>

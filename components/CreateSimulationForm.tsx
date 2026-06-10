@@ -15,6 +15,19 @@ import TierListView from "./TierListView";
 import MetaEditor from "./MetaEditor";
 import SynergyView from "./SynergyView";
 import RosterEditor from "./RosterEditor";
+import { PERSONALITY_LIST } from "@/lib/draftAI";
+import type { SideRule } from "@/lib/series";
+import {
+  PersonalityPanelSelect,
+  RANDOM_PERSONALITY_VALUE,
+} from "./PersonalitySelect";
+
+const SIDE_RULES: { value: SideRule; label: string; sub: string }[] = [
+  { value: "loser-blue", label: "Loser Blue", sub: "Loser takes blue side (default)" },
+  { value: "fixed", label: "Fixed Sides", sub: "Teams keep their sides all series" },
+  { value: "alternate", label: "Alternate", sub: "Sides swap every game" },
+  { value: "loser-picks", label: "Loser Picks", sub: "Loser chooses their side" },
+];
 
 const FORMATS: { value: SeriesFormat; label: string; sub: string }[] = [
   { value: "bo1", label: "Best of 1", sub: "Single game" },
@@ -89,6 +102,11 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
   const [bluePlayers, setBluePlayers] = useState<Roster | null>(null);
   const [redPlayers, setRedPlayers] = useState<Roster | null>(null);
   const [rosterEditor, setRosterEditor] = useState<null | "blue" | "red">(null);
+  // Side rule for multi-game formats.
+  const [sideRule, setSideRule] = useState<SideRule>("loser-blue");
+  // AI personality selectors — "random" by default (picks on submit).
+  const [bluePersonality, setBluePersonality] = useState(RANDOM_PERSONALITY_VALUE);
+  const [redPersonality, setRedPersonality] = useState(RANDOM_PERSONALITY_VALUE);
   const isCustomized = metaOverride != null;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -127,6 +145,16 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
     // AI vs AI runs without a human on the clock, so the action timer is
     // meaningless — force it off so the watcher experience is uninterrupted.
     const effectiveTimer = mode === "aivai" ? false : timerEnabled;
+    // Resolve "random" personality sentinel → pick a random one from the list.
+    const resolvePersonality = (val: string): string | undefined => {
+      if (val === RANDOM_PERSONALITY_VALUE) {
+        return PERSONALITY_LIST[Math.floor(Math.random() * PERSONALITY_LIST.length)].id;
+      }
+      return val;
+    };
+    // Personality only meaningful when an AI is involved.
+    const hasBlueAI = mode === "aivai" || (mode === "pvai" && aiSide === "blue");
+    const hasRedAI = mode === "aivai" || (mode === "pvai" && aiSide === "red");
     startSimulation({
       format,
       fearless: fearlessDisabled ? false : fearless,
@@ -145,6 +173,11 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
         mode === "aivai" && perSideDifficulty ? redAiDifficulty : undefined,
       bluePlayers: bluePlayers ?? undefined,
       redPlayers: redPlayers ?? undefined,
+      // Side rule only meaningful for multi-game formats.
+      sideRule: format !== "bo1" ? sideRule : undefined,
+      // Personality IDs only sent when the respective side is AI-controlled.
+      bluePersonalityId: hasBlueAI ? resolvePersonality(bluePersonality) : undefined,
+      redPersonalityId: hasRedAI ? resolvePersonality(redPersonality) : undefined,
     });
   };
 
@@ -415,7 +448,7 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
             </div>
           </div>
 
-          <div className="cs-stagger space-y-3 mb-8">
+          <div className="cs-stagger space-y-3 mb-6">
             <ToggleRow
               label="Fearless Draft"
               description={
@@ -440,6 +473,66 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
             />
           </div>
 
+          {/* Side rule — Bo3/Bo5 only */}
+          {format !== "bo1" && (
+            <div className="cs-stagger mb-6">
+              <label className="block text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-3">
+                Side Rule
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {SIDE_RULES.map((sr) => {
+                  const active = sideRule === sr.value;
+                  return (
+                    <button
+                      key={sr.value}
+                      type="button"
+                      onClick={() => setSideRule(sr.value)}
+                      className={`px-3 py-2.5 border text-left transition-all ${
+                        active
+                          ? "border-rift-gold bg-rift-gold/10 text-rift-goldbright"
+                          : "border-rift-line text-rift-mutedbright hover:border-rift-gold/60 hover:text-rift-goldbright hover:bg-rift-gold/5"
+                      }`}
+                    >
+                      <div className="font-display text-sm tracking-wider">{sr.label}</div>
+                      <div className="text-[9px] uppercase tracking-[0.2em] text-rift-muted mt-0.5">
+                        {sr.sub}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* AI Personality selectors — only when an AI side is present */}
+          {mode !== "pvp" ? (
+            <div className="cs-stagger mb-8">
+              <label className="block text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-3">
+                AI Personality
+              </label>
+              <div className={`grid gap-3 ${mode === "aivai" ? "grid-cols-2" : "grid-cols-1"}`}>
+                {(mode === "aivai" || (mode === "pvai" && aiSide === "blue")) && (
+                  <PersonalityPanelSelect
+                    label={mode === "aivai" ? "Blue AI" : "AI"}
+                    side="blue"
+                    value={bluePersonality}
+                    onChange={setBluePersonality}
+                  />
+                )}
+                {(mode === "aivai" || (mode === "pvai" && aiSide === "red")) && (
+                  <PersonalityPanelSelect
+                    label={mode === "aivai" ? "Red AI" : "AI"}
+                    side="red"
+                    value={redPersonality}
+                    onChange={setRedPersonality}
+                  />
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="mb-8" />
+          )}
+
           <button
             type="submit"
             className="cs-stagger btn-gold w-full py-4 font-display text-lg md:text-xl tracking-[0.4em]"
@@ -447,7 +540,7 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
             BEGIN DRAFT
           </button>
 
-          <div style={{ opacity: 1 }} className="grid grid-cols-2 gap-2 mt-3">
+          <div className="grid grid-cols-2 gap-2 mt-3">
             <button
               type="button"
               onClick={() => setTierListOpen(true)}
@@ -519,7 +612,6 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
           {/* Meta controls — three actions: randomize, edit (drag-and-drop),
               or reset to default. Active meta is persisted in localStorage. */}
           <div
-            style={{ opacity: 1 }}
             className={`grid grid-cols-3 gap-2 mt-2 transition-opacity ${
               metaEnabled ? "" : "opacity-40 pointer-events-none"
             }`}
@@ -563,7 +655,6 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
             </button>
           </div>
           <div
-            style={{ opacity: 1 }}
             className="mt-2 text-center text-[9px] md:text-[10px] uppercase tracking-[0.35em]"
           >
             <span className="text-rift-muted">Active meta · </span>

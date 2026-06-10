@@ -6,6 +6,12 @@
 // The JSON file ships with the repo; ~150 champion abilities ≈ 30KB.
 
 import abilitiesData from "./data/abilities.json";
+import {
+  sanitizeBoolean,
+  sanitizeNumber,
+  sanitizeString,
+  SanitizationLog,
+} from "./dataValidation";
 
 export interface AbilityProfile {
   alias: string;
@@ -30,8 +36,32 @@ export interface AbilityProfile {
   burstWindowSeconds: number;
 }
 
-const ABILITIES: Readonly<Record<string, AbilityProfile>> =
-  abilitiesData as Record<string, AbilityProfile>;
+// Validate and sanitize all ability entries at module load.
+// Malformed numeric/boolean fields are coerced to safe defaults; a single
+// aggregated warning is emitted so issues are visible without crashing.
+function loadAndSanitizeAbilities(): Readonly<Record<string, AbilityProfile>> {
+  const raw = abilitiesData as Record<string, unknown>;
+  const log = new SanitizationLog();
+  const sanitized: Record<string, AbilityProfile> = {};
+
+  for (const [key, entry] of Object.entries(raw)) {
+    const p = `abilities.${key}`;
+    const e = (entry ?? {}) as Record<string, unknown>;
+    sanitized[key] = {
+      alias: sanitizeString(e["alias"], `${p}.alias`, log, key),
+      hardCCDuration: sanitizeNumber(e["hardCCDuration"], `${p}.hardCCDuration`, log),
+      ultCooldown: sanitizeNumber(e["ultCooldown"], `${p}.ultCooldown`, log, 90),
+      ultCastTime: sanitizeNumber(e["ultCastTime"], `${p}.ultCastTime`, log),
+      hasResets: sanitizeBoolean(e["hasResets"], `${p}.hasResets`, log),
+      burstWindowSeconds: sanitizeNumber(e["burstWindowSeconds"], `${p}.burstWindowSeconds`, log, 4),
+    };
+  }
+
+  log.flush("abilities.json");
+  return sanitized;
+}
+
+const ABILITIES: Readonly<Record<string, AbilityProfile>> = loadAndSanitizeAbilities();
 
 // Lookup with safe fallback. When a champion is missing from the data
 // (new release, fetch failed), returns a neutral profile so callers don't

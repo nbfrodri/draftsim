@@ -4,8 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import { useDraftStore } from "@/store/draftStore";
 import { fearlessLocksBeforeGame, winsByTeamName } from "@/lib/series";
+import { computeGameRatings } from "@/lib/matchSimulator";
 import type { Champion, GameDraft, GameRecap, Lane, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
+import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
 
 interface Props {
   champions: Champion[];
@@ -134,6 +136,12 @@ export default function SeriesCompleteView({ champions }: Props) {
           <SeriesNarrative series={series.games} byId={byId} />
         )}
 
+        <SeriesPlayerRatings
+          games={series.games}
+          leftTeam={leftTeam}
+          rightTeam={rightTeam}
+        />
+
         <div className="sc-fade text-center mb-3 text-[10px] md:text-xs uppercase tracking-[0.3em] text-rift-muted">
           Tip · click two picks on the same team to swap their champions
         </div>
@@ -176,6 +184,91 @@ export default function SeriesCompleteView({ champions }: Props) {
           </svg>
           {inTournament ? "BACK TO TOURNAMENT" : "MAIN MENU"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Series player ratings ────────────────────────────────────────────────
+// Shows each player's average performance rating (1-10) across all simulated
+// games in the series. Uses stored recap.ratings when present; falls back to
+// computeGameRatings for historical recaps that have perPickKDA but no ratings.
+// Rendered only when at least one game has usable rating data.
+
+function computeSeriesAverageRatings(games: GameDraft[]): {
+  left: number[];
+  right: number[];
+} | null {
+  // leftTeam is the blue team in Game 1. We accumulate across games by
+  // tracking which team is blue in each game (it may swap between games).
+  // Each game contributes ratings indexed by positional lane (0-4).
+  // We accumulate for left/right teams separately.
+  const leftAccum = [0, 0, 0, 0, 0];
+  const rightAccum = [0, 0, 0, 0, 0];
+  const leftCount = [0, 0, 0, 0, 0];
+  const rightCount = [0, 0, 0, 0, 0];
+  const leftTeamName = games[0]?.blueTeam;
+
+  for (const g of games) {
+    if (!g.recap || !g.winner) continue;
+    const r = g.recap.ratings ?? (computeGameRatings(g.recap, g.winner) ?? null);
+    if (!r) continue;
+    // Determine whether blue = left for this game.
+    const blueIsLeft = g.blueTeam === leftTeamName;
+    const leftRatings = blueIsLeft ? r.blue : r.red;
+    const rightRatings = blueIsLeft ? r.red : r.blue;
+    for (let i = 0; i < 5; i++) {
+      if (leftRatings[i] != null) { leftAccum[i] += leftRatings[i]; leftCount[i]++; }
+      if (rightRatings[i] != null) { rightAccum[i] += rightRatings[i]; rightCount[i]++; }
+    }
+  }
+
+  const anyRated = leftCount.some((c) => c > 0) || rightCount.some((c) => c > 0);
+  if (!anyRated) return null;
+
+  return {
+    left: leftAccum.map((sum, i) => leftCount[i] > 0 ? Math.round((sum / leftCount[i]) * 10) / 10 : 0),
+    right: rightAccum.map((sum, i) => rightCount[i] > 0 ? Math.round((sum / rightCount[i]) * 10) / 10 : 0),
+  };
+}
+
+function SeriesPlayerRatings({
+  games,
+  leftTeam,
+  rightTeam,
+}: {
+  games: GameDraft[];
+  leftTeam: string;
+  rightTeam: string;
+}) {
+  const avgs = useMemo(() => computeSeriesAverageRatings(games), [games]);
+  if (!avgs) return null;
+  return (
+    <div className="sc-fade border border-rift-gold/20 bg-rift-panel/30 p-3 md:p-4 mb-4 md:mb-5">
+      <div className="text-[10px] md:text-xs uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
+        Series Avg Ratings
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:gap-4">
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.3em] text-rift-bluebright mb-1.5 truncate">
+            {leftTeam}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {avgs.left.map((r, i) => (
+              r > 0 ? <RatingBadge key={i} rating={r} /> : null
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.3em] text-rift-redbright mb-1.5 truncate">
+            {rightTeam}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {avgs.right.map((r, i) => (
+              r > 0 ? <RatingBadge key={i} rating={r} /> : null
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

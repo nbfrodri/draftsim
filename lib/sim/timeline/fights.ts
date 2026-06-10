@@ -19,6 +19,7 @@ import {
   describePowerSpike,
   describeShutdown,
   describeSkirmish,
+  describeStrategicPivot,
   describeTeamfight,
   describeVision,
   jitter,
@@ -37,8 +38,91 @@ import {
   clampChance,
   picksOf,
   rollEventSide,
+  type PivotKind,
   type TimelineContext,
 } from "./context";
+
+// ─── Mid-game strategic pivot (opt-in via ctx.adaptiveMidgame) ──────────────
+//
+// The ~minute-20 coaching checkpoint: right after the mid teamfight resolves,
+// if one side is CLEARLY behind (gold + momentum + drake stacks), that side
+// abandons its pre-game plan for the remainder. Effects flow through the
+// existing strategy-modifier machinery — we mutate tl.mods, which every
+// subsequent phase (shutdown, vision, 4th drake, baron, elder, closing)
+// reads at call time — plus a visible "PLAN PIVOT" timeline event.
+//
+// Magnitudes are deliberately modest: the pivot nudges the losing side's
+// comeback odds up a few points; it must not flip games on its own.
+//
+// IMPORTANT (golden lock): when ctx.adaptiveMidgame is falsy this function
+// returns before touching state and consumes ZERO rng calls, so default
+// simulations stay byte-identical. Even when enabled it consumes no rng —
+// the pivot is a deterministic function of the match state.
+
+// How far ahead (blue-positive, in "game leads") one side must be for the
+// other to panic-pivot: ~2.5k gold, full momentum, or a mix. drakes add a
+// little — being down 0-3 on the soul race reads as "behind" too.
+const PIVOT_THRESHOLD = 1;
+
+export function maybeMidgamePivot(tl: TimelineContext, t: number): void {
+  if (!tl.ctx.adaptiveMidgame || tl.pivot) return;
+  const { state, mods, ctx } = tl;
+  // Blue-positive "who is winning" score at the checkpoint.
+  const lead =
+    state.goldLead / 2500 +
+    state.momentum * 0.6 +
+    (state.drakes.blue - state.drakes.red) * 0.25;
+  if (Math.abs(lead) < PIVOT_THRESHOLD) return; // still a game — hold the plan
+  const side: Side = lead > 0 ? "red" : "blue";
+  const own = side === "blue" ? ctx.blueStrategy : ctx.redStrategy;
+  const opp = side === "blue" ? ctx.redStrategy : ctx.blueStrategy;
+  // Bias sign that favors the pivoting (losing) side in blue-positive rolls.
+  const sgn = side === "blue" ? 1 : -1;
+
+  let kind: PivotKind;
+  if (opp.macro === "siege") {
+    // Behind against a grouped poke/siege machine → don't keep losing the
+    // 5v5 staring contest; go 1-3-1 and make the map too wide to siege.
+    kind = "splitpush";
+    // Side-lane pressure: tower threat for the pivoting side and a slightly
+    // flatter (more volatile) deciding fight.
+    state.towerPressure[side] += 0.4;
+    mods.closingRiskFactor = Math.max(0.5, mods.closingRiskFactor * 0.94);
+    // The backdoor finish itself is handled in phaseClosingFight, which
+    // reads tl.pivot and widens the winner's backdoor window.
+  } else if (own.gamePlan === "scaling" || own.tempo === "passive") {
+    // The slow plan failed — there is no late game to wait for from 3k
+    // behind. Desperation picks + a Baron-or-bust call.
+    kind = "all-in";
+    mods.baronBias += 0.16 * sgn;
+    mods.visionChanceDelta += 0.08;
+    mods.visionBias += 0.12 * sgn;
+    mods.stealChanceDelta += 0.04;
+    mods.closingRiskFactor = Math.max(0.5, mods.closingRiskFactor * 0.9);
+  } else {
+    // Default pivot: stop trading sides of the map and sell out for the
+    // next neutral objectives — drakes, Baron, coinflip smites.
+    kind = "objective-rush";
+    mods.drakeBias += 0.12 * sgn;
+    mods.baronBias += 0.12 * sgn;
+    mods.stealChanceDelta += 0.03;
+    mods.closingRiskFactor = Math.max(0.5, mods.closingRiskFactor * 0.94);
+  }
+
+  tl.pivot = { side, kind };
+  // Visible beat in the replay, right after the fight that triggered it.
+  // Reuses the macro-flavored "objective-trade" event type (EventType is
+  // closed); the small momentum impact is the pivot's morale bump.
+  addEvent(
+    tl,
+    "objective-trade",
+    t,
+    side,
+    describeStrategicPivot(side, ctx.blueName, ctx.redName, kind),
+    {},
+    0.08,
+  );
+}
 
 // 9b. Power spikes (13-16). Fire when a carry-archetype champion completes
 // their first major item — the "I'm online" moment that explains why the
@@ -216,6 +300,10 @@ export function phaseMidTeamfight(tl: TimelineContext): void {
     },
     0.32 + dom * 0.12,
   );
+  // Adaptive mid-game checkpoint (opt-in, no-op + zero rng by default): the
+  // losing coach reads the board right after the mid teamfight (~min 19-24)
+  // and may pivot the plan for the remainder.
+  maybeMidgamePivot(tl, t + 0.4);
 }
 
 // 13b. Shutdown (post-teamfight) — fires when a meaningful gold lead has

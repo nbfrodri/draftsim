@@ -6,7 +6,6 @@ const CHAMPIONS_URL =
   "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-summary.json";
 const MERAKI_URL =
   "https://cdn.merakianalytics.com/riot/lol/resources/latest/en-US/champions.json";
-const DAY = 60 * 60 * 24;
 
 interface RawChampion {
   id: number;
@@ -31,9 +30,10 @@ function iconUrlFor(id: number): string {
 // ranks every lane and produces false positives for pure specialists).
 // The raw response is ~17MB which exceeds Next's 2MB data-cache limit; this
 // surfaces as a build-time warning but is fine in practice since the server
-// component wrapping this call is statically regenerated once per day (ISR).
+// component wrapping this call is prerendered at build time (static export
+// for Tauri) — champions refresh by rebuilding the app.
 async function fetchLanesFromMeraki(): Promise<Record<number, Lane[]>> {
-  const res = await fetch(MERAKI_URL, { next: { revalidate: DAY } });
+  const res = await fetch(MERAKI_URL);
   if (!res.ok) throw new Error(`Meraki fetch failed: ${res.status}`);
   const raw = (await res.json()) as Record<string, MerakiChampion>;
   const out: Record<number, Lane[]> = {};
@@ -163,7 +163,7 @@ function injectPendingReleases(fetched: Champion[]): Champion[] {
 
 export async function fetchChampions(): Promise<Champion[]> {
   const [raw, lanesMap] = await Promise.all([
-    fetch(CHAMPIONS_URL, { next: { revalidate: DAY } }).then((r) => {
+    fetch(CHAMPIONS_URL).then((r) => {
       if (!r.ok) throw new Error(`CommunityDragon fetch failed: ${r.status}`);
       return r.json() as Promise<RawChampion[]>;
     }),

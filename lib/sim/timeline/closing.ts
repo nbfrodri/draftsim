@@ -203,13 +203,21 @@ export function phaseClosingFight(
   const closeGame = Math.abs(tl.state.goldLead) < 4000;
   const backdoorRoll = tl.rng();
   // Committing to a 1-3-1 / splitpush plan makes the sneaky map-ending
-  // backdoor meaningfully more likely for that team.
+  // backdoor meaningfully more likely for that team. A mid-game splitpush
+  // PIVOT (adaptiveMidgame) that actually completed the comeback gets the
+  // same widened window — the desperate 1-3-1 ending on a backdoor is the
+  // whole story of that pivot. tl.pivot is undefined on the default path,
+  // so the bonus is exactly 0 there.
   const winnerStrategy =
     finalWinner === "blue" ? tl.ctx.blueStrategy : tl.ctx.redStrategy;
+  const pivotBackdoorBonus =
+    tl.pivot && tl.pivot.kind === "splitpush" && tl.pivot.side === finalWinner
+      ? 0.12
+      : 0;
   const useBackdoor =
     hasSplitter &&
     closeGame &&
-    backdoorRoll < 0.12 + backdoorBonusFor(winnerStrategy);
+    backdoorRoll < 0.12 + backdoorBonusFor(winnerStrategy) + pivotBackdoorBonus;
   if (useBackdoor) {
     const bdWk = rollInt(0, 1, tl.rng);
     const bdLk = rollInt(0, 1, tl.rng);

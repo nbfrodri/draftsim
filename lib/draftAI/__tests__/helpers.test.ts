@@ -32,6 +32,7 @@ const Lulu = makeChamp(4, "Lulu", "Lulu", ["Support"], ["support"]);
 const Kayle = makeChamp(5, "Kayle", "Kayle", ["Marksman", "Fighter"], ["top"]);
 const Jinx = makeChamp(6, "Jinx", "Jinx", ["Marksman"], ["bottom"]);
 const Sion = makeChamp(7, "Sion", "Sion", ["Tank", "Fighter"], ["top"]);
+const Draven = makeChamp(8, "Draven", "Draven", ["Marksman"], ["bottom"]);
 
 const byId = new Map<number, Champion>([
   [Akali.id, Akali],
@@ -41,6 +42,7 @@ const byId = new Map<number, Champion>([
   [Kayle.id, Kayle],
   [Jinx.id, Jinx],
   [Sion.id, Sion],
+  [Draven.id, Draven],
 ]);
 
 // ─── Damage classification (verifies bug fix #6 — Akali was AD) ────────────
@@ -114,10 +116,10 @@ describe("archetypeSynergyBonus", () => {
   });
 
   it("does add bonus for pairs NOT in the explicit table", () => {
-    // Lulu (peel/enchanter) + Jinx (hyper-carry) is the protect flow but
-    // not necessarily in the explicit table for this exact pair.
+    // Lulu (peel/enchanter) + Draven (hyper-carry) is the protect flow and
+    // this exact pair is absent from CHAMPION_SYNERGIES.
     const luluPicks = [Lulu.id];
-    const bonus = archetypeSynergyBonus(Jinx, luluPicks, byId);
+    const bonus = archetypeSynergyBonus(Draven, luluPicks, byId);
     expect(bonus).toBeGreaterThan(0);
   });
 });

@@ -15,6 +15,7 @@
 
 import { currentAction, usedChampionsInGame } from "../draftEngine";
 import { difficultyForSide, maxGames, requiredWins, winsByTeamName } from "../series";
+import type { RNG } from "../rng";
 import type { Archetype } from "../championMeta";
 import type {
   AIDifficulty,
@@ -62,6 +63,7 @@ import {
   POCKET_PICK_PROB,
   POCKET_PICK_TOP_N,
 } from "./data";
+import type { DraftPersonality } from "./personalities";
 
 // ─── Public types ───────────────────────────────────────────────────────────
 
@@ -298,6 +300,40 @@ function knobsFor(difficulty: AIDifficulty): DifficultyKnobs {
   }
 }
 
+// Personality sampling overrides, layered on top of the difficulty knobs.
+// Multipliers compose with the difficulty's own temperature; top-N deltas
+// shift the sampling pool (clamped to ≥1). When the personality defines no
+// overrides (e.g. 'balanced', or no personality at all) the original knobs
+// object is returned UNTOUCHED — guaranteeing the default path is
+// bit-identical to historical behavior.
+function applyPersonalityKnobs(
+  knobs: DifficultyKnobs,
+  personality: DraftPersonality | undefined,
+): DifficultyKnobs {
+  const s = personality?.sampling;
+  if (!s) return knobs;
+  const out = { ...knobs };
+  if (s.pickTemperatureMul != null && s.pickTemperatureMul !== 1) {
+    out.pickTemperature = Math.max(
+      0.1,
+      knobs.pickTemperature * s.pickTemperatureMul,
+    );
+  }
+  if (s.banTemperatureMul != null && s.banTemperatureMul !== 1) {
+    out.banTemperature = Math.max(
+      0.1,
+      knobs.banTemperature * s.banTemperatureMul,
+    );
+  }
+  if (s.pickTopNDelta) {
+    out.pickTopN = Math.max(1, knobs.pickTopN + s.pickTopNDelta);
+  }
+  if (s.banTopNDelta) {
+    out.banTopN = Math.max(1, knobs.banTopN + s.banTopNDelta);
+  }
+  return out;
+}
+
 export interface AIAlternative {
   championId: number;
   score: number;
@@ -317,6 +353,11 @@ export interface AIRationale {
   identityLabel: string | null;
   // Top alternatives that the AI considered but didn't pick.
   alternatives: AIAlternative[];
+  // Id of the draft personality that shaped this decision. Only present
+  // when a non-default personality was in play (omitted for 'balanced' /
+  // no personality so default rationales are unchanged). Component values
+  // above already include the personality's weighting.
+  personalityId?: string;
 }
 
 // ─── Public functions ───────────────────────────────────────────────────────
@@ -340,21 +381,35 @@ export function chooseAIAction(
   champions: Champion[],
   fearlessLocked: ReadonlySet<number>,
   seriesCtx?: SeriesAIContext,
+  rng: RNG = Math.random,
+  personality?: DraftPersonality,
 ): number | null {
   return (
-    chooseAIActionWithRationale(game, champions, fearlessLocked, seriesCtx)
-      ?.championId ?? null
+    chooseAIActionWithRationale(
+      game,
+      champions,
+      fearlessLocked,
+      seriesCtx,
+      rng,
+      personality,
+    )?.championId ?? null
   );
 }
 
 // Full decision with rationale. Computes scoring once, samples the chosen
 // champion, then re-scores that one with `explain=true` to capture the
-// labeled breakdown for UI surfacing.
+// labeled breakdown for UI surfacing. Scoring itself is deterministic;
+// all exploration randomness (selection jitter, softmax sampling, pocket
+// picks) draws from the optional injected RNG so seeded runs reproduce.
 export function chooseAIActionWithRationale(
   game: GameDraft,
   champions: Champion[],
   fearlessLocked: ReadonlySet<number>,
   seriesCtx?: SeriesAIContext,
+  rng: RNG = Math.random,
+  // Optional draft personality (see personalities.ts). Omitted or the
+  // 'balanced' preset → decisions identical to historical behavior.
+  personality?: DraftPersonality,
 ): AIRationale | null {
   const action = currentAction(game);
   if (!action) return null;
@@ -366,7 +421,10 @@ export function chooseAIActionWithRationale(
   );
   if (candidates.length === 0) return null;
 
-  const knobs = knobsFor(seriesCtx?.difficulty ?? "normal");
+  const knobs = applyPersonalityKnobs(
+    knobsFor(seriesCtx?.difficulty ?? "normal"),
+    personality,
+  );
 
   if (action.kind === "pick") {
     return decidePick(
@@ -378,9 +436,22 @@ export function chooseAIActionWithRationale(
       fearlessLocked,
       seriesCtx,
       knobs,
+      rng,
+      personality,
     );
   }
-  return decideBan(action, game, champions, byId, candidates, fearlessLocked, knobs, seriesCtx);
+  return decideBan(
+    action,
+    game,
+    champions,
+    byId,
+    candidates,
+    fearlessLocked,
+    knobs,
+    seriesCtx,
+    rng,
+    personality,
+  );
 }
 
 // ─── Pick decision ──────────────────────────────────────────────────────────
@@ -394,6 +465,8 @@ function decidePick(
   fearlessLocked: ReadonlySet<number>,
   seriesCtx: SeriesAIContext | undefined,
   knobs: DifficultyKnobs,
+  rng: RNG = Math.random,
+  personality?: DraftPersonality,
 ): AIRationale {
   const myPicks = picksFor(game, side);
   const oppPicks = picksFor(game, side === "blue" ? "red" : "blue");
@@ -427,42 +500,72 @@ function decidePick(
     myDamageDealers: damageDealerCount(myPicks, byId),
     myPhase: phaseProfile(myPicks, byId),
     oppPhase: phaseProfile(oppPicks, byId),
+    personality,
   };
 
-  // First pass: score every candidate without rationale (fast).
+  // First pass: score every candidate (scorePick is pure/deterministic),
+  // then apply the exploration jitter ONCE here at the selection layer.
+  // Keeping the jitter out of scorePick means re-scoring the chosen
+  // champion for its rationale reproduces exactly the deterministic part
+  // of the score that ranked it.
   const scored = candidates.map((c) => {
     const r = scorePick(c, ctx, false);
-    return { item: c, score: r.total };
+    return { item: c, score: r.total + rng() * 1.0 };
   });
 
   // Second pass: 1-ply lookahead for the top-K candidates (off in easy).
   // Hard adds 2-ply on top — predicts enemy response AND our follow-up,
   // so picks that lead to a strategic dead-end get marked down further.
   if (knobs.enableLookahead && nextActionIsEnemyPick(game, side)) {
+    // Personality lookahead weight — applied conditionally (skip the
+    // multiply at weight 1) to keep the default path bit-identical.
+    const lookW = personality?.weights.lookahead ?? 1;
+    const scaleLook = lookW !== 1;
     scored.sort((a, b) => b.score - a.score);
     for (let i = 0; i < Math.min(LOOKAHEAD_TOP_K, scored.length); i++) {
-      scored[i].score += lookaheadPenalty(scored[i].item, ctx);
+      const pen = lookaheadPenalty(scored[i].item, ctx);
+      scored[i].score += scaleLook ? pen * lookW : pen;
       if (knobs.enable2PlyLookahead) {
-        scored[i].score += lookahead2PlyPenalty(scored[i].item, ctx);
+        const pen2 = lookahead2PlyPenalty(scored[i].item, ctx);
+        scored[i].score += scaleLook ? pen2 * lookW : pen2;
       }
     }
   }
 
   // Pocket pick: occasionally widen the sampling pool. Off in hard mode
-  // (hard always plays the top-tier optimal).
+  // (hard always plays the top-tier optimal). Personalities can scale the
+  // probability (cheese pockets often; meta-slave never) — the rng() draw
+  // happens either way, so the RNG stream stays aligned with defaults.
+  const pocketProb =
+    personality?.pocketPickProbMul != null &&
+    personality.pocketPickProbMul !== 1
+      ? POCKET_PICK_PROB * personality.pocketPickProbMul
+      : POCKET_PICK_PROB;
   const wildcard =
-    knobs.enablePocketPicks && Math.random() < POCKET_PICK_PROB;
+    knobs.enablePocketPicks && rng() < pocketProb;
   const topN = wildcard ? POCKET_PICK_TOP_N : knobs.pickTopN;
   const chosen =
-    sampleTopN(scored, topN, knobs.pickTemperature) ?? candidates[0];
+    sampleTopN(scored, topN, knobs.pickTemperature, rng) ?? candidates[0];
+  // The score that actually ranked the chosen champion (deterministic
+  // score + selection jitter + lookahead adjustments). The rationale total
+  // reports THIS number so what the UI shows matches the ranking.
+  const chosenEntry = scored.find((s) => s.item.id === chosen.id);
 
-  // Re-score the chosen one with explain=true for rationale.
+  // Re-score the chosen one with explain=true for rationale. scorePick is
+  // deterministic, so this breakdown sums to the same deterministic total
+  // used in the first pass.
   const explained = scorePick(chosen, ctx, true);
+  const components = (explained.breakdown ?? []).slice();
+  // Surface the selection-layer adjustments (jitter + lookahead) as one
+  // residual component so the components still sum to the reported total.
+  const total = chosenEntry?.score ?? explained.total;
+  const residual = total - explained.total;
+  if (Math.abs(residual) > 1e-9) {
+    components.push({ label: "Selection jitter / lookahead", value: residual });
+  }
   // Sort components by absolute contribution so the UI shows the most
   // decisive factors first.
-  const components = (explained.breakdown ?? []).slice().sort(
-    (a, b) => Math.abs(b.value) - Math.abs(a.value),
-  );
+  components.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
 
   // Top-3 alternatives (excluding the chosen one).
   const alternatives = scored
@@ -472,15 +575,21 @@ function decidePick(
     .slice(0, 3)
     .map((s) => ({ championId: s.item.id, score: s.score }));
 
-  return {
+  const rationale: AIRationale = {
     kind: "pick",
     championId: chosen.id,
     intendedLane: explained.intendedLane,
     components,
-    total: explained.total,
+    total,
     identityLabel: identity?.label ?? null,
     alternatives,
   };
+  // Surface which personality shaped the decision — only for non-default
+  // personalities so the default rationale object is unchanged.
+  if (personality && personality.id !== "balanced") {
+    rationale.personalityId = personality.id;
+  }
+  return rationale;
 }
 
 // ─── Ban decision ───────────────────────────────────────────────────────────
@@ -494,6 +603,8 @@ function decideBan(
   fearlessLocked: ReadonlySet<number>,
   knobs: DifficultyKnobs,
   seriesCtx: SeriesAIContext | undefined,
+  rng: RNG = Math.random,
+  personality?: DraftPersonality,
 ): AIRationale {
   const myPicks = picksFor(game, action.side);
   const oppPicks = picksFor(game, action.side === "blue" ? "red" : "blue");
@@ -511,20 +622,28 @@ function decideBan(
     isPhase2: action.index >= 12,
     enemyAnticipated,
     series: seriesCtx,
+    personality,
   };
 
+  // scoreBan is pure; the exploration jitter is applied once here at the
+  // selection layer (same pattern as decidePick).
   const scored = candidates.map((c) => {
     const r = scoreBan(c, ctx, false);
-    return { item: c, score: r.total };
+    return { item: c, score: r.total + rng() * 0.6 };
   });
 
   const chosen =
-    sampleTopN(scored, knobs.banTopN, knobs.banTemperature) ?? candidates[0];
+    sampleTopN(scored, knobs.banTopN, knobs.banTemperature, rng) ?? candidates[0];
+  const chosenEntry = scored.find((s) => s.item.id === chosen.id);
 
   const explained = scoreBan(chosen, ctx, true);
-  const components = (explained.breakdown ?? []).slice().sort(
-    (a, b) => Math.abs(b.value) - Math.abs(a.value),
-  );
+  const components = (explained.breakdown ?? []).slice();
+  const total = chosenEntry?.score ?? explained.total;
+  const residual = total - explained.total;
+  if (Math.abs(residual) > 1e-9) {
+    components.push({ label: "Selection jitter", value: residual });
+  }
+  components.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
 
   const alternatives = scored
     .slice()
@@ -533,16 +652,35 @@ function decideBan(
     .slice(0, 3)
     .map((s) => ({ championId: s.item.id, score: s.score }));
 
-  return {
+  const rationale: AIRationale = {
     kind: "ban",
     championId: chosen.id,
     intendedLane: null,
     components,
-    total: explained.total,
+    total,
     identityLabel: null,
     alternatives,
   };
+  if (personality && personality.id !== "balanced") {
+    rationale.personalityId = personality.id;
+  }
+  return rationale;
 }
 
 // Re-export types that callers need.
 export type { ScoreComponent } from "./scoring";
+
+// Draft personalities — registry + resolver re-exported so callers (store,
+// setup UIs) can import everything from "lib/draftAI" directly.
+export {
+  DEFAULT_PERSONALITY_ID,
+  PERSONALITIES,
+  PERSONALITY_LIST,
+  getPersonality,
+} from "./personalities";
+export type {
+  ComponentWeights,
+  DraftPersonality,
+  SamplingOverrides,
+  ScoreComponentKind,
+} from "./personalities";

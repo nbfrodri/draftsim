@@ -12,6 +12,7 @@ import SeriesCompleteView from "./SeriesCompleteView";
 import TournamentSetup from "./TournamentSetup";
 import TournamentDashboard from "./TournamentDashboard";
 import Modal from "./Modal";
+import { isDesktop, openFileNative } from "@/lib/desktopStorage";
 
 interface Props {
   champions: Champion[];
@@ -36,6 +37,16 @@ export default function DraftApp({ champions }: Props) {
   const setChampions = useDraftStore((s) => s.setChampions);
   const hydrateMetaFromStorage = useDraftStore((s) => s.hydrateMetaFromStorage);
   const [entryView, setEntryView] = useState<EntryView>("menu");
+  // Hydration gate (same pattern as Modal's mounted guard). With static
+  // export, the prebuilt HTML is rendered before the persisted Zustand
+  // store rehydrates from localStorage — without this gate users
+  // mid-tournament would see EntryMenu flash before the dashboard swaps
+  // in. Render a neutral splash until after the first client effect.
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setChampions(champions);
@@ -44,6 +55,13 @@ export default function DraftApp({ champions }: Props) {
   useEffect(() => {
     hydrateMetaFromStorage();
   }, [hydrateMetaFromStorage]);
+
+  // Pre-hydration splash — matches the app's dark backdrop (body is
+  // already bg #010a13 via globals.css) so it reads as a brief blank
+  // frame rather than a flash of the wrong screen.
+  if (!mounted) {
+    return <div aria-hidden="true" className="min-h-screen bg-rift-bg" />;
+  }
 
   // Tournament mode is active. Route between dashboard and the active
   // match's series flow. The match's series lives in `state.series`
@@ -111,6 +129,29 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
   const handleImport = async () => {
     setImportError(null);
     setImporting(true);
+    // Desktop: open a native file dialog to read the .draftsim.json file.
+    if (isDesktop()) {
+      const fileResult = await openFileNative({
+        filters: [{ name: "DraftSim Tournament", extensions: ["json"] }],
+      });
+      if (!fileResult.ok || fileResult.content == null) {
+        setImporting(false);
+        if (fileResult.error && fileResult.error !== "cancelled") {
+          setImportError(fileResult.error);
+        }
+        return;
+      }
+      const res = await importTournament(fileResult.content);
+      setImporting(false);
+      if (res.ok) {
+        setImportOpen(false);
+        setImportCode("");
+      } else {
+        setImportError(res.error ?? "Import failed");
+      }
+      return;
+    }
+    // Web path: use the pasted code textarea.
     const res = await importTournament(importCode);
     setImporting(false);
     if (res.ok) {
@@ -180,14 +221,23 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
         <div className="mt-6 flex items-center justify-center gap-5 flex-wrap">
           <button
             type="button"
-            onClick={() => setImportOpen(true)}
-            className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright hover:text-rift-goldbright transition-colors"
+            onClick={() => {
+              // Desktop: skip the paste-code modal and go straight to
+              // the native file open dialog via handleImport.
+              if (isDesktop()) {
+                void handleImport();
+              } else {
+                setImportOpen(true);
+              }
+            }}
+            disabled={importing}
+            className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright hover:text-rift-goldbright disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M8 11V3M5 8l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M3 13h10" strokeLinecap="round" />
             </svg>
-            Import Tournament Code
+            {isDesktop() ? "Import Tournament File" : "Import Tournament Code"}
           </button>
           {tournamentHistory.length > 0 && (
             <button

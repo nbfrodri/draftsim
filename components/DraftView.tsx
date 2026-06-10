@@ -11,6 +11,7 @@ import {
 import { currentAction } from "@/lib/draftEngine";
 import {
   chooseAIActionWithRationale,
+  getPersonality,
   isAITurn,
   seriesAIContextFrom,
 } from "@/lib/draftAI";
@@ -64,11 +65,16 @@ export default function DraftView({ champions }: Props) {
     const tournamentWR = tournament
       ? computeTournamentChampionWR(tournament)
       : undefined;
+    const personality = getPersonality(
+      action.side === "blue" ? series.bluePersonalityId : series.redPersonalityId,
+    );
     const decision = chooseAIActionWithRationale(
       game,
       champions,
       effectiveLockedSet(tournament, fearlessLockedSet(series)),
       seriesAIContextFrom(series, action.side, champions, tournamentWR),
+      Math.random,
+      personality,
     );
     if (!decision) return;
     // Surface rationale + hover the chosen champion immediately. The
@@ -82,6 +88,7 @@ export default function DraftView({ champions }: Props) {
     game,
     series,
     champions,
+    tournament,
     selectChampion,
     setAIRationale,
   ]);

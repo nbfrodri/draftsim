@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { currentGame, fearlessLockedSet } from "@/lib/series";
 import { effectiveLockedSet } from "@/lib/tournament";
@@ -123,6 +123,21 @@ export default function ChampionGrid({ champions }: Props) {
     lockIn();
   };
 
+  // Stable callbacks passed to every ChampionCell so memoized cells
+  // don't re-render when the parent re-renders (e.g. on search keystrokes).
+  const handleSelect = useCallback(
+    (id: number) => {
+      if (!isChampionAvailable(id, game, locked)) return;
+      if (selectedId !== id) playSelectSound();
+      selectChampion(id);
+    },
+    [game, locked, selectedId, selectChampion],
+  );
+
+  const handleInfo = useCallback((id: number) => {
+    setDetailChampId(id);
+  }, []);
+
   return (
     <section className="flex-1 flex flex-col min-w-0 min-h-0 border border-rift-gold/25 bg-rift-panel/30 backdrop-blur-sm overflow-hidden">
       {/* Filter bar */}
@@ -229,28 +244,20 @@ export default function ChampionGrid({ champions }: Props) {
           </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(52px,1fr))] md:grid-cols-[repeat(auto-fill,minmax(64px,1fr))] gap-1.5">
-            {filtered.map((c) => {
-              const available = isChampionAvailable(c.id, game, locked);
-              const isSelected = selectedId === c.id;
-              const lockedByFearless = locked.has(c.id);
-              const tier = bestTierFor(c, lane);
-              return (
-                <ChampionCell
-                  key={c.id}
-                  champ={c}
-                  available={available}
-                  lockedByFearless={lockedByFearless}
-                  isSelected={isSelected}
-                  tier={tier}
-                  onClick={() => {
-                    if (!available) return;
-                    if (selectedId !== c.id) playSelectSound();
-                    selectChampion(c.id);
-                  }}
-                  onInfo={() => setDetailChampId(c.id)}
-                />
-              );
-            })}
+            {filtered.map((c) => (
+              <ChampionCell
+                key={c.id}
+                champId={c.id}
+                champName={c.name}
+                champIconUrl={c.iconUrl}
+                available={isChampionAvailable(c.id, game, locked)}
+                lockedByFearless={locked.has(c.id)}
+                isSelected={selectedId === c.id}
+                tier={bestTierFor(c, lane)}
+                onSelect={handleSelect}
+                onInfo={handleInfo}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -489,22 +496,29 @@ function TierBadge({ tier }: { tier: MetaTier }) {
   );
 }
 
-function ChampionCell({
-  champ,
+// ChampionCell is memoized so unchanged cells skip re-render on search
+// keystrokes. All props are primitives or stable function references so
+// the memo equality check is cheap and reliable.
+const ChampionCell = memo(function ChampionCell({
+  champId,
+  champName,
+  champIconUrl,
   available,
   lockedByFearless,
   isSelected,
   tier,
-  onClick,
+  onSelect,
   onInfo,
 }: {
-  champ: Champion;
+  champId: number;
+  champName: string;
+  champIconUrl: string;
   available: boolean;
   lockedByFearless: boolean;
   isSelected: boolean;
   tier: MetaTier | null;
-  onClick: () => void;
-  onInfo: () => void;
+  onSelect: (id: number) => void;
+  onInfo: (id: number) => void;
 }) {
   // Show every tier we have meta data for. Champions with no entry in
   // CHAMPION_META still render no badge (genuinely unknown).
@@ -516,9 +530,9 @@ function ChampionCell({
     <div className="group relative aspect-square">
       <button
         type="button"
-        onClick={onClick}
+        onClick={() => onSelect(champId)}
         disabled={!available}
-        title={tier ? `${champ.name} · ${tier}` : champ.name}
+        title={tier ? `${champName} · ${tier}` : champName}
         className={`relative aspect-square w-full h-full overflow-hidden border transition-all ${
           !available
             ? "border-rift-line/40 cursor-not-allowed grayscale brightness-[0.35]"
@@ -528,8 +542,8 @@ function ChampionCell({
         }`}
       >
         <img
-          src={champ.iconUrl}
-          alt={champ.name}
+          src={champIconUrl}
+          alt={champName}
           loading="lazy"
           className="w-full h-full object-cover"
         />
@@ -546,7 +560,7 @@ function ChampionCell({
         )}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent reveal px-1 py-0.5">
           <div className="text-[10px] text-rift-goldbright truncate font-semibold">
-            {champ.name}
+            {champName}
           </div>
         </div>
         {isSelected && (
@@ -568,10 +582,10 @@ function ChampionCell({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          onInfo();
+          onInfo(champId);
         }}
-        aria-label={`Show ${champ.name} details`}
-        title={`${champ.name} details`}
+        aria-label={`Show ${champName} details`}
+        title={`${champName} details`}
         className="absolute top-0.5 left-0.5 w-[18px] h-[18px] z-20 flex items-center justify-center bg-rift-bg/85 backdrop-blur-sm border border-rift-line/70 text-rift-mutedbright hover:border-rift-gold hover:text-rift-goldbright hover:bg-rift-bg/95 transition-all opacity-50 group-hover:opacity-100 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-rift-gold"
       >
         <svg viewBox="0 0 16 16" className="w-3 h-3" fill="currentColor" aria-hidden>
@@ -582,4 +596,4 @@ function ChampionCell({
       </button>
     </div>
   );
-}
+});

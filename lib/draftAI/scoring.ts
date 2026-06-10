@@ -3,6 +3,12 @@
 // breakdown is consumed by the UI to surface the AI's reasoning during
 // hover; without it, callers (like the prediction loop in anticipation.ts)
 // pay no overhead for unused string allocations.
+//
+// IMPORTANT: scorePick and scoreBan are PURE — deterministic for a given
+// candidate + context. The exploration randomness (jitter) that used to
+// live here is applied once at the selection layer (decidePick/decideBan
+// in index.ts), so re-scoring the chosen champion for its rationale yields
+// exactly the score that ranked it.
 
 import { TIER_VALUE, getMetaEnabled, getMetaTier } from "../championMeta";
 import type { Archetype } from "../championMeta";
@@ -28,6 +34,7 @@ import {
 } from "./helpers";
 import type { IdentityTarget, PhaseProfile } from "./helpers";
 import type { SeriesAIContext } from "./index";
+import type { DraftPersonality, ScoreComponentKind } from "./personalities";
 
 // ─── Cross-game adaptation tables ──────────────────────────────────────────
 // Maps each comp identity → archetypes that counter it. Used by both pick
@@ -122,6 +129,10 @@ export interface PickContext {
   // early/mid/late presence and reacts to the opponent's phase weight.
   myPhase: PhaseProfile;
   oppPhase: PhaseProfile;
+  // Optional draft personality — re-weights tagged scoring components.
+  // Undefined (or the 'balanced' preset, whose weights are empty) leaves
+  // every component untouched; see personalities.ts for the invariant.
+  personality?: DraftPersonality;
 }
 
 export function scorePick(
@@ -130,10 +141,21 @@ export function scorePick(
   explain: boolean = false,
 ): PickScore {
   const breakdown: ScoreComponent[] | undefined = explain ? [] : undefined;
+  const persona = ctx.personality;
   let total = 0;
-  function add(label: string, value: number) {
-    total += value;
-    if (breakdown && value !== 0) breakdown.push({ label, value });
+  // `kind` tags the component for personality re-weighting. The multiply is
+  // applied CONDITIONALLY (only when a weight exists and differs from 1) so
+  // the default / 'balanced' path is bit-identical to historical behavior.
+  // Weighted values flow into the breakdown too, so the rationale the UI
+  // shows reflects what the personality actually scored.
+  function add(label: string, value: number, kind?: ScoreComponentKind) {
+    let v = value;
+    if (persona && kind !== undefined) {
+      const w = persona.weights[kind];
+      if (w != null && w !== 1) v = value * w;
+    }
+    total += v;
+    if (breakdown && v !== 0) breakdown.push({ label, value: v });
   }
 
   const { value: tierValue, lane: bestLane } = bestLaneTierValue(
@@ -144,11 +166,10 @@ export function scorePick(
   if (bestLane == null) {
     // Champion can't play any open lane — strongly disfavored.
     add("No open lane", -50);
-    add("Jitter", Math.random() * 0.3);
     return { total, intendedLane: null, breakdown };
   }
 
-  add(`Lane fit (${bestLane}, tier×3)`, tierValue * 3);
+  add(`Lane fit (${bestLane}, tier×3)`, tierValue * 3, "metaTier");
 
   // Player comfort: a moderate nudge toward champions the player assigned to
   // this lane is good at, away from ones they're bad at. Intentionally small
@@ -162,8 +183,22 @@ export function scorePick(
       playerForLane(ctx.series.myPlayers, bestLane),
       candidate.id,
     );
-    if (comfort > 0) add("Player comfort pick", comfort * 4);
-    else if (comfort < 0) add("Player off-pool pick", comfort * 4);
+    if (comfort > 0) add("Player comfort pick", comfort * 4, "playerComfort");
+    else if (comfort < 0)
+      add("Player off-pool pick", comfort * 4, "playerComfort");
+    // Pocket-pick affinity (personality flavor knob): comfort/cheese
+    // drafters reach for a player's signature champ even when it sits
+    // below A-tier in the lane. Personality-gated — never fires on the
+    // default path.
+    const affinity = persona?.offMetaComfortBonus;
+    if (
+      affinity != null &&
+      affinity !== 0 &&
+      comfort > 0 &&
+      tierValue < TIER_VALUE.A
+    ) {
+      add("Pocket-pick affinity", affinity);
+    }
   }
 
   const meta = metaFor(candidate);
@@ -183,7 +218,11 @@ export function scorePick(
 
   const dmgDelta = damageBalanceDelta(candidate, ctx.myDmg);
   if (dmgDelta !== 0) {
-    add(dmgDelta > 0 ? "Damage gap fill" : "Damage stack penalty", dmgDelta);
+    add(
+      dmgDelta > 0 ? "Damage gap fill" : "Damage stack penalty",
+      dmgDelta,
+      "damageBalance",
+    );
   }
 
   // Lane priority bonus. Pushing/early-game champs gain prio, which
@@ -245,9 +284,9 @@ export function scorePick(
     const newAP = ctx.myDmg.ap + (candAP ? 1 : 0);
     const newAD = ctx.myDmg.ad + (candAD ? 1 : 0);
     if (newAP >= 4 && newAD < 2 && candAP)
-      add("Walled mono-AP vs tanks", -3);
+      add("Walled mono-AP vs tanks", -3, "damageBalance");
     if (newAD >= 4 && newAP < 2 && candAD)
-      add("Walled mono-AD vs tanks", -3);
+      add("Walled mono-AD vs tanks", -3, "damageBalance");
     // Mixed-damage bonus: if we already have 1+ of the OTHER type and
     // this candidate maintains the split, enemy tanks can't single-resist us.
     if (
@@ -256,7 +295,7 @@ export function scorePick(
       ctx.myDamageDealers >= 2 &&
       ((candAP && ctx.myDmg.ap < 3) || (candAD && ctx.myDmg.ad < 3))
     ) {
-      add("Forces split-resist", 1.5);
+      add("Forces split-resist", 1.5, "damageBalance");
     }
   }
 
@@ -270,6 +309,7 @@ export function scorePick(
       add(
         `Completes ${ctx.identity.label}`,
         Math.min(5, identityBonus),
+        "identity",
       );
     }
   }
@@ -287,7 +327,7 @@ export function scorePick(
     enemyHasNoPeel &&
     (meta.archetypes.includes("wombo") || meta.archetypes.includes("burst"))
   ) {
-    add("Wombo amp vs no disengage", 2);
+    add("Wombo amp vs no disengage", 2, "identity");
   }
   // Dive amp: dive comp + unprotected enemy carry → another diver multiplies.
   if (
@@ -296,7 +336,7 @@ export function scorePick(
     ctx.myCounts.dive >= 1 &&
     meta.archetypes.includes("dive")
   ) {
-    add("Stacks dive vs unprotected", 2);
+    add("Stacks dive vs unprotected", 2, "identity");
   }
   // Protect amp: hyper-carry locked + 1 peeler already → adding more peel
   // amplifies the carry's damage in the simulator's protect identity.
@@ -306,7 +346,7 @@ export function scorePick(
     (meta.archetypes.includes("peel") ||
       meta.archetypes.includes("enchanter"))
   ) {
-    add("Stacks protect identity", 1.5);
+    add("Stacks protect identity", 1.5, "identity");
   }
   // Pick amp: if we have a pick already AND enemy comp is structurally
   // catchable (low peel), another pick amplifies.
@@ -315,7 +355,7 @@ export function scorePick(
     enemyHasNoPeel &&
     meta.archetypes.includes("pick")
   ) {
-    add("Pick comp amp", 1.5);
+    add("Pick comp amp", 1.5, "identity");
   }
 
   // ─── Weakside-aware bonuses ────────────────────────────────────────────
@@ -433,15 +473,16 @@ export function scorePick(
     // entirely if identityTarget already fired — that path already
     // covered the bonus.
     if (coherence > 0 && !ctx.identity) {
-      add("Reinforces comp shape", Math.min(2, coherence));
+      add("Reinforces comp shape", Math.min(2, coherence), "archetypeSynergy");
     }
   }
 
   // Synergy.
   const explicitSyn = synergyWith(candidate, ctx.myPicks, ctx.byId);
-  if (explicitSyn > 0) add("Explicit synergy", explicitSyn * 1.2);
+  if (explicitSyn > 0) add("Explicit synergy", explicitSyn * 1.2, "synergy");
   const implicitSyn = archetypeSynergyBonus(candidate, ctx.myPicks, ctx.byId);
-  if (implicitSyn > 0) add("Archetype synergy", implicitSyn);
+  if (implicitSyn > 0)
+    add("Archetype synergy", implicitSyn, "archetypeSynergy");
 
   // Lane matchup against the opp's lane occupant. Last-pick power: scales
   // with picks already locked.
@@ -488,6 +529,7 @@ export function scorePick(
           ? `${severity}Counter-picks ${oppInLane.name}`
           : `${severity}Bad matchup vs ${oppInLane.name}`,
         value,
+        "laneMatchup",
       );
     }
   }
@@ -527,7 +569,7 @@ export function scorePick(
   if (ctx.myCounts.tank === 0 && meta.archetypes.includes("hyper-carry"))
     denyValue += 1;
   if (denyValue > 0.5) {
-    add("Denies enemy counter", Math.min(6, denyValue));
+    add("Denies enemy counter", Math.min(6, denyValue), "laneMatchup");
   }
 
   // Deny an enemy player's signature champ — taking their comfort pick off
@@ -536,25 +578,25 @@ export function scorePick(
   // strong pick without steamrolling comp needs. Roster series + non-Easy.
   if (ctx.series && ctx.series.difficulty !== "easy" && ctx.series.oppPlayers) {
     const mainW = rosterComfortWeight(ctx.series.oppPlayers, candidate.id);
-    if (mainW > 0) add("Denies enemy main", 4 * mainW);
+    if (mainW > 0) add("Denies enemy main", 4 * mainW, "targetBan");
   }
 
   // Team-level counter-comp.
   if (ctx.oppCounts.poke >= 2 && meta.archetypes.includes("engage"))
-    add("Engage vs enemy poke", 3);
+    add("Engage vs enemy poke", 3, "laneMatchup");
   if (
     ctx.oppCounts.dive >= 2 &&
     (meta.archetypes.includes("peel") || meta.archetypes.includes("enchanter"))
   )
-    add("Peel vs enemy dive", 3);
+    add("Peel vs enemy dive", 3, "laneMatchup");
   if (ctx.oppCounts.tank >= 2 && meta.archetypes.includes("hyper-carry"))
-    add("DPS vs tank wall", 2);
+    add("DPS vs tank wall", 2, "laneMatchup");
   if (
     ctx.oppCounts["hyper-carry"] >= 1 &&
     ctx.oppCounts.peel < 2 &&
     meta.archetypes.includes("dive")
   )
-    add("Dive vs unprotected carry", 3);
+    add("Dive vs unprotected carry", 3, "laneMatchup");
 
   // Flex preference for early picks.
   const flex = flexLaneCount(candidate);
@@ -604,7 +646,7 @@ export function scorePick(
         // Premium-tier B1 — even if it gets countered, it's still strong
         // enough that the matchup is survivable.
         if (tierValue >= TIER_VALUE["S+"]) {
-          add("Power first pick", 1.5);
+          add("Power first pick", 1.5, "metaTier");
         }
       }
       // B2/B3 (positions 1-2 in myPicksLocked) — blue's "double pick"
@@ -639,6 +681,7 @@ export function scorePick(
         add(
           "Red counter advantage",
           Math.min(5, redCounterBonus * phaseScale),
+          "laneMatchup",
         );
       }
       // Red's R5 (last pick, myPicksLocked === 4) gets a small extra
@@ -648,7 +691,7 @@ export function scorePick(
       if (ctx.myPicksLocked === 4 && oppInLane) {
         const finalMatchup = laneMatchup(candidate, oppInLane);
         if (finalMatchup > 0) {
-          add("Last-pick lane closer", finalMatchup * 0.6);
+          add("Last-pick lane closer", finalMatchup * 0.6, "laneMatchup");
         } else if (finalMatchup <= -4) {
           // Extreme counter — penalty quadratic-ish to make R5 essentially
           // refuse to pick into it. The candidate would need MASSIVE bonus
@@ -656,9 +699,10 @@ export function scorePick(
           add(
             "Last-pick into HARD counter (avoid)",
             finalMatchup * 2.5,
+            "laneMatchup",
           );
         } else if (finalMatchup < -1) {
-          add("Last-pick into counter", finalMatchup * 1.0);
+          add("Last-pick into counter", finalMatchup * 1.0, "laneMatchup");
         }
       }
     }
@@ -719,6 +763,7 @@ export function scorePick(
           add(
             `Counters last game's ${lastIdentity}`,
             Math.min(3, counterValue),
+            "crossGameCounter",
           );
         }
       }
@@ -729,13 +774,13 @@ export function scorePick(
     // engage. Fires on heavy concentration only.
     const profile = ctx.series.oppPriorArchetypeProfile;
     if (profile.engage >= 3 && meta.archetypes.includes("peel")) {
-      add("Anti-engage prep (opp pattern)", 1);
+      add("Anti-engage prep (opp pattern)", 1, "crossGameCounter");
     }
     if (profile.dive >= 2 && meta.archetypes.includes("peel")) {
-      add("Anti-dive prep (opp pattern)", 1);
+      add("Anti-dive prep (opp pattern)", 1, "crossGameCounter");
     }
     if (profile["hyper-carry"] >= 2 && meta.archetypes.includes("dive")) {
-      add("Anti-carry dive (opp pattern)", 1);
+      add("Anti-carry dive (opp pattern)", 1, "crossGameCounter");
     }
   }
 
@@ -766,7 +811,7 @@ export function scorePick(
           bonus > 0
             ? `Tournament hot streak (${entry.wins}-${entry.games - entry.wins})`
             : `Tournament cold streak (${entry.wins}-${entry.games - entry.wins})`;
-        add(label, bonus);
+        add(label, bonus, "metaTier");
       }
     }
   }
@@ -803,11 +848,11 @@ export function scorePick(
           : behind
           ? "Behind in series: meta priority"
           : "Closeout: lock in meta";
-        add(label, bonus);
+        add(label, bonus, "metaTier");
       } else if (tierValue <= TIER_VALUE.C) {
         // Off-meta picks are an explicit gamble when stakes are high.
         const penalty = -1.5 * metaWeight;
-        add("Avoid off-meta gamble", penalty);
+        add("Avoid off-meta gamble", penalty, "metaTier");
       }
 
       // In an elimination game, also discourage repeating the same comp
@@ -857,8 +902,6 @@ export function scorePick(
     }
   }
 
-  add("Jitter", Math.random() * 1.0);
-
   return { total, intendedLane: bestLane, breakdown };
 }
 
@@ -873,6 +916,8 @@ export interface BanContext {
   // Optional series context — allows bans to factor in cross-game
   // opponent adaptation (banning enablers of identities they ran before).
   series?: SeriesAIContext;
+  // Optional draft personality — same contract as PickContext.personality.
+  personality?: DraftPersonality;
 }
 
 export function scoreBan(
@@ -881,10 +926,17 @@ export function scoreBan(
   explain: boolean = false,
 ): BanScore {
   const breakdown: ScoreComponent[] | undefined = explain ? [] : undefined;
+  const persona = ctx.personality;
   let total = 0;
-  function add(label: string, value: number) {
-    total += value;
-    if (breakdown && value !== 0) breakdown.push({ label, value });
+  // Same conditional-weighting contract as scorePick's add() — see there.
+  function add(label: string, value: number, kind?: ScoreComponentKind) {
+    let v = value;
+    if (persona && kind !== undefined) {
+      const w = persona.weights[kind];
+      if (w != null && w !== 1) v = value * w;
+    }
+    total += v;
+    if (breakdown && v !== 0) breakdown.push({ label, value: v });
   }
 
   // Meta-tier-based ban scoring is only meaningful when the meta system
@@ -905,11 +957,12 @@ export function scoreBan(
 
   const tierMul = ctx.isPhase2 ? 1.4 : 2.5;
   if (bestTierValue > 0) {
-    add(`Meta tier × ${tierMul}`, bestTierValue * tierMul);
+    add(`Meta tier × ${tierMul}`, bestTierValue * tierMul, "metaTier");
   }
   add(
     "Flex denial",
     flexLaneCount(candidate) * (ctx.isPhase2 ? 0.6 : 1.4),
+    "metaTier",
   );
 
   const meta = metaFor(candidate);
@@ -921,17 +974,21 @@ export function scoreBan(
       meta.archetypes.includes("dive") ||
       meta.archetypes.includes("assassin")
     )
-      add("Threat: dive on our carry", 3 * threatMul);
+      add("Threat: dive on our carry", 3 * threatMul, "threatBan");
   }
   if (ctx.myCounts.poke >= 2 && meta.archetypes.includes("engage"))
-    add("Threat: engage on our poke", 2 * threatMul);
+    add("Threat: engage on our poke", 2 * threatMul, "threatBan");
   if (ctx.myCounts.tank === 0 && meta.archetypes.includes("hyper-carry"))
-    add("Threat: enemy carry vs no tank", 2 * threatMul);
+    add("Threat: enemy carry vs no tank", 2 * threatMul, "threatBan");
 
   // Synergy denial.
   const synWithOpp = synergyWith(candidate, ctx.oppPicks, ctx.byId);
   if (synWithOpp > 0) {
-    add("Denies enemy synergy", synWithOpp * (ctx.isPhase2 ? 2.0 : 1.0));
+    add(
+      "Denies enemy synergy",
+      synWithOpp * (ctx.isPhase2 ? 2.0 : 1.0),
+      "synergy",
+    );
   }
 
   // ─── Enemy roster: target-ban signature picks ────────────────────────────
@@ -943,19 +1000,24 @@ export function scoreBan(
   if (ctx.series && ctx.series.difficulty !== "easy" && ctx.series.oppPlayers) {
     const comfort = rosterComfortWeight(ctx.series.oppPlayers, candidate.id);
     if (comfort > 0) {
-      add("Bans enemy comfort pick", (ctx.isPhase2 ? 6 : 5) * comfort);
+      add(
+        "Bans enemy comfort pick",
+        (ctx.isPhase2 ? 6 : 5) * comfort,
+        "targetBan",
+      );
     } else {
       const discomfort = rosterDiscomfortWeight(
         ctx.series.oppPlayers,
         candidate.id,
       );
-      if (discomfort > 0) add("Enemy weak on it", -2 * discomfort);
+      if (discomfort > 0)
+        add("Enemy weak on it", -2 * discomfort, "targetBan");
     }
   }
 
   // Anticipation.
   if (ctx.enemyAnticipated.has(candidate.id)) {
-    add("Anticipates enemy pick", ctx.isPhase2 ? 8 : 4);
+    add("Anticipates enemy pick", ctx.isPhase2 ? 8 : 4, "targetBan");
   }
 
   // ─── Cross-game ban prep ──────────────────────────────────────────────
@@ -982,6 +1044,7 @@ export function scoreBan(
           add(
             `Bans ${lastIdentity} enabler`,
             Math.min(4, prepValue) * (ctx.isPhase2 ? 1.4 : 1.0),
+            "crossGameCounter",
           );
         }
       }
@@ -993,11 +1056,9 @@ export function scoreBan(
       !ctx.series.fearless &&
       ctx.series.oppPriorPicks.has(candidate.id)
     ) {
-      add("Opp pocket pick", ctx.isPhase2 ? 2.5 : 1.5);
+      add("Opp pocket pick", ctx.isPhase2 ? 2.5 : 1.5, "crossGameCounter");
     }
   }
-
-  add("Jitter", Math.random() * 0.6);
 
   return { total, breakdown };
 }

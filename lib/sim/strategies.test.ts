@@ -6,6 +6,7 @@ import {
   applyWeaksideToLaneAdv,
   backdoorBonusFor,
   chooseAIStrategy,
+  chooseAIStrategyForGame,
   DEFAULT_STRATEGY,
   fitTier,
   recommendStrategy,
@@ -13,6 +14,7 @@ import {
   strategyFit,
   strategySummary,
   strategyTimelineModifiers,
+  type PriorGameSummary,
   type TeamStrategy,
 } from "./strategies";
 import { simulateMatch } from "../matchSimulator";
@@ -442,6 +444,276 @@ describe("chooseAIStrategy — context-aware & varied", () => {
     }
     expect(plans.size).toBeGreaterThan(1);
     expect(visions.size).toBeGreaterThan(1);
+  });
+});
+
+describe("chooseAIStrategy — comp coherence across diverse comps (argmax)", () => {
+  // Each fixture is a recognizable comp identity; the deterministic argmax
+  // plan must hang together as a coherent strategy, not a grab-bag of levers.
+
+  it("scaling comp → scaling plan with matching levers", () => {
+    const s = chooseAIStrategy(comp(LATE));
+    expect(s.gamePlan).toBe("scaling");
+    expect(s.jungle).toBe("farm");
+    expect(s.tempo).toBe("passive");
+    expect(s.objective).toBe("dragon"); // stack toward soul, late-game prize
+  });
+
+  it("early comp → aggression with matching levers", () => {
+    const s = chooseAIStrategy(comp(EARLY));
+    expect(s.gamePlan).toBe("early-snowball");
+    expect(s.jungle).toBe("gank");
+    expect(s.tempo).toBe("aggressive");
+    expect(s.objective).toBe("herald"); // early tower tempo
+  });
+
+  it("pick comp → pick macro, flank fights, proactive vision, roaming mid", () => {
+    // Elise/Ahri/Jhin/Thresh stack pick+assassin+burst archetypes.
+    const s = chooseAIStrategy(comp(["Renekton", "Elise", "Ahri", "Jhin", "Thresh"]));
+    expect(s.macro).toBe("pick");
+    expect(s.fightStyle).toBe("flank");
+    expect(s.vision).toBe("proactive");
+    expect(s.midPlay).toBe("roam");
+  });
+
+  it("poke comp → siege macro and poke fight style", () => {
+    const s = chooseAIStrategy(comp(["Jayce", "Nidalee", "Xerath", "Caitlyn", "Karma"]));
+    expect(s.macro).toBe("siege");
+    expect(s.fightStyle).toBe("poke");
+  });
+
+  it("splitpush comp → 1-3-1 macro with the top laner splitting", () => {
+    const s = chooseAIStrategy(comp(["Camille", "Elise", "Azir", "Aphelios", "Anivia"]));
+    expect(s.macro).toBe("splitpush");
+    expect(s.topPlay).toBe("splitpush");
+  });
+
+  it("frontline + hyper-carry comp → teamfight, front-to-back, protect the carry", () => {
+    const s = chooseAIStrategy(comp(["Malphite", "Vi", "Orianna", "Jinx", "Leona"]));
+    expect(s.gamePlan).toBe("teamfight");
+    expect(s.fightStyle).toBe("front-to-back");
+    expect(s.supportPlay).toBe("protect");
+    expect(s.botPlay).toBe("scale"); // Jinx farms to her spike
+  });
+
+  it("rng sampling keeps the comp-fitting plan as the modal choice", () => {
+    const rng = makeRng(11);
+    const counts: Record<string, number> = {};
+    for (let i = 0; i < 120; i++) {
+      const s = chooseAIStrategy(comp(LATE), { rng });
+      counts[s.gamePlan] = (counts[s.gamePlan] ?? 0) + 1;
+    }
+    // Variety exists but "scaling" dominates for an all-late comp (weight 7/11).
+    expect(Object.keys(counts).length).toBeGreaterThan(1);
+    expect(counts["scaling"]).toBeGreaterThan(counts["early-snowball"] ?? 0);
+    expect(counts["scaling"]).toBeGreaterThan(counts["teamfight"] ?? 0);
+  });
+});
+
+describe("chooseAIStrategyForGame — series adaptation", () => {
+  const MIRROR = ["Malphite", "Vi", "Ahri", "Jhin", "Nautilus"];
+  const SPLIT = ["Camille", "Elise", "Azir", "Aphelios", "Anivia"];
+
+  function prior(
+    patch: Partial<PriorGameSummary> & { won: boolean },
+  ): PriorGameSummary {
+    return { strategy: DEFAULT_STRATEGY, ...patch };
+  }
+
+  it("game 1 (no prior games) → identical to chooseAIStrategy", () => {
+    const forGame = chooseAIStrategyForGame({
+      picks: comp(LATE),
+      priorGames: [],
+      rng: makeRng(3),
+    });
+    const direct = chooseAIStrategy(comp(LATE), { rng: makeRng(3) });
+    expect(forGame).toEqual(direct);
+  });
+
+  it("after a win → keeps gamePlan/tempo/macro/objective from the winning plan", () => {
+    const winning = override(DEFAULT_STRATEGY, {
+      gamePlan: "scaling",
+      tempo: "passive",
+      macro: "siege",
+      objective: "atakhan",
+    });
+    const s = chooseAIStrategyForGame({
+      picks: comp(EARLY), // even though the new comp leans early...
+      priorGames: [prior({ won: true, strategy: winning })],
+      rng: makeRng(5),
+    });
+    expect(s.gamePlan).toBe("scaling");
+    expect(s.tempo).toBe("passive");
+    expect(s.macro).toBe("siege");
+    expect(s.objective).toBe("atakhan");
+  });
+
+  it("after a win does not carry a splitpush macro into a comp with no splitpusher", () => {
+    const winning = override(DEFAULT_STRATEGY, { macro: "splitpush" });
+    const s = chooseAIStrategyForGame({
+      picks: comp(LATE), // no splitpusher
+      priorGames: [prior({ won: true, strategy: winning })],
+      rng: makeRng(5),
+    });
+    expect(s.macro).not.toBe("splitpush");
+  });
+
+  it("lost a slow scaling game → pushes tempo / early aggression (rule L1)", () => {
+    const slowLoss = prior({
+      won: false,
+      strategy: override(DEFAULT_STRATEGY, { gamePlan: "scaling", tempo: "passive" }),
+      durationMinutes: 38,
+    });
+    const s = chooseAIStrategyForGame({
+      picks: comp(EARLY),
+      priorGames: [slowLoss],
+      rng: makeRng(7),
+    });
+    expect(s.gamePlan).toBe("early-snowball");
+    expect(s.tempo).toBe("aggressive");
+    expect(s.jungle).toBe("gank");
+    expect(s.objective).toBe("herald");
+  });
+
+  it("rule L1 falls back to teamfight aggression when the comp has no early champs", () => {
+    const slowLoss = prior({
+      won: false,
+      strategy: override(DEFAULT_STRATEGY, { gamePlan: "scaling" }),
+    });
+    const s = chooseAIStrategyForGame({
+      picks: comp(LATE), // zero early-phase champions
+      priorGames: [slowLoss],
+      rng: makeRng(7),
+    });
+    expect(s.gamePlan).toBe("teamfight");
+    expect(s.tempo).toBe("aggressive");
+  });
+
+  it("lost the early game → plays safer scaling (rule L2)", () => {
+    const fastLoss = prior({
+      won: false,
+      strategy: override(DEFAULT_STRATEGY, {
+        gamePlan: "early-snowball",
+        tempo: "aggressive",
+      }),
+      durationMinutes: 26,
+    });
+    const s = chooseAIStrategyForGame({
+      picks: comp(LATE),
+      priorGames: [fastLoss],
+      rng: makeRng(9),
+    });
+    expect(s.gamePlan).toBe("scaling");
+    expect(s.tempo).toBe("passive");
+    expect(s.jungle).toBe("farm");
+    expect(s.objective).toBe("dragon");
+    expect(s.botPlay).toBe("scale");
+    expect(s.supportPlay).toBe("protect");
+  });
+
+  it("lost a standard game with a splitpusher available → changes map shape (rule L3a)", () => {
+    const s = chooseAIStrategyForGame({
+      picks: comp(SPLIT),
+      priorGames: [prior({ won: false })], // lost on the neutral plan
+      rng: makeRng(13),
+    });
+    expect(s.macro).toBe("splitpush");
+    expect(s.topPlay).toBe("splitpush");
+  });
+
+  it("lost a standard game with no splitpusher → hunts picks (rule L3b)", () => {
+    const s = chooseAIStrategyForGame({
+      picks: comp(MIRROR),
+      priorGames: [prior({ won: false })],
+      rng: makeRng(13),
+    });
+    expect(s.macro).toBe("pick");
+    expect(s.vision).toBe("proactive");
+  });
+
+  it("lost to a splitpush plan → groups, wards deep and hunts the splitter (rule L4)", () => {
+    const s = chooseAIStrategyForGame({
+      picks: comp(MIRROR),
+      priorGames: [
+        prior({
+          won: false,
+          opponentStrategy: override(DEFAULT_STRATEGY, { macro: "splitpush" }),
+        }),
+      ],
+      rng: makeRng(17),
+    });
+    expect(s.macro).toBe("group");
+    expect(s.vision).toBe("proactive");
+    expect(s.pickTarget).toBe("top");
+  });
+
+  it("lost to a pick plan → stops getting caught (rule L5)", () => {
+    const s = chooseAIStrategyForGame({
+      picks: comp(MIRROR),
+      priorGames: [
+        prior({
+          won: false,
+          opponentStrategy: override(DEFAULT_STRATEGY, { macro: "pick" }),
+        }),
+      ],
+      rng: makeRng(17),
+    });
+    expect(s.macro).toBe("group");
+    expect(s.vision).toBe("proactive");
+    expect(s.supportPlay).toBe("protect");
+  });
+
+  it("a stomped loss flips the risk dial to high-roll (rule L6)", () => {
+    const stomped = chooseAIStrategyForGame({
+      picks: comp(MIRROR),
+      priorGames: [prior({ won: false, goldDiff: -9000 })],
+      rng: makeRng(19),
+    });
+    expect(stomped.risk).toBe("high-roll");
+    // A close loss does NOT touch the risk dial — it keeps whatever the
+    // base (comp + series context) plan sampled for the same rng stream.
+    const close = chooseAIStrategyForGame({
+      picks: comp(MIRROR),
+      priorGames: [prior({ won: false, goldDiff: -1200 })],
+      rng: makeRng(19),
+    });
+    const base = chooseAIStrategy(comp(MIRROR), { rng: makeRng(19) });
+    expect(close.risk).toBe(base.risk);
+  });
+
+  it("ignores prior games tagged with a different opponent", () => {
+    const vsOther = prior({
+      won: false,
+      goldDiff: -9000,
+      opponentName: "Some Other Team",
+    });
+    const s = chooseAIStrategyForGame({
+      picks: comp(LATE),
+      priorGames: [vsOther],
+      opponentName: "Current Rival",
+      rng: makeRng(21),
+    });
+    // No relevant history → identical to the game-1 path.
+    expect(s).toEqual(chooseAIStrategy(comp(LATE), { rng: makeRng(21) }));
+  });
+
+  it("uses the MOST RECENT game when several priors exist", () => {
+    const oldLoss = prior({
+      won: false,
+      strategy: override(DEFAULT_STRATEGY, { gamePlan: "early-snowball" }),
+    });
+    const recentWin = prior({
+      won: true,
+      strategy: override(DEFAULT_STRATEGY, { gamePlan: "scaling", macro: "siege" }),
+    });
+    const s = chooseAIStrategyForGame({
+      picks: comp(LATE),
+      priorGames: [oldLoss, recentWin],
+      rng: makeRng(23),
+    });
+    // Adapts to the recent WIN (keep plan), not the older loss.
+    expect(s.gamePlan).toBe("scaling");
+    expect(s.macro).toBe("siege");
   });
 });
 

@@ -428,6 +428,64 @@ correlation (noise) vs load-bearing ones (don't touch).
 
 ---
 
+## Desktop (Tauri)
+
+DraftSim ships as a native desktop app via [Tauri v2](https://tauri.app/).
+
+### Prerequisites
+
+- **Node 20+** and **npm 10+** (same as web build).
+- **Rust 1.77+** — install from [rustup.rs](https://rustup.rs/).
+- **Windows**: Visual Studio Build Tools 2022 (C++ workload) or VS 2022.
+- **macOS**: Xcode Command Line Tools (`xcode-select --install`).
+- **Linux**: `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev` (distro-specific).
+
+### Dev (hot-reload)
+
+```bash
+npm run desktop:dev
+```
+
+Starts the Next.js dev server on `:3000` and opens the Tauri window pointing at it.
+
+### Production build
+
+```bash
+npm run desktop:build
+```
+
+Runs `npm run build` (Next.js static export to `out/`) then packages the app with Tauri.
+
+The build produces (paths relative to the repo root; not committed — `src-tauri/target` is gitignored):
+
+| Artifact | Path |
+|---|---|
+| NSIS installer (recommended) | `src-tauri/target/release/bundle/nsis/DraftSim_<version>_x64-setup.exe` |
+| MSI installer | `src-tauri/target/release/bundle/msi/DraftSim_<version>_x64_en-US.msi` |
+| Portable executable (no install) | `src-tauri/target/release/app.exe` |
+
+### Where data lives
+
+Persistent state is stored as JSON files in the OS app-data directory for the identifier `app.draftsim.desktop`:
+
+| Platform | Path |
+|---|---|
+| Windows | `%APPDATA%\app.draftsim.desktop\` |
+| macOS | `~/Library/Application Support/app.draftsim.desktop/` |
+| Linux | `~/.local/share/app.draftsim.desktop/` |
+
+The main store file is `draftsim-store.json`. Tournament history is kept in the same file — the desktop build raises the history cap from 5 to 200 entries and preserves full replay data (compact-encoded) instead of slimming it down.
+
+### Export / Import (desktop)
+
+- **Tournament Save** — opens a native Save dialog; writes a `.draftsim.json` file you can share or back up.
+- **Tournament Import** — opens a native Open dialog; reads any `.draftsim.json` previously exported.
+- **Meta Export / Import** — same treatment in the Meta Editor.
+
+Web builds continue using clipboard copy/paste for tournament codes and textarea input.
+
+---
+
 ## 📄 Attribution & licensing
 
 Unofficial fan-made simulator. League of Legends and all champion names, splash

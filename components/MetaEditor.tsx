@@ -13,6 +13,7 @@ import {
 } from "@/lib/championMeta";
 import type { Champion, Lane } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
+import { isDesktop, saveFileNative, openFileNative } from "@/lib/desktopStorage";
 
 interface Props {
   open: boolean;
@@ -200,6 +201,21 @@ export default function MetaEditor({
       });
       return;
     }
+    // Desktop: use native save dialog.
+    if (isDesktop()) {
+      const result = await saveFileNative({
+        defaultPath: "meta-override.json",
+        filters: [{ name: "DraftSim Meta", extensions: ["json"] }],
+        content: code,
+      });
+      if (result.ok) {
+        setFeedback({ kind: "ok", text: "Meta saved to file" });
+      } else if (result.error && result.error !== "cancelled") {
+        setFeedback({ kind: "err", text: `Save failed: ${result.error}` });
+      }
+      return;
+    }
+    // Web path: clipboard.
     try {
       await navigator.clipboard.writeText(code);
       setFeedback({ kind: "ok", text: "Meta code copied to clipboard" });
@@ -216,6 +232,35 @@ export default function MetaEditor({
   };
 
   const handleImport = async () => {
+    // Desktop: open a native file dialog to read the meta JSON file.
+    if (isDesktop()) {
+      const fileResult = await openFileNative({
+        filters: [{ name: "DraftSim Meta", extensions: ["json"] }],
+      });
+      if (!fileResult.ok || fileResult.content == null) {
+        if (fileResult.error && fileResult.error !== "cancelled") {
+          setFeedback({ kind: "err", text: fileResult.error });
+        }
+        return;
+      }
+      const result = await decodeMetaOverride(fileResult.content, validAliases);
+      if (result.error || !result.override) {
+        setFeedback({ kind: "err", text: result.error ?? "Decode failed" });
+        return;
+      }
+      setEditing(result.override);
+      setImportOpen(false);
+      setImportText("");
+      const skipped = result.skippedEntries
+        ? ` (${result.skippedEntries} skipped)`
+        : "";
+      setFeedback({
+        kind: "ok",
+        text: `Imported ${result.championCount} champions${skipped}`,
+      });
+      return;
+    }
+    // Web path: use pasted textarea content.
     if (!importText.trim()) {
       setFeedback({ kind: "err", text: "Paste a meta code first" });
       return;
@@ -463,6 +508,11 @@ export default function MetaEditor({
             <button
               type="button"
               onClick={() => {
+                // Desktop: skip textarea panel, open native file dialog.
+                if (isDesktop()) {
+                  void handleImport();
+                  return;
+                }
                 setImportOpen((v) => !v);
                 if (!importOpen) setImportText("");
               }}
@@ -471,7 +521,7 @@ export default function MetaEditor({
                   ? "border-rift-gold/60 text-rift-goldbright bg-rift-gold/10"
                   : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60 hover:bg-rift-gold/5"
               }`}
-              title="Paste JSON to import a meta tier list"
+              title={isDesktop() ? "Open meta JSON file" : "Paste JSON to import a meta tier list"}
             >
               <svg
                 viewBox="0 0 16 16"
