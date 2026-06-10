@@ -40,6 +40,7 @@ import type { MatchOverride } from "./tournament/shared";
 export default function TournamentDashboard() {
   const tournament = useDraftStore((s) => s.tournament)!;
   const startMatch = useDraftStore((s) => s.startMatch);
+  const saveCurrentTournament = useDraftStore((s) => s.saveCurrentTournament);
   const exitTournament = useDraftStore((s) => s.exitTournament);
   const simulateAllRemaining = useDraftStore((s) => s.simulateAllRemaining);
   const simulating = useDraftStore((s) => s.simulating);
@@ -73,6 +74,14 @@ export default function TournamentDashboard() {
     const id = setTimeout(() => setExportFeedback(null), 2500);
     return () => clearTimeout(id);
   }, [exportFeedback]);
+
+  // Save = snapshot the full tournament state (bracket, recaps, evolved
+  // meta, pick histories) into the local Saved Tournaments list on the
+  // main menu. Distinct from Export, which produces a shareable file/code.
+  const handleSave = () => {
+    const ok = saveCurrentTournament();
+    setExportFeedback(ok ? "Saved — see Saved Tournaments on the main menu" : "Save failed");
+  };
 
   const handleExport = async () => {
     setSavePending(true);
@@ -202,9 +211,9 @@ export default function TournamentDashboard() {
         )}
         <button
           type="button"
-          onClick={handleExport}
+          onClick={handleSave}
           className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
-          title="Save the tournament — copy a code you can paste later to resume from this exact state"
+          title="Save this tournament locally — resume, duplicate, or delete it from Saved Tournaments on the main menu"
         >
           <svg
             viewBox="0 0 16 16"
@@ -219,6 +228,29 @@ export default function TournamentDashboard() {
             <rect x="5" y="9" width="6" height="4" />
           </svg>
           Save
+        </button>
+        <button
+          type="button"
+          onClick={handleExport}
+          className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
+          title={
+            isDesktop()
+              ? "Export the tournament to a file you can import later"
+              : "Export the tournament — copy a code you can paste later to resume from this exact state"
+          }
+        >
+          <svg
+            viewBox="0 0 16 16"
+            className="w-3.5 h-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            aria-hidden
+          >
+            <path d="M8 3v8M5 8l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M3 13h10" strokeLinecap="round" />
+          </svg>
+          Export
         </button>
       </div>
 

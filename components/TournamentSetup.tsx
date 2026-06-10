@@ -20,6 +20,7 @@ import TeamIcon from "./TeamIcon";
 import type { AIDifficulty, DraftMode, Roster, SeriesFormat, Side } from "@/lib/types";
 import { deriveStar, randomizeRoster } from "@/lib/players";
 import MetaPanel from "./MetaPanel";
+import { MetaPresetQuickPick, PairingsPresetQuickPick } from "./PresetQuickPick";
 import RosterEditor from "./RosterEditor";
 import { PERSONALITY_LIST } from "@/lib/draftAI";
 import type { SideRule } from "@/lib/series";
@@ -982,6 +983,10 @@ export default function TournamentSetup({ onCancel }: Props) {
             once configured here it carries through every match. */}
         <div className="mb-5 border border-rift-line/40 bg-rift-bg/30 p-3 md:p-4">
           <MetaPanel variant="full" />
+          {/* Saved presets from the main-menu libraries — one click
+              applies a tier list / pairings set for this tournament. */}
+          <MetaPresetQuickPick />
+          <PairingsPresetQuickPick />
         </div>
 
         {/* ─── Actions ──────────────────────────────────────────────── */}

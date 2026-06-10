@@ -13,6 +13,7 @@ import type {
 import { deriveStar, randomizeRoster } from "@/lib/players";
 import TierListView from "./TierListView";
 import MetaEditor from "./MetaEditor";
+import { MetaPresetQuickPick, PairingsPresetQuickPick } from "./PresetQuickPick";
 import SynergyView from "./SynergyView";
 import RosterEditor from "./RosterEditor";
 import { PERSONALITY_LIST } from "@/lib/draftAI";
@@ -675,6 +676,12 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
             </span>
           </div>
 
+          {/* Saved tier lists from the main-menu library — one click
+              applies a preset as the active meta for this series. */}
+          <div className={metaEnabled ? "" : "opacity-40 pointer-events-none"}>
+            <MetaPresetQuickPick />
+          </div>
+
           {/* Random synergies + counters. Generates ~120 random pair
               synergies and ~90 random same-lane counters. Independent of
               the tier randomizer so they can be toggled in any
@@ -726,6 +733,11 @@ export default function CreateSimulationForm({ onBack }: FormProps = {}) {
             >
               {synergiesCountersRandomized ? "Randomized" : "Default"}
             </span>
+          </div>
+
+          {/* Saved synergy & counter sets from the library. */}
+          <div className={metaEnabled ? "" : "opacity-40 pointer-events-none"}>
+            <PairingsPresetQuickPick />
           </div>
         </div>
 

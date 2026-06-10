@@ -24,6 +24,7 @@ import {
   type MetaTier,
   type Synergy,
 } from "./championMeta";
+import { desktopStorage, isDesktop } from "./desktopStorage";
 import { shuffle as shuffleWith, type RNG } from "./rng";
 import type { Champion, Lane } from "./types";
 
@@ -200,6 +201,7 @@ export function saveMetaSource(source: "default" | "randomized" | "custom"): voi
   } catch {
     // ignore
   }
+  syncMetaConfigToDesktopFile();
 }
 
 export function loadMetaSource(): "default" | "randomized" | "custom" {
@@ -222,6 +224,7 @@ export function saveMetaEnabled(enabled: boolean): void {
   } catch {
     // ignore
   }
+  syncMetaConfigToDesktopFile();
 }
 
 export function loadMetaEnabled(): boolean {
@@ -243,6 +246,7 @@ export function saveMetaOverride(o: MetaOverride | null): void {
   } catch {
     // Quota errors / privacy mode — silently no-op.
   }
+  syncMetaConfigToDesktopFile();
 }
 
 export function loadMetaOverride(): MetaOverride | null {
@@ -399,6 +403,7 @@ export function saveSynergyOverride(o: Synergy[] | null): void {
   } catch {
     // ignore
   }
+  syncMetaConfigToDesktopFile();
 }
 
 export function loadSynergyOverride(): Synergy[] | null {
@@ -574,6 +579,7 @@ export function saveCounterOverride(o: CounterPair[] | null): void {
   } catch {
     // ignore
   }
+  syncMetaConfigToDesktopFile();
 }
 
 export function loadCounterOverride(): CounterPair[] | null {
@@ -631,6 +637,7 @@ export function savePowerSpikeOverride(o: PowerSpikeOverride | null): void {
   } catch {
     // ignore
   }
+  syncMetaConfigToDesktopFile();
 }
 
 export function loadPowerSpikeOverride(): PowerSpikeOverride | null {
@@ -644,5 +651,62 @@ export function loadPowerSpikeOverride(): PowerSpikeOverride | null {
     return parsed as PowerSpikeOverride;
   } catch {
     return null;
+  }
+}
+
+// ─── Desktop file mirror ──────────────────────────────────────────────────
+//
+// On desktop, the whole meta configuration (tiers, source, enabled flag,
+// synergies, counters, power spikes) is mirrored into a single AppData file
+// so it goes through the same storage adapter as the rest of the app and
+// survives the webview's localStorage being cleared. Every save*() above
+// schedules a (debounced) mirror write; desktopStorage flushes pending
+// writes on window close, which is what persists the configuration when
+// the app is quit. On web both functions are no-ops.
+
+const META_CONFIG_FILE_KEY = "draftsim-meta-config";
+
+const META_CONFIG_KEYS = [
+  STORAGE_KEY,
+  SOURCE_KEY,
+  ENABLED_KEY,
+  SYNERGY_STORAGE_KEY,
+  COUNTER_STORAGE_KEY,
+  POWER_SPIKE_STORAGE_KEY,
+] as const;
+
+function syncMetaConfigToDesktopFile(): void {
+  if (!isDesktop()) return;
+  try {
+    const payload: Record<string, string | null> = {};
+    for (const key of META_CONFIG_KEYS) {
+      payload[key] = localStorage.getItem(key);
+    }
+    // Debounced write — coalesces bursts (e.g. randomize writes 4 keys).
+    void desktopStorage.setItem(META_CONFIG_FILE_KEY, JSON.stringify(payload));
+  } catch {
+    // Mirroring is best-effort; localStorage remains the live source.
+  }
+}
+
+/**
+ * Seed localStorage from the desktop config file. Must run BEFORE
+ * hydrateMetaFromStorage so the synchronous load*() functions above pick
+ * up the file-backed values. A key stored as null means "explicitly unset"
+ * and removes any stale localStorage value.
+ */
+export async function hydrateMetaConfigFromDesktopFile(): Promise<void> {
+  if (!isDesktop()) return;
+  try {
+    const raw = await desktopStorage.getItem(META_CONFIG_FILE_KEY);
+    if (!raw) return;
+    const payload = JSON.parse(raw) as Record<string, unknown>;
+    for (const key of META_CONFIG_KEYS) {
+      const value = payload[key];
+      if (typeof value === "string") localStorage.setItem(key, value);
+      else if (value === null) localStorage.removeItem(key);
+    }
+  } catch {
+    // Corrupt/unreadable file — fall back to whatever localStorage holds.
   }
 }

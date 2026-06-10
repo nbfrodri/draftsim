@@ -78,6 +78,7 @@ import {
   crossMatchFearlessLocked,
   decodeTournament,
   effectiveLockedSet,
+  makeTournamentId,
   recordMatchWinner,
   startGroupsPlayoffs,
   startRoundRobinPlayoffs,
@@ -182,11 +183,13 @@ const quotaSafeStorage =
                   console.warn("[draftsim] QuotaExceededError: dropped recapC + heavy fields from active tournament.");
                   return;
                 } catch {
-                  // Step 3: also drop tournamentHistory from this slimmed copy.
+                  // Step 3: also drop tournamentHistory and the manual
+                  // save slots from this slimmed copy.
                   try {
                     delete parsed.state.tournamentHistory;
+                    delete parsed.state.savedTournaments;
                     window.localStorage.setItem(key, JSON.stringify(parsed));
-                    console.warn("[draftsim] QuotaExceededError: dropped history + recapC from active tournament.");
+                    console.warn("[draftsim] QuotaExceededError: dropped history + saved tournaments + recapC from active tournament.");
                     return;
                   } catch {
                     // Step 4: last resort — remove the key entirely.
@@ -209,6 +212,66 @@ const quotaSafeStorage =
         : never);
 
 export type MetaSource = "default" | "randomized" | "custom";
+
+// One manual save slot (see DraftStore.savedTournaments). The tournament
+// is stored compact-encoded (recapC) so the persisted payload stays small
+// on both platforms; loadSavedTournament decodes it back to full form.
+// Alongside the tournament itself we capture the tournament-scoped store
+// context needed for a faithful resume: player form (hot/cold streaks)
+// and the pre-tournament meta snapshot that rolls back live-meta
+// evolution when the tournament ends or is abandoned.
+export interface SavedTournamentEntry {
+  /** Mirrors tournament.id — saving the same tournament upserts its slot. */
+  id: string;
+  savedAt: number;
+  tournament: TournamentState;
+  playerForms: PlayerFormMap;
+  preTournamentMetaSnapshot: {
+    metaOverride: MetaOverride | null;
+    metaSource: MetaSource;
+    metaEnabled: boolean;
+    synergyOverride: Synergy[] | null;
+    counterOverride: CounterPair[] | null;
+  } | null;
+}
+
+// Saved-slot caps. Desktop files have no quota so the cap is generous;
+// web shares the 5MB localStorage quota with everything else.
+const SAVED_TOURNAMENTS_CAP_DESKTOP = 100;
+const SAVED_TOURNAMENTS_CAP_WEB = 10;
+
+function savedTournamentsCap(): number {
+  return isDesktop() ? SAVED_TOURNAMENTS_CAP_DESKTOP : SAVED_TOURNAMENTS_CAP_WEB;
+}
+
+// ─── User preset libraries (Meta Tier Lists / Synergies & Counters) ───────
+// Named, persisted presets the user builds in the two main-menu library
+// sections. Applying a preset copies it into the ACTIVE overrides (the same
+// path randomize/custom-edit use), so series and tournaments created
+// afterwards pick it up via the normal metaSnapshot capture.
+
+export interface MetaTierListPreset {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  override: MetaOverride;
+}
+
+export interface PairingsPreset {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  synergies: Synergy[];
+  counters: CounterPair[];
+}
+
+function makePresetId(): string {
+  return `preset-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
 
 interface DraftStore {
   series: SeriesState | null;
@@ -366,6 +429,52 @@ interface DraftStore {
   deleteHistoryEntry: (tournamentId: string) => void;
   // Wipe history entirely. No confirm — caller's responsibility.
   clearHistory: () => void;
+  // ─── Saved tournaments (manual save slots, separate from history) ──
+  // History holds only FINISHED tournaments; this list holds explicit
+  // user saves made from the dashboard's Save button, at ANY stage of
+  // the tournament. Full state is captured — bracket, per-game recaps,
+  // meta snapshot + evolution log (meta shifting), pick histories — so
+  // win/loss streaks and live meta resume exactly where they were.
+  savedTournaments: SavedTournamentEntry[];
+  // Snapshot the active tournament into savedTournaments (upsert by
+  // tournament id). Returns false when no tournament is active.
+  saveCurrentTournament: () => boolean;
+  // Restore a saved entry as the active tournament — resumes the active
+  // match's series, the tournament meta, and player forms.
+  loadSavedTournament: (entryId: string) => void;
+  // Clone a saved entry under a fresh tournament id + "(Copy)" name.
+  duplicateSavedTournament: (entryId: string) => void;
+  // Permanently remove a saved entry.
+  deleteSavedTournament: (entryId: string) => void;
+  // Wipe all saved entries. No confirm — caller's responsibility.
+  clearSavedTournaments: () => void;
+  // ─── Preset libraries (main-menu sections) ─────────────────────────
+  // Saved meta tier lists. createMetaPreset returns the new preset id.
+  metaPresets: MetaTierListPreset[];
+  createMetaPreset: (name: string, override: MetaOverride) => string;
+  updateMetaPreset: (
+    id: string,
+    patch: Partial<Pick<MetaTierListPreset, "name" | "override">>,
+  ) => void;
+  deleteMetaPreset: (id: string) => void;
+  duplicateMetaPreset: (id: string) => void;
+  // Copy the preset into the active meta override (same path as
+  // applyCustomMeta) so subsequent series/tournaments use it.
+  applyMetaPreset: (id: string) => void;
+  // Saved synergy + counter sets, same lifecycle as meta presets.
+  pairingsPresets: PairingsPreset[];
+  createPairingsPreset: (
+    name: string,
+    synergies: Synergy[],
+    counters: CounterPair[],
+  ) => string;
+  updatePairingsPreset: (
+    id: string,
+    patch: Partial<Pick<PairingsPreset, "name" | "synergies" | "counters">>,
+  ) => void;
+  deletePairingsPreset: (id: string) => void;
+  duplicatePairingsPreset: (id: string) => void;
+  applyPairingsPreset: (id: string) => void;
   startTournament: (params: CreateTournamentParams) => void;
   // Import a previously-exported tournament from a TOUR1: code string.
   // Returns a result object so the caller can show error feedback. On
@@ -933,6 +1042,9 @@ export const useDraftStore = create<DraftStore>()(
   aiRationaleHistory: [],
   tournament: null,
   tournamentHistory: [],
+  savedTournaments: [],
+  metaPresets: [],
+  pairingsPresets: [],
   simulating: null,
   simProgress: null,
   playerForms: {},
@@ -1003,6 +1115,256 @@ export const useDraftStore = create<DraftStore>()(
     }));
   },
   clearHistory: () => set({ tournamentHistory: [] }),
+
+  // ─── Saved tournaments (manual save slots) ───────────────────────────
+
+  saveCurrentTournament: () => {
+    const state = get();
+    const active = state.tournament;
+    if (!active) return false;
+    // Fold an in-flight match's live series back into its match record so
+    // the snapshot captures mid-match progress. The dashboard's Save
+    // button only renders between matches (series === null), but guard
+    // anyway in case a future surface saves mid-draft.
+    const tournament =
+      state.series && active.activeMatchId
+        ? {
+            ...active,
+            matches: active.matches.map((m) =>
+              m.id === active.activeMatchId
+                ? { ...m, series: state.series }
+                : m,
+            ),
+          }
+        : active;
+    const entry: SavedTournamentEntry = {
+      id: tournament.id,
+      savedAt: Date.now(),
+      tournament: compactEncodeTournamentForPersist(tournament),
+      playerForms: state.playerForms,
+      preTournamentMetaSnapshot: state.preTournamentMetaSnapshot,
+    };
+    set((s) => ({
+      savedTournaments: [
+        entry,
+        ...s.savedTournaments.filter((e) => e.id !== entry.id),
+      ].slice(0, savedTournamentsCap()),
+    }));
+    return true;
+  },
+
+  loadSavedTournament: (entryId) => {
+    const entry = get().savedTournaments.find((e) => e.id === entryId);
+    if (!entry) return;
+    const tournament = decodeCompactTournament(entry.tournament);
+    // Mid-tournament resume: if the save captured an active match with a
+    // series, restore it so the user lands right back in that match.
+    let resumedSeries: SeriesState | null = null;
+    if (tournament.activeMatchId) {
+      const activeMatch = tournament.matches.find(
+        (m) => m.id === tournament.activeMatchId,
+      );
+      if (activeMatch?.series) resumedSeries = activeMatch.series;
+    }
+    // Restore the meta the tournament runs under — same logic as
+    // importTournament. For live-meta events, metaSnapshot holds the
+    // CURRENT evolved tiers, so meta shifting resumes where it left off.
+    const snap = tournament.metaSnapshot;
+    if (snap !== undefined) {
+      setActiveMetaOverride(snap.metaOverride ?? null);
+      setMetaEnabled(snap.metaEnabled);
+      saveMetaOverride(snap.metaOverride ?? null);
+      saveMetaSource(snap.metaOverride ? "custom" : "default");
+      saveMetaEnabled(snap.metaEnabled);
+      if (snap.synergyOverride !== undefined) {
+        setActiveSynergyOverride(snap.synergyOverride ?? null);
+        saveSynergyOverride(snap.synergyOverride ?? null);
+      }
+      if (snap.counterOverride !== undefined) {
+        setActiveCounterOverride(snap.counterOverride ?? null);
+        saveCounterOverride(snap.counterOverride ?? null);
+      }
+    }
+    set((state) => ({
+      tournament,
+      series: resumedSeries,
+      selectedChampionId: null,
+      secondsLeft:
+        resumedSeries && resumedSeries.timerEnabled ? ACTION_SECONDS : null,
+      aiRationale: null,
+      aiRationaleHistory: [],
+      sideChoicePending: false,
+      // Tournament-scoped context captured at save time: player form
+      // (hot/cold streak carrier) and the live-meta rollback snapshot.
+      playerForms: entry.playerForms ?? {},
+      preTournamentMetaSnapshot: entry.preTournamentMetaSnapshot ?? null,
+      ...(snap !== undefined
+        ? {
+            metaOverride: snap.metaOverride ?? null,
+            metaSource: (snap.metaOverride
+              ? "custom"
+              : "default") as MetaSource,
+            metaEnabled: snap.metaEnabled,
+            metaVersion: state.metaVersion + 1,
+            ...(snap.synergyOverride !== undefined
+              ? {
+                  synergyOverride: snap.synergyOverride ?? null,
+                  synergyVersion: state.synergyVersion + 1,
+                }
+              : {}),
+            ...(snap.counterOverride !== undefined
+              ? {
+                  counterOverride: snap.counterOverride ?? null,
+                  counterVersion: state.counterVersion + 1,
+                }
+              : {}),
+          }
+        : {}),
+    }));
+  },
+
+  duplicateSavedTournament: (entryId) => {
+    const entry = get().savedTournaments.find((e) => e.id === entryId);
+    if (!entry) return;
+    // Fresh tournament id so the copy archives/upserts independently of
+    // the original. Match ids are scoped under the tournament and can
+    // stay as-is.
+    const newId = makeTournamentId();
+    const copy: SavedTournamentEntry = {
+      ...entry,
+      id: newId,
+      savedAt: Date.now(),
+      tournament: {
+        ...entry.tournament,
+        id: newId,
+        name: `${entry.tournament.name} (Copy)`,
+      },
+    };
+    set((s) => ({
+      savedTournaments: [copy, ...s.savedTournaments].slice(
+        0,
+        savedTournamentsCap(),
+      ),
+    }));
+  },
+
+  deleteSavedTournament: (entryId) => {
+    set((s) => ({
+      savedTournaments: s.savedTournaments.filter((e) => e.id !== entryId),
+    }));
+  },
+
+  clearSavedTournaments: () => set({ savedTournaments: [] }),
+
+  // ─── Preset libraries ────────────────────────────────────────────────
+
+  createMetaPreset: (name, override) => {
+    const id = makePresetId();
+    const now = Date.now();
+    const preset: MetaTierListPreset = {
+      id,
+      name,
+      createdAt: now,
+      updatedAt: now,
+      override,
+    };
+    set((s) => ({ metaPresets: [preset, ...s.metaPresets] }));
+    return id;
+  },
+
+  updateMetaPreset: (id, patch) => {
+    set((s) => ({
+      metaPresets: s.metaPresets.map((p) =>
+        p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p,
+      ),
+    }));
+  },
+
+  deleteMetaPreset: (id) => {
+    set((s) => ({
+      metaPresets: s.metaPresets.filter((p) => p.id !== id),
+    }));
+  },
+
+  duplicateMetaPreset: (id) => {
+    const source = get().metaPresets.find((p) => p.id === id);
+    if (!source) return;
+    const now = Date.now();
+    const copy: MetaTierListPreset = {
+      ...source,
+      id: makePresetId(),
+      name: `${source.name} (Copy)`,
+      createdAt: now,
+      updatedAt: now,
+    };
+    set((s) => ({ metaPresets: [copy, ...s.metaPresets] }));
+  },
+
+  applyMetaPreset: (id) => {
+    const preset = get().metaPresets.find((p) => p.id === id);
+    if (!preset) return;
+    get().applyCustomMeta(preset.override);
+  },
+
+  createPairingsPreset: (name, synergies, counters) => {
+    const id = makePresetId();
+    const now = Date.now();
+    const preset: PairingsPreset = {
+      id,
+      name,
+      createdAt: now,
+      updatedAt: now,
+      synergies,
+      counters,
+    };
+    set((s) => ({ pairingsPresets: [preset, ...s.pairingsPresets] }));
+    return id;
+  },
+
+  updatePairingsPreset: (id, patch) => {
+    set((s) => ({
+      pairingsPresets: s.pairingsPresets.map((p) =>
+        p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p,
+      ),
+    }));
+  },
+
+  deletePairingsPreset: (id) => {
+    set((s) => ({
+      pairingsPresets: s.pairingsPresets.filter((p) => p.id !== id),
+    }));
+  },
+
+  duplicatePairingsPreset: (id) => {
+    const source = get().pairingsPresets.find((p) => p.id === id);
+    if (!source) return;
+    const now = Date.now();
+    const copy: PairingsPreset = {
+      ...source,
+      id: makePresetId(),
+      name: `${source.name} (Copy)`,
+      createdAt: now,
+      updatedAt: now,
+    };
+    set((s) => ({ pairingsPresets: [copy, ...s.pairingsPresets] }));
+  },
+
+  applyPairingsPreset: (id) => {
+    const preset = get().pairingsPresets.find((p) => p.id === id);
+    if (!preset) return;
+    // Same path as randomizeSynergiesAndCounters, minus power spikes
+    // (presets don't carry them — the active spike override is kept).
+    setActiveSynergyOverride(preset.synergies);
+    setActiveCounterOverride(preset.counters);
+    saveSynergyOverride(preset.synergies);
+    saveCounterOverride([...preset.counters]);
+    set((s) => ({
+      synergyOverride: preset.synergies,
+      counterOverride: [...preset.counters],
+      synergyVersion: s.synergyVersion + 1,
+      counterVersion: s.counterVersion + 1,
+    }));
+  },
 
   setChampions: (champions) => {
     set({ champions });
@@ -2246,6 +2608,12 @@ export const useDraftStore = create<DraftStore>()(
         ? compactEncodeTournamentForPersist(state.tournament)
         : null,
       tournamentHistory: state.tournamentHistory,
+      // Manual save slots — entries are already compact-encoded at save
+      // time (saveCurrentTournament), so they pass through unchanged.
+      savedTournaments: state.savedTournaments,
+      // Preset libraries (small: a few kB per preset).
+      metaPresets: state.metaPresets,
+      pairingsPresets: state.pairingsPresets,
       // Persist player form so it survives reload (tournament-scoped;
       // resets when a new tournament is started).
       playerForms: state.playerForms,

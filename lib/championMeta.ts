@@ -590,3 +590,212 @@ export function getActiveCounterOverride(): readonly CounterPair[] | null {
 export function getCounterOverrideVersion(): number {
   return _counterOverrideVersion;
 }
+
+// ─── Pairings (synergies + counters) export/import ────────────────────────
+//
+// Mirrors the META1 share-code format for a combined synergies + counters
+// preset: deflate-compressed base64url JSON prefixed with `PAIR1:`. Raw
+// JSON is accepted on import too (hand-written or older exports).
+
+const PAIR_CODE_PREFIX = "PAIR1:";
+const PAIRINGS_EXPORT_VERSION = 1;
+
+export const SYNERGY_BONUS_MIN = 1;
+export const SYNERGY_BONUS_MAX = 3;
+export const COUNTER_SEVERITY_MIN = 2;
+export const COUNTER_SEVERITY_MAX = 6;
+
+export interface ParsePairingsResult {
+  synergies: Synergy[] | null;
+  counters: CounterPair[] | null;
+  /** Optional preset name carried in the envelope. */
+  name: string | null;
+  error: string | null;
+  skippedEntries: number;
+}
+
+export function serializePairings(
+  synergies: readonly Synergy[],
+  counters: readonly CounterPair[],
+  name?: string,
+): string {
+  const envelope = {
+    version: PAIRINGS_EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    ...(name ? { name } : {}),
+    synergies,
+    counters,
+  };
+  return JSON.stringify(envelope, null, 2);
+}
+
+export async function encodePairings(
+  synergies: readonly Synergy[],
+  counters: readonly CounterPair[],
+  name?: string,
+): Promise<string> {
+  const json = serializePairings(synergies, counters, name);
+  const compressed = await deflate(json);
+  return PAIR_CODE_PREFIX + base64UrlEncode(compressed);
+}
+
+export async function decodePairings(
+  input: string,
+  validAliases?: ReadonlySet<string>,
+): Promise<ParsePairingsResult> {
+  const trimmed = input.trim();
+  if (trimmed.startsWith(PAIR_CODE_PREFIX)) {
+    let json: string;
+    try {
+      const b64 = trimmed.slice(PAIR_CODE_PREFIX.length);
+      const bytes = base64UrlDecode(b64);
+      json = await inflate(bytes);
+    } catch (e) {
+      return {
+        synergies: null,
+        counters: null,
+        name: null,
+        error: `Invalid pairings code: ${e instanceof Error ? e.message : "decode failed"}`,
+        skippedEntries: 0,
+      };
+    }
+    return parsePairings(json, validAliases);
+  }
+  // Raw JSON form.
+  return parsePairings(trimmed, validAliases);
+}
+
+// Forgiving parser, same philosophy as parseMetaOverride: skip invalid
+// entries (unknown aliases, malformed rows, duplicate pairs), hard-fail
+// only on structural problems. Bonuses/severities are clamped into their
+// valid ranges rather than rejected.
+export function parsePairings(
+  json: string,
+  validAliases?: ReadonlySet<string>,
+): ParsePairingsResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e) {
+    return {
+      synergies: null,
+      counters: null,
+      name: null,
+      error: `Invalid JSON: ${e instanceof Error ? e.message : "parse error"}`,
+      skippedEntries: 0,
+    };
+  }
+  if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      synergies: null,
+      counters: null,
+      name: null,
+      error: "Expected a JSON object at the root",
+      skippedEntries: 0,
+    };
+  }
+  const envelope = parsed as {
+    name?: unknown;
+    synergies?: unknown;
+    counters?: unknown;
+  };
+  if (
+    !Array.isArray(envelope.synergies) &&
+    !Array.isArray(envelope.counters)
+  ) {
+    return {
+      synergies: null,
+      counters: null,
+      name: null,
+      error: "Expected `synergies` and/or `counters` arrays",
+      skippedEntries: 0,
+    };
+  }
+  const clamp = (n: number, lo: number, hi: number) =>
+    Math.min(hi, Math.max(lo, Math.round(n)));
+  const aliasOk = (a: unknown): a is string =>
+    typeof a === "string" &&
+    a.length > 0 &&
+    (!validAliases || validAliases.has(a));
+  let skippedEntries = 0;
+
+  const synergies: Synergy[] = [];
+  const seenPairs = new Set<string>();
+  if (Array.isArray(envelope.synergies)) {
+    for (const raw of envelope.synergies) {
+      const s = raw as {
+        champs?: unknown;
+        bonus?: unknown;
+        tag?: unknown;
+      } | null;
+      const champs = s?.champs;
+      if (
+        s == null ||
+        !Array.isArray(champs) ||
+        champs.length !== 2 ||
+        !aliasOk(champs[0]) ||
+        !aliasOk(champs[1]) ||
+        champs[0] === champs[1] ||
+        typeof s.bonus !== "number" ||
+        !Number.isFinite(s.bonus)
+      ) {
+        skippedEntries++;
+        continue;
+      }
+      const [a, b] = champs;
+      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+      if (seenPairs.has(key)) {
+        skippedEntries++;
+        continue;
+      }
+      seenPairs.add(key);
+      synergies.push({
+        champs: a < b ? [a, b] : [b, a],
+        bonus: clamp(s.bonus, SYNERGY_BONUS_MIN, SYNERGY_BONUS_MAX),
+        tag: typeof s.tag === "string" ? s.tag : "",
+      });
+    }
+  }
+
+  const counters: CounterPair[] = [];
+  const seenCounters = new Set<string>();
+  if (Array.isArray(envelope.counters)) {
+    for (const raw of envelope.counters) {
+      if (
+        !Array.isArray(raw) ||
+        raw.length < 3 ||
+        !aliasOk(raw[0]) ||
+        !aliasOk(raw[1]) ||
+        raw[0] === raw[1] ||
+        typeof raw[2] !== "number" ||
+        !Number.isFinite(raw[2])
+      ) {
+        skippedEntries++;
+        continue;
+      }
+      // Counters are one-directional: A-beats-B and B-beats-A contradict
+      // each other, so the matchup is deduped on the UNORDERED pair —
+      // first occurrence wins, the reverse (or a repeat) is skipped.
+      const key =
+        raw[0] < raw[1] ? `${raw[0]}|${raw[1]}` : `${raw[1]}|${raw[0]}`;
+      if (seenCounters.has(key)) {
+        skippedEntries++;
+        continue;
+      }
+      seenCounters.add(key);
+      counters.push([
+        raw[0],
+        raw[1],
+        clamp(raw[2], COUNTER_SEVERITY_MIN, COUNTER_SEVERITY_MAX),
+      ]);
+    }
+  }
+
+  return {
+    synergies: Array.isArray(envelope.synergies) ? synergies : null,
+    counters: Array.isArray(envelope.counters) ? counters : null,
+    name: typeof envelope.name === "string" ? envelope.name : null,
+    error: null,
+    skippedEntries,
+  };
+}
