@@ -107,6 +107,19 @@ import {
   decodeRecapHeavyFields,
   type RecapCompact,
 } from "@/lib/recapCompression";
+import {
+  applyTournamentUpdate as applySeasonTournamentUpdate,
+  createSeason,
+  makeSeasonId,
+  nextPendingTournament as nextPendingSeasonTournament,
+  currentPhase as currentSeasonPhase,
+  phaseProgress as seasonPhaseProgress,
+} from "@/lib/season/engine";
+import type {
+  SeasonConfig,
+  SeasonState,
+  SeasonTeam,
+} from "@/lib/season/types";
 
 export const ACTION_SECONDS = 30;
 
@@ -242,6 +255,27 @@ const SAVED_TOURNAMENTS_CAP_WEB = 10;
 
 function savedTournamentsCap(): number {
   return isDesktop() ? SAVED_TOURNAMENTS_CAP_DESKTOP : SAVED_TOURNAMENTS_CAP_WEB;
+}
+
+// One manual season save slot — mirrors SavedTournamentEntry. The season
+// is stored with every stage tournament compact-encoded; loadSavedSeason
+// decodes them back. Player form (season-long hot/cold streaks) is
+// captured alongside so a resumed season feels identical.
+export interface SavedSeasonEntry {
+  /** Mirrors season.id — saving the same season upserts its slot. */
+  id: string;
+  savedAt: number;
+  season: SeasonState;
+  playerForms: PlayerFormMap;
+}
+
+// Seasons are heavy (20+ tournaments each), so the caps are tighter
+// than tournament save slots.
+const SAVED_SEASONS_CAP_DESKTOP = 20;
+const SAVED_SEASONS_CAP_WEB = 3;
+
+function savedSeasonsCap(): number {
+  return isDesktop() ? SAVED_SEASONS_CAP_DESKTOP : SAVED_SEASONS_CAP_WEB;
 }
 
 // ─── User preset libraries (Meta Tier Lists / Synergies & Counters) ───────
@@ -448,6 +482,51 @@ interface DraftStore {
   deleteSavedTournament: (entryId: string) => void;
   // Wipe all saved entries. No confirm — caller's responsibility.
   clearSavedTournaments: () => void;
+  // ─── Season mode ─────────────────────────────────────────────────────
+  // A full competitive year: 6 leagues × 3 splits + First Stand, MSI,
+  // and Worlds, all built on the tournament engine. `season` is the
+  // single active season (persisted); `seasonViewOpen` routes between
+  // the main menu and the season dashboard while keeping the season
+  // alive in the background.
+  season: SeasonState | null;
+  seasonViewOpen: boolean;
+  // User's meta config captured at season start; re-applied when the
+  // user leaves the season view (and on abandon) so a season's evolved
+  // meta never bleeds into standalone play.
+  preSeasonMetaSnapshot: {
+    metaOverride: MetaOverride | null;
+    metaSource: MetaSource;
+    metaEnabled: boolean;
+    synergyOverride: Synergy[] | null;
+    counterOverride: CounterPair[] | null;
+  } | null;
+  startSeason: (config: SeasonConfig, teams: SeasonTeam[]) => void;
+  // Re-open the season dashboard from the menu (applies season meta).
+  openSeason: () => void;
+  // Back to the main menu; season stays active (restores user meta).
+  exitSeasonView: () => void;
+  // Permanently delete the season (restores user meta).
+  abandonSeason: () => void;
+  // Load one of the season's tournaments as the active tournament so
+  // the user can browse its bracket or play/sim matches through the
+  // normal tournament flow. Updates sync back into the season.
+  openSeasonTournament: (tournamentId: string) => void;
+  // Simulate the current phase (all its tournaments) or the entire
+  // remaining season. Auto-advances phases, applies patch shifts, and
+  // crowns the Worlds champion.
+  simSeason: (scope: "phase" | "all") => void;
+  // ─── Saved seasons (manual save slots, like saved tournaments) ─────
+  savedSeasons: SavedSeasonEntry[];
+  // Snapshot the active season (upsert by season id). Returns false
+  // when no season is active.
+  saveCurrentSeason: () => boolean;
+  // Restore a saved season as the active one and open its dashboard.
+  loadSavedSeason: (entryId: string) => void;
+  // Clone a saved season under a fresh id + "(Copy)" name.
+  duplicateSavedSeason: (entryId: string) => void;
+  deleteSavedSeason: (entryId: string) => void;
+  clearSavedSeasons: () => void;
+
   // ─── Preset libraries (main-menu sections) ─────────────────────────
   // Saved meta tier lists. createMetaPreset returns the new preset id.
   metaPresets: MetaTierListPreset[];
@@ -854,6 +933,9 @@ function archiveCompletedTournament(
   history: TournamentState[],
 ): TournamentState[] {
   if (tournament.status !== "complete") return history;
+  // Season stages don't archive individually — the season engine owns
+  // their lifecycle and they'd flood history (a season has 20+ stages).
+  if (tournament.seasonId) return history;
   if (history.some((t) => t.id === tournament.id)) return history;
   if (isDesktop()) {
     // Keep full recaps with compact encoding on desktop — files have no
@@ -917,6 +999,57 @@ function buildMetaRestorePatch(
     counterVersion: currentCounterVersion + 1,
     // Consume the snapshot — clear it so a second exit call is a no-op.
     preTournamentMetaSnapshot: null,
+  };
+}
+
+// Apply an arbitrary meta snapshot to the imperative singletons +
+// produce the store patch. Shared by the season-mode meta swaps
+// (enter season → season meta; leave season → user meta). Unlike
+// buildMetaRestorePatch this does NOT consume any snapshot field.
+function applyMetaSnapshotPatch(
+  snap: {
+    metaOverride: MetaOverride | null;
+    metaSource: MetaSource;
+    metaEnabled: boolean;
+    synergyOverride: Synergy[] | null;
+    counterOverride: CounterPair[] | null;
+  },
+  state: Pick<DraftStore, "metaVersion" | "synergyVersion" | "counterVersion">,
+): Partial<DraftStore> {
+  setActiveMetaOverride(snap.metaOverride);
+  setMetaEnabled(snap.metaEnabled);
+  saveMetaOverride(snap.metaOverride);
+  saveMetaSource(snap.metaSource);
+  saveMetaEnabled(snap.metaEnabled);
+  setActiveSynergyOverride(snap.synergyOverride);
+  saveSynergyOverride(snap.synergyOverride);
+  setActiveCounterOverride(snap.counterOverride);
+  saveCounterOverride(snap.counterOverride ? [...snap.counterOverride] : null);
+  return {
+    metaOverride: snap.metaOverride,
+    metaSource: snap.metaSource,
+    metaEnabled: snap.metaEnabled,
+    metaVersion: state.metaVersion + 1,
+    synergyOverride: snap.synergyOverride,
+    synergyVersion: state.synergyVersion + 1,
+    counterOverride: snap.counterOverride ? [...snap.counterOverride] : null,
+    counterVersion: state.counterVersion + 1,
+  };
+}
+
+// Mirror an updated season tournament back into the season state and
+// run the engine's consequences (placements, phase advancement, Worlds
+// main-event creation, champion). Returns an empty patch for
+// non-season tournaments so call sites can spread it unconditionally.
+function seasonPatchFor(
+  state: Pick<DraftStore, "season" | "champions">,
+  t: TournamentState | null | undefined,
+): { season?: SeasonState } {
+  if (!t || !t.seasonId || !state.season || state.season.id !== t.seasonId) {
+    return {};
+  }
+  return {
+    season: applySeasonTournamentUpdate(state.season, t, state.champions),
   };
 }
 
@@ -1045,6 +1178,10 @@ export const useDraftStore = create<DraftStore>()(
   savedTournaments: [],
   metaPresets: [],
   pairingsPresets: [],
+  season: null,
+  seasonViewOpen: false,
+  preSeasonMetaSnapshot: null,
+  savedSeasons: [],
   simulating: null,
   simProgress: null,
   playerForms: {},
@@ -1255,6 +1392,378 @@ export const useDraftStore = create<DraftStore>()(
   },
 
   clearSavedTournaments: () => set({ savedTournaments: [] }),
+
+  // ─── Season mode ─────────────────────────────────────────────────────
+
+  startSeason: (config, teams) => {
+    const state = get();
+    // Capture the user's meta so leaving/abandoning the season can
+    // restore it; the season itself starts from the same meta.
+    const userMeta = {
+      metaOverride: state.metaOverride,
+      metaSource: state.metaSource,
+      metaEnabled: state.metaEnabled,
+      synergyOverride: state.synergyOverride,
+      counterOverride: state.counterOverride,
+    };
+    const season = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: state.metaOverride,
+        metaEnabled: state.metaEnabled,
+        synergyOverride: state.synergyOverride,
+        counterOverride: state.counterOverride,
+      },
+    });
+    set({
+      season,
+      seasonViewOpen: true,
+      preSeasonMetaSnapshot: userMeta,
+      tournament: null,
+      series: null,
+      selectedChampionId: null,
+      secondsLeft: null,
+      aiRationale: null,
+      aiRationaleHistory: [],
+      playerForms: {},
+      sideChoicePending: false,
+    });
+  },
+
+  openSeason: () => {
+    const state = get();
+    if (!state.season) return;
+    // Re-apply the season's current meta while inside the season view.
+    set((s) =>
+      s.season
+        ? {
+            seasonViewOpen: true,
+            ...applyMetaSnapshotPatch(
+              {
+                metaOverride: s.season.currentMeta.metaOverride,
+                metaSource: s.season.currentMeta.metaOverride
+                  ? "custom"
+                  : "default",
+                metaEnabled: s.season.currentMeta.metaEnabled,
+                synergyOverride: s.season.currentMeta.synergyOverride,
+                counterOverride: s.season.currentMeta.counterOverride,
+              },
+              s,
+            ),
+          }
+        : {},
+    );
+  },
+
+  exitSeasonView: () => {
+    // Back to the menu. The season survives; the user's own meta comes
+    // back so standalone drafts aren't played on the season's tiers.
+    set((s) => ({
+      seasonViewOpen: false,
+      tournament: null,
+      series: null,
+      selectedChampionId: null,
+      secondsLeft: null,
+      ...(s.preSeasonMetaSnapshot
+        ? applyMetaSnapshotPatch(s.preSeasonMetaSnapshot, s)
+        : {}),
+    }));
+  },
+
+  abandonSeason: () => {
+    set((s) => ({
+      season: null,
+      seasonViewOpen: false,
+      tournament: null,
+      series: null,
+      selectedChampionId: null,
+      secondsLeft: null,
+      aiRationale: null,
+      aiRationaleHistory: [],
+      playerForms: {},
+      sideChoicePending: false,
+      ...(s.preSeasonMetaSnapshot
+        ? applyMetaSnapshotPatch(s.preSeasonMetaSnapshot, s)
+        : {}),
+      preSeasonMetaSnapshot: null,
+    }));
+  },
+
+  openSeasonTournament: (tournamentId) => {
+    const state = get();
+    const season = state.season;
+    if (!season) return;
+    const t = season.tournaments[tournamentId];
+    if (!t) return;
+    // Resume an in-flight match if the tournament has one.
+    let resumedSeries: SeriesState | null = null;
+    if (t.activeMatchId) {
+      const activeMatch = t.matches.find((m) => m.id === t.activeMatchId);
+      if (activeMatch?.series) resumedSeries = activeMatch.series;
+    }
+    // The tournament's own snapshot carries its CURRENT evolved meta.
+    const snap = t.metaSnapshot;
+    set((s) => ({
+      tournament: t,
+      series: resumedSeries,
+      selectedChampionId: null,
+      secondsLeft:
+        resumedSeries && resumedSeries.timerEnabled ? ACTION_SECONDS : null,
+      aiRationale: null,
+      aiRationaleHistory: [],
+      sideChoicePending: false,
+      playerForms: s.playerForms,
+      ...(snap !== undefined
+        ? applyMetaSnapshotPatch(
+            {
+              metaOverride: snap.metaOverride ?? null,
+              metaSource: snap.metaOverride ? "custom" : "default",
+              metaEnabled: snap.metaEnabled,
+              synergyOverride:
+                snap.synergyOverride !== undefined
+                  ? snap.synergyOverride ?? null
+                  : s.synergyOverride,
+              counterOverride:
+                snap.counterOverride !== undefined
+                  ? (snap.counterOverride as CounterPair[] | null)
+                  : s.counterOverride,
+            },
+            s,
+          )
+        : {}),
+    }));
+  },
+
+  simSeason: (scope) => {
+    const { season, simulating } = get();
+    if (!season || simulating) return;
+    if (season.status === "complete") return;
+    set({ simulating: "all", simProgress: null });
+    void (async () => {
+      try {
+        await new Promise((r) => setTimeout(r, 0));
+        const runId = season.id;
+        const startPhaseIndex = get().season?.phaseIndex ?? 0;
+        // Player form carries across the WHOLE season (hot players stay
+        // hot between splits) — thread it through every match.
+        let currentForms = get().playerForms;
+        // A full season is ~900 matches; the cap is a runaway guard.
+        const safetyCap = 5000;
+        let sinceCommit = 0;
+        const BATCH = 4;
+        for (let step = 0; step < safetyCap; step++) {
+          const cur = get().season;
+          if (!cur || cur.id !== runId) return;
+          if (cur.status === "complete") break;
+          if (scope === "phase" && cur.phaseIndex !== startPhaseIndex) break;
+          const champions = get().champions;
+          const t = nextPendingSeasonTournament(cur);
+          if (!t) break; // defensive — engine advances phases itself
+          const startable = t.matches.find(
+            (m) => !m.winner && m.blueTeamId != null && m.redTeamId != null,
+          );
+          if (!startable) {
+            // Stage finished → freeze standings into the playoff bracket.
+            let frozen = t;
+            const stageDone = t.matches
+              .filter((m) => m.bracket === undefined)
+              .every((m) => m.winner != null);
+            if (
+              (t.format === "groups-playoffs" ||
+                t.format === "groups-playoffs-de") &&
+              !t.groupsPlayoffs?.playoffStarted &&
+              stageDone
+            ) {
+              frozen = startGroupsPlayoffs(t);
+            } else if (
+              (t.format === "swiss-playoffs" ||
+                t.format === "swiss-playoffs-de") &&
+              !t.swissPlayoffsStarted &&
+              stageDone
+            ) {
+              frozen = startSwissPlayoffs(t);
+            } else if (
+              t.format === "round-robin-playoffs" &&
+              !t.rrPlayoffsStarted &&
+              stageDone
+            ) {
+              frozen = startRoundRobinPlayoffs(t);
+            }
+            if (frozen === t) break; // stuck — bail rather than spin
+            set((s) => ({ ...seasonPatchFor(s, frozen) }));
+            continue;
+          }
+          let [after, nextForms] = autoPlayMatch(
+            t,
+            startable.id,
+            champions,
+            currentForms,
+          );
+          currentForms = nextForms;
+          // Live meta evolution inside the event (also pushes the
+          // evolved override to the active singletons).
+          const evo = evolveMetaForTournament(after, champions);
+          if (evo.tournament !== after) {
+            setActiveMetaOverride(evo.snapshot?.metaOverride ?? null);
+            saveMetaOverride(evo.snapshot?.metaOverride ?? null);
+            after = evo.tournament;
+          }
+          sinceCommit++;
+          const phase = currentSeasonPhase(cur);
+          const progress = phase ? seasonPhaseProgress(cur, phase) : null;
+          if (sinceCommit >= BATCH) {
+            sinceCommit = 0;
+            set((s) => ({
+              ...seasonPatchFor(s, after),
+              playerForms: currentForms,
+              ...(progress ? { simProgress: progress } : {}),
+            }));
+          } else {
+            set((s) => ({ ...seasonPatchFor(s, after) }));
+          }
+          await new Promise((r) => setTimeout(r, 0));
+        }
+        // Surface the season's final meta in the store fields so the
+        // meta panels reflect what the dashboard shows.
+        set((s) =>
+          s.season && s.season.id === runId
+            ? {
+                playerForms: currentForms,
+                ...applyMetaSnapshotPatch(
+                  {
+                    metaOverride: s.season.currentMeta.metaOverride,
+                    metaSource: s.season.currentMeta.metaOverride
+                      ? "custom"
+                      : "default",
+                    metaEnabled: s.season.currentMeta.metaEnabled,
+                    synergyOverride: s.season.currentMeta.synergyOverride,
+                    counterOverride: s.season.currentMeta.counterOverride,
+                  },
+                  s,
+                ),
+              }
+            : {},
+        );
+      } finally {
+        set({ simulating: null, simProgress: null });
+      }
+    })();
+  },
+
+  // ─── Saved seasons ───────────────────────────────────────────────────
+
+  saveCurrentSeason: () => {
+    const state = get();
+    const season = state.season;
+    if (!season) return false;
+    const entry: SavedSeasonEntry = {
+      id: season.id,
+      savedAt: Date.now(),
+      season: {
+        ...season,
+        tournaments: Object.fromEntries(
+          Object.entries(season.tournaments).map(([id, t]) => [
+            id,
+            compactEncodeTournamentForPersist(t),
+          ]),
+        ),
+      },
+      playerForms: state.playerForms,
+    };
+    set((s) => ({
+      savedSeasons: [
+        entry,
+        ...s.savedSeasons.filter((e) => e.id !== entry.id),
+      ].slice(0, savedSeasonsCap()),
+    }));
+    return true;
+  },
+
+  loadSavedSeason: (entryId) => {
+    const state = get();
+    const entry = state.savedSeasons.find((e) => e.id === entryId);
+    if (!entry) return;
+    const season: SeasonState = {
+      ...entry.season,
+      tournaments: Object.fromEntries(
+        Object.entries(entry.season.tournaments).map(([id, t]) => [
+          id,
+          decodeCompactTournament(t),
+        ]),
+      ),
+    };
+    // Keep the original restore snapshot when a season is already
+    // active (the user's meta from before THAT season); otherwise the
+    // current state IS the user's meta — capture it fresh.
+    const preSeason = state.season
+      ? state.preSeasonMetaSnapshot
+      : {
+          metaOverride: state.metaOverride,
+          metaSource: state.metaSource,
+          metaEnabled: state.metaEnabled,
+          synergyOverride: state.synergyOverride,
+          counterOverride: state.counterOverride,
+        };
+    set((s) => ({
+      season,
+      seasonViewOpen: true,
+      preSeasonMetaSnapshot: preSeason,
+      tournament: null,
+      series: null,
+      selectedChampionId: null,
+      secondsLeft: null,
+      aiRationale: null,
+      aiRationaleHistory: [],
+      sideChoicePending: false,
+      playerForms: entry.playerForms ?? {},
+      ...applyMetaSnapshotPatch(
+        {
+          metaOverride: season.currentMeta.metaOverride,
+          metaSource: season.currentMeta.metaOverride ? "custom" : "default",
+          metaEnabled: season.currentMeta.metaEnabled,
+          synergyOverride: season.currentMeta.synergyOverride,
+          counterOverride: season.currentMeta.counterOverride,
+        },
+        s,
+      ),
+    }));
+  },
+
+  duplicateSavedSeason: (entryId) => {
+    const entry = get().savedSeasons.find((e) => e.id === entryId);
+    if (!entry) return;
+    // Fresh season id, and every stage tournament re-tagged so the
+    // copy's sync/ownership checks point at the new season.
+    const newId = makeSeasonId();
+    const copy: SavedSeasonEntry = {
+      ...entry,
+      id: newId,
+      savedAt: Date.now(),
+      season: {
+        ...entry.season,
+        id: newId,
+        name: `${entry.season.name} (Copy)`,
+        tournaments: Object.fromEntries(
+          Object.entries(entry.season.tournaments).map(([id, t]) => [
+            id,
+            { ...t, seasonId: newId },
+          ]),
+        ),
+      },
+    };
+    set((s) => ({
+      savedSeasons: [copy, ...s.savedSeasons].slice(0, savedSeasonsCap()),
+    }));
+  },
+
+  deleteSavedSeason: (entryId) => {
+    set((s) => ({
+      savedSeasons: s.savedSeasons.filter((e) => e.id !== entryId),
+    }));
+  },
+
+  clearSavedSeasons: () => set({ savedSeasons: [] }),
 
   // ─── Preset libraries ────────────────────────────────────────────────
 
@@ -2127,19 +2636,23 @@ export const useDraftStore = create<DraftStore>()(
           }
         : m,
     );
-    set({
-      tournament: {
+    set((state) => {
+      const started: TournamentState = {
         ...tournament,
         matches: updatedMatches,
         activeMatchId: matchId,
         updatedAt: Date.now(),
-      },
-      series,
-      selectedChampionId: null,
-      secondsLeft: tournament.defaults.timerEnabled ? ACTION_SECONDS : null,
-      aiRationale: null,
-      aiRationaleHistory: [],
-      sideChoicePending: false,
+      };
+      return {
+        tournament: started,
+        ...seasonPatchFor(state, started),
+        series,
+        selectedChampionId: null,
+        secondsLeft: tournament.defaults.timerEnabled ? ACTION_SECONDS : null,
+        aiRationale: null,
+        aiRationaleHistory: [],
+        sideChoicePending: false,
+      };
     });
   },
 
@@ -2223,17 +2736,21 @@ export const useDraftStore = create<DraftStore>()(
       // the user's pre-tournament meta so evolved tiers don't persist into
       // subsequent standalone drafts. buildMetaRestorePatch is a no-op for
       // non-live-meta tournaments (preTournamentMetaSnapshot is null).
+      // Season tournaments skip the restore — the season carries its meta
+      // forward into the next stage.
       const isComplete = tournamentAfterEvo.status === "complete";
-      const restorePatch = isComplete
-        ? buildMetaRestorePatch(
-            state.preTournamentMetaSnapshot,
-            state.metaVersion,
-            state.synergyVersion,
-            state.counterVersion,
-          )
-        : {};
+      const restorePatch =
+        isComplete && !tournamentAfterEvo.seasonId
+          ? buildMetaRestorePatch(
+              state.preTournamentMetaSnapshot,
+              state.metaVersion,
+              state.synergyVersion,
+              state.counterVersion,
+            )
+          : {};
       return {
         tournament: tournamentAfterEvo,
+        ...seasonPatchFor(state, tournamentAfterEvo),
         ...(evo.tournament !== advanced && !isComplete
           ? { metaOverride: evo.snapshot?.metaOverride ?? null, metaVersion: state.metaVersion + 1 }
           : {}),
@@ -2269,7 +2786,10 @@ export const useDraftStore = create<DraftStore>()(
       updated = startGroupsPlayoffs(tournament);
     }
     if (updated === tournament) return;
-    set({ tournament: updated });
+    set((state) => ({
+      tournament: updated,
+      ...seasonPatchFor(state, updated),
+    }));
   },
 
   simulateOneMatch: (matchId) => {
@@ -2294,6 +2814,7 @@ export const useDraftStore = create<DraftStore>()(
         }
         set((state) => ({
           tournament: after === cur ? state.tournament : finalTournament,
+          ...(after === cur ? {} : seasonPatchFor(state, finalTournament)),
           ...(metaChanged && after !== cur
             ? { metaOverride: evo.snapshot?.metaOverride ?? null, metaVersion: state.metaVersion + 1 }
             : {}),
@@ -2360,11 +2881,12 @@ export const useDraftStore = create<DraftStore>()(
           if (sinceCommit >= BATCH) {
             sinceCommit = 0;
             if (get().tournament?.id !== runId) return;
-            set({
+            set((state) => ({
               tournament: working,
+              ...seasonPatchFor(state, working),
               playerForms: currentForms,
               simProgress: { done, total: matchIds.length },
-            });
+            }));
           }
           // Let the UI thread breathe between matches.
           await new Promise((r) => setTimeout(r, 0));
@@ -2372,6 +2894,7 @@ export const useDraftStore = create<DraftStore>()(
         if (get().tournament?.id !== runId) return;
         set((state) => ({
           tournament: working,
+          ...seasonPatchFor(state, working),
           tournamentHistory: archiveCompletedTournament(
             working,
             state.tournamentHistory,
@@ -2483,14 +3006,15 @@ export const useDraftStore = create<DraftStore>()(
           if (sinceCommit >= BATCH) {
             sinceCommit = 0;
             if (get().tournament?.id !== runId) return;
-            set({
+            set((state) => ({
               tournament: working,
+              ...seasonPatchFor(state, working),
               playerForms: currentForms,
               simProgress: {
                 done: working.matches.filter((m) => m.winner).length,
                 total: working.matches.length,
               },
-            });
+            }));
           }
           // Let the UI thread breathe between matches.
           await new Promise((r) => setTimeout(r, 0));
@@ -2499,18 +3023,21 @@ export const useDraftStore = create<DraftStore>()(
         set((state) => {
           // When bulk-sim completes the tournament, restore the user's
           // pre-tournament meta so evolved tiers don't persist into
-          // subsequent standalone drafts.
+          // subsequent standalone drafts. Season tournaments skip the
+          // restore — the season carries its meta into the next stage.
           const isComplete = working.status === "complete";
-          const restorePatch = isComplete
-            ? buildMetaRestorePatch(
-                state.preTournamentMetaSnapshot,
-                state.metaVersion,
-                state.synergyVersion,
-                state.counterVersion,
-              )
-            : {};
+          const restorePatch =
+            isComplete && !working.seasonId
+              ? buildMetaRestorePatch(
+                  state.preTournamentMetaSnapshot,
+                  state.metaVersion,
+                  state.synergyVersion,
+                  state.counterVersion,
+                )
+              : {};
           return {
             tournament: working,
+            ...seasonPatchFor(state, working),
             tournamentHistory: archiveCompletedTournament(
               working,
               state.tournamentHistory,
@@ -2535,6 +3062,25 @@ export const useDraftStore = create<DraftStore>()(
 
   exitTournament: () => {
     const state = get();
+    // Season tournament: just return to the season dashboard — the
+    // season's meta stays active and the tournament stays synced in the
+    // season map (every update already mirrored it).
+    if (
+      state.tournament?.seasonId &&
+      state.season &&
+      state.tournament.seasonId === state.season.id
+    ) {
+      set({
+        tournament: null,
+        series: null,
+        selectedChampionId: null,
+        secondsLeft: null,
+        aiRationale: null,
+        aiRationaleHistory: [],
+        sideChoicePending: false,
+      });
+      return;
+    }
     // Feature 6: restore the user's pre-tournament meta override so the
     // evolved tiers don't bleed into subsequent standalone drafts.
     // buildMetaRestorePatch is a no-op when preTournamentMetaSnapshot is
@@ -2614,6 +3160,24 @@ export const useDraftStore = create<DraftStore>()(
       // Preset libraries (small: a few kB per preset).
       metaPresets: state.metaPresets,
       pairingsPresets: state.pairingsPresets,
+      // Season mode — compact-encode every stage tournament's recaps
+      // (memoized by object identity, so unchanged stages cost nothing
+      // per set()).
+      season: state.season
+        ? {
+            ...state.season,
+            tournaments: Object.fromEntries(
+              Object.entries(state.season.tournaments).map(([id, t]) => [
+                id,
+                compactEncodeTournamentForPersist(t),
+              ]),
+            ),
+          }
+        : null,
+      seasonViewOpen: state.seasonViewOpen,
+      preSeasonMetaSnapshot: state.preSeasonMetaSnapshot,
+      // Saved seasons — entries are compact-encoded at save time.
+      savedSeasons: state.savedSeasons,
       // Persist player form so it survives reload (tournament-scoped;
       // resets when a new tournament is started).
       playerForms: state.playerForms,
@@ -2673,6 +3237,19 @@ export const useDraftStore = create<DraftStore>()(
       // unchanged — decodeCompactTournament is a no-op for them.
       if (state?.tournament) {
         state.tournament = decodeCompactTournament(state.tournament);
+      }
+      // Season tournaments are stored compact — decode them all so the
+      // dashboards and replays read normal data.
+      if (state?.season) {
+        state.season = {
+          ...state.season,
+          tournaments: Object.fromEntries(
+            Object.entries(state.season.tournaments).map(([id, t]) => [
+              id,
+              decodeCompactTournament(t),
+            ]),
+          ),
+        };
       }
       // Desktop: history entries were archived with compact encoding — decode
       // them so replay charts work from the history panel as well.

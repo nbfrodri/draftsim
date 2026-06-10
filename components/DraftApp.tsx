@@ -13,6 +13,8 @@ import TournamentSetup from "./TournamentSetup";
 import TournamentDashboard from "./TournamentDashboard";
 import MetaLibrary from "./MetaLibrary";
 import PairingsLibrary from "./PairingsLibrary";
+import SeasonSetup from "./SeasonSetup";
+import SeasonDashboard from "./SeasonDashboard";
 import Modal from "./Modal";
 import { isDesktop, openFileNative } from "@/lib/desktopStorage";
 import { hydrateMetaConfigFromDesktopFile } from "@/lib/metaRandomizer";
@@ -37,11 +39,14 @@ type EntryView =
   | "single-setup"
   | "tournament-setup"
   | "meta-library"
-  | "pairings-library";
+  | "pairings-library"
+  | "season-setup";
 
 export default function DraftApp({ champions }: Props) {
   const series = useDraftStore((s) => s.series);
   const tournament = useDraftStore((s) => s.tournament);
+  const season = useDraftStore((s) => s.season);
+  const seasonViewOpen = useDraftStore((s) => s.seasonViewOpen);
   const setChampions = useDraftStore((s) => s.setChampions);
   const hydrateMetaFromStorage = useDraftStore((s) => s.hydrateMetaFromStorage);
   const [entryView, setEntryView] = useState<EntryView>("menu");
@@ -113,8 +118,17 @@ export default function DraftApp({ champions }: Props) {
     return <SeriesCompleteView champions={champions} />;
   }
 
+  // Season mode — when the season view is open (and no tournament is
+  // being browsed, handled above), show the season dashboard.
+  if (seasonViewOpen && season) {
+    return <SeasonDashboard />;
+  }
+
   // No tournament and no series — show the entry chooser, or one of
   // the setup screens depending on user choice.
+  if (entryView === "season-setup") {
+    return <SeasonSetup onCancel={() => setEntryView("menu")} />;
+  }
   if (entryView === "tournament-setup") {
     return <TournamentSetup onCancel={() => setEntryView("menu")} />;
   }
@@ -135,6 +149,8 @@ export default function DraftApp({ champions }: Props) {
 // Two-button chooser that routes into either flow. Kept inline here so
 // it can stay small; if it grows it can move into its own file.
 function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
+  const season = useDraftStore((s) => s.season);
+  const openSeason = useDraftStore((s) => s.openSeason);
   const importTournament = useDraftStore((s) => s.importTournament);
   const tournamentHistory = useDraftStore((s) => s.tournamentHistory);
   const loadFromHistory = useDraftStore((s) => s.loadFromHistory);
@@ -147,6 +163,11 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
   );
   const deleteSavedTournament = useDraftStore((s) => s.deleteSavedTournament);
   const clearSavedTournaments = useDraftStore((s) => s.clearSavedTournaments);
+  const savedSeasons = useDraftStore((s) => s.savedSeasons);
+  const loadSavedSeason = useDraftStore((s) => s.loadSavedSeason);
+  const duplicateSavedSeason = useDraftStore((s) => s.duplicateSavedSeason);
+  const deleteSavedSeason = useDraftStore((s) => s.deleteSavedSeason);
+  const clearSavedSeasons = useDraftStore((s) => s.clearSavedSeasons);
   const [importOpen, setImportOpen] = useState(false);
   const [importCode, setImportCode] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
@@ -169,6 +190,33 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
     confirmSavedDelete && confirmSavedDelete !== "all"
       ? savedTournaments.find((e) => e.id === confirmSavedDelete)
       : null;
+  // Saved seasons modal + confirms. confirmSeasonLoad guards loading a
+  // save while a DIFFERENT season is active (it would replace it).
+  const [savedSeasonsOpen, setSavedSeasonsOpen] = useState(false);
+  const [confirmSeasonDelete, setConfirmSeasonDelete] = useState<
+    string | null
+  >(null);
+  const [confirmSeasonLoad, setConfirmSeasonLoad] = useState<string | null>(
+    null,
+  );
+  const confirmSeasonEntry =
+    confirmSeasonDelete && confirmSeasonDelete !== "all"
+      ? savedSeasons.find((e) => e.id === confirmSeasonDelete)
+      : null;
+  const confirmSeasonLoadEntry = confirmSeasonLoad
+    ? savedSeasons.find((e) => e.id === confirmSeasonLoad)
+    : null;
+
+  const handleLoadSeason = (entryId: string) => {
+    // Loading replaces the active season — confirm when one exists and
+    // it isn't the same save slot.
+    if (season && season.id !== entryId) {
+      setConfirmSeasonLoad(entryId);
+      return;
+    }
+    setSavedSeasonsOpen(false);
+    loadSavedSeason(entryId);
+  };
 
   const handleImport = async () => {
     setImportError(null);
@@ -262,6 +310,37 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
           </button>
         </div>
 
+        {/* Season mode — a full competitive year (6 leagues, 3 splits,
+            First Stand / MSI / Worlds). One active season at a time:
+            continue it if it exists, otherwise create one. */}
+        <button
+          type="button"
+          onClick={() => {
+            if (season) openSeason();
+            else onChoose("season-setup");
+          }}
+          className="w-full mt-3 md:mt-4 group relative border-2 border-rift-blue/40 bg-rift-blue/[0.04] hover:border-rift-bluebright/70 hover:bg-rift-blue/10 transition-all p-5 md:p-6 text-left"
+        >
+          <div className="text-[9px] uppercase tracking-[0.4em] text-rift-bluebright/80 mb-2">
+            {season ? "In Progress" : "New"}
+          </div>
+          <div className="font-display text-2xl md:text-3xl tracking-wider text-rift-goldbright mb-2 flex items-baseline gap-3 flex-wrap">
+            Season Mode
+            {season && (
+              <span className="text-sm md:text-base text-rift-bluebright">
+                Continue “{season.name}”
+                {season.status === "complete" ? " · Complete" : ""}
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] md:text-xs text-rift-mutedbright leading-snug">
+            Simulate a whole year: LCK, LPL, LEC, LCS, CBLOL & LCP play
+            Winter, Spring and Summer splits, with First Stand, MSI and
+            Worlds in between. Shifting meta, seeded internationals, and
+            a world champion at the end.
+          </div>
+        </button>
+
         {/* Library sections — custom meta tier lists and synergy/counter
             sets. Saved presets can be applied before starting a series
             or tournament (pickers also appear in both setup forms). */}
@@ -321,6 +400,19 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
             </svg>
             {isDesktop() ? "Import Tournament File" : "Import Tournament Code"}
           </button>
+          {savedSeasons.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSavedSeasonsOpen(true)}
+              className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright hover:text-rift-goldbright transition-colors"
+            >
+              <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="8" cy="8" r="6" />
+                <path d="M8 2v3M8 11v3M2 8h3M11 8h3" strokeLinecap="round" />
+              </svg>
+              Saved Seasons ({savedSeasons.length})
+            </button>
+          )}
           {savedTournaments.length > 0 && (
             <button
               type="button"
@@ -395,6 +487,113 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
               <button
                 type="button"
                 onClick={() => setHistoryOpen(false)}
+                className="px-3 py-1.5 border border-rift-line text-rift-mutedbright text-[10px] uppercase tracking-[0.3em] hover:text-rift-goldbright hover:border-rift-gold/50 transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Saved Seasons — manual save slots for season mode. Loading one
+          makes it the active season (replacing the current one behind a
+          confirm). */}
+      {savedSeasonsOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm"
+          onClick={() => setSavedSeasonsOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl max-h-[85vh] overflow-y-auto border-2 border-rift-gold/60 bg-rift-panel p-5 md:p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-baseline justify-between mb-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-1">
+                  Saved Seasons
+                </div>
+                <h2 className="font-display text-xl tracking-wider text-rift-goldbright">
+                  {savedSeasons.length} Save
+                  {savedSeasons.length === 1 ? "" : "s"}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmSeasonDelete("all")}
+                className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/70 hover:text-rift-redbright transition-colors"
+              >
+                Clear All
+              </button>
+            </div>
+            <div className="space-y-2">
+              {savedSeasons.map((entry) => {
+                const s = entry.season;
+                const phase = s.phases[s.phaseIndex];
+                const date = new Date(entry.savedAt);
+                const dateLabel = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+                const statusLabel =
+                  s.status === "complete"
+                    ? "Complete"
+                    : phase
+                    ? `${phase.label}`
+                    : "In Progress";
+                return (
+                  <div
+                    key={entry.id}
+                    className="border border-rift-line/50 bg-rift-bg/40 hover:border-rift-gold/40 transition-colors"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleLoadSeason(entry.id)}
+                      className="w-full text-left flex items-center justify-between gap-3 px-3 py-2.5"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-display text-sm tracking-wider text-rift-goldbright truncate">
+                          {s.name}
+                        </div>
+                        <div className="text-[9px] uppercase tracking-[0.25em] text-rift-mutedbright/60 mt-0.5">
+                          Saved {dateLabel}
+                          <span className="text-rift-mutedbright/40 mx-1.5">·</span>
+                          <span
+                            className={
+                              s.status === "complete"
+                                ? "text-rift-bluebright"
+                                : "text-rift-goldbright/80"
+                            }
+                          >
+                            {statusLabel}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-rift-gold/60 text-[10px] uppercase tracking-[0.3em] flex-shrink-0">
+                        {s.status === "complete" ? "Open ›" : "Load ›"}
+                      </span>
+                    </button>
+                    <div className="flex border-t border-rift-line/30">
+                      <button
+                        type="button"
+                        onClick={() => duplicateSavedSeason(entry.id)}
+                        className="flex-1 px-3 py-1 text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/40 hover:text-rift-goldbright hover:bg-rift-gold/5 transition-colors text-left"
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmSeasonDelete(entry.id)}
+                        className="flex-1 px-3 py-1 text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/40 hover:text-rift-redbright hover:bg-rift-red/5 transition-colors text-right"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-end mt-4">
+              <button
+                type="button"
+                onClick={() => setSavedSeasonsOpen(false)}
                 className="px-3 py-1.5 border border-rift-line text-rift-mutedbright text-[10px] uppercase tracking-[0.3em] hover:text-rift-goldbright hover:border-rift-gold/50 transition-all"
               >
                 Close
@@ -557,6 +756,63 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
         }}
         onCancel={() => setConfirmSavedDelete(null)}
       />
+      {/* Confirms for saved-season actions. */}
+      <Modal
+        open={confirmSeasonDelete === "all"}
+        title="Clear All Saved Seasons?"
+        message="Every saved season will be permanently deleted from this device. This cannot be undone."
+        confirmLabel="Clear All"
+        cancelLabel="Cancel"
+        tone="danger"
+        onConfirm={() => {
+          clearSavedSeasons();
+          setConfirmSeasonDelete(null);
+          setSavedSeasonsOpen(false);
+        }}
+        onCancel={() => setConfirmSeasonDelete(null)}
+      />
+      <Modal
+        open={!!confirmSeasonEntry}
+        title="Delete Saved Season?"
+        message={
+          confirmSeasonEntry
+            ? `"${confirmSeasonEntry.season.name}" will be permanently removed from your saves.`
+            : ""
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        tone="danger"
+        onConfirm={() => {
+          if (confirmSeasonDelete && confirmSeasonDelete !== "all") {
+            deleteSavedSeason(confirmSeasonDelete);
+          }
+          setConfirmSeasonDelete(null);
+        }}
+        onCancel={() => setConfirmSeasonDelete(null)}
+      />
+      <Modal
+        open={!!confirmSeasonLoadEntry}
+        title="Replace Active Season?"
+        message={
+          confirmSeasonLoadEntry
+            ? `Loading "${confirmSeasonLoadEntry.season.name}" will replace your current season${
+                season ? ` "${season.name}"` : ""
+              }. Save the current season first if you want to keep its progress.`
+            : ""
+        }
+        confirmLabel="Load Anyway"
+        cancelLabel="Cancel"
+        tone="danger"
+        onConfirm={() => {
+          if (confirmSeasonLoad) {
+            loadSavedSeason(confirmSeasonLoad);
+          }
+          setConfirmSeasonLoad(null);
+          setSavedSeasonsOpen(false);
+        }}
+        onCancel={() => setConfirmSeasonLoad(null)}
+      />
+
       <Modal
         open={!!confirmSavedEntry}
         title="Delete Saved Tournament?"

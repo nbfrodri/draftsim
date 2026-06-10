@@ -1,0 +1,167 @@
+// Season mode — a full competitive year simulated on top of the
+// tournament engine. Six regional leagues play three splits (Winter,
+// Spring, Summer); after each split the best teams qualify for an
+// international event (First Stand, MSI, Worlds). Every stage IS a
+// TournamentState driven by the existing engine, so brackets, drafts,
+// recaps, replays, and meta evolution all come for free.
+
+import type { SeriesFormat, Roster, AIDifficulty } from "../types";
+import type { MetaOverride, Synergy, CounterPair } from "../championMeta";
+import type { TournamentFormat, TournamentState } from "../tournament";
+
+// ─── Leagues ───────────────────────────────────────────────────────────────
+
+export type LeagueId = "LCK" | "LPL" | "LEC" | "LCS" | "CBLOL" | "LCP";
+
+// Fixed league order, also used as the inter-league power ranking for
+// international seeding (earlier = stronger region: equal in-league
+// seeds are ordered LCK > LPL > LEC > LCS > CBLOL > LCP).
+export const LEAGUE_IDS: readonly LeagueId[] = [
+  "LCK",
+  "LPL",
+  "LEC",
+  "LCS",
+  "CBLOL",
+  "LCP",
+];
+
+export const LEAGUE_NAMES: Record<LeagueId, string> = {
+  LCK: "LCK · Korea",
+  LPL: "LPL · China",
+  LEC: "LEC · Europe",
+  LCS: "LCS · North America",
+  CBLOL: "CBLOL · Brazil",
+  LCP: "LCP · Asia-Pacific",
+};
+
+export const TEAMS_PER_LEAGUE = 10;
+
+// ─── Calendar ──────────────────────────────────────────────────────────────
+
+export type SplitId = "winter" | "spring" | "summer";
+export type InternationalId = "first-stand" | "msi" | "worlds";
+
+export const SPLIT_LABELS: Record<SplitId, string> = {
+  winter: "Winter Split",
+  spring: "Spring Split",
+  summer: "Summer Split",
+};
+
+export const INTERNATIONAL_LABELS: Record<InternationalId, string> = {
+  "first-stand": "First Stand",
+  msi: "MSI",
+  worlds: "Worlds",
+};
+
+// How many teams each league sends to each international (taken from
+// that international's preceding split placements).
+export const QUALIFIER_COUNTS: Record<InternationalId, number> = {
+  "first-stand": 2, // Winter top 2 per league → 12 teams, single-elim
+  msi: 3, //          Spring top 3 per league → 18 teams, swiss → DE-8
+  worlds: 4, //       Summer top 4 per league → 18 direct + play-in
+};
+
+// Which split feeds which international.
+export const QUALIFYING_SPLIT: Record<InternationalId, SplitId> = {
+  "first-stand": "winter",
+  msi: "spring",
+  worlds: "summer",
+};
+
+// One phase of the season calendar, in play order.
+export interface SeasonPhase {
+  kind: "split" | "international";
+  split?: SplitId;
+  event?: InternationalId;
+  label: string;
+  // Tournament ids belonging to this phase. Splits hold 6 (one per
+  // league); First Stand / MSI hold 1; Worlds holds the play-in first
+  // and gains the main event id once the play-in completes.
+  tournamentIds: string[];
+  status: "pending" | "in-progress" | "complete";
+}
+
+// ─── Configuration ─────────────────────────────────────────────────────────
+
+export interface SeasonLeagueConfig {
+  // Tournament format for the league split (round-robin,
+  // round-robin-playoffs, groups-playoffs(-de), swiss(-playoffs)(-de)).
+  format: TournamentFormat;
+  // Teams advancing to the split playoffs (clamped to a power of 2 for
+  // double-elim brackets by the engine). Ignored for non-playoff formats.
+  playoffTeams: number;
+  // Series length for regular-stage matches and playoff matches.
+  regularSeries: SeriesFormat;
+  playoffSeries: SeriesFormat;
+}
+
+export interface SeasonConfig {
+  name: string;
+  // When true, every league uses leagueConfigs.LCK (the "shared" slot).
+  sharedLeagueConfig: boolean;
+  leagueConfigs: Record<LeagueId, SeasonLeagueConfig>;
+  // Meta shifts slightly after each completed round inside every event.
+  liveMeta: boolean;
+  // Bigger "patch" shift applied between phases (split → international
+  // → split …).
+  patchShift: boolean;
+  fearless: boolean;
+  aiDifficulty: AIDifficulty;
+  // Optional team the user wants to follow/control. Matches involving
+  // it are highlighted; the user can play them via the per-match
+  // override modal when opening the league.
+  controlledTeamId: string | null;
+}
+
+// ─── Teams ─────────────────────────────────────────────────────────────────
+
+export interface SeasonTeam {
+  id: string;
+  leagueId: LeagueId;
+  name: string;
+  color: string;
+  iconKey: string;
+  players: Roster;
+  personalityId: string;
+}
+
+// ─── Season state ──────────────────────────────────────────────────────────
+
+export interface SeasonMetaSnapshot {
+  metaOverride: MetaOverride | null;
+  metaEnabled: boolean;
+  synergyOverride: Synergy[] | null;
+  counterOverride: CounterPair[] | null;
+}
+
+export interface SeasonState {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  config: SeasonConfig;
+  teams: SeasonTeam[];
+  phases: SeasonPhase[];
+  phaseIndex: number;
+  // Every tournament of the season keyed by id (splits + internationals).
+  tournaments: Record<string, TournamentState>;
+  // Final placements (ordered team ids, best first) per completed split
+  // per league, and per international.
+  splitResults: Partial<Record<SplitId, Partial<Record<LeagueId, string[]>>>>;
+  intlResults: Partial<Record<InternationalId, string[]>>;
+  // The season's CURRENT meta — seeded from the user's active meta at
+  // creation, evolved by live meta inside events and patch shifts
+  // between phases. Every new tournament snapshots this.
+  currentMeta: SeasonMetaSnapshot;
+  // Worlds champion (set when the final phase completes).
+  champion: string | null;
+  status: "in-progress" | "complete";
+}
+
+export function seasonTeam(
+  season: SeasonState,
+  teamId: string | null | undefined,
+): SeasonTeam | null {
+  if (!teamId) return null;
+  return season.teams.find((t) => t.id === teamId) ?? null;
+}

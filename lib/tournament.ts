@@ -565,6 +565,10 @@ export interface TournamentState {
   status: "setup" | "in-progress" | "complete";
   teams: TournamentTeam[];
   matches: TournamentMatch[];
+  // Set when this tournament is one stage of a season (season mode).
+  // Season tournaments skip history archiving and post-completion meta
+  // restore — the season engine owns their lifecycle.
+  seasonId?: string;
   // Single-elim only: when true, after every round completes, the next
   // round's pairings are re-arranged so the highest-seeded survivor
   // faces the lowest-seeded survivor (instead of following fixed

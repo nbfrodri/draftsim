@@ -1,0 +1,313 @@
+import { describe, it, expect } from "vitest";
+
+import type { Champion, Lane } from "../types";
+import { LANE_ORDER } from "../players";
+import {
+  recordMatchWinner,
+  startGroupsPlayoffs,
+  startRoundRobinPlayoffs,
+  startSwissPlayoffs,
+  type TournamentState,
+} from "../tournament";
+import {
+  applyPatchShift,
+  applyTournamentUpdate,
+  createSeason,
+  currentPhase,
+  nextPendingTournament,
+  qualifiedForInternational,
+  tournamentPlacements,
+} from "./engine";
+import { generateSeasonTeams } from "./teamGen";
+import {
+  LEAGUE_IDS,
+  TEAMS_PER_LEAGUE,
+  type SeasonConfig,
+  type SeasonLeagueConfig,
+  type SeasonState,
+} from "./types";
+
+// ── Fixtures ────────────────────────────────────────────────────────────────
+
+function rngFrom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+let nextId = 1;
+function champ(lanes: Lane[], alias: string): Champion {
+  const id = nextId++;
+  return { id, name: alias, alias, roles: [], iconUrl: "", lanes };
+}
+
+function championPool(perLane = 8): Champion[] {
+  const out: Champion[] = [];
+  for (const lane of LANE_ORDER) {
+    for (let i = 0; i < perLane; i++) {
+      out.push(champ([lane], `${lane}-${i}`));
+    }
+  }
+  return out;
+}
+
+const LEAGUE_CFG: SeasonLeagueConfig = {
+  format: "round-robin-playoffs",
+  playoffTeams: 4,
+  regularSeries: "bo1",
+  playoffSeries: "bo5",
+};
+
+function makeConfig(): SeasonConfig {
+  return {
+    name: "Test Season",
+    sharedLeagueConfig: true,
+    leagueConfigs: Object.fromEntries(
+      LEAGUE_IDS.map((l) => [l, { ...LEAGUE_CFG }]),
+    ) as Record<(typeof LEAGUE_IDS)[number], SeasonLeagueConfig>,
+    liveMeta: false,
+    patchShift: false,
+    fearless: false,
+    aiDifficulty: "normal",
+    controlledTeamId: null,
+  };
+}
+
+// Resolve every match of a tournament with a star-rating-biased coin
+// flip (no draft/sim — the season engine only needs winners), freezing
+// playoff brackets when the regular stage completes.
+function resolveTournament(
+  t: TournamentState,
+  rng: () => number,
+): TournamentState {
+  let working = t;
+  for (let safety = 0; safety < 1000; safety++) {
+    const startable = working.matches.find(
+      (m) => !m.winner && m.blueTeamId != null && m.redTeamId != null,
+    );
+    if (!startable) {
+      const stageDone = working.matches
+        .filter((m) => m.bracket === undefined)
+        .every((m) => m.winner != null);
+      if (
+        (working.format === "groups-playoffs" ||
+          working.format === "groups-playoffs-de") &&
+        !working.groupsPlayoffs?.playoffStarted &&
+        stageDone
+      ) {
+        working = startGroupsPlayoffs(working);
+        continue;
+      }
+      if (
+        (working.format === "swiss-playoffs" ||
+          working.format === "swiss-playoffs-de") &&
+        !working.swissPlayoffsStarted &&
+        stageDone
+      ) {
+        working = startSwissPlayoffs(working);
+        continue;
+      }
+      if (
+        working.format === "round-robin-playoffs" &&
+        !working.rrPlayoffsStarted &&
+        stageDone
+      ) {
+        working = startRoundRobinPlayoffs(working);
+        continue;
+      }
+      break;
+    }
+    const blue = working.teams.find((x) => x.id === startable.blueTeamId)!;
+    const red = working.teams.find((x) => x.id === startable.redTeamId)!;
+    const pBlue =
+      0.5 + 0.12 * ((blue.starRating ?? 3) - (red.starRating ?? 3));
+    const blueWon = rng() < pBlue;
+    const need =
+      startable.format === "bo5" ? 3 : startable.format === "bo3" ? 2 : 1;
+    working = recordMatchWinner(working, startable.id, {
+      teamId: blueWon ? blue.id : red.id,
+      blueWins: blueWon ? need : 0,
+      redWins: blueWon ? 0 : need,
+    });
+  }
+  return working;
+}
+
+// Drive an entire season to completion through the engine.
+function runSeason(season: SeasonState, champions: Champion[]): SeasonState {
+  const rng = rngFrom(7);
+  let s = season;
+  for (let safety = 0; safety < 60; safety++) {
+    if (s.status === "complete") return s;
+    const t = nextPendingTournament(s);
+    expect(t, `phase ${s.phaseIndex} should have a pending tournament`).not.toBeNull();
+    const done = resolveTournament(t!, rng);
+    expect(done.status).toBe("complete");
+    s = applyTournamentUpdate(s, done, champions);
+  }
+  return s;
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────────
+
+describe("generateSeasonTeams", () => {
+  it("creates 60 unique teams, 10 per league", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(1));
+    expect(teams).toHaveLength(LEAGUE_IDS.length * TEAMS_PER_LEAGUE);
+    expect(new Set(teams.map((t) => t.name)).size).toBe(teams.length);
+    expect(new Set(teams.map((t) => t.iconKey)).size).toBe(teams.length);
+    for (const league of LEAGUE_IDS) {
+      expect(teams.filter((t) => t.leagueId === league)).toHaveLength(
+        TEAMS_PER_LEAGUE,
+      );
+    }
+    for (const t of teams) expect(t.players).toHaveLength(5);
+  });
+});
+
+describe("season lifecycle", () => {
+  const champions = championPool();
+  const teams = generateSeasonTeams(champions, rngFrom(2));
+  const base = createSeason({
+    config: makeConfig(),
+    teams,
+    activeMeta: {
+      metaOverride: null,
+      metaEnabled: true,
+      synergyOverride: null,
+      counterOverride: null,
+    },
+  });
+
+  it("starts in Winter with one tournament per league, all season-tagged", () => {
+    const phase = currentPhase(base)!;
+    expect(phase.split).toBe("winter");
+    expect(phase.tournamentIds).toHaveLength(6);
+    for (const id of phase.tournamentIds) {
+      const t = base.tournaments[id];
+      expect(t.seasonId).toBe(base.id);
+      expect(t.teams).toHaveLength(10);
+      expect(t.format).toBe("round-robin-playoffs");
+    }
+  });
+
+  it("plays the full year: splits → First Stand → MSI → Worlds, crowning a champion", () => {
+    let s = base;
+    const rng = rngFrom(7);
+
+    // ── Winter ──
+    for (let i = 0; i < 6; i++) {
+      const t = nextPendingTournament(s)!;
+      s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
+    }
+    expect(s.phases[0].status).toBe("complete");
+    expect(currentPhase(s)!.event).toBe("first-stand");
+    // Every league recorded full placements.
+    for (const league of LEAGUE_IDS) {
+      expect(s.splitResults.winter?.[league]).toHaveLength(10);
+    }
+
+    // ── First Stand: top 2 per league, seeded #1s before #2s ──
+    const fs = nextPendingTournament(s)!;
+    expect(fs.teams).toHaveLength(12);
+    const fsQualified = qualifiedForInternational(s, "first-stand");
+    expect(fsQualified.slice(0, 6).every((q) => q.leagueSeed === 1)).toBe(true);
+    expect(fsQualified.slice(6).every((q) => q.leagueSeed === 2)).toBe(true);
+    for (const league of LEAGUE_IDS) {
+      const placements = s.splitResults.winter![league]!;
+      const sent = fs.teams.filter((t) =>
+        placements.slice(0, 2).includes(t.id),
+      );
+      expect(sent).toHaveLength(2);
+    }
+    s = applyTournamentUpdate(s, resolveTournament(fs, rng), champions);
+    expect(s.intlResults["first-stand"]).toBeDefined();
+
+    // ── Spring + MSI ──
+    expect(currentPhase(s)!.split).toBe("spring");
+    for (let i = 0; i < 6; i++) {
+      const t = nextPendingTournament(s)!;
+      s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
+    }
+    const msi = nextPendingTournament(s)!;
+    expect(msi.name).toContain("Invitational");
+    expect(msi.teams).toHaveLength(18);
+    s = applyTournamentUpdate(s, resolveTournament(msi, rng), champions);
+    expect(s.intlResults.msi).toBeDefined();
+
+    // ── Summer + Worlds ──
+    expect(currentPhase(s)!.split).toBe("summer");
+    for (let i = 0; i < 6; i++) {
+      const t = nextPendingTournament(s)!;
+      s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
+    }
+    // Play-in: the six 4th seeds.
+    const playIn = nextPendingTournament(s)!;
+    expect(playIn.name).toContain("Play-In");
+    expect(playIn.teams).toHaveLength(6);
+    for (const league of LEAGUE_IDS) {
+      const fourth = s.splitResults.summer![league]![3];
+      expect(playIn.teams.some((t) => t.id === fourth)).toBe(true);
+    }
+    const playInDone = resolveTournament(playIn, rng);
+    s = applyTournamentUpdate(s, playInDone, champions);
+
+    // Main event: 18 direct + the two play-in finalists = 20 teams.
+    const main = nextPendingTournament(s)!;
+    expect(main.name).toContain("World");
+    expect(main.teams).toHaveLength(20);
+    const finalists = tournamentPlacements(playInDone).slice(0, 2);
+    for (const id of finalists) {
+      expect(main.teams.some((t) => t.id === id)).toBe(true);
+    }
+    s = applyTournamentUpdate(s, resolveTournament(main, rng), champions);
+
+    // ── Season complete ──
+    expect(s.status).toBe("complete");
+    expect(s.champion).toBe(s.intlResults.worlds![0]);
+    expect(s.phases.every((p) => p.status === "complete")).toBe(true);
+  });
+
+  it("simulates end-to-end through the generic runner too", () => {
+    const finished = runSeason(base, champions);
+    expect(finished.status).toBe("complete");
+    expect(finished.champion).not.toBeNull();
+    // ~20 tournaments across the year (18 splits + FS + MSI + play-in + main).
+    expect(Object.keys(finished.tournaments).length).toBe(22);
+  });
+});
+
+describe("applyPatchShift", () => {
+  it("returns a full override and only ±1-tier nudges", () => {
+    const champions = championPool();
+    // No baseline meta exists for fixture champs, so seed an override.
+    const seeded: Record<string, Partial<Record<Lane, "A">>> = {};
+    for (const c of champions) seeded[c.alias] = { [c.lanes[0]]: "A" as const };
+    const shifted = applyPatchShift(
+      {
+        metaOverride: seeded,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+      champions,
+      rngFrom(3),
+    );
+    expect(shifted.metaOverride).not.toBeNull();
+    const tiers = Object.values(shifted.metaOverride!).flatMap((t) =>
+      Object.values(t),
+    );
+    // A ±1 from "A" can only be "S" or "B".
+    for (const tier of tiers) {
+      expect(["S", "A", "B"]).toContain(tier);
+    }
+    // Some entries should have shifted with this seed.
+    expect(tiers.some((t) => t !== "A")).toBe(true);
+  });
+});
