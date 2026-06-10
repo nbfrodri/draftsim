@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import { deriveStar, randomizeTiersForStar } from "@/lib/players";
@@ -12,6 +12,10 @@ import {
   rerollTeamIdentity,
 } from "@/lib/season/teamGen";
 import {
+  BUNDLED_TEAM_NAMES,
+  fetchRealTeamNames,
+} from "@/lib/season/realTeams";
+import {
   LEAGUE_IDS,
   LEAGUE_NAMES,
   type LeagueId,
@@ -19,6 +23,7 @@ import {
   type SeasonLeagueConfig,
   type SeasonTeam,
 } from "@/lib/season/types";
+import MetaPanel from "./MetaPanel";
 import TeamIcon from "./TeamIcon";
 
 // Season creation: name, per-league (or shared) split formats, meta
@@ -64,12 +69,18 @@ export default function SeasonSetup({ onCancel }: Props) {
   const [liveMeta, setLiveMeta] = useState(true);
   const [patchShift, setPatchShift] = useState(true);
   const [fearless, setFearless] = useState(false);
+  const [timerEnabled, setTimerEnabled] = useState(false);
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>("normal");
+  const [intlEarlySeries, setIntlEarlySeries] = useState<SeriesFormat>("bo3");
+  const [intlFinalsSeries, setIntlFinalsSeries] = useState<SeriesFormat>("bo5");
   const [teams, setTeams] = useState<SeasonTeam[]>([]);
   const [controlledTeamId, setControlledTeamId] = useState<string | null>(
     null,
   );
   const [openLeague, setOpenLeague] = useState<LeagueId | null>(null);
+  const [realNames, setRealNames] = useState<
+    "idle" | "loading" | "done" | "error"
+  >("idle");
 
   // Generate the initial 60 teams once champions are loaded.
   useEffect(() => {
@@ -121,6 +132,43 @@ export default function SeasonSetup({ onCancel }: Props) {
   const rerollAll = () => {
     setTeams(generateSeasonTeams(champions));
     setControlledTeamId(null);
+    setRealNames("idle");
+  };
+
+  // Rename teams league-by-league from a names table. Teams keep their
+  // ids, colors, icons, rosters, and personalities; leagues with fewer
+  // than 10 names keep generated names for the remainder.
+  const applyNamesByLeague = (
+    namesByLeague: Partial<Record<LeagueId, string[]>>,
+  ) => {
+    setTeams((prev) => {
+      const used: Partial<Record<LeagueId, number>> = {};
+      return prev.map((t) => {
+        const idx = used[t.leagueId] ?? 0;
+        used[t.leagueId] = idx + 1;
+        const name = namesByLeague[t.leagueId]?.[idx];
+        return name ? { ...t, name } : t;
+      });
+    });
+  };
+
+  // Instant: the bundled offline snapshot of real pro team names.
+  const applyBundledNames = () => {
+    applyNamesByLeague(BUNDLED_TEAM_NAMES);
+    setRealNames("done");
+  };
+
+  // Live: real team names per region from the public LoL Esports API,
+  // falling back to the bundled snapshot when the API is unreachable.
+  const applyRealNames = async () => {
+    setRealNames("loading");
+    try {
+      applyNamesByLeague(await fetchRealTeamNames(AbortSignal.timeout(20_000)));
+      setRealNames("done");
+    } catch {
+      applyNamesByLeague(BUNDLED_TEAM_NAMES);
+      setRealNames("error");
+    }
   };
 
   // Set a team's strength (1-5 stars): regenerate the roster's player
@@ -152,8 +200,11 @@ export default function SeasonSetup({ onCancel }: Props) {
       liveMeta,
       patchShift,
       fearless,
+      timerEnabled,
       aiDifficulty,
       controlledTeamId,
+      intlEarlySeries,
+      intlFinalsSeries,
     };
     startSeason(config, teams);
   };
@@ -354,6 +405,56 @@ export default function SeasonSetup({ onCancel }: Props) {
           >
             Fearless {fearless ? "ON" : "OFF"}
           </button>
+          <button
+            type="button"
+            onClick={() => setTimerEnabled(!timerEnabled)}
+            className={`px-3 py-1.5 border text-[9px] uppercase tracking-[0.25em] transition-all ${
+              timerEnabled
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line text-rift-mutedbright"
+            }`}
+            title="Pick/ban timer in matches you play yourself"
+          >
+            Draft Timer {timerEnabled ? "ON" : "OFF"}
+          </button>
+          <label className="flex flex-col gap-1">
+            <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+              Intl. Early Rounds
+            </span>
+            <select
+              value={intlEarlySeries}
+              onChange={(e) =>
+                setIntlEarlySeries(e.target.value as SeriesFormat)
+              }
+              className={SELECT_CLS}
+              title="Series length for early rounds/stages at First Stand, MSI, and Worlds"
+            >
+              {SERIES_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+              Intl. Finals
+            </span>
+            <select
+              value={intlFinalsSeries}
+              onChange={(e) =>
+                setIntlFinalsSeries(e.target.value as SeriesFormat)
+              }
+              className={SELECT_CLS}
+              title="Series length for finals/playoffs at First Stand, MSI, and Worlds"
+            >
+              {SERIES_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="flex flex-col gap-1">
             <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
               AI Difficulty
@@ -368,27 +469,25 @@ export default function SeasonSetup({ onCancel }: Props) {
               <option value="hard">Hard</option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 flex-1 min-w-[180px]">
+          <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
             <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
               Follow / Control a Team (optional)
             </span>
-            <select
-              value={controlledTeamId ?? ""}
-              onChange={(e) => setControlledTeamId(e.target.value || null)}
-              className={SELECT_CLS}
-            >
-              <option value="">Spectate everything</option>
-              {LEAGUE_IDS.map((l) => (
-                <optgroup key={l} label={l}>
-                  {(byLeague.get(l) ?? []).map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </label>
+            <TeamPicker
+              byLeague={byLeague}
+              value={controlledTeamId}
+              onChange={setControlledTeamId}
+            />
+          </div>
+        </div>
+
+        {/* Starting meta — the season snapshots the active meta at
+            creation and evolves it from there. */}
+        <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
+          Starting Meta
+        </div>
+        <div className="border border-rift-line/40 bg-rift-bg/30 p-3 mb-6">
+          <MetaPanel variant="compact" />
         </div>
 
         {/* Teams */}
@@ -403,6 +502,33 @@ export default function SeasonSetup({ onCancel }: Props) {
           >
             Re-roll Everything
           </button>
+          <button
+            type="button"
+            onClick={applyBundledNames}
+            disabled={realNames === "loading" || teams.length === 0}
+            className={`px-2.5 py-1 border text-[9px] uppercase tracking-[0.25em] transition-all disabled:opacity-50 ${
+              realNames === "done"
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50"
+            }`}
+            title="Rename every team to the real pro teams of each region (built-in list, works offline)"
+          >
+            {realNames === "done" ? "Real Names ✓" : "Real Names"}
+          </button>
+          <button
+            type="button"
+            onClick={applyRealNames}
+            disabled={realNames === "loading" || teams.length === 0}
+            className="px-2.5 py-1 border border-rift-line text-[9px] uppercase tracking-[0.25em] text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 transition-all disabled:opacity-50 disabled:cursor-wait"
+            title="Fetch the current real teams of each region live from the LoL Esports API"
+          >
+            {realNames === "loading" ? "Fetching…" : "Fetch Live"}
+          </button>
+          {realNames === "error" && (
+            <span className="text-[9px] uppercase tracking-[0.2em] text-rift-red">
+              Esports API unreachable — applied the built-in names
+            </span>
+          )}
         </div>
         <div className="space-y-2 mb-8">
           {LEAGUE_IDS.map((league) => {
@@ -509,6 +635,133 @@ export default function SeasonSetup({ onCancel }: Props) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Custom team dropdown for Follow/Control. A native <select> popup is
+// positioned by the browser and flips upward when the control sits in
+// the lower half of the viewport — this one always opens BELOW the
+// trigger, and gets team icons/colors as a bonus.
+function TeamPicker({
+  byLeague,
+  value,
+  onChange,
+}: {
+  byLeague: Map<LeagueId, SeasonTeam[]>;
+  value: string | null;
+  onChange: (teamId: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Close on outside click / Escape.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const selected = value
+    ? [...byLeague.values()].flat().find((t) => t.id === value) ?? null
+    : null;
+
+  const pick = (teamId: string | null) => {
+    onChange(teamId);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="w-full flex items-center gap-1.5 bg-rift-bg/60 border border-rift-line text-rift-mutedbright text-xs px-2 py-1.5 outline-none focus:border-rift-gold/60 hover:border-rift-gold/40 transition-colors text-left"
+      >
+        {selected ? (
+          <>
+            <TeamIcon
+              iconKey={selected.iconKey}
+              size={13}
+              color={selected.color}
+            />
+            <span className="flex-1 truncate">{selected.name}</span>
+            <span className="text-[9px] uppercase tracking-[0.15em] text-rift-gold/60">
+              {selected.leagueId}
+            </span>
+          </>
+        ) : (
+          <span className="flex-1">Spectate everything</span>
+        )}
+        <svg
+          viewBox="0 0 16 16"
+          className={`w-3 h-3 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          aria-hidden
+        >
+          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          className="absolute left-0 right-0 top-full mt-1 z-40 max-h-64 overflow-y-auto custom-scroll bg-rift-panel border border-rift-gold/40 shadow-[0_8px_30px_rgba(0,0,0,0.7)]"
+        >
+          <button
+            type="button"
+            role="option"
+            aria-selected={value == null}
+            onClick={() => pick(null)}
+            className={`w-full text-left px-2 py-1.5 text-xs transition-colors ${
+              value == null
+                ? "text-rift-goldbright bg-rift-gold/10"
+                : "text-rift-mutedbright hover:bg-rift-gold/5 hover:text-rift-goldbright"
+            }`}
+          >
+            Spectate everything
+          </button>
+          {LEAGUE_IDS.map((l) => (
+            <div key={l}>
+              <div className="px-2 pt-1.5 pb-0.5 text-[8px] uppercase tracking-[0.3em] text-rift-gold/70 border-t border-rift-line/30">
+                {l}
+              </div>
+              {(byLeague.get(l) ?? []).map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="option"
+                  aria-selected={value === t.id}
+                  onClick={() => pick(t.id)}
+                  className={`w-full flex items-center gap-1.5 text-left px-2 py-1 text-xs transition-colors ${
+                    value === t.id
+                      ? "text-rift-goldbright bg-rift-gold/10"
+                      : "text-rift-mutedbright hover:bg-rift-gold/5 hover:text-rift-goldbright"
+                  }`}
+                >
+                  <TeamIcon iconKey={t.iconKey} size={13} color={t.color} />
+                  <span className="truncate">{t.name}</span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

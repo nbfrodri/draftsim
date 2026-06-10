@@ -10,8 +10,10 @@ import {
   tournamentChampion,
 } from "@/lib/tournament";
 import { isDesktop, saveFileNative } from "@/lib/desktopStorage";
+import { qualifiedForInternational } from "@/lib/season/engine";
 import Modal from "./Modal";
 import MetaPanel from "./MetaPanel";
+import TeamIcon from "./TeamIcon";
 
 // ─── Bracket sub-modules ──────────────────────────────────────────────
 import { Header } from "./tournament/bracket/BracketViews";
@@ -39,6 +41,7 @@ import type { MatchOverride } from "./tournament/shared";
 
 export default function TournamentDashboard() {
   const tournament = useDraftStore((s) => s.tournament)!;
+  const season = useDraftStore((s) => s.season);
   const startMatch = useDraftStore((s) => s.startMatch);
   const saveCurrentTournament = useDraftStore((s) => s.saveCurrentTournament);
   const exitTournament = useDraftStore((s) => s.exitTournament);
@@ -147,6 +150,21 @@ export default function TournamentDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournament, pendingMatchId, viewMatchId]);
   const totalRounds = rounds.length;
+  // Season internationals: every team's home region + the seed it
+  // earned in that region's qualifying split, ordered by global seed.
+  const intlField = useMemo(() => {
+    if (!season || tournament.seasonId !== season.id) return null;
+    const phase = season.phases.find(
+      (p) =>
+        p.kind === "international" && p.tournamentIds.includes(tournament.id),
+    );
+    if (!phase?.event) return null;
+    const inTournament = new Set(tournament.teams.map((t) => t.id));
+    const field = qualifiedForInternational(season, phase.event).filter((q) =>
+      inTournament.has(q.team.id),
+    );
+    return field.length > 0 ? field : null;
+  }, [season, tournament]);
   // Replay click-through is available only post-tournament. Mid-event
   // we'd be exposing in-progress series state via a read-only modal,
   // which conflicts with the live "start match" affordance on the same
@@ -256,6 +274,33 @@ export default function TournamentDashboard() {
 
       <div className="max-w-7xl mx-auto">
         <Header tournament={tournament} champion={champion} totalRounds={totalRounds} />
+
+        {/* Region & seed of every qualified team (season internationals). */}
+        {intlField && (
+          <div className="mb-6 border border-rift-line/40 bg-rift-bg/30 px-3 py-2.5">
+            <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+              Qualified Field · Region &amp; Seed
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {intlField.map((q) => (
+                <span
+                  key={q.team.id}
+                  className="inline-flex items-center gap-1.5 text-[10px] text-rift-mutedbright"
+                >
+                  <TeamIcon
+                    iconKey={q.team.iconKey}
+                    size={12}
+                    color={q.team.color}
+                  />
+                  <span>{q.team.name}</span>
+                  <span className="text-rift-gold/60 uppercase tracking-[0.15em] text-[9px]">
+                    {q.league} #{q.leagueSeed}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Post-tournament aggregates — only render once status is
             complete. Headline summary, presence/win-rate tables, plus

@@ -115,8 +115,10 @@ import {
   currentPhase as currentSeasonPhase,
   phaseProgress as seasonPhaseProgress,
 } from "@/lib/season/engine";
+import { ensureTeamIdentities } from "@/lib/season/teamGen";
 import type {
   SeasonConfig,
+  SeasonMetaSnapshot,
   SeasonState,
   SeasonTeam,
 } from "@/lib/season/types";
@@ -511,10 +513,11 @@ interface DraftStore {
   // the user can browse its bracket or play/sim matches through the
   // normal tournament flow. Updates sync back into the season.
   openSeasonTournament: (tournamentId: string) => void;
-  // Simulate the current phase (all its tournaments) or the entire
-  // remaining season. Auto-advances phases, applies patch shifts, and
-  // crowns the Worlds champion.
-  simSeason: (scope: "phase" | "all") => void;
+  // Simulate the current phase (all its tournaments), the entire
+  // remaining season, or one specific tournament (a single league's
+  // split, or one international). Auto-advances phases, applies patch
+  // shifts, and crowns the Worlds champion.
+  simSeason: (scope: "phase" | "all" | { tournamentId: string }) => void;
   // ─── Saved seasons (manual save slots, like saved tournaments) ─────
   savedSeasons: SavedSeasonEntry[];
   // Snapshot the active season (upsert by season id). Returns false
@@ -1037,6 +1040,58 @@ function applyMetaSnapshotPatch(
   };
 }
 
+// Backfill cosmetic identity (icon/color/personality) on seasons
+// persisted by builds that predate those fields on SeasonTeam — they
+// rendered as an invisible color swatch + the generic shield icon.
+// Identity is also propagated into every tournament's team copies
+// (tournaments snapshot it at creation). No-op (same reference) for
+// healthy seasons.
+function ensureSeasonIdentities(season: SeasonState): SeasonState {
+  const teams = ensureTeamIdentities(season.teams);
+  if (teams === season.teams) return season;
+  const byId = new Map(teams.map((t) => [t.id, t]));
+  return {
+    ...season,
+    teams,
+    tournaments: Object.fromEntries(
+      Object.entries(season.tournaments).map(([id, t]) => [
+        id,
+        {
+          ...t,
+          teams: t.teams.map((tt) => {
+            const st = byId.get(tt.id);
+            if (!st || (tt.iconKey && tt.color)) return tt;
+            return {
+              ...tt,
+              iconKey: tt.iconKey ?? st.iconKey,
+              color: tt.color ?? st.color,
+            };
+          }),
+        },
+      ]),
+    ),
+  };
+}
+
+// While the season view is open the ACTIVE meta IS the season's
+// currentMeta (openSeason / loadSavedSeason apply it, exitSeasonView
+// restores the user's own). Any meta mutation made from inside the
+// season therefore has to write through into season.currentMeta, or
+// the next season tournament would snapshot the pre-edit meta.
+function seasonMetaWriteThrough(
+  s: Pick<DraftStore, "season" | "seasonViewOpen">,
+  patch: Partial<SeasonMetaSnapshot>,
+): Partial<DraftStore> {
+  if (!s.season || !s.seasonViewOpen) return {};
+  return {
+    season: {
+      ...s.season,
+      updatedAt: Date.now(),
+      currentMeta: { ...s.season.currentMeta, ...patch },
+    },
+  };
+}
+
 // Mirror an updated season tournament back into the season state and
 // run the engine's consequences (placements, phase advancement, Worlds
 // main-event creation, champion). Returns an empty patch for
@@ -1408,7 +1463,7 @@ export const useDraftStore = create<DraftStore>()(
     };
     const season = createSeason({
       config,
-      teams,
+      teams: ensureTeamIdentities(teams),
       activeMeta: {
         metaOverride: state.metaOverride,
         metaEnabled: state.metaEnabled,
@@ -1558,8 +1613,14 @@ export const useDraftStore = create<DraftStore>()(
           if (cur.status === "complete") break;
           if (scope === "phase" && cur.phaseIndex !== startPhaseIndex) break;
           const champions = get().champions;
-          const t = nextPendingSeasonTournament(cur);
+          // Tournament scope plays exactly one event to completion;
+          // the other scopes follow the engine's play order.
+          const t =
+            typeof scope === "object"
+              ? cur.tournaments[scope.tournamentId]
+              : nextPendingSeasonTournament(cur);
           if (!t) break; // defensive — engine advances phases itself
+          if (typeof scope === "object" && t.status === "complete") break;
           const startable = t.matches.find(
             (m) => !m.winner && m.blueTeamId != null && m.redTeamId != null,
           );
@@ -1684,7 +1745,7 @@ export const useDraftStore = create<DraftStore>()(
     const state = get();
     const entry = state.savedSeasons.find((e) => e.id === entryId);
     if (!entry) return;
-    const season: SeasonState = {
+    const season: SeasonState = ensureSeasonIdentities({
       ...entry.season,
       tournaments: Object.fromEntries(
         Object.entries(entry.season.tournaments).map(([id, t]) => [
@@ -1692,7 +1753,7 @@ export const useDraftStore = create<DraftStore>()(
           decodeCompactTournament(t),
         ]),
       ),
-    };
+    });
     // Keep the original restore snapshot when a season is already
     // active (the user's meta from before THAT season); otherwise the
     // current state IS the user's meta — capture it fresh.
@@ -1872,6 +1933,10 @@ export const useDraftStore = create<DraftStore>()(
       counterOverride: [...preset.counters],
       synergyVersion: s.synergyVersion + 1,
       counterVersion: s.counterVersion + 1,
+      ...seasonMetaWriteThrough(s, {
+        synergyOverride: preset.synergies,
+        counterOverride: [...preset.counters],
+      }),
     }));
   },
 
@@ -1902,6 +1967,7 @@ export const useDraftStore = create<DraftStore>()(
       metaOverride: override,
       metaVersion: s.metaVersion + 1,
       metaSource: "randomized",
+      ...seasonMetaWriteThrough(s, { metaOverride: override }),
     }));
   },
 
@@ -1913,6 +1979,7 @@ export const useDraftStore = create<DraftStore>()(
       metaOverride: null,
       metaVersion: s.metaVersion + 1,
       metaSource: "default",
+      ...seasonMetaWriteThrough(s, { metaOverride: null }),
     }));
   },
 
@@ -1924,6 +1991,7 @@ export const useDraftStore = create<DraftStore>()(
       metaOverride: override,
       metaVersion: s.metaVersion + 1,
       metaSource: "custom",
+      ...seasonMetaWriteThrough(s, { metaOverride: override }),
     }));
   },
 
@@ -1935,6 +2003,7 @@ export const useDraftStore = create<DraftStore>()(
       // Bump version so any memoized component (TierListView, ChampionGrid
       // tier badges) recomputes against the new effective tier set.
       metaVersion: s.metaVersion + 1,
+      ...seasonMetaWriteThrough(s, { metaEnabled: enabled }),
     }));
   },
 
@@ -1956,6 +2025,10 @@ export const useDraftStore = create<DraftStore>()(
       counterVersion: s.counterVersion + 1,
       powerSpikeOverride: powerSpikes,
       powerSpikeVersion: s.powerSpikeVersion + 1,
+      ...seasonMetaWriteThrough(s, {
+        synergyOverride: synergies,
+        counterOverride: counters,
+      }),
     }));
   },
 
@@ -1973,6 +2046,10 @@ export const useDraftStore = create<DraftStore>()(
       counterVersion: s.counterVersion + 1,
       powerSpikeOverride: null,
       powerSpikeVersion: s.powerSpikeVersion + 1,
+      ...seasonMetaWriteThrough(s, {
+        synergyOverride: null,
+        counterOverride: null,
+      }),
     }));
   },
 
@@ -3241,7 +3318,7 @@ export const useDraftStore = create<DraftStore>()(
       // Season tournaments are stored compact — decode them all so the
       // dashboards and replays read normal data.
       if (state?.season) {
-        state.season = {
+        state.season = ensureSeasonIdentities({
           ...state.season,
           tournaments: Object.fromEntries(
             Object.entries(state.season.tournaments).map(([id, t]) => [
@@ -3249,7 +3326,7 @@ export const useDraftStore = create<DraftStore>()(
               decodeCompactTournament(t),
             ]),
           ),
-        };
+        });
       }
       // Desktop: history entries were archived with compact encoding — decode
       // them so replay charts work from the history panel as well.

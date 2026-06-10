@@ -143,7 +143,19 @@ function defaultsFor(
     mode: "aivai",
     aiSide: null,
     aiDifficulty: config.aiDifficulty,
-    timerEnabled: false,
+    timerEnabled: config.timerEnabled ?? false,
+  };
+}
+
+// International series lengths — configurable since 2026 setups;
+// older saved seasons fall back to the classic bo3 / bo5.
+function intlSeries(config: SeasonConfig): {
+  early: SeriesFormat;
+  finals: SeriesFormat;
+} {
+  return {
+    early: config.intlEarlySeries ?? "bo3",
+    finals: config.intlFinalsSeries ?? "bo5",
   };
 }
 
@@ -281,12 +293,13 @@ function createSplitTournament(
 
 function createFirstStand(season: SeasonState): TournamentState {
   const qualified = qualifiedForInternational(season, "first-stand");
+  const { early, finals } = intlSeries(season.config);
   const t = createTournament({
     name: "First Stand",
     format: "single-elim",
     teams: qualified.map((q, i) => toTournamentTeam(q.team, i + 1)),
-    defaults: defaultsFor(season.config, "bo3"),
-    formatOverrides: singleElimOverrides(qualified.length, "bo3", "bo5"),
+    defaults: defaultsFor(season.config, early),
+    formatOverrides: singleElimOverrides(qualified.length, early, finals),
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
@@ -299,12 +312,13 @@ function createMSI(season: SeasonState): TournamentState {
   // 18 teams: swiss stage into a top-8 double-elim bracket (a plain
   // double-elim needs a power-of-2 field, so this is the closest
   // realistic shape the engine supports).
+  const { early, finals } = intlSeries(season.config);
   const t = createTournament({
     name: "Mid-Season Invitational",
     format: "swiss-playoffs-de",
     teams: qualified.map((q, i) => toTournamentTeam(q.team, i + 1)),
-    defaults: defaultsFor(season.config, "bo3"),
-    formatOverrides: seriesOverrides("bo3", "bo5"),
+    defaults: defaultsFor(season.config, early),
+    formatOverrides: seriesOverrides(early, finals),
     swissPlayoffsAdvancingOverride: 8,
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
@@ -319,12 +333,13 @@ function createWorldsPlayIn(season: SeasonState): TournamentState {
   const qualified = qualifiedForInternational(season, "worlds").filter(
     (q) => q.leagueSeed === 4,
   );
+  const { early, finals } = intlSeries(season.config);
   const t = createTournament({
     name: "Worlds Play-In",
     format: "single-elim",
     teams: qualified.map((q, i) => toTournamentTeam(q.team, i + 1)),
-    defaults: defaultsFor(season.config, "bo3"),
-    formatOverrides: singleElimOverrides(qualified.length, "bo3", "bo5"),
+    defaults: defaultsFor(season.config, early),
+    formatOverrides: singleElimOverrides(qualified.length, early, finals),
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
@@ -353,12 +368,13 @@ function createWorldsMain(
       toTournamentTeam(team, direct.length + i + 1),
     ),
   ];
+  const { early, finals } = intlSeries(season.config);
   const t = createTournament({
     name: "World Championship",
     format: "groups-playoffs",
     teams,
-    defaults: defaultsFor(season.config, "bo3"),
-    formatOverrides: seriesOverrides("bo3", "bo5"),
+    defaults: defaultsFor(season.config, early),
+    formatOverrides: seriesOverrides(early, finals),
     groupsConfigOverride: { groupCount: 4, advancingPerGroup: 2 },
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,

@@ -111,6 +111,14 @@ export interface SeasonConfig {
   // it are highlighted; the user can play them via the per-match
   // override modal when opening the league.
   controlledTeamId: string | null;
+  // Series lengths at internationals (First Stand, MSI, Worlds):
+  // early rounds / stages and the finals. Optional for seasons saved
+  // before these existed — the engine falls back to bo3 / bo5.
+  intlEarlySeries?: SeriesFormat;
+  intlFinalsSeries?: SeriesFormat;
+  // Draft timer for matches the user plays. Optional (older saves);
+  // defaults to off.
+  timerEnabled?: boolean;
 }
 
 // ─── Teams ─────────────────────────────────────────────────────────────────

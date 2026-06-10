@@ -8,6 +8,7 @@ import type { TournamentState } from "@/lib/tournament";
 import {
   leagueOfTournament,
   phaseProgress,
+  qualifiedForInternational,
 } from "@/lib/season/engine";
 import { computeSeasonStats, computeStageStats } from "@/lib/season/stats";
 import {
@@ -21,6 +22,7 @@ import {
 import type { Champion } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
 import Modal from "./Modal";
+import SeasonMetaPanel from "./SeasonMetaPanel";
 import { SimulatingOverlay } from "./tournament/bracket/DashboardModals";
 
 // Season dashboard: phase timeline, the current phase's tournaments
@@ -39,6 +41,8 @@ export default function SeasonDashboard() {
   const saveCurrentSeason = useDraftStore((s) => s.saveCurrentSeason);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  // Mid-season aggregate stats toggle (always rendered once complete).
+  const [statsOpen, setStatsOpen] = useState(false);
 
   useEffect(() => {
     if (!saveFeedback) return;
@@ -177,6 +181,18 @@ export default function SeasonDashboard() {
             >
               Sim Rest of Season
             </button>
+            <button
+              type="button"
+              onClick={() => setStatsOpen(!statsOpen)}
+              className={`px-4 py-2 border text-[10px] uppercase tracking-[0.3em] transition-all ${
+                statsOpen
+                  ? "border-rift-gold/60 text-rift-goldbright bg-rift-gold/10"
+                  : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50"
+              }`}
+              title="Season-wide stats so far — top teams, champions, trophies"
+            >
+              Season Stats {statsOpen ? "▴" : "▾"}
+            </button>
             {simProgress && (
               <span className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/70 tabular-nums">
                 {simProgress.done}/{simProgress.total}
@@ -185,10 +201,23 @@ export default function SeasonDashboard() {
           </div>
         )}
 
+        {/* Season-wide stats, available any time once games exist. */}
+        {season.status !== "complete" && statsOpen && (
+          <SeasonRecapPanel
+            season={season}
+            championsById={championsById}
+            title="Season So Far"
+          />
+        )}
+
         {/* Season-wide recap — the year in numbers, once it's over. */}
         {season.status === "complete" && (
           <SeasonRecapPanel season={season} championsById={championsById} />
         )}
+
+        {/* The season's evolving meta: view/edit tiers & pairings,
+            export codes, save to the libraries. */}
+        <SeasonMetaPanel />
 
         {/* Current phase */}
         {phase && season.status !== "complete" && (
@@ -287,6 +316,8 @@ function TournamentCard({
   tournament: TournamentState;
   onOpen: () => void;
 }) {
+  const simSeason = useDraftStore((s) => s.simSeason);
+  const simulating = useDraftStore((s) => s.simulating);
   const standings = useMemo(
     () => computeStandings(tournament).slice(0, 4),
     [tournament],
@@ -294,6 +325,20 @@ function TournamentCard({
   const done = tournament.matches.filter((m) => m.winner).length;
   const champion = tournamentChampion(tournament);
   const controlledId = season.config.controlledTeamId;
+  // International events: each team's home region and its seed inside
+  // that region's qualifying split (e.g. "LCK #1").
+  const regionSeeds = useMemo(() => {
+    const phase = season.phases.find(
+      (p) =>
+        p.kind === "international" && p.tournamentIds.includes(tournament.id),
+    );
+    if (!phase?.event) return null;
+    const map = new Map<string, string>();
+    for (const q of qualifiedForInternational(season, phase.event)) {
+      map.set(q.team.id, `${q.league} #${q.leagueSeed}`);
+    }
+    return map;
+  }, [season, tournament.id]);
   return (
     <div className="border border-rift-line/50 bg-rift-bg/40 hover:border-rift-gold/40 transition-colors flex flex-col">
       <div className="flex items-center justify-between gap-2 px-3 pt-2.5">
@@ -317,6 +362,11 @@ function TournamentCard({
           <div className="text-[10px] uppercase tracking-[0.25em] text-rift-goldbright inline-flex items-center gap-1.5">
             <TeamIcon iconKey={champion.iconKey} size={13} color={champion.color} />
             Champion: {champion.name}
+            {regionSeeds?.has(champion.id) && (
+              <span className="text-[9px] text-rift-gold/60">
+                {regionSeeds.get(champion.id)}
+              </span>
+            )}
           </div>
         ) : (
           <div className="space-y-0.5">
@@ -333,7 +383,14 @@ function TournamentCard({
                   {s.rank}
                 </span>
                 <TeamIcon iconKey={s.team.iconKey} size={12} color={s.team.color} />
-                <span className="truncate flex-1">{s.team.name}</span>
+                <span className="truncate flex-1">
+                  {s.team.name}
+                  {regionSeeds?.has(s.team.id) && (
+                    <span className="ml-1.5 text-[9px] uppercase tracking-[0.15em] text-rift-gold/60">
+                      {regionSeeds.get(s.team.id)}
+                    </span>
+                  )}
+                </span>
                 <span className="tabular-nums text-rift-muted/70">
                   {s.wins}-{s.losses}
                 </span>
@@ -347,13 +404,26 @@ function TournamentCard({
           </div>
         )}
       </div>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="border-t border-rift-line/30 px-3 py-1.5 text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 hover:text-rift-goldbright hover:bg-rift-gold/5 transition-colors text-right"
-      >
-        Open ›
-      </button>
+      <div className="border-t border-rift-line/30 flex">
+        {tournament.status !== "complete" && (
+          <button
+            type="button"
+            disabled={!!simulating}
+            onClick={() => simSeason({ tournamentId: tournament.id })}
+            className="flex-1 px-3 py-1.5 text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/70 hover:text-rift-goldbright hover:bg-rift-gold/5 disabled:opacity-40 transition-colors text-left border-r border-rift-line/30"
+            title={`Simulate every remaining match of ${tournament.name}`}
+          >
+            ▸ Sim This
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onOpen}
+          className="flex-1 px-3 py-1.5 text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 hover:text-rift-goldbright hover:bg-rift-gold/5 transition-colors text-right"
+        >
+          Open ›
+        </button>
+      </div>
     </div>
   );
 }
@@ -370,6 +440,7 @@ function PastResults({
   onOpen: (tournamentId: string) => void;
 }) {
   const [statsFor, setStatsFor] = useState<string | null>(null);
+  const [resultsFor, setResultsFor] = useState<string | null>(null);
   const past = season.phases.filter(
     (p, i) => p.status === "complete" || i < season.phaseIndex,
   );
@@ -383,6 +454,7 @@ function PastResults({
         {past.map((p, i) => {
           const phaseKey = `${p.label}-${i}`;
           const statsOpen = statsFor === phaseKey;
+          const resultsOpen = resultsFor === phaseKey;
           return (
             <div
               key={phaseKey}
@@ -392,17 +464,30 @@ function PastResults({
                 <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60">
                   {p.label}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setStatsFor(statsOpen ? null : phaseKey)}
-                  className={`text-[9px] uppercase tracking-[0.25em] transition-colors ${
-                    statsOpen
-                      ? "text-rift-goldbright"
-                      : "text-rift-mutedbright/50 hover:text-rift-goldbright"
-                  }`}
-                >
-                  {statsOpen ? "Hide Stats ▴" : "Stats ▾"}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setResultsFor(resultsOpen ? null : phaseKey)}
+                    className={`text-[9px] uppercase tracking-[0.25em] transition-colors ${
+                      resultsOpen
+                        ? "text-rift-goldbright"
+                        : "text-rift-mutedbright/50 hover:text-rift-goldbright"
+                    }`}
+                  >
+                    {resultsOpen ? "Hide Placements ▴" : "Placements ▾"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStatsFor(statsOpen ? null : phaseKey)}
+                    className={`text-[9px] uppercase tracking-[0.25em] transition-colors ${
+                      statsOpen
+                        ? "text-rift-goldbright"
+                        : "text-rift-mutedbright/50 hover:text-rift-goldbright"
+                    }`}
+                  >
+                    {statsOpen ? "Hide Stats ▴" : "Stats ▾"}
+                  </button>
+                </div>
               </div>
               <div className="flex flex-wrap gap-x-5 gap-y-1">
                 {p.tournamentIds.map((id) => {
@@ -432,6 +517,7 @@ function PastResults({
                   );
                 })}
               </div>
+              {resultsOpen && <PhasePlacements season={season} phase={p} />}
               {statsOpen && (
                 <div className="mt-2 space-y-1.5 border-t border-rift-line/30 pt-2">
                   {p.tournamentIds.map((id) => {
@@ -453,6 +539,117 @@ function PastResults({
         })}
       </div>
     </div>
+  );
+}
+
+// Full final placements of a completed phase. Splits show every
+// league's ordered table; internationals show the ordered field with
+// each team's region and qualifying seed.
+function PhasePlacements({
+  season,
+  phase,
+}: {
+  season: SeasonState;
+  phase: SeasonPhase;
+}) {
+  const regionSeeds = useMemo(() => {
+    if (phase.kind !== "international" || !phase.event) return null;
+    const map = new Map<string, string>();
+    for (const q of qualifiedForInternational(season, phase.event)) {
+      map.set(q.team.id, `${q.league} #${q.leagueSeed}`);
+    }
+    return map;
+  }, [season, phase]);
+
+  if (phase.kind === "split" && phase.split) {
+    const byLeague = season.splitResults[phase.split];
+    if (!byLeague) return null;
+    return (
+      <div className="mt-2 border-t border-rift-line/30 pt-2 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-3">
+        {LEAGUE_IDS.map((league) => {
+          const ids = byLeague[league];
+          if (!ids?.length) return null;
+          return (
+            <div key={league}>
+              <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1">
+                {league}
+              </div>
+              <ol className="space-y-0.5">
+                {ids.map((id, idx) => (
+                  <PlacementRow
+                    key={id}
+                    season={season}
+                    teamId={id}
+                    rank={idx + 1}
+                  />
+                ))}
+              </ol>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (phase.kind === "international" && phase.event) {
+    const ids = season.intlResults[phase.event];
+    if (!ids?.length) return null;
+    return (
+      <div className="mt-2 border-t border-rift-line/30 pt-2">
+        <ol className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-0.5">
+          {ids.map((id, idx) => (
+            <PlacementRow
+              key={id}
+              season={season}
+              teamId={id}
+              rank={idx + 1}
+              regionSeed={regionSeeds?.get(id)}
+            />
+          ))}
+        </ol>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function PlacementRow({
+  season,
+  teamId,
+  rank,
+  regionSeed,
+}: {
+  season: SeasonState;
+  teamId: string;
+  rank: number;
+  regionSeed?: string;
+}) {
+  const team = seasonTeam(season, teamId);
+  if (!team) return null;
+  const controlled = season.config.controlledTeamId === teamId;
+  return (
+    <li
+      className={`flex items-center gap-1.5 text-[10px] ${
+        rank === 1
+          ? "text-rift-goldbright"
+          : controlled
+            ? "text-rift-bluebright"
+            : "text-rift-mutedbright"
+      }`}
+    >
+      <span className="w-4 text-rift-muted/70 tabular-nums flex-shrink-0">
+        {rank}.
+      </span>
+      <TeamIcon iconKey={team.iconKey} size={12} color={team.color} />
+      <span className="truncate">{team.name}</span>
+      {rank === 1 && <span aria-hidden>🏆</span>}
+      {regionSeed && (
+        <span className="text-[9px] uppercase tracking-[0.15em] text-rift-gold/60 flex-shrink-0">
+          {regionSeed}
+        </span>
+      )}
+    </li>
   );
 }
 
@@ -524,12 +721,48 @@ function StageStatsRow({
             </span>
           </>
         )}
+        {s.longestSeriesGames > 1 && (
+          <>
+            {" · Longest series "}
+            <span className="text-rift-goldbright">
+              {s.longestSeriesGames} games
+            </span>
+          </>
+        )}
         {" · "}
         <span className="text-rift-muted/70">
           {s.totalMatches} matches, {s.totalGames} games,{" "}
           {s.uniqueChampionsPlayed} champions played
         </span>
       </span>
+      {stats.allPro.length > 0 && (
+        <div className="text-rift-mutedbright/80">
+          <span className="text-rift-gold/60 uppercase text-[9px] tracking-[0.2em]">
+            All-Pro{" "}
+          </span>
+          {stats.allPro.map((p, i) => (
+            <span key={`${p.teamId}-${p.lane}`}>
+              {i > 0 && <span className="text-rift-muted/40"> · </span>}
+              <span className="text-rift-bluebright">{p.displayName}</span>
+              <span className="text-rift-muted/60"> {p.avgRating.toFixed(1)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {stats.specials.length > 0 && (
+        <div className="text-rift-mutedbright/80">
+          {stats.specials.map((a, i) => (
+            <span key={a.kind}>
+              {i > 0 && <span className="text-rift-muted/40"> · </span>}
+              <span className="text-rift-gold/70">{a.title}:</span>{" "}
+              <span className="text-rift-bluebright">
+                {a.player.displayName}
+              </span>{" "}
+              <span className="text-rift-muted/60">({a.context})</span>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -539,9 +772,11 @@ function StageStatsRow({
 function SeasonRecapPanel({
   season,
   championsById,
+  title = "Season Recap",
 }: {
   season: SeasonState;
   championsById: Map<number, Champion>;
+  title?: string;
 }) {
   const stats = useMemo(() => computeSeasonStats(season), [season]);
   const winningest = seasonTeam(season, stats.winningestTeam?.teamId);
@@ -560,7 +795,7 @@ function SeasonRecapPanel({
   return (
     <div className="mb-8 border border-rift-gold/40 bg-rift-gold/[0.04] p-4">
       <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-3">
-        Season Recap
+        {title}
       </div>
 
       {/* Headline stat chips */}
@@ -601,6 +836,51 @@ function SeasonRecapPanel({
             sub={`${Math.round(stats.bestWR.winRate * 100)}% over ${stats.bestWR.wins + stats.bestWR.losses} games`}
           />
         )}
+      </div>
+
+      {/* Regional review — each league's year in one card. */}
+      <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
+        Regional Review
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-4">
+        {LEAGUE_IDS.map((league) => {
+          const best = stats.leagueBestTeams[league];
+          const bestTeam = seasonTeam(season, best?.teamId);
+          const intlTitles = stats.leagueIntlTitles[league] ?? 0;
+          if (!best || !bestTeam) return null;
+          return (
+            <div
+              key={league}
+              className="border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2"
+            >
+              <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-1">
+                {league}
+              </div>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <TeamIcon
+                  iconKey={bestTeam.iconKey}
+                  size={13}
+                  color={bestTeam.color}
+                />
+                <span className="font-display text-xs tracking-wider text-rift-goldbright truncate">
+                  {bestTeam.name}
+                </span>
+              </div>
+              <div className="text-[9px] text-rift-mutedbright/70">
+                Best of the region · {best.wins}-{best.losses}
+              </div>
+              <div className="text-[9px] text-rift-mutedbright/70">
+                {best.titles} {best.titles === 1 ? "trophy" : "trophies"}
+                {intlTitles > 0 && (
+                  <span className="text-rift-gold/70">
+                    {" "}
+                    · {intlTitles} intl. for {league}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Trophy cabinet */}

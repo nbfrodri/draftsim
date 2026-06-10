@@ -176,6 +176,47 @@ export function generateSeasonTeams(
   return teams;
 }
 
+/** Backfill missing cosmetic identity (icon/color/personality) on
+ *  persisted teams — seasons saved by builds that predate these fields
+ *  (or hand-imported data) would otherwise render an invisible color
+ *  swatch and the generic shield icon. Picks unused icons/colors so
+ *  backfilled teams stay distinct. Returns the SAME array when nothing
+ *  is missing so callers can cheap-check with `===`. */
+export function ensureTeamIdentities(
+  teams: readonly SeasonTeam[],
+  rng: RNG = Math.random,
+): SeasonTeam[] {
+  const needsFix = teams.some(
+    (t) => !t.iconKey || !t.color || !t.personalityId,
+  );
+  if (!needsFix) return teams as SeasonTeam[];
+  const takenIcons = new Set(teams.map((t) => t.iconKey).filter(Boolean));
+  const takenColors = new Set(teams.map((t) => t.color).filter(Boolean));
+  const freeIcons = shuffled(
+    TEAM_ICON_KEYS.filter((k) => !takenIcons.has(k)),
+    rng,
+  );
+  const freeColors = shuffled(
+    TEAM_COLORS.filter((c) => !takenColors.has(c)),
+    rng,
+  );
+  return teams.map((t) => {
+    if (t.iconKey && t.color && t.personalityId) return t;
+    return {
+      ...t,
+      iconKey:
+        t.iconKey ||
+        freeIcons.pop() ||
+        TEAM_ICON_KEYS[Math.floor(rng() * TEAM_ICON_KEYS.length)],
+      color:
+        t.color ||
+        freeColors.pop() ||
+        TEAM_COLORS[Math.floor(rng() * TEAM_COLORS.length)],
+      personalityId: t.personalityId || randomPersonalityId(rng),
+    };
+  });
+}
+
 /** Re-roll one team's cosmetic identity (name/color/icon/personality),
  *  keeping its roster and id. `teams` provides the uniqueness context. */
 export function rerollTeamIdentity(

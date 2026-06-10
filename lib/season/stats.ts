@@ -10,7 +10,12 @@ import {
   type TournamentState,
   type TournamentSummary,
 } from "../tournament";
-import { computeTournamentAwards, type PlayerAward } from "../awards";
+import {
+  computeTournamentAwards,
+  type AllProPlayer,
+  type PlayerAward,
+  type SpecialAward,
+} from "../awards";
 import { tournamentPlacements } from "./engine";
 import {
   LEAGUE_IDS,
@@ -29,6 +34,10 @@ export interface StageStats {
   runnerUpTeamId: string | null;
   summary: TournamentSummary;
   mvp: PlayerAward | null;
+  /** Best player per lane across the stage. */
+  allPro: AllProPlayer[];
+  /** Special recognitions (peak performance, consistency, …). */
+  specials: SpecialAward[];
 }
 
 export function computeStageStats(t: TournamentState): StageStats {
@@ -41,6 +50,8 @@ export function computeStageStats(t: TournamentState): StageStats {
     runnerUpTeamId: placements[1] ?? null,
     summary: computeTournamentSummary(t),
     mvp: awards.mvp,
+    allPro: awards.allPro,
+    specials: awards.awards,
   };
 }
 
@@ -81,6 +92,10 @@ export interface SeasonStats {
   intlChampions: Partial<Record<InternationalId, string>>;
   // International titles won per league (region strength readout).
   leagueIntlTitles: Partial<Record<LeagueId, number>>;
+  // Each league's best team across the WHOLE year (splits +
+  // internationals), by match wins (titles, then fewer losses, break
+  // ties).
+  leagueBestTeams: Partial<Record<LeagueId, SeasonTeamLine>>;
 }
 
 const SEASON_MIN_WR_GAMES = 8;
@@ -184,6 +199,14 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
   }
   let winningestTeam: SeasonTeamLine | null = null;
   let mostTitledTeam: SeasonTeamLine | null = null;
+  const leagueBestTeams: SeasonStats["leagueBestTeams"] = {};
+  const leagueOf = new Map(season.teams.map((t) => [t.id, t.leagueId]));
+  const beats = (a: SeasonTeamLine, b: SeasonTeamLine): boolean =>
+    a.wins !== b.wins
+      ? a.wins > b.wins
+      : a.titles !== b.titles
+        ? a.titles > b.titles
+        : a.losses < b.losses;
   for (const row of teamRows.values()) {
     if (!winningestTeam || row.wins > winningestTeam.wins) {
       winningestTeam = row;
@@ -193,6 +216,11 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
       (!mostTitledTeam || row.titles > mostTitledTeam.titles)
     ) {
       mostTitledTeam = row;
+    }
+    const league = leagueOf.get(row.teamId);
+    if (league) {
+      const cur = leagueBestTeams[league];
+      if (!cur || beats(row, cur)) leagueBestTeams[league] = row;
     }
   }
 
@@ -208,5 +236,6 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
     splitChampions,
     intlChampions,
     leagueIntlTitles,
+    leagueBestTeams,
   };
 }
