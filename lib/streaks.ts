@@ -15,7 +15,7 @@
 // Cross-match game streaks are intentionally not computed — the per-match
 // streak is the meaningful momentum signal inside a live series.
 
-import type { TournamentState } from "./tournament";
+import { compareMatchChronology, type TournamentState } from "./tournament";
 import type { Lane } from "./types";
 import { LANE_ORDER } from "./players";
 import { playerFormKey } from "./playerForm";
@@ -66,15 +66,23 @@ export interface HotPlayersResult {
  * from the tournament's completed matches. Byes are skipped (neither extend
  * nor break a streak).
  *
- * Sorting: chronological order = ascending round, then ascending match.id
- * (stable insertion-order proxy). The streak is counted walking backwards from
- * the most recent completed non-bye match.
+ * Sorting: per-team chronological order via compareMatchChronology
+ * (bracket phase → round → match.id), so playoff results keep extending
+ * the streak after the regular stage even though bracket rounds restart
+ * at 1. The streak is counted walking backwards from the most recent
+ * completed non-bye match.
+ *
+ * Season carry-over: when the tournament has streakSeeds (season mode),
+ * an unbroken in-tournament streak extends with the carried count when
+ * the signs agree, and teams that haven't played yet show their carried
+ * streak (with gameStreak 0).
  */
 export function computeTeamStreaks(tournament: TournamentState): TeamStreakMap {
   const result: TeamStreakMap = {};
 
   for (const team of tournament.teams) {
     const teamId = team.id;
+    const seed = tournament.streakSeeds?.[teamId] ?? 0;
 
     // All completed, non-bye matches this team participated in.
     const played = tournament.matches
@@ -84,9 +92,20 @@ export function computeTeamStreaks(tournament: TournamentState): TeamStreakMap {
           m.winner != null &&
           (m.blueTeamId === teamId || m.redTeamId === teamId),
       )
-      .sort((a, b) => a.round - b.round || a.id.localeCompare(b.id));
+      .sort(compareMatchChronology);
 
-    if (played.length === 0) continue;
+    if (played.length === 0) {
+      // No matches yet — surface the streak carried in from the previous
+      // tournament of the season, if any.
+      if (seed !== 0) {
+        result[teamId] = {
+          kind: seed > 0 ? "W" : "L",
+          count: Math.abs(seed),
+          gameStreak: 0,
+        };
+      }
+      continue;
+    }
 
     // Walk backwards to find the streak kind and count.
     const lastMatch = played[played.length - 1];
@@ -94,14 +113,22 @@ export function computeTeamStreaks(tournament: TournamentState): TeamStreakMap {
     const streakKind: "W" | "L" = lastWon ? "W" : "L";
 
     let count = 0;
+    let unbroken = true;
     for (let i = played.length - 1; i >= 0; i--) {
       const m = played[i];
       const won = m.winner!.teamId === teamId;
       if ((streakKind === "W") === won) {
         count++;
       } else {
+        unbroken = false;
         break;
       }
+    }
+
+    // Extend with the season carry-in when nothing in this tournament
+    // broke the streak and the carried streak points the same way.
+    if (unbroken && (lastWon ? seed > 0 : seed < 0)) {
+      count += Math.abs(seed);
     }
 
     // Game-win streak within the most recent match.

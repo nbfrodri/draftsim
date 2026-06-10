@@ -68,6 +68,13 @@ export const QUALIFYING_SPLIT: Record<InternationalId, SplitId> = {
   worlds: "summer",
 };
 
+// Inverse of QUALIFYING_SPLIT — which international a split feeds.
+export const SPLIT_FEEDS_EVENT: Record<SplitId, InternationalId> = {
+  winter: "first-stand",
+  spring: "msi",
+  summer: "worlds",
+};
+
 // One phase of the season calendar, in play order.
 export interface SeasonPhase {
   kind: "split" | "international";
@@ -95,11 +102,30 @@ export interface SeasonLeagueConfig {
   playoffSeries: SeriesFormat;
 }
 
+// Per-international format configuration. Optional on SeasonConfig —
+// events without an entry use their canonical defaults (First Stand:
+// single-elim; MSI: swiss into DE-8; Worlds: 4 groups into SE knockout).
+export interface SeasonIntlConfig {
+  // Tournament format of the event. For Worlds this configures the
+  // MAIN event — the play-in is always a small single-elim qualifier.
+  format: TournamentFormat;
+  // Series length for early rounds / regular stage, and for the
+  // playoff bracket / late single-elim rounds.
+  earlySeries: SeriesFormat;
+  finalsSeries: SeriesFormat;
+  // Teams advancing to the playoff bracket for stage+playoffs formats
+  // (clamped to a power of 2 for double-elim brackets by the engine).
+  playoffTeams: number;
+}
+
 export interface SeasonConfig {
   name: string;
   // When true, every league uses leagueConfigs.LCK (the "shared" slot).
   sharedLeagueConfig: boolean;
   leagueConfigs: Record<LeagueId, SeasonLeagueConfig>;
+  // Per-event international formats. Missing entries (and seasons saved
+  // before this existed) fall back to the canonical event shapes.
+  intlConfigs?: Partial<Record<InternationalId, SeasonIntlConfig>>;
   // Meta shifts slightly after each completed round inside every event.
   liveMeta: boolean;
   // Bigger "patch" shift applied between phases (split → international
@@ -161,6 +187,11 @@ export interface SeasonState {
   // creation, evolved by live meta inside events and patch shifts
   // between phases. Every new tournament snapshots this.
   currentMeta: SeasonMetaSnapshot;
+  // Frozen copy of the meta the season STARTED on, before any live
+  // evolution or patch shifts. Lets the end-of-year archive show how
+  // far the meta drifted. Optional — seasons saved before this field
+  // existed simply don't know their starting meta.
+  initialMeta?: SeasonMetaSnapshot;
   // Worlds champion (set when the final phase completes).
   champion: string | null;
   status: "in-progress" | "complete";

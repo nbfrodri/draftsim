@@ -6,7 +6,10 @@ import { useDraftStore } from "@/store/draftStore";
 import { deriveStar, randomizeTiersForStar } from "@/lib/players";
 import type { AIDifficulty, SeriesFormat } from "@/lib/types";
 import type { TournamentFormat } from "@/lib/tournament";
-import { LEAGUE_FORMAT_OPTIONS } from "@/lib/season/engine";
+import {
+  INTL_FORMAT_OPTIONS,
+  LEAGUE_FORMAT_OPTIONS,
+} from "@/lib/season/engine";
 import {
   generateSeasonTeams,
   rerollTeamIdentity,
@@ -16,10 +19,13 @@ import {
   fetchRealTeamNames,
 } from "@/lib/season/realTeams";
 import {
+  INTERNATIONAL_LABELS,
   LEAGUE_IDS,
   LEAGUE_NAMES,
+  type InternationalId,
   type LeagueId,
   type SeasonConfig,
+  type SeasonIntlConfig,
   type SeasonLeagueConfig,
   type SeasonTeam,
 } from "@/lib/season/types";
@@ -40,10 +46,42 @@ const DEFAULT_LEAGUE_CONFIG: SeasonLeagueConfig = {
   playoffSeries: "bo5",
 };
 
+// Canonical international shapes (mirrors defaultIntlConfig in the
+// engine) — the starting values for the per-event format cards.
+const INTL_IDS: readonly InternationalId[] = ["first-stand", "msi", "worlds"];
+const DEFAULT_INTL_CONFIGS: Record<InternationalId, SeasonIntlConfig> = {
+  "first-stand": {
+    format: "single-elim",
+    earlySeries: "bo3",
+    finalsSeries: "bo5",
+    playoffTeams: 8,
+  },
+  msi: {
+    format: "swiss-playoffs-de",
+    earlySeries: "bo3",
+    finalsSeries: "bo5",
+    playoffTeams: 8,
+  },
+  worlds: {
+    format: "groups-playoffs",
+    earlySeries: "bo3",
+    finalsSeries: "bo5",
+    playoffTeams: 8,
+  },
+};
+
 const SERIES_OPTIONS: SeriesFormat[] = ["bo1", "bo3", "bo5"];
 
 function formatHasPlayoffStage(format: TournamentFormat): boolean {
   return format !== "round-robin" && format !== "swiss";
+}
+
+// Bracket-size pickers apply to every stage+playoffs format. Swiss /
+// round-robin take the count directly; groups round it to a per-group
+// advancing count (e.g. "Top 8" with 4 groups → top 2 per group).
+// Single-elim has no separate playoff stage.
+function intlFormatHasPlayoffSize(format: TournamentFormat): boolean {
+  return format !== "single-elim";
 }
 
 // Shared select styling: dark control + dark native dropdown.
@@ -71,8 +109,16 @@ export default function SeasonSetup({ onCancel }: Props) {
   const [fearless, setFearless] = useState(false);
   const [timerEnabled, setTimerEnabled] = useState(false);
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>("normal");
-  const [intlEarlySeries, setIntlEarlySeries] = useState<SeriesFormat>("bo3");
-  const [intlFinalsSeries, setIntlFinalsSeries] = useState<SeriesFormat>("bo5");
+  // International formats: per-event by default (each event has its own
+  // canonical shape); "shared" applies the First Stand card to all.
+  const [sharedIntl, setSharedIntl] = useState(false);
+  const [intlConfigs, setIntlConfigs] = useState<
+    Record<InternationalId, SeasonIntlConfig>
+  >(() => ({
+    "first-stand": { ...DEFAULT_INTL_CONFIGS["first-stand"] },
+    msi: { ...DEFAULT_INTL_CONFIGS.msi },
+    worlds: { ...DEFAULT_INTL_CONFIGS.worlds },
+  }));
   const [teams, setTeams] = useState<SeasonTeam[]>([]);
   const [controlledTeamId, setControlledTeamId] = useState<string | null>(
     null,
@@ -102,6 +148,16 @@ export default function SeasonSetup({ onCancel }: Props) {
     setLeagueConfigs((prev) => ({
       ...prev,
       [league]: { ...prev[league], ...patch },
+    }));
+  };
+
+  const updateIntlConfig = (
+    event: InternationalId,
+    patch: Partial<SeasonIntlConfig>,
+  ) => {
+    setIntlConfigs((prev) => ({
+      ...prev,
+      [event]: { ...prev[event], ...patch },
     }));
   };
 
@@ -197,16 +253,129 @@ export default function SeasonSetup({ onCancel }: Props) {
             LEAGUE_IDS.map((l) => [l, { ...leagueConfigs.LCK }]),
           ) as Record<LeagueId, SeasonLeagueConfig>)
         : leagueConfigs,
+      // Shared mode: the First Stand card is the master copy for all
+      // three events (mirrors the league shared slot).
+      intlConfigs: sharedIntl
+        ? (Object.fromEntries(
+            INTL_IDS.map((e) => [e, { ...intlConfigs["first-stand"] }]),
+          ) as Record<InternationalId, SeasonIntlConfig>)
+        : intlConfigs,
       liveMeta,
       patchShift,
       fearless,
       timerEnabled,
       aiDifficulty,
       controlledTeamId,
-      intlEarlySeries,
-      intlFinalsSeries,
     };
     startSeason(config, teams);
+  };
+
+  const renderIntlCard = (event: InternationalId | "shared") => {
+    const key: InternationalId = event === "shared" ? "first-stand" : event;
+    const cfg = intlConfigs[key];
+    const hasPlayoffSize = intlFormatHasPlayoffSize(cfg.format);
+    return (
+      <div
+        key={event}
+        className="border border-rift-line/40 bg-rift-bg/30 p-3 flex items-end gap-3 flex-wrap"
+      >
+        <div className="font-display text-xs tracking-[0.25em] uppercase text-rift-goldbright w-28 flex-shrink-0 pb-1.5">
+          {event === "shared" ? "All Events" : INTERNATIONAL_LABELS[event]}
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+            Format
+          </span>
+          <select
+            value={cfg.format}
+            onChange={(e) =>
+              updateIntlConfig(key, {
+                format: e.target.value as TournamentFormat,
+              })
+            }
+            className={SELECT_CLS}
+            title={
+              event === "worlds"
+                ? "Applies to the Worlds main event — the play-in stays a small single-elim qualifier"
+                : undefined
+            }
+          >
+            {INTL_FORMAT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label
+          className={`flex flex-col gap-1 ${hasPlayoffSize ? "" : "opacity-40"}`}
+        >
+          <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+            Playoff Teams
+          </span>
+          <select
+            value={cfg.playoffTeams}
+            disabled={!hasPlayoffSize}
+            onChange={(e) =>
+              updateIntlConfig(key, { playoffTeams: Number(e.target.value) })
+            }
+            className={SELECT_CLS}
+            title="Bracket size after the regular stage. Groups round it to a per-group count; double-elim brackets snap to a power of two."
+          >
+            <option value={4}>Top 4</option>
+            <option value={8}>Top 8</option>
+            <option value={16}>Top 16</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+            Early Rounds
+          </span>
+          <select
+            value={cfg.earlySeries}
+            onChange={(e) =>
+              updateIntlConfig(key, {
+                earlySeries: e.target.value as SeriesFormat,
+              })
+            }
+            className={SELECT_CLS}
+            title="Series length for early rounds / the regular stage"
+          >
+            {SERIES_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s.toUpperCase()}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+            Finals / Bracket
+          </span>
+          <select
+            value={cfg.finalsSeries}
+            onChange={(e) =>
+              updateIntlConfig(key, {
+                finalsSeries: e.target.value as SeriesFormat,
+              })
+            }
+            className={SELECT_CLS}
+            title="Series length for the playoff bracket / finals"
+          >
+            {SERIES_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s.toUpperCase()}
+              </option>
+            ))}
+          </select>
+        </label>
+        {event === "worlds" && (
+          <span className="text-[9px] text-rift-muted/70 pb-1.5">
+            Main event only — the play-in stays single-elim
+          </span>
+        )}
+      </div>
+    );
   };
 
   const renderConfigCard = (league: LeagueId | "shared") => {
@@ -250,8 +419,10 @@ export default function SeasonSetup({ onCancel }: Props) {
               updateConfig(key, { playoffTeams: Number(e.target.value) })
             }
             className={SELECT_CLS}
+            title="Double-elim brackets need a power of two — Top 6 rounds down to 4 there"
           >
             <option value={4}>Top 4</option>
+            <option value={6}>Top 6</option>
             <option value={8}>Top 8</option>
           </select>
         </label>
@@ -324,9 +495,14 @@ export default function SeasonSetup({ onCancel }: Props) {
         <p className="text-[11px] md:text-xs text-rift-mutedbright leading-snug mb-6 max-w-2xl">
           A full competitive year across LCK, LPL, LEC, LCS, CBLOL and
           LCP: Winter Split → First Stand (top 2 per league) → Spring
-          Split → MSI (top 3) → Summer Split → Worlds (top 4, with the
-          4th seeds fighting through a play-in). The meta evolves all
-          season and seeding decides international bracket draws.
+          Split → MSI (top 3, plus the First Stand champion) → Summer
+          Split → Worlds. Worlds slots reward the whole season: the
+          summer finalists qualify directly, the next two by
+          championship points across all splits and internationals (the
+          #4 seeds fight through a play-in), and the MSI champion enters
+          automatically. The meta evolves all season, momentum carries
+          across events, and seeding decides international bracket
+          draws.
         </p>
 
         {/* Name */}
@@ -362,6 +538,29 @@ export default function SeasonSetup({ onCancel }: Props) {
           {shared
             ? renderConfigCard("shared")
             : LEAGUE_IDS.map((l) => renderConfigCard(l))}
+        </div>
+
+        {/* International formats */}
+        <div className="flex items-center gap-3 mb-2">
+          <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
+            International Formats
+          </div>
+          <button
+            type="button"
+            onClick={() => setSharedIntl(!sharedIntl)}
+            className={`px-2.5 py-1 border text-[9px] uppercase tracking-[0.25em] transition-all ${
+              sharedIntl
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright"
+            }`}
+          >
+            {sharedIntl ? "Shared: all events alike" : "Per-event configs"}
+          </button>
+        </div>
+        <div className="space-y-2 mb-6">
+          {sharedIntl
+            ? renderIntlCard("shared")
+            : INTL_IDS.map((e) => renderIntlCard(e))}
         </div>
 
         {/* Season options */}
@@ -417,44 +616,6 @@ export default function SeasonSetup({ onCancel }: Props) {
           >
             Draft Timer {timerEnabled ? "ON" : "OFF"}
           </button>
-          <label className="flex flex-col gap-1">
-            <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
-              Intl. Early Rounds
-            </span>
-            <select
-              value={intlEarlySeries}
-              onChange={(e) =>
-                setIntlEarlySeries(e.target.value as SeriesFormat)
-              }
-              className={SELECT_CLS}
-              title="Series length for early rounds/stages at First Stand, MSI, and Worlds"
-            >
-              {SERIES_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s.toUpperCase()}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
-              Intl. Finals
-            </span>
-            <select
-              value={intlFinalsSeries}
-              onChange={(e) =>
-                setIntlFinalsSeries(e.target.value as SeriesFormat)
-              }
-              className={SELECT_CLS}
-              title="Series length for finals/playoffs at First Stand, MSI, and Worlds"
-            >
-              {SERIES_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s.toUpperCase()}
-                </option>
-              ))}
-            </select>
-          </label>
           <label className="flex flex-col gap-1">
             <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
               AI Difficulty

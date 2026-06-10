@@ -15,6 +15,7 @@ import MetaLibrary from "./MetaLibrary";
 import PairingsLibrary from "./PairingsLibrary";
 import SeasonSetup from "./SeasonSetup";
 import SeasonDashboard from "./SeasonDashboard";
+import SeasonHistoryView from "./SeasonHistoryView";
 import Modal from "./Modal";
 import { isDesktop, openFileNative } from "@/lib/desktopStorage";
 import { hydrateMetaConfigFromDesktopFile } from "@/lib/metaRandomizer";
@@ -40,7 +41,8 @@ type EntryView =
   | "tournament-setup"
   | "meta-library"
   | "pairings-library"
-  | "season-setup";
+  | "season-setup"
+  | "season-history";
 
 export default function DraftApp({ champions }: Props) {
   const series = useDraftStore((s) => s.series);
@@ -143,6 +145,9 @@ export default function DraftApp({ champions }: Props) {
   if (entryView === "pairings-library") {
     return <PairingsLibrary onBack={() => setEntryView("menu")} />;
   }
+  if (entryView === "season-history") {
+    return <SeasonHistoryView onBack={() => setEntryView("menu")} />;
+  }
   return <EntryMenu onChoose={setEntryView} />;
 }
 
@@ -168,6 +173,14 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
   const duplicateSavedSeason = useDraftStore((s) => s.duplicateSavedSeason);
   const deleteSavedSeason = useDraftStore((s) => s.deleteSavedSeason);
   const clearSavedSeasons = useDraftStore((s) => s.clearSavedSeasons);
+  const seasonHistory = useDraftStore((s) => s.seasonHistory);
+  const archiveSavedSeasonToHistory = useDraftStore(
+    (s) => s.archiveSavedSeasonToHistory,
+  );
+  // Which saved-season entry was just archived (transient "Added ✓").
+  const [archivedFeedback, setArchivedFeedback] = useState<string | null>(
+    null,
+  );
   const [importOpen, setImportOpen] = useState(false);
   const [importCode, setImportCode] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
@@ -413,6 +426,21 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
               Saved Seasons ({savedSeasons.length})
             </button>
           )}
+          {seasonHistory.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChoose("season-history")}
+              className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright hover:text-rift-goldbright transition-colors"
+              title="The Hall of Seasons — every archived champion, finalist, and the metas they played on"
+            >
+              <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M4 2h8v2.5a4 4 0 0 1-8 0V2z" strokeLinejoin="round" />
+                <path d="M4 3H2v1a2.5 2.5 0 0 0 2 2.45M12 3h2v1a2.5 2.5 0 0 1-2 2.45" strokeLinejoin="round" />
+                <path d="M8 8.5V11M5.5 13h5M6.5 11h3v2h-3z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Season History ({seasonHistory.length})
+            </button>
+          )}
           {savedTournaments.length > 0 && (
             <button
               type="button"
@@ -578,6 +606,23 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
                       >
                         Duplicate
                       </button>
+                      {s.status === "complete" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (archiveSavedSeasonToHistory(entry.id)) {
+                              setArchivedFeedback(entry.id);
+                              setTimeout(() => setArchivedFeedback(null), 2000);
+                            }
+                          }}
+                          className="flex-1 px-3 py-1 text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/40 hover:text-rift-goldbright hover:bg-rift-gold/5 transition-colors text-center"
+                          title="Archive this season's résumé (champion, finalist, title holders) to Season History"
+                        >
+                          {archivedFeedback === entry.id
+                            ? "Added to History ✓"
+                            : "Add to History"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => setConfirmSeasonDelete(entry.id)}

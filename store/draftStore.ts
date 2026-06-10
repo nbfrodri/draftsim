@@ -116,6 +116,10 @@ import {
   phaseProgress as seasonPhaseProgress,
 } from "@/lib/season/engine";
 import { ensureTeamIdentities } from "@/lib/season/teamGen";
+import {
+  buildSeasonHistoryEntry,
+  type SeasonHistoryEntry,
+} from "@/lib/season/history";
 import type {
   SeasonConfig,
   SeasonMetaSnapshot,
@@ -278,6 +282,16 @@ const SAVED_SEASONS_CAP_WEB = 3;
 
 function savedSeasonsCap(): number {
   return isDesktop() ? SAVED_SEASONS_CAP_DESKTOP : SAVED_SEASONS_CAP_WEB;
+}
+
+// Season history entries are résumé snapshots — small, but they carry
+// the season's initial + final tier tables (~3-8 kB each), so the web
+// cap respects the shared 5 MB localStorage quota.
+const SEASON_HISTORY_CAP_DESKTOP = 200;
+const SEASON_HISTORY_CAP_WEB = 40;
+
+function seasonHistoryCap(): number {
+  return isDesktop() ? SEASON_HISTORY_CAP_DESKTOP : SEASON_HISTORY_CAP_WEB;
 }
 
 // ─── User preset libraries (Meta Tier Lists / Synergies & Counters) ───────
@@ -529,6 +543,17 @@ interface DraftStore {
   duplicateSavedSeason: (entryId: string) => void;
   deleteSavedSeason: (entryId: string) => void;
   clearSavedSeasons: () => void;
+  // ─── Season history (Hall of Seasons) ───────────────────────────────
+  // Lightweight résumé archive of past seasons — Worlds champion &
+  // finalist, international title holders, split champions. Entries
+  // upsert by season id; archiving is the user's explicit choice.
+  seasonHistory: SeasonHistoryEntry[];
+  /** Archive the ACTIVE season's résumé. Returns false with no season. */
+  archiveSeasonToHistory: () => boolean;
+  /** Archive a saved season's résumé without loading it. */
+  archiveSavedSeasonToHistory: (entryId: string) => boolean;
+  removeSeasonFromHistory: (entryId: string) => void;
+  clearSeasonHistory: () => void;
 
   // ─── Preset libraries (main-menu sections) ─────────────────────────
   // Saved meta tier lists. createMetaPreset returns the new preset id.
@@ -1244,6 +1269,7 @@ export const useDraftStore = create<DraftStore>()(
   seasonViewOpen: false,
   preSeasonMetaSnapshot: null,
   savedSeasons: [],
+  seasonHistory: [],
   simulating: null,
   simProgress: null,
   playerForms: {},
@@ -1832,6 +1858,42 @@ export const useDraftStore = create<DraftStore>()(
   },
 
   clearSavedSeasons: () => set({ savedSeasons: [] }),
+
+  // ─── Season history (Hall of Seasons) ────────────────────────────────
+
+  archiveSeasonToHistory: () => {
+    const season = get().season;
+    if (!season) return false;
+    const entry = buildSeasonHistoryEntry(season, Date.now());
+    set((s) => ({
+      seasonHistory: [
+        entry,
+        ...s.seasonHistory.filter((e) => e.id !== entry.id),
+      ].slice(0, seasonHistoryCap()),
+    }));
+    return true;
+  },
+
+  archiveSavedSeasonToHistory: (entryId) => {
+    const saved = get().savedSeasons.find((e) => e.id === entryId);
+    if (!saved) return false;
+    const entry = buildSeasonHistoryEntry(saved.season, Date.now());
+    set((s) => ({
+      seasonHistory: [
+        entry,
+        ...s.seasonHistory.filter((e) => e.id !== entry.id),
+      ].slice(0, seasonHistoryCap()),
+    }));
+    return true;
+  },
+
+  removeSeasonFromHistory: (entryId) => {
+    set((s) => ({
+      seasonHistory: s.seasonHistory.filter((e) => e.id !== entryId),
+    }));
+  },
+
+  clearSeasonHistory: () => set({ seasonHistory: [] }),
 
   // ─── Preset libraries ────────────────────────────────────────────────
 
@@ -3262,6 +3324,8 @@ export const useDraftStore = create<DraftStore>()(
       preSeasonMetaSnapshot: state.preSeasonMetaSnapshot,
       // Saved seasons — entries are compact-encoded at save time.
       savedSeasons: state.savedSeasons,
+      // Season history — tiny résumé snapshots, persisted as-is.
+      seasonHistory: state.seasonHistory,
       // Persist player form so it survives reload (tournament-scoped;
       // resets when a new tournament is started).
       playerForms: state.playerForms,

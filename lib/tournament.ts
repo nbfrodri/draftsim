@@ -297,45 +297,111 @@ export function teamStarRating(team: TournamentTeam | null): number {
   return Math.max(1, Math.min(5, Math.round(r)));
 }
 
-// Count consecutive match wins for `teamId` ending at the most recently
-// completed match they played. Walks the team's completed match history
-// in chronological order (by round, then by match-id stability) and
-// counts the trailing run of wins. Excludes the current `excludeMatchId`
-// so a team's bias for the match they're currently playing doesn't
-// double-count an in-progress series. Returns 0 for legacy / partial
-// data or teams with no completed matches yet.
+// Per-team chronological ordering of matches. Sorting by `round` alone
+// is WRONG for *-playoffs formats: playoff bracket rounds restart at 1,
+// so a playoff match would sort before stage rounds 2+ and the streak
+// walk would treat the last stage match as "most recent" — streaks
+// would silently stop developing once the playoffs started. The fix:
+// rank by bracket phase first. For any single team's history this is
+// exact play order in every format the engine supports:
+//   • stage matches (round-robin / swiss / groups — no bracket tag)
+//     always precede bracket matches,
+//   • a team plays ALL its winners-bracket matches before dropping to
+//     the losers bracket,
+//   • grand final (and reset) come last.
+function bracketChronoRank(bracket?: TournamentBracket): number {
+  switch (bracket) {
+    case "winners":
+      return 1;
+    case "losers":
+      return 2;
+    case "grand-final":
+      return 3;
+    case "grand-final-reset":
+      return 4;
+    default:
+      return 0; // stage matches + standalone single-elim (no bracket tag)
+  }
+}
+
+export function compareMatchChronology(
+  a: TournamentMatch,
+  b: TournamentMatch,
+): number {
+  return (
+    bracketChronoRank(a.bracket) - bracketChronoRank(b.bracket) ||
+    a.round - b.round ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+// Signed current streak for `teamId` ending at the most recently
+// completed match they played: +N for N consecutive series wins, -N for
+// N consecutive losses, 0 with no history. Walks the team's completed
+// match history in per-team chronological order (bracket phase → round
+// → match-id stability), so playoff results keep developing the streak
+// after the regular stage. Byes are neutral: they neither extend nor
+// break a streak (same policy as lib/streaks.ts).
+//
+// Excludes the current `excludeMatchId` so a team's bias for the match
+// they're currently playing doesn't double-count an in-progress series.
+//
+// Season carry-over: when the walk consumes the team's ENTIRE history
+// in this tournament without hitting an opposite result (or the team
+// hasn't played yet), the streak extends with the tournament's
+// `streakSeeds[teamId]` — the signed streak the team carried in from
+// the previous tournament of the season — provided the signs agree.
 //
 // Used by tournamentSeriesContext below to feed starRatingBias the
-// "team on a roll" signal — winners of a tournament typically rack up
-// 3-4 consecutive series wins by the final, and that momentum is real
-// (preparation, confidence, scouting advantages all compound).
+// "team on a roll" / "team in a slump" signal — winners of a tournament
+// typically rack up 3-4 consecutive series wins by the final, and that
+// momentum is real (preparation, confidence, scouting advantages all
+// compound). Slumps compound the same way, with the opposite sign.
+export function teamStreak(
+  tournament: TournamentState,
+  teamId: string,
+  excludeMatchId?: string,
+): number {
+  const seed = tournament.streakSeeds?.[teamId] ?? 0;
+  // Completed, non-bye matches the team participated in, chronological.
+  const played = tournament.matches
+    .filter((m) => m.id !== excludeMatchId && !m.isBye)
+    .filter(
+      (m) =>
+        m.winner != null && (m.blueTeamId === teamId || m.redTeamId === teamId),
+    )
+    .sort(compareMatchChronology);
+  if (played.length === 0) return seed;
+  const lastWon = played[played.length - 1].winner!.teamId === teamId;
+  let count = 0;
+  let unbroken = true;
+  // Walk backwards from the most recent completed match: each result
+  // matching the latest one extends the streak; the first opposite
+  // result breaks it.
+  for (let i = played.length - 1; i >= 0; i--) {
+    if ((played[i].winner!.teamId === teamId) === lastWon) {
+      count++;
+    } else {
+      unbroken = false;
+      break;
+    }
+  }
+  // Extend with the season carry-in seed when the in-tournament history
+  // never broke the streak and the carried streak points the same way.
+  if (unbroken && (lastWon ? seed > 0 : seed < 0)) {
+    count += Math.abs(seed);
+  }
+  return lastWon ? count : -count;
+}
+
+/** @deprecated Use teamStreak (signed). Kept for callers that only
+ *  care about consecutive wins. */
 export function teamWinStreak(
   tournament: TournamentState,
   teamId: string,
   excludeMatchId?: string,
 ): number {
-  // Filter to completed matches the team participated in. Sort by round
-  // ascending, then by match.id (stable insertion order proxy) so the
-  // walk is deterministic across formats.
-  const played = tournament.matches
-    .filter((m) => m.id !== excludeMatchId)
-    .filter(
-      (m) =>
-        m.winner != null && (m.blueTeamId === teamId || m.redTeamId === teamId),
-    )
-    .sort((a, b) => a.round - b.round || a.id.localeCompare(b.id));
-  let streak = 0;
-  // Walk backwards from the most recent completed match: each consecutive
-  // win extends the streak; first loss breaks it.
-  for (let i = played.length - 1; i >= 0; i--) {
-    const m = played[i];
-    if (m.winner?.teamId === teamId) {
-      streak++;
-    } else {
-      break;
-    }
-  }
-  return streak;
+  return Math.max(0, teamStreak(tournament, teamId, excludeMatchId));
 }
 
 // Classify a tournament match's round depth so the simulator can
@@ -419,6 +485,9 @@ export function tournamentRoundDepth(
 export interface TournamentSeriesContext {
   blueStarRating: number;
   redStarRating: number;
+  // SIGNED streaks: +N consecutive series wins, -N consecutive losses.
+  // Field names keep the historical "WinStreak" suffix because they map
+  // 1:1 onto SeriesState.blueWinStreak/redWinStreak (persisted in saves).
   blueWinStreak: number;
   redWinStreak: number;
   roundDepth: "early" | "quarterfinal" | "semifinal" | "final";
@@ -437,8 +506,8 @@ export function tournamentSeriesContext(
   return {
     blueStarRating: teamStarRating(blueTeam ?? null),
     redStarRating: teamStarRating(redTeam ?? null),
-    blueWinStreak: teamWinStreak(tournament, match.blueTeamId, matchId),
-    redWinStreak: teamWinStreak(tournament, match.redTeamId, matchId),
+    blueWinStreak: teamStreak(tournament, match.blueTeamId, matchId),
+    redWinStreak: teamStreak(tournament, match.redTeamId, matchId),
     roundDepth: tournamentRoundDepth(tournament, matchId),
   };
 }
@@ -569,6 +638,13 @@ export interface TournamentState {
   // Season tournaments skip history archiving and post-completion meta
   // restore — the season engine owns their lifecycle.
   seasonId?: string;
+  // Season mode only: per-team SIGNED streak carried in from the team's
+  // most recent tournament of the same season (+N = N-series win streak,
+  // -N = loss streak). teamStreak() extends its walk with this seed when
+  // the team's in-tournament history hasn't broken the carried streak,
+  // so momentum keeps developing across splits and internationals.
+  // Undefined / missing team id → no carry (standalone tournaments).
+  streakSeeds?: Record<string, number>;
   // Single-elim only: when true, after every round completes, the next
   // round's pairings are re-arranged so the highest-seeded survivor
   // faces the lowest-seeded survivor (instead of following fixed
@@ -1751,6 +1827,9 @@ export interface CreateTournamentParams {
   // Side-assignment rule applied to all series in this tournament. Omitted
   // → "loser-blue" (pre-existing default behavior).
   sideRule?: import("./series").SideRule;
+  // Season mode: signed per-team streaks carried in from earlier
+  // tournaments of the season — see TournamentState.streakSeeds.
+  streakSeeds?: Record<string, number>;
 }
 
 export function createTournament(
@@ -1870,6 +1949,12 @@ export function createTournament(
     // Only materialize sideRule when explicitly set — keeps default
     // tournaments byte-identical to pre-feature snapshots.
     ...(params.sideRule ? { sideRule: params.sideRule } : {}),
+    // Only materialize streakSeeds when there's at least one nonzero
+    // carry — keeps standalone tournaments byte-identical to
+    // pre-feature snapshots.
+    ...(params.streakSeeds && Object.keys(params.streakSeeds).length > 0
+      ? { streakSeeds: params.streakSeeds }
+      : {}),
   };
 }
 

@@ -191,6 +191,65 @@ describe("computeTeamStreaks", () => {
     // No real match completed — t1 should NOT appear.
     expect(Object.keys(streaks)).toHaveLength(0);
   });
+
+  it("treats playoff bracket matches as most recent even though their rounds restart at 1", () => {
+    const teams = [1, 2, 3, 4].map(makeTeam);
+    const [t1, t2, t3] = teams;
+    // Stage: t1 wins rounds 1-2; playoffs (bracket round 1): t1 loses.
+    const playoffLoss: TournamentMatch = {
+      ...win(t1.id, t2.id, t2.id, 1, 0, 2),
+      bracket: "winners",
+    };
+    const matches = [
+      win(t1.id, t2.id, t1.id, 1, 2, 0),
+      win(t1.id, t3.id, t1.id, 2, 2, 0),
+      playoffLoss,
+    ];
+    const tournament = makeBaseTournament(teams, matches);
+    const streaks = computeTeamStreaks(tournament);
+    // The playoff loss is the current result — not the stage wins.
+    expect(streaks[t1.id]).toEqual({ kind: "L", count: 1, gameStreak: 0 });
+  });
+
+  it("extends an unbroken streak with the season carry-in seed", () => {
+    const teams = [1, 2].map(makeTeam);
+    const [t1, t2] = teams;
+    const tournament = {
+      ...makeBaseTournament(teams, [win(t1.id, t2.id, t1.id, 1, 2, 0)]),
+      streakSeeds: { [t1.id]: 3, [t2.id]: -2 },
+    };
+    const streaks = computeTeamStreaks(tournament);
+    // t1: 1 win here + 3 carried = W4. t2: 1 loss here + 2 carried = L3.
+    expect(streaks[t1.id]).toEqual({ kind: "W", count: 4, gameStreak: 2 });
+    expect(streaks[t2.id]).toEqual({ kind: "L", count: 3, gameStreak: 0 });
+  });
+
+  it("shows the carried streak for teams that have not played yet", () => {
+    const teams = [1, 2].map(makeTeam);
+    const [t1, t2] = teams;
+    const tournament = {
+      ...makeBaseTournament(teams, []),
+      streakSeeds: { [t1.id]: 2 },
+    };
+    const streaks = computeTeamStreaks(tournament);
+    expect(streaks[t1.id]).toEqual({ kind: "W", count: 2, gameStreak: 0 });
+    expect(streaks[t2.id]).toBeUndefined();
+  });
+
+  it("ignores the seed once the in-tournament history broke the streak", () => {
+    const teams = [1, 2, 3].map(makeTeam);
+    const [t1, t2, t3] = teams;
+    const matches = [
+      win(t1.id, t2.id, t2.id, 1, 0, 2), // t1 loses → carried W broken
+      win(t1.id, t3.id, t1.id, 2, 2, 0), // t1 wins
+    ];
+    const tournament = {
+      ...makeBaseTournament(teams, matches),
+      streakSeeds: { [t1.id]: 5 },
+    };
+    const streaks = computeTeamStreaks(tournament);
+    expect(streaks[t1.id]).toEqual({ kind: "W", count: 1, gameStreak: 2 });
+  });
 });
 
 // ── hotPlayers ─────────────────────────────────────────────────────────────────

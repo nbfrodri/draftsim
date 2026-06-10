@@ -20,6 +20,8 @@ import {
   createTournament,
   computeStandings,
   formatHasPlayoffs,
+  inferGroupsConfig,
+  teamStreak,
   tournamentChampion,
   type FormatOverrides,
   type TournamentDefaults,
@@ -36,6 +38,7 @@ import {
   type InternationalId,
   type LeagueId,
   type SeasonConfig,
+  type SeasonIntlConfig,
   type SeasonMetaSnapshot,
   type SeasonPhase,
   type SeasonState,
@@ -124,6 +127,37 @@ function leagueTeams(season: SeasonState, league: LeagueId): SeasonTeam[] {
   return season.teams.filter((t) => t.leagueId === league);
 }
 
+// Signed streak each team carries INTO a new tournament: its current
+// streak at the end of the most recent completed season tournament it
+// played in (phases are iterated in calendar order; within a phase,
+// tournamentIds are in creation order — e.g. Worlds play-in before main
+// event). teamStreak already folds in that tournament's own carry-in
+// seed, so streaks chain across the whole season: a team that closes
+// the winter split on a 4-win run starts First Stand at +4, and if it
+// keeps winning there it arrives at the spring split with the combined
+// run intact. Teams with no completed history (or a streak of 0) are
+// simply omitted.
+function streakSeedsFor(
+  season: SeasonState,
+  teams: SeasonTeam[],
+): Record<string, number> {
+  const seeds: Record<string, number> = {};
+  for (const team of teams) {
+    let latest: TournamentState | null = null;
+    for (const phase of season.phases) {
+      for (const id of phase.tournamentIds) {
+        const t = season.tournaments[id];
+        if (!t || t.status !== "complete") continue;
+        if (t.teams.some((tt) => tt.id === team.id)) latest = t;
+      }
+    }
+    if (!latest) continue;
+    const streak = teamStreak(latest, team.id);
+    if (streak !== 0) seeds[team.id] = streak;
+  }
+  return seeds;
+}
+
 export function leagueOfTournament(
   season: SeasonState,
   t: TournamentState,
@@ -157,6 +191,100 @@ function intlSeries(config: SeasonConfig): {
     early: config.intlEarlySeries ?? "bo3",
     finals: config.intlFinalsSeries ?? "bo5",
   };
+}
+
+// Formats offered for international events. Team counts run 12-21 so
+// plain double-elim (power-of-2 field) is excluded; pure round-robin /
+// swiss without playoffs are excluded too — an international needs a
+// knockout to crown its champion.
+export const INTL_FORMAT_OPTIONS: Array<{
+  value: TournamentFormat;
+  label: string;
+}> = [
+  { value: "single-elim", label: "Single Elimination" },
+  { value: "groups-playoffs", label: "Groups + SE Playoffs" },
+  { value: "groups-playoffs-de", label: "Groups + DE Playoffs" },
+  { value: "swiss-playoffs", label: "Swiss + SE Playoffs" },
+  { value: "swiss-playoffs-de", label: "Swiss + DE Playoffs" },
+  { value: "round-robin-playoffs", label: "Round Robin + DE Playoffs" },
+];
+
+/** Canonical shape of each international, used when the season config
+ *  has no entry for the event (including seasons saved before
+ *  per-event configs existed). Series lengths fall back to the legacy
+ *  intlEarlySeries / intlFinalsSeries fields. */
+export function defaultIntlConfig(
+  config: SeasonConfig,
+  event: InternationalId,
+): SeasonIntlConfig {
+  const { early, finals } = intlSeries(config);
+  const format: TournamentFormat =
+    event === "first-stand"
+      ? "single-elim"
+      : event === "msi"
+        ? "swiss-playoffs-de"
+        : "groups-playoffs";
+  return { format, earlySeries: early, finalsSeries: finals, playoffTeams: 8 };
+}
+
+/** Effective config for an international: user overrides over the
+ *  canonical defaults. */
+export function intlConfigFor(
+  config: SeasonConfig,
+  event: InternationalId,
+): SeasonIntlConfig {
+  return {
+    ...defaultIntlConfig(config, event),
+    ...(config.intlConfigs?.[event] ?? {}),
+  };
+}
+
+// Format overrides for an international: single-elim escalates from
+// early-round series to the finals length; stage+playoffs formats play
+// the stage at the early length and the whole bracket at finals length.
+function intlOverridesFor(
+  cfg: SeasonIntlConfig,
+  teamCount: number,
+): FormatOverrides {
+  return cfg.format === "single-elim"
+    ? singleElimOverrides(teamCount, cfg.earlySeries, cfg.finalsSeries)
+    : seriesOverrides(cfg.earlySeries, cfg.finalsSeries);
+}
+
+// Format-specific createTournament params for an international event.
+// Groups formats need an explicit group shape: Worlds keeps its
+// canonical 4 groups regardless of the 20/21-team field; other events
+// derive the group count from the team count. The configured
+// playoffTeams decides how many advance: it's rounded to a per-group
+// count (capped at the smallest group's size) so e.g. "Top 8" with 4
+// groups means top 2 per group. Double-elim brackets may still trim
+// the advancing pool to a power of 2 downstream.
+function intlFormatParams(
+  cfg: SeasonIntlConfig,
+  event: InternationalId,
+  teamCount: number,
+): {
+  swissPlayoffsAdvancingOverride?: number;
+  rrPlayoffsAdvancingOverride?: number;
+  groupsConfigOverride?: { groupCount: number; advancingPerGroup: number };
+} {
+  if (cfg.format === "swiss-playoffs" || cfg.format === "swiss-playoffs-de") {
+    return { swissPlayoffsAdvancingOverride: cfg.playoffTeams };
+  }
+  if (cfg.format === "round-robin-playoffs") {
+    return { rrPlayoffsAdvancingOverride: cfg.playoffTeams };
+  }
+  if (cfg.format === "groups-playoffs" || cfg.format === "groups-playoffs-de") {
+    const groupCount =
+      event === "worlds" ? 4 : inferGroupsConfig(teamCount).groupCount;
+    const minGroupSize = Math.floor(teamCount / groupCount);
+    const advancingPerGroup = Math.min(
+      Math.max(1, Math.round(cfg.playoffTeams / groupCount)),
+      Math.max(1, minGroupSize),
+    );
+    return { groupsConfigOverride: { groupCount, advancingPerGroup } };
+  }
+  return {};
 }
 
 function cloneMeta(meta: SeasonMetaSnapshot): {
@@ -210,36 +338,193 @@ export function tournamentPlacements(t: TournamentState): string[] {
   return [...head, ...order.filter((id) => !head.includes(id))];
 }
 
+// ─── Championship points (Worlds qualification) ───────────────────────────
+// Worlds rewards the whole YEAR, not just the summer split: each league
+// sends its two summer finalists directly, and the remaining two slots
+// go to the league's teams with the most championship points across the
+// season — placements in all three splits plus international results
+// (First Stand, MSI). Worlds itself is excluded (it's the event being
+// qualified for).
+
+// Points per final split placement, best first (9th/10th score 0).
+const SPLIT_PLACEMENT_POINTS = [10, 8, 6, 5, 4, 3, 2, 1] as const;
+// Points per international placement, best first; any deeper placement
+// still earns 2 participation points (qualifying at all is a result).
+const INTL_PLACEMENT_POINTS = [15, 12, 10, 8, 6, 5, 4, 3] as const;
+const INTL_PARTICIPATION_POINTS = 2;
+
+/** Season-long championship points per team id, from every recorded
+ *  split placement and international result so far. */
+export function championshipPoints(
+  season: SeasonState,
+): Record<string, number> {
+  const pts: Record<string, number> = {};
+  const add = (teamId: string, n: number) => {
+    if (n > 0) pts[teamId] = (pts[teamId] ?? 0) + n;
+  };
+  for (const split of Object.keys(SPLIT_LABELS) as SplitId[]) {
+    const byLeague = season.splitResults[split];
+    if (!byLeague) continue;
+    for (const league of LEAGUE_IDS) {
+      (byLeague[league] ?? []).forEach((id, i) =>
+        add(id, SPLIT_PLACEMENT_POINTS[i] ?? 0),
+      );
+    }
+  }
+  for (const event of ["first-stand", "msi"] as InternationalId[]) {
+    (season.intlResults[event] ?? []).forEach((id, i) =>
+      add(id, INTL_PLACEMENT_POINTS[i] ?? INTL_PARTICIPATION_POINTS),
+    );
+  }
+  return pts;
+}
+
 // ─── Qualification + seeding ───────────────────────────────────────────────
 
 export interface Qualifier {
   team: SeasonTeam;
   league: LeagueId;
-  /** 1..N placement inside its own league's qualifying split. */
+  /** 1..N qualification seed inside its own league. 0 for the defending
+   *  international champion's additive slot (via === "champion"). */
   leagueSeed: number;
+  /** How the slot was earned. "split" = qualifying-split placement
+   *  (First Stand / MSI, and the two summer finalists for Worlds);
+   *  "points" = season-long championship points (Worlds seeds 3-4);
+   *  "champion" = won the previous international (First Stand winner →
+   *  MSI, MSI winner → Worlds) without otherwise qualifying. */
+  via: "split" | "points" | "champion";
+  /** Championship points total at qualification time (Worlds only). */
+  points?: number;
 }
 
 /** Teams qualified for an international, ordered by global seed:
  *  all league #1 seeds first (in league-power order), then #2s, etc.
  *  This is what makes seeding matter — the bracket pairs global seed 1
- *  against the weakest seed. */
+ *  against the weakest seed.
+ *
+ *  First Stand / MSI: straight top-N of the qualifying split.
+ *  Worlds: seeds 1-2 are the summer split FINALISTS; seeds 3-4 are the
+ *  league's best remaining teams by championship points (ties broken by
+ *  summer placement). Seed 4 goes to the play-in as before.
+ *
+ *  Defending champions: the First Stand winner auto-qualifies for MSI
+ *  and the MSI winner for Worlds. The slot is ADDITIVE — every region
+ *  keeps its regular spots. When the champion already qualified through
+ *  its league nothing changes; otherwise it's prepended as the top
+ *  global seed (leagueSeed 0, via "champion"), entering Worlds directly
+ *  (never through the play-in). */
 export function qualifiedForInternational(
   season: SeasonState,
   event: InternationalId,
 ): Qualifier[] {
   const split = QUALIFYING_SPLIT[event];
   const count = QUALIFIER_COUNTS[event];
+  // Per-league ordered qualifier lists (index 0 = league seed 1).
+  const perLeague = new Map<LeagueId, Qualifier[]>();
+  const pts = event === "worlds" ? championshipPoints(season) : null;
+  for (const league of LEAGUE_IDS) {
+    const placements = season.splitResults[split]?.[league] ?? [];
+    if (placements.length === 0) continue;
+    const list: Qualifier[] = [];
+    const push = (teamId: string, via: Qualifier["via"]) => {
+      const team = season.teams.find((t) => t.id === teamId);
+      if (!team) return;
+      list.push({
+        team,
+        league,
+        leagueSeed: list.length + 1,
+        via,
+        ...(pts ? { points: pts[teamId] ?? 0 } : {}),
+      });
+    };
+    if (event === "worlds") {
+      // Summer finalists take the direct seeds…
+      const finalists = placements.slice(0, 2);
+      for (const id of finalists) push(id, "split");
+      // …then the league's best of the rest by season-long points.
+      const byPoints = placements
+        .slice(2)
+        .sort(
+          (a, b) =>
+            (pts![b] ?? 0) - (pts![a] ?? 0) ||
+            placements.indexOf(a) - placements.indexOf(b),
+        )
+        .slice(0, count - finalists.length);
+      for (const id of byPoints) push(id, "points");
+    } else {
+      for (const id of placements.slice(0, count)) push(id, "split");
+    }
+    perLeague.set(league, list);
+  }
+  // Defending champion (First Stand winner → MSI, MSI winner → Worlds).
+  const feeder = feederEventOf(event);
+  const champId = feeder ? season.intlResults[feeder]?.[0] ?? null : null;
+  // The champion never enters Worlds through the play-in: if it landed
+  // on its league's #4 (play-in) seed via points, promote it to #3 —
+  // the displaced team drops to #4. Region spot counts are unchanged.
+  if (event === "worlds" && champId) {
+    for (const list of perLeague.values()) {
+      const idx = list.findIndex((q) => q.team.id === champId);
+      if (idx === count - 1) {
+        [list[idx - 1], list[idx]] = [list[idx], list[idx - 1]];
+        list[idx - 1].leagueSeed = idx;
+        list[idx].leagueSeed = idx + 1;
+      }
+    }
+  }
+  // Global seed order: every league's #1, then the #2s, etc.
   const out: Qualifier[] = [];
   for (let seed = 1; seed <= count; seed++) {
     for (const league of LEAGUE_IDS) {
-      const placements = season.splitResults[split]?.[league] ?? [];
-      const teamId = placements[seed - 1];
-      if (!teamId) continue;
-      const team = season.teams.find((t) => t.id === teamId);
-      if (team) out.push({ team, league, leagueSeed: seed });
+      const q = perLeague.get(league)?.[seed - 1];
+      if (q) out.push(q);
+    }
+  }
+  // Champion's additive slot when it didn't qualify through its league:
+  // prepended as the top global seed, regions keep their regular spots.
+  if (champId && !out.some((q) => q.team.id === champId)) {
+    const team = season.teams.find((t) => t.id === champId);
+    if (team) {
+      out.unshift({
+        team,
+        league: team.leagueId,
+        leagueSeed: 0,
+        via: "champion",
+        ...(pts ? { points: pts[champId] ?? 0 } : {}),
+      });
     }
   }
   return out;
+}
+
+/** Short human label for HOW a team qualified — used by the dashboards
+ *  next to team names. First Stand / MSI: the split seed ("#2");
+ *  Worlds: "Finalist" or "Points (28)", with a "Play-In" suffix on the
+ *  league's #4 seed; champion slots name the title that earned them
+ *  ("MSI Champion"). Space-constrained rows should render through the
+ *  compact QualifierTagView / IntlChampionBadge components instead of
+ *  inlining this full text. */
+export function qualifierTag(event: InternationalId, q: Qualifier): string {
+  if (q.via === "champion") {
+    const feeder = feederEventOf(event);
+    return feeder ? `${INTERNATIONAL_LABELS[feeder]} Champion` : "Champion";
+  }
+  if (event === "worlds") {
+    const base = q.via === "points" ? `Points (${q.points ?? 0})` : "Finalist";
+    return q.leagueSeed === QUALIFIER_COUNTS.worlds
+      ? `${base} · Play-In`
+      : base;
+  }
+  return `#${q.leagueSeed}`;
+}
+
+/** The international whose champion auto-qualifies for `event`
+ *  (First Stand winner → MSI, MSI winner → Worlds). Null for First
+ *  Stand — nothing feeds it. */
+export function feederEventOf(
+  event: InternationalId,
+): InternationalId | null {
+  return event === "msi" ? "first-stand" : event === "worlds" ? "msi" : null;
 }
 
 // ─── Tournament builders ───────────────────────────────────────────────────
@@ -287,62 +572,83 @@ function createSplitTournament(
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
+    streakSeeds: streakSeedsFor(season, ordered),
   });
   return tagSeason(t, season.id);
 }
 
 function createFirstStand(season: SeasonState): TournamentState {
   const qualified = qualifiedForInternational(season, "first-stand");
-  const { early, finals } = intlSeries(season.config);
+  const cfg = intlConfigFor(season.config, "first-stand");
   const t = createTournament({
     name: "First Stand",
-    format: "single-elim",
+    format: cfg.format,
     teams: qualified.map((q, i) => toTournamentTeam(q.team, i + 1)),
-    defaults: defaultsFor(season.config, early),
-    formatOverrides: singleElimOverrides(qualified.length, early, finals),
+    defaults: defaultsFor(season.config, cfg.earlySeries),
+    formatOverrides: intlOverridesFor(cfg, qualified.length),
+    ...intlFormatParams(cfg, "first-stand", qualified.length),
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
+    streakSeeds: streakSeedsFor(
+      season,
+      qualified.map((q) => q.team),
+    ),
   });
   return tagSeason(t, season.id);
 }
 
 function createMSI(season: SeasonState): TournamentState {
   const qualified = qualifiedForInternational(season, "msi");
-  // 18 teams: swiss stage into a top-8 double-elim bracket (a plain
-  // double-elim needs a power-of-2 field, so this is the closest
-  // realistic shape the engine supports).
-  const { early, finals } = intlSeries(season.config);
+  // 18 teams (19 when the First Stand champion qualifies additively).
+  // Canonical shape: swiss stage into a top-8 double-elim bracket (a
+  // plain double-elim needs a power-of-2 field, so this is the closest
+  // realistic shape the engine supports; swiss handles odd counts via
+  // byes). Customizable per-event through config.intlConfigs.
+  const cfg = intlConfigFor(season.config, "msi");
   const t = createTournament({
     name: "Mid-Season Invitational",
-    format: "swiss-playoffs-de",
+    format: cfg.format,
     teams: qualified.map((q, i) => toTournamentTeam(q.team, i + 1)),
-    defaults: defaultsFor(season.config, early),
-    formatOverrides: seriesOverrides(early, finals),
-    swissPlayoffsAdvancingOverride: 8,
+    defaults: defaultsFor(season.config, cfg.earlySeries),
+    formatOverrides: intlOverridesFor(cfg, qualified.length),
+    ...intlFormatParams(cfg, "msi", qualified.length),
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
+    streakSeeds: streakSeedsFor(
+      season,
+      qualified.map((q) => q.team),
+    ),
   });
   return tagSeason(t, season.id);
 }
 
 function createWorldsPlayIn(season: SeasonState): TournamentState {
   // The six 4th seeds fight for the last two main-event spots; both
-  // finalists advance.
+  // finalists advance. Always a small single-elim qualifier — the
+  // configurable Worlds format applies to the main event.
   const qualified = qualifiedForInternational(season, "worlds").filter(
     (q) => q.leagueSeed === 4,
   );
-  const { early, finals } = intlSeries(season.config);
+  const cfg = intlConfigFor(season.config, "worlds");
   const t = createTournament({
     name: "Worlds Play-In",
     format: "single-elim",
     teams: qualified.map((q, i) => toTournamentTeam(q.team, i + 1)),
-    defaults: defaultsFor(season.config, early),
-    formatOverrides: singleElimOverrides(qualified.length, early, finals),
+    defaults: defaultsFor(season.config, cfg.earlySeries),
+    formatOverrides: singleElimOverrides(
+      qualified.length,
+      cfg.earlySeries,
+      cfg.finalsSeries,
+    ),
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
+    streakSeeds: streakSeedsFor(
+      season,
+      qualified.map((q) => q.team),
+    ),
   });
   return tagSeason(t, season.id);
 }
@@ -351,9 +657,11 @@ function createWorldsMain(
   season: SeasonState,
   playIn: TournamentState,
 ): TournamentState {
-  // Seeds 1–3 of every league enter directly (18 teams); the two
-  // play-in finalists take the last two seeds → 20 teams in 4 groups
-  // of 5, top 2 per group into a single-elim bo5 knockout.
+  // Seeds 1–3 of every league enter directly (18 teams — 19 when the
+  // MSI champion qualifies additively at leagueSeed 0); the two play-in
+  // finalists take the last two seeds → 20-21 teams. Canonical shape:
+  // 4 snake-seeded groups, top 2 per group into a single-elim bo5
+  // knockout. Customizable through config.intlConfigs.worlds.
   const direct = qualifiedForInternational(season, "worlds").filter(
     (q) => q.leagueSeed <= 3,
   );
@@ -368,17 +676,23 @@ function createWorldsMain(
       toTournamentTeam(team, direct.length + i + 1),
     ),
   ];
-  const { early, finals } = intlSeries(season.config);
+  const cfg = intlConfigFor(season.config, "worlds");
   const t = createTournament({
     name: "World Championship",
-    format: "groups-playoffs",
+    format: cfg.format,
     teams,
-    defaults: defaultsFor(season.config, early),
-    formatOverrides: seriesOverrides(early, finals),
-    groupsConfigOverride: { groupCount: 4, advancingPerGroup: 2 },
+    defaults: defaultsFor(season.config, cfg.earlySeries),
+    formatOverrides: intlOverridesFor(cfg, teams.length),
+    ...intlFormatParams(cfg, "worlds", teams.length),
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
+    // Play-in finalists carry their play-in run (the play-in is already
+    // complete and recorded by the time the main event is created).
+    streakSeeds: streakSeedsFor(season, [
+      ...direct.map((q) => q.team),
+      ...finalists,
+    ]),
   });
   return tagSeason(t, season.id);
 }
@@ -489,6 +803,9 @@ export function createSeason(opts: {
     splitResults: {},
     intlResults: {},
     currentMeta: opts.activeMeta,
+    // Frozen starting point — currentMeta evolves away from this as the
+    // year progresses (live meta + patch shifts).
+    initialMeta: opts.activeMeta,
     champion: null,
     status: "in-progress",
   };

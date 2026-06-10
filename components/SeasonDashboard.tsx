@@ -6,21 +6,30 @@ import { useDraftStore } from "@/store/draftStore";
 import { computeStandings, tournamentChampion } from "@/lib/tournament";
 import type { TournamentState } from "@/lib/tournament";
 import {
+  feederEventOf,
   leagueOfTournament,
   phaseProgress,
   qualifiedForInternational,
+  qualifierTag,
 } from "@/lib/season/engine";
 import { computeSeasonStats, computeStageStats } from "@/lib/season/stats";
 import {
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
+  SPLIT_FEEDS_EVENT,
   SPLIT_LABELS,
   seasonTeam,
   type SeasonPhase,
   type SeasonState,
 } from "@/lib/season/types";
-import type { Champion } from "@/lib/types";
+import type { Champion, Lane } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
+import {
+  IntlChampionBadge,
+  QualifierTagView,
+  type QualifierTagInfo,
+} from "./QualifierBadge";
+import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
 import Modal from "./Modal";
 import SeasonMetaPanel from "./SeasonMetaPanel";
 import { SimulatingOverlay } from "./tournament/bracket/DashboardModals";
@@ -39,6 +48,10 @@ export default function SeasonDashboard() {
   const exitSeasonView = useDraftStore((s) => s.exitSeasonView);
   const abandonSeason = useDraftStore((s) => s.abandonSeason);
   const saveCurrentSeason = useDraftStore((s) => s.saveCurrentSeason);
+  const archiveSeasonToHistory = useDraftStore((s) => s.archiveSeasonToHistory);
+  const inHistory = useDraftStore((s) =>
+    s.seasonHistory.some((e) => e.id === s.season?.id),
+  );
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   // Mid-season aggregate stats toggle (always rendered once complete).
@@ -138,6 +151,21 @@ export default function SeasonDashboard() {
               <span className="text-rift-gold/60 text-base md:text-xl">
                 {championTeam.leagueId}
               </span>
+            </div>
+            <div className="mt-3">
+              <button
+                type="button"
+                disabled={inHistory}
+                onClick={() => {
+                  if (archiveSeasonToHistory()) {
+                    setSaveFeedback("Added to Season History");
+                  }
+                }}
+                className="px-3 py-1.5 border border-rift-gold/50 text-rift-goldbright text-[9px] uppercase tracking-[0.3em] hover:bg-rift-gold/10 disabled:opacity-50 disabled:cursor-default transition-all"
+                title="Archive this season's résumé — champion, finalist, and title holders — to the Season History timeline on the main menu"
+              >
+                {inHistory ? "In Season History ✓" : "Add to Season History"}
+              </button>
             </div>
           </div>
         )}
@@ -326,19 +354,50 @@ function TournamentCard({
   const champion = tournamentChampion(tournament);
   const controlledId = season.config.controlledTeamId;
   // International events: each team's home region and its seed inside
-  // that region's qualifying split (e.g. "LCK #1").
+  // that region's qualifying split (e.g. "LCK #1"), or the defending-
+  // champion trophy pill. Compact labels — the full route lives in the
+  // tooltip so long tags never squeeze the team name out.
   const regionSeeds = useMemo(() => {
     const phase = season.phases.find(
       (p) =>
         p.kind === "international" && p.tournamentIds.includes(tournament.id),
     );
     if (!phase?.event) return null;
-    const map = new Map<string, string>();
-    for (const q of qualifiedForInternational(season, phase.event)) {
-      map.set(q.team.id, `${q.league} #${q.leagueSeed}`);
+    const event = phase.event;
+    const map = new Map<string, QualifierTagInfo>();
+    for (const q of qualifiedForInternational(season, event)) {
+      map.set(
+        q.team.id,
+        q.via === "champion"
+          ? { label: q.league, championOf: feederEventOf(event) ?? undefined }
+          : {
+              label: `${q.league} #${q.leagueSeed}`,
+              title:
+                event === "worlds"
+                  ? `Worlds: ${qualifierTag(event, q)}`
+                  : undefined,
+            },
+      );
     }
     return map;
   }, [season, tournament.id]);
+  // Split tournaments: once THIS league's split is complete, the teams
+  // it sends to the upcoming international (and how they qualified).
+  const splitQualifiers = useMemo(() => {
+    if (tournament.status !== "complete") return null;
+    const phase = season.phases.find(
+      (p) => p.kind === "split" && p.tournamentIds.includes(tournament.id),
+    );
+    if (!phase?.split) return null;
+    const event = SPLIT_FEEDS_EVENT[phase.split];
+    const league = leagueOfTournament(season, tournament);
+    if (!league) return null;
+    const qualifiers = qualifiedForInternational(season, event)
+      .filter((q) => q.league === league)
+      .sort((a, b) => a.leagueSeed - b.leagueSeed);
+    if (qualifiers.length === 0) return null;
+    return { event, qualifiers };
+  }, [season, tournament]);
   return (
     <div className="border border-rift-line/50 bg-rift-bg/40 hover:border-rift-gold/40 transition-colors flex flex-col">
       <div className="flex items-center justify-between gap-2 px-3 pt-2.5">
@@ -359,14 +418,10 @@ function TournamentCard({
       </div>
       <div className="px-3 py-2 flex-1">
         {champion ? (
-          <div className="text-[10px] uppercase tracking-[0.25em] text-rift-goldbright inline-flex items-center gap-1.5">
+          <div className="text-[10px] uppercase tracking-[0.25em] text-rift-goldbright flex items-center gap-1.5 flex-wrap">
             <TeamIcon iconKey={champion.iconKey} size={13} color={champion.color} />
-            Champion: {champion.name}
-            {regionSeeds?.has(champion.id) && (
-              <span className="text-[9px] text-rift-gold/60">
-                {regionSeeds.get(champion.id)}
-              </span>
-            )}
+            <span className="truncate">Champion: {champion.name}</span>
+            <QualifierTagView tag={regionSeeds?.get(champion.id)} />
           </div>
         ) : (
           <div className="space-y-0.5">
@@ -383,15 +438,9 @@ function TournamentCard({
                   {s.rank}
                 </span>
                 <TeamIcon iconKey={s.team.iconKey} size={12} color={s.team.color} />
-                <span className="truncate flex-1">
-                  {s.team.name}
-                  {regionSeeds?.has(s.team.id) && (
-                    <span className="ml-1.5 text-[9px] uppercase tracking-[0.15em] text-rift-gold/60">
-                      {regionSeeds.get(s.team.id)}
-                    </span>
-                  )}
-                </span>
-                <span className="tabular-nums text-rift-muted/70">
+                <span className="truncate flex-1">{s.team.name}</span>
+                <QualifierTagView tag={regionSeeds?.get(s.team.id)} />
+                <span className="tabular-nums text-rift-muted/70 flex-shrink-0">
                   {s.wins}-{s.losses}
                 </span>
               </div>
@@ -401,6 +450,42 @@ function TournamentCard({
                 No matches played yet
               </div>
             )}
+          </div>
+        )}
+        {/* Once the split wraps, surface who this region sends to the
+            next international and how each slot was earned. */}
+        {splitQualifiers && (
+          <div className="mt-2 pt-1.5 border-t border-rift-line/30">
+            <div className="text-[8px] uppercase tracking-[0.3em] text-rift-bluebright/80 mb-1">
+              Qualified → {INTERNATIONAL_LABELS[splitQualifiers.event]}
+            </div>
+            <div className="space-y-0.5">
+              {splitQualifiers.qualifiers.map((q) => (
+                <div
+                  key={q.team.id}
+                  className="flex items-center gap-1.5 text-[10px] text-rift-mutedbright"
+                >
+                  <TeamIcon
+                    iconKey={q.team.iconKey}
+                    size={11}
+                    color={q.team.color}
+                  />
+                  <span className="truncate flex-1">{q.team.name}</span>
+                  {q.via === "champion" ? (
+                    <IntlChampionBadge
+                      event={feederEventOf(splitQualifiers.event)!}
+                    />
+                  ) : (
+                    <span
+                      title={qualifierTag(splitQualifiers.event, q)}
+                      className="text-[8px] uppercase tracking-[0.15em] text-rift-gold/60 whitespace-nowrap flex-shrink-0"
+                    >
+                      {qualifierTag(splitQualifiers.event, q)}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -554,9 +639,42 @@ function PhasePlacements({
 }) {
   const regionSeeds = useMemo(() => {
     if (phase.kind !== "international" || !phase.event) return null;
-    const map = new Map<string, string>();
-    for (const q of qualifiedForInternational(season, phase.event)) {
-      map.set(q.team.id, `${q.league} #${q.leagueSeed}`);
+    const event = phase.event;
+    const map = new Map<string, QualifierTagInfo>();
+    for (const q of qualifiedForInternational(season, event)) {
+      map.set(
+        q.team.id,
+        q.via === "champion"
+          ? { label: q.league, championOf: feederEventOf(event) ?? undefined }
+          : {
+              label: `${q.league} #${q.leagueSeed}`,
+              title:
+                event === "worlds"
+                  ? `Worlds: ${qualifierTag(event, q)}`
+                  : undefined,
+            },
+      );
+    }
+    return map;
+  }, [season, phase]);
+  // Split placements: tag every team that earned a ticket to the split's
+  // international. Compact: the destination only ("Worlds", or "Play-In"
+  // for the league's #4 Worlds seed) plus the trophy pill for the
+  // additive defending-champion slot — the full route (finalist vs
+  // championship points) lives in the tooltip.
+  const qualBadges = useMemo(() => {
+    if (phase.kind !== "split" || !phase.split) return null;
+    const event = SPLIT_FEEDS_EVENT[phase.split];
+    const label = INTERNATIONAL_LABELS[event];
+    const map = new Map<string, QualifierTagInfo>();
+    for (const q of qualifiedForInternational(season, event)) {
+      const playIn = event === "worlds" && q.leagueSeed === 4;
+      map.set(q.team.id, {
+        label: playIn ? "Play-In" : label,
+        title: `Qualified for ${label} — ${qualifierTag(event, q)}`,
+        championOf:
+          q.via === "champion" ? feederEventOf(event) ?? undefined : undefined,
+      });
     }
     return map;
   }, [season, phase]);
@@ -581,6 +699,7 @@ function PhasePlacements({
                     season={season}
                     teamId={id}
                     rank={idx + 1}
+                    tag={qualBadges?.get(id)}
                   />
                 ))}
               </ol>
@@ -603,7 +722,7 @@ function PhasePlacements({
               season={season}
               teamId={id}
               rank={idx + 1}
-              regionSeed={regionSeeds?.get(id)}
+              tag={regionSeeds?.get(id)}
             />
           ))}
         </ol>
@@ -618,12 +737,12 @@ function PlacementRow({
   season,
   teamId,
   rank,
-  regionSeed,
+  tag,
 }: {
   season: SeasonState;
   teamId: string;
   rank: number;
-  regionSeed?: string;
+  tag?: QualifierTagInfo;
 }) {
   const team = seasonTeam(season, teamId);
   if (!team) return null;
@@ -644,17 +763,55 @@ function PlacementRow({
       <TeamIcon iconKey={team.iconKey} size={12} color={team.color} />
       <span className="truncate">{team.name}</span>
       {rank === 1 && <span aria-hidden>🏆</span>}
-      {regionSeed && (
-        <span className="text-[9px] uppercase tracking-[0.15em] text-rift-gold/60 flex-shrink-0">
-          {regionSeed}
-        </span>
-      )}
+      <QualifierTagView tag={tag} />
     </li>
   );
 }
 
-// One completed stage's interesting numbers: finalists, MVP, the
-// most-contested champion, the best-WR champion, and volume stats.
+// One completed stage's recap card: result header (champion def.
+// runner-up), award cells (MVP / most contested / best WR / longest
+// series), the All-Pro lane strip, special recognitions, and a volume
+// footer.
+
+const LANE_LABEL: Record<Lane, string> = {
+  top: "Top",
+  jungle: "Jgl",
+  middle: "Mid",
+  bottom: "Bot",
+  support: "Sup",
+};
+const LANE_ORDER: readonly Lane[] = [
+  "top",
+  "jungle",
+  "middle",
+  "bottom",
+  "support",
+];
+
+function StageStatCell({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+}) {
+  return (
+    <div className="bg-rift-bg/60 px-2.5 py-2 min-w-0">
+      <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-0.5">
+        {label}
+      </div>
+      <div className="text-[11px] font-display tracking-wider text-rift-goldbright truncate">
+        {value}
+      </div>
+      {sub && (
+        <div className="text-[9px] text-rift-mutedbright/60 truncate">{sub}</div>
+      )}
+    </div>
+  );
+}
+
 function StageStatsRow({
   season,
   tournament,
@@ -674,95 +831,110 @@ function StageStatsRow({
   const bestWR = s.bestWRChampionId != null
     ? championsById.get(s.bestWRChampionId)
     : null;
+  const allProByLane = new Map(stats.allPro.map((p) => [p.lane, p]));
   return (
-    <div className="text-[10px] leading-relaxed">
-      <span className="text-rift-gold/70 font-display tracking-wider">
-        {tournament.name}
-      </span>
-      <span className="text-rift-mutedbright">
-        {" · "}
+    <div className="border border-rift-line/40 bg-rift-bg/40">
+      {/* Result header */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2 border-b border-rift-line/30 bg-rift-gold/[0.04]">
+        <span className="font-display text-sm tracking-wider text-rift-gold/80">
+          {tournament.name}
+        </span>
         {champion && (
-          <>
-            <span className="text-rift-goldbright">{champion.name}</span>
+          <span className="inline-flex items-center gap-1.5 text-[10px]">
+            <span aria-hidden>🏆</span>
+            <TeamIcon
+              iconKey={champion.iconKey}
+              size={13}
+              color={champion.color}
+            />
+            <span className="font-display tracking-wider text-rift-goldbright">
+              {champion.name}
+            </span>
             {runnerUp && (
-              <span className="text-rift-muted/80"> def. {runnerUp.name}</span>
+              <span className="text-rift-muted/80">def. {runnerUp.name}</span>
             )}
-          </>
+          </span>
         )}
+      </div>
+
+      {/* Award cells */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-rift-line/20">
         {stats.mvp && (
-          <>
-            {" · MVP "}
-            <span className="text-rift-bluebright">
-              {stats.mvp.displayName}
-            </span>
-            <span className="text-rift-muted/70">
-              {" "}
-              ({stats.mvp.avgRating.toFixed(1)})
-            </span>
-          </>
+          <StageStatCell
+            label="MVP"
+            value={stats.mvp.displayName}
+            sub={`${stats.mvp.teamName} · ${stats.mvp.avgRating.toFixed(1)} rating`}
+          />
         )}
         {contested && (
-          <>
-            {" · Most contested "}
-            <span className="text-rift-goldbright">{contested.name}</span>
-            <span className="text-rift-muted/70">
-              {" "}
-              ({s.mostContestedPresence} picks+bans)
-            </span>
-          </>
+          <StageStatCell
+            label="Most Contested"
+            value={contested.name}
+            sub={`${s.mostContestedPresence} picks+bans`}
+          />
         )}
         {bestWR && s.bestWR != null && (
-          <>
-            {" · Best WR "}
-            <span className="text-rift-goldbright">{bestWR.name}</span>
-            <span className="text-rift-muted/70">
-              {" "}
-              ({Math.round(s.bestWR * 100)}% over {s.bestWRGames})
-            </span>
-          </>
+          <StageStatCell
+            label="Best Win Rate"
+            value={bestWR.name}
+            sub={`${Math.round(s.bestWR * 100)}% over ${s.bestWRGames} games`}
+          />
         )}
         {s.longestSeriesGames > 1 && (
-          <>
-            {" · Longest series "}
-            <span className="text-rift-goldbright">
-              {s.longestSeriesGames} games
-            </span>
-          </>
+          <StageStatCell
+            label="Longest Series"
+            value={`${s.longestSeriesGames} games`}
+          />
         )}
-        {" · "}
-        <span className="text-rift-muted/70">
-          {s.totalMatches} matches, {s.totalGames} games,{" "}
-          {s.uniqueChampionsPlayed} champions played
-        </span>
-      </span>
+      </div>
+
+      {/* All-Pro lane strip */}
       {stats.allPro.length > 0 && (
-        <div className="text-rift-mutedbright/80">
-          <span className="text-rift-gold/60 uppercase text-[9px] tracking-[0.2em]">
-            All-Pro{" "}
+        <div className="px-3 py-1.5 border-t border-rift-line/30 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <span className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60">
+            All-Pro
           </span>
-          {stats.allPro.map((p, i) => (
-            <span key={`${p.teamId}-${p.lane}`}>
-              {i > 0 && <span className="text-rift-muted/40"> · </span>}
-              <span className="text-rift-bluebright">{p.displayName}</span>
-              <span className="text-rift-muted/60"> {p.avgRating.toFixed(1)}</span>
-            </span>
-          ))}
+          {LANE_ORDER.map((lane) => {
+            const p = allProByLane.get(lane);
+            if (!p) return null;
+            return (
+              <span
+                key={lane}
+                className="inline-flex items-baseline gap-1 text-[10px]"
+              >
+                <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/70">
+                  {LANE_LABEL[lane]}
+                </span>
+                <span className="text-rift-bluebright">{p.displayName}</span>
+                <span className="text-rift-muted/60 tabular-nums">
+                  {p.avgRating.toFixed(1)}
+                </span>
+              </span>
+            );
+          })}
         </div>
       )}
+
+      {/* Special recognitions */}
       {stats.specials.length > 0 && (
-        <div className="text-rift-mutedbright/80">
-          {stats.specials.map((a, i) => (
-            <span key={a.kind}>
-              {i > 0 && <span className="text-rift-muted/40"> · </span>}
-              <span className="text-rift-gold/70">{a.title}:</span>{" "}
+        <div className="px-3 py-1.5 border-t border-rift-line/30 flex flex-wrap gap-x-4 gap-y-1">
+          {stats.specials.map((a) => (
+            <span key={a.kind} className="inline-flex items-baseline gap-1 text-[10px]">
+              <span className="text-rift-gold/70">{a.title}:</span>
               <span className="text-rift-bluebright">
                 {a.player.displayName}
-              </span>{" "}
+              </span>
               <span className="text-rift-muted/60">({a.context})</span>
             </span>
           ))}
         </div>
       )}
+
+      {/* Volume footer */}
+      <div className="px-3 py-1 border-t border-rift-line/30 text-[9px] text-rift-muted/70 tabular-nums">
+        {s.totalMatches} matches · {s.totalGames} games ·{" "}
+        {s.uniqueChampionsPlayed} champions played
+      </div>
     </div>
   );
 }
@@ -882,6 +1054,38 @@ function SeasonRecapPanel({
           );
         })}
       </div>
+
+      {/* How far the meta drifted over the year — only once the season
+          is decided (mid-season, the live meta panel covers the now). */}
+      {season.status === "complete" && (
+        <div className="mb-4 border border-rift-line/40 bg-rift-bg/40 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-2">
+            <span className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60">
+              The Meta · Start → Finish
+            </span>
+            <CopyMetaCodeButton
+              label="Starting Meta"
+              override={
+                season.initialMeta !== undefined
+                  ? season.initialMeta.metaOverride ?? null
+                  : undefined
+              }
+            />
+            <CopyMetaCodeButton
+              label="Final Meta"
+              override={season.currentMeta.metaOverride ?? null}
+            />
+          </div>
+          <MetaDriftChips
+            initial={
+              season.initialMeta !== undefined
+                ? season.initialMeta.metaOverride ?? null
+                : undefined
+            }
+            final={season.currentMeta.metaOverride ?? null}
+          />
+        </div>
+      )}
 
       {/* Trophy cabinet */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

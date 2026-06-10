@@ -74,9 +74,12 @@ export function createSeries(params: {
   // Optional star ratings (tournament context only).
   blueStarRating?: number;
   redStarRating?: number;
-  // Tournament momentum context. Win streaks feed a "team on a roll"
-  // score-bias bump; round-depth tag enables underdog protection in
-  // semis/finals.
+  // Tournament momentum context. SIGNED streaks: +N consecutive series
+  // wins feed a "team on a roll" score-bias bump; -N consecutive losses
+  // feed the mirror-image "team in a slump" penalty. Round-depth tag
+  // enables underdog protection in semis/finals. (Field names keep the
+  // historical "WinStreak" suffix for save compatibility — legacy
+  // snapshots only ever stored values ≥ 0.)
   blueWinStreak?: number;
   redWinStreak?: number;
   tournamentRound?: "early" | "quarterfinal" | "semifinal" | "final";
@@ -178,10 +181,13 @@ export function nextGameSides(
 // out the per-event side bias. A stronger K compounds across all 20+
 // rolls so the favorite reliably banks an early gold lead.
 const STAR_RATING_BIAS_K = 9.0;
-// Per-consecutive-win bonus. ~1.5 points per win in the streak ≈ +2pp
-// win-prob per win at the slope. Capped so a snowball doesn't snowball
-// the simulator: 4 consecutive wins (final-bound team) = +6 points,
-// equivalent to a one-star bump. Streak resets on any loss.
+// Per-consecutive-result bonus/penalty. ~1.5 points per game in the
+// streak ≈ ±2pp win-prob per series at the slope. Symmetric: a win
+// streak adds, a LOSS streak subtracts the same gradient (tilt is the
+// mirror image of momentum). Capped in both directions so a snowball
+// doesn't snowball the simulator: 4 consecutive results = ±6 points,
+// equivalent to a one-star bump/drop. Streak flips sign on the first
+// opposite result.
 const WIN_STREAK_BIAS_K = 1.5;
 const WIN_STREAK_BIAS_CAP = 6.0;
 // Underdog protection. Now scoped tighter: only fires when the star
@@ -222,14 +228,15 @@ export function starRatingBias(series: SeriesState): number {
       else starBias += UNDERDOG_FLAT;
     }
   }
-  // Win-streak bonus. Each side gets credit for their current
-  // consecutive-win count in the tournament; the diff feeds into the
-  // bias. A team riding a 3-match streak vs a team coming off a loss
-  // earns a measurable edge — the "form" component of upset/chalk.
-  const blueStreak = Math.max(0, series.blueWinStreak ?? 0);
-  const redStreak = Math.max(0, series.redWinStreak ?? 0);
-  const blueStreakBias = Math.min(WIN_STREAK_BIAS_CAP, blueStreak * WIN_STREAK_BIAS_K);
-  const redStreakBias = Math.min(WIN_STREAK_BIAS_CAP, redStreak * WIN_STREAK_BIAS_K);
+  // Streak bonus/penalty. Each side's SIGNED streak (+wins / -losses)
+  // feeds the bias: a team riding a 3-match win streak earns a
+  // measurable edge, a team mired in a 3-match skid concedes one — the
+  // "form" component of upset/chalk. Magnitude capped per side.
+  const streakBias = (streak: number) =>
+    Math.sign(streak) *
+    Math.min(WIN_STREAK_BIAS_CAP, Math.abs(streak) * WIN_STREAK_BIAS_K);
+  const blueStreakBias = streakBias(series.blueWinStreak ?? 0);
+  const redStreakBias = streakBias(series.redWinStreak ?? 0);
   return starBias + (blueStreakBias - redStreakBias);
 }
 

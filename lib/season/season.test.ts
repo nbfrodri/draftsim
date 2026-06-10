@@ -7,11 +7,13 @@ import {
   startGroupsPlayoffs,
   startRoundRobinPlayoffs,
   startSwissPlayoffs,
+  teamStreak,
   type TournamentState,
 } from "../tournament";
 import {
   applyPatchShift,
   applyTournamentUpdate,
+  championshipPoints,
   createSeason,
   currentPhase,
   nextPendingTournament,
@@ -237,7 +239,17 @@ describe("season lifecycle", () => {
     }
     const msi = nextPendingTournament(s)!;
     expect(msi.name).toContain("Invitational");
-    expect(msi.teams).toHaveLength(18);
+    // 18 regional qualifiers, +1 when the First Stand champion didn't
+    // make spring top-3 (additive defending-champion slot).
+    const msiQ = qualifiedForInternational(s, "msi");
+    const fsChampion = s.intlResults["first-stand"]![0];
+    expect(msiQ.some((q) => q.team.id === fsChampion)).toBe(true);
+    const msiExtra = msiQ.filter((q) => q.via === "champion");
+    expect(msi.teams).toHaveLength(18 + msiExtra.length);
+    if (msiExtra.length > 0) {
+      expect(msiExtra[0].team.id).toBe(fsChampion);
+      expect(msiExtra[0].leagueSeed).toBe(0);
+    }
     s = applyTournamentUpdate(s, resolveTournament(msi, rng), champions);
     expect(s.intlResults.msi).toBeDefined();
 
@@ -247,21 +259,63 @@ describe("season lifecycle", () => {
       const t = nextPendingTournament(s)!;
       s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
     }
-    // Play-in: the six 4th seeds.
+    // Worlds qualification: per league, seeds 1-2 are the summer
+    // FINALISTS; seeds 3-4 are the best remaining teams by season-long
+    // championship points. The six #4 seeds fight in the play-in. The
+    // MSI champion holds an additive direct slot when not already in.
+    const worldsQ = qualifiedForInternational(s, "worlds");
+    const msiChampion = s.intlResults.msi![0];
+    expect(worldsQ.some((q) => q.team.id === msiChampion)).toBe(true);
+    const worldsExtra = worldsQ.filter((q) => q.via === "champion");
+    expect(worldsQ).toHaveLength(24 + worldsExtra.length);
+    for (const league of LEAGUE_IDS) {
+      const ofLeague = worldsQ.filter(
+        (q) => q.league === league && q.via !== "champion",
+      );
+      expect(ofLeague).toHaveLength(4);
+      const placements = s.splitResults.summer![league]!;
+      // Finalists hold the direct split seeds.
+      expect(ofLeague[0]).toMatchObject({
+        leagueSeed: 1,
+        via: "split",
+        team: { id: placements[0] },
+      });
+      expect(ofLeague[1]).toMatchObject({
+        leagueSeed: 2,
+        via: "split",
+        team: { id: placements[1] },
+      });
+      // Seeds 3-4 came via points and never duplicate the finalists.
+      for (const q of ofLeague.slice(2)) {
+        expect(q.via).toBe("points");
+        expect(typeof q.points).toBe("number");
+        expect([placements[0], placements[1]]).not.toContain(q.team.id);
+      }
+      // Points order holds among the non-finalists (unless the MSI
+      // champion was promoted off the play-in seed).
+      if (ofLeague.slice(2).every((q) => q.team.id !== msiChampion)) {
+        expect(ofLeague[2].points!).toBeGreaterThanOrEqual(
+          ofLeague[3].points!,
+        );
+      }
+    }
     const playIn = nextPendingTournament(s)!;
     expect(playIn.name).toContain("Play-In");
     expect(playIn.teams).toHaveLength(6);
-    for (const league of LEAGUE_IDS) {
-      const fourth = s.splitResults.summer![league]![3];
-      expect(playIn.teams.some((t) => t.id === fourth)).toBe(true);
+    for (const q of worldsQ.filter((x) => x.leagueSeed === 4)) {
+      expect(playIn.teams.some((t) => t.id === q.team.id)).toBe(true);
     }
     const playInDone = resolveTournament(playIn, rng);
     s = applyTournamentUpdate(s, playInDone, champions);
 
-    // Main event: 18 direct + the two play-in finalists = 20 teams.
+    // Main event: 18 direct (+ MSI champion's additive slot when it
+    // applies) + the two play-in finalists.
+    const directCount = worldsQ.filter((q) => q.leagueSeed <= 3).length;
     const main = nextPendingTournament(s)!;
     expect(main.name).toContain("World");
-    expect(main.teams).toHaveLength(20);
+    expect(main.teams).toHaveLength(directCount + 2);
+    // The MSI champion never goes through the play-in.
+    expect(playIn.teams.some((t) => t.id === msiChampion)).toBe(false);
     const finalists = tournamentPlacements(playInDone).slice(0, 2);
     for (const id of finalists) {
       expect(main.teams.some((t) => t.id === id)).toBe(true);
@@ -280,6 +334,153 @@ describe("season lifecycle", () => {
     expect(finished.champion).not.toBeNull();
     // ~20 tournaments across the year (18 splits + FS + MSI + play-in + main).
     expect(Object.keys(finished.tournaments).length).toBe(22);
+  });
+
+  it("carries each team's end-of-split streak into the next tournament as a seed", () => {
+    let s = base;
+    const rng = rngFrom(13);
+    const winterTournaments: TournamentState[] = [];
+    for (let i = 0; i < 6; i++) {
+      const done = resolveTournament(nextPendingTournament(s)!, rng);
+      winterTournaments.push(done);
+      s = applyTournamentUpdate(s, done, champions);
+    }
+    const fs = nextPendingTournament(s)!; // First Stand
+    expect(fs.streakSeeds).toBeDefined();
+    // Every qualifier's seed equals its signed streak at the end of its
+    // winter split. League champions always arrive on a win streak
+    // (they won their playoff run), so at least those seeds are > 0.
+    for (const team of fs.teams) {
+      const winter = winterTournaments.find((t) =>
+        t.teams.some((tt) => tt.id === team.id),
+      )!;
+      const expected = teamStreak(winter, team.id);
+      expect(fs.streakSeeds![team.id] ?? 0).toBe(expected);
+    }
+    const champions6 = winterTournaments.map((t) => tournamentPlacements(t)[0]);
+    for (const id of champions6) {
+      expect(fs.streakSeeds![id]).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("custom international formats", () => {
+  it("builds First Stand with a configured format and series lengths", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(5));
+    const config = makeConfig();
+    config.intlConfigs = {
+      "first-stand": {
+        format: "swiss-playoffs",
+        earlySeries: "bo1",
+        finalsSeries: "bo3",
+        playoffTeams: 4,
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    const rng = rngFrom(9);
+    for (let i = 0; i < 6; i++) {
+      s = applyTournamentUpdate(
+        s,
+        resolveTournament(nextPendingTournament(s)!, rng),
+        champions,
+      );
+    }
+    const fs = nextPendingTournament(s)!;
+    expect(fs.name).toBe("First Stand");
+    expect(fs.format).toBe("swiss-playoffs");
+    expect(fs.swissPlayoffsAdvancing).toBe(4);
+    // Stage matches play at the configured early length.
+    expect(fs.matches.every((m) => m.isBye || m.format === "bo1")).toBe(true);
+    // And the customized event still resolves to completion.
+    const done = resolveTournament(fs, rng);
+    expect(done.status).toBe("complete");
+  });
+});
+
+// ── Championship points & qualification rules (fabricated states) ──────────
+
+describe("championship points & qualification", () => {
+  // Minimal LCK-only season state: only the fields the qualification
+  // helpers read (teams, splitResults, intlResults).
+  const ids = Array.from({ length: 10 }, (_, i) => `t${i + 1}`);
+  function fabricate(opts: {
+    splitResults?: SeasonState["splitResults"];
+    intlResults?: SeasonState["intlResults"];
+  }): SeasonState {
+    return {
+      teams: ids.map((id) => ({
+        id,
+        leagueId: "LCK",
+        name: id.toUpperCase(),
+        color: "#fff",
+        iconKey: "sword",
+        players: [],
+        personalityId: "balanced",
+      })),
+      splitResults: opts.splitResults ?? {},
+      intlResults: opts.intlResults ?? {},
+    } as unknown as SeasonState;
+  }
+
+  it("championshipPoints sums split placements and international results", () => {
+    const s = fabricate({
+      splitResults: { winter: { LCK: [...ids] } },
+      intlResults: { "first-stand": ["t3", "t1"] },
+    });
+    const pts = championshipPoints(s);
+    expect(pts["t1"]).toBe(10 + 12); // winter 1st + FS runner-up
+    expect(pts["t3"]).toBe(6 + 15); //  winter 3rd + FS champion
+    expect(pts["t2"]).toBe(8); //       winter 2nd only
+    expect(pts["t9"]).toBeUndefined(); // 9th/10th score nothing
+  });
+
+  it("Worlds: summer finalists direct, then best-of-rest by points", () => {
+    const s = fabricate({
+      splitResults: {
+        winter: { LCK: ["t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10", "t1", "t2"] },
+        summer: { LCK: [...ids] },
+      },
+      intlResults: { msi: ["t5", "t3"] },
+    });
+    const q = qualifiedForInternational(s, "worlds");
+    expect(q.map((x) => x.team.id)).toEqual(["t1", "t2", "t5", "t3"]);
+    // t1/t2 = summer finalists; t5 (winter 3rd + MSI win + summer 5th =
+    // 6+15+4 = 25) outranks t3 (10+12+6 = 28)? No — t3 has 28 > 25…
+    // …but t5 is the MSI champion and may not sit on the play-in seed,
+    // so it gets promoted to #3 and t3 drops to #4.
+    expect(q[2]).toMatchObject({ team: { id: "t5" }, leagueSeed: 3, via: "points" });
+    expect(q[3]).toMatchObject({ team: { id: "t3" }, leagueSeed: 4, via: "points" });
+  });
+
+  it("MSI: First Stand champion gets an additive slot when outside spring top-3", () => {
+    const s = fabricate({
+      splitResults: { spring: { LCK: [...ids] } },
+      intlResults: { "first-stand": ["t8", "t1"] },
+    });
+    const q = qualifiedForInternational(s, "msi");
+    // t8 prepended as defending champion; regional spots unchanged.
+    expect(q.map((x) => x.team.id)).toEqual(["t8", "t1", "t2", "t3"]);
+    expect(q[0]).toMatchObject({ leagueSeed: 0, via: "champion" });
+  });
+
+  it("MSI: no extra slot when the First Stand champion already qualified", () => {
+    const s = fabricate({
+      splitResults: { spring: { LCK: [...ids] } },
+      intlResults: { "first-stand": ["t2", "t5"] },
+    });
+    const q = qualifiedForInternational(s, "msi");
+    expect(q.map((x) => x.team.id)).toEqual(["t1", "t2", "t3"]);
+    expect(q.every((x) => x.via === "split")).toBe(true);
   });
 });
 

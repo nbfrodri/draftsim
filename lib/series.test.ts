@@ -12,6 +12,7 @@ import {
   recordWinner,
   seriesScore,
   startNextGame,
+  starRatingBias,
   winsByTeamName,
   type SideRule,
 } from "./series";
@@ -392,5 +393,45 @@ describe("chooseSideAI", () => {
     expect(twoGamesAllDistinct).toBeLessThan(0.5);
     const oneGame = blueRate({ pickHistory: [1, 2, 3, 4, 5] }, 11);
     expect(oneGame).toBeGreaterThan(0.5); // depth-weighted: still blue-leaning
+  });
+});
+
+// ─── starRatingBias — signed streaks (momentum AND slumps) ──────────────────
+
+describe("starRatingBias — streaks", () => {
+  function seriesWithStreaks(blue: number, red: number): SeriesState {
+    return createSeries({
+      format: "bo3",
+      fearless: false,
+      timerEnabled: false,
+      blueTeam: "Alpha",
+      redTeam: "Beta",
+      mode: "aivai",
+      aiSide: null,
+      aiDifficulty: "normal",
+      blueStarRating: 3,
+      redStarRating: 3,
+      blueWinStreak: blue,
+      redWinStreak: red,
+    });
+  }
+
+  it("win streaks add bias, equal stars", () => {
+    expect(starRatingBias(seriesWithStreaks(2, 0))).toBeCloseTo(3.0);
+  });
+
+  it("LOSS streaks subtract bias symmetrically", () => {
+    expect(starRatingBias(seriesWithStreaks(-2, 0))).toBeCloseTo(-3.0);
+    // A slumping blue team vs a rolling red team compounds both ways.
+    expect(starRatingBias(seriesWithStreaks(-2, 2))).toBeCloseTo(-6.0);
+  });
+
+  it("caps streak magnitude in both directions", () => {
+    expect(starRatingBias(seriesWithStreaks(10, 0))).toBeCloseTo(6.0);
+    expect(starRatingBias(seriesWithStreaks(-10, 0))).toBeCloseTo(-6.0);
+  });
+
+  it("no streak data → zero streak bias", () => {
+    expect(starRatingBias(seriesWithStreaks(0, 0))).toBeCloseTo(0);
   });
 });

@@ -1,0 +1,135 @@
+import { describe, expect, it } from "vitest";
+
+import { buildSeasonHistoryEntry, diffMetaOverrides } from "./history";
+import type { MetaOverride } from "../championMeta";
+import type { SeasonState } from "./types";
+
+// Minimal fabricated season — only the fields the résumé builder reads.
+function fabricate(overrides: Partial<SeasonState> = {}): SeasonState {
+  const team = (id: string, league = "LCK") => ({
+    id,
+    leagueId: league,
+    name: id.toUpperCase(),
+    color: "#fff",
+    iconKey: "sword",
+    players: [],
+    personalityId: "balanced",
+  });
+  return {
+    id: "season-x",
+    name: "2026 Season",
+    status: "complete",
+    champion: "t1",
+    teams: [team("t1"), team("t2", "LPL"), team("t3", "LEC")],
+    splitResults: {
+      winter: { LCK: ["t1", "t2"], LEC: ["t3"] },
+      summer: { LCK: ["t2", "t1"] },
+    },
+    intlResults: {
+      "first-stand": ["t3", "t1"],
+      msi: ["t1", "t2"],
+      worlds: ["t1", "t2", "t3"],
+    },
+    ...overrides,
+  } as unknown as SeasonState;
+}
+
+describe("buildSeasonHistoryEntry", () => {
+  it("captures champion, runner-up, intl and split champions", () => {
+    const entry = buildSeasonHistoryEntry(fabricate(), 123);
+    expect(entry).toMatchObject({
+      id: "season-x",
+      archivedAt: 123,
+      name: "2026 Season",
+      complete: true,
+      champion: { name: "T1", leagueId: "LCK" },
+      runnerUp: { name: "T2", leagueId: "LPL" },
+    });
+    expect(entry.intlChampions["first-stand"]?.name).toBe("T3");
+    expect(entry.intlChampions.msi?.name).toBe("T1");
+    expect(entry.intlChampions.worlds?.name).toBe("T1");
+    expect(entry.splitChampions.winter?.LCK?.name).toBe("T1");
+    expect(entry.splitChampions.winter?.LEC?.name).toBe("T3");
+    expect(entry.splitChampions.summer?.LCK?.name).toBe("T2");
+    expect(entry.splitChampions.spring).toBeUndefined();
+  });
+
+  it("captures the starting and final tier tables", () => {
+    const initial: MetaOverride = { ahri: { middle: "A" } };
+    const final: MetaOverride = { ahri: { middle: "S" } };
+    const entry = buildSeasonHistoryEntry(
+      fabricate({
+        initialMeta: {
+          metaOverride: initial,
+          metaEnabled: true,
+          synergyOverride: null,
+          counterOverride: null,
+        },
+        currentMeta: {
+          metaOverride: final,
+          metaEnabled: true,
+          synergyOverride: null,
+          counterOverride: null,
+        },
+      } as Partial<SeasonState>),
+      1,
+    );
+    expect(entry.initialMetaOverride).toEqual(initial);
+    expect(entry.finalMetaOverride).toEqual(final);
+  });
+
+  it("marks the starting meta unknown for seasons that pre-date initialMeta", () => {
+    const entry = buildSeasonHistoryEntry(
+      fabricate({
+        currentMeta: {
+          metaOverride: null,
+          metaEnabled: true,
+          synergyOverride: null,
+          counterOverride: null,
+        },
+      } as Partial<SeasonState>),
+      1,
+    );
+    expect("initialMetaOverride" in entry).toBe(false);
+    expect(entry.finalMetaOverride).toBeNull();
+  });
+
+  it("handles unfinished seasons (no Worlds result yet)", () => {
+    const entry = buildSeasonHistoryEntry(
+      fabricate({
+        status: "in-progress",
+        champion: null,
+        intlResults: { "first-stand": ["t3"] },
+      }),
+      1,
+    );
+    expect(entry.complete).toBe(false);
+    expect(entry.champion).toBeNull();
+    expect(entry.runnerUp).toBeNull();
+    expect(entry.intlChampions["first-stand"]?.name).toBe("T3");
+  });
+});
+
+describe("diffMetaOverrides", () => {
+  it("reports effective tier changes, biggest swings first", () => {
+    const initial: MetaOverride = {
+      x: { middle: "A", top: "B" },
+      y: { jungle: "C" },
+    };
+    const final: MetaOverride = {
+      x: { middle: "S", top: "B" }, // mid rose one step; top unchanged
+      y: { jungle: "S" }, //            rose three steps
+    };
+    const shifts = diffMetaOverrides(initial, final);
+    expect(shifts).toEqual([
+      { alias: "y", lane: "jungle", from: "C", to: "S" },
+      { alias: "x", lane: "middle", from: "A", to: "S" },
+    ]);
+  });
+
+  it("returns no shifts for identical snapshots", () => {
+    const o: MetaOverride = { x: { middle: "A" } };
+    expect(diffMetaOverrides(o, o)).toEqual([]);
+    expect(diffMetaOverrides(null, null)).toEqual([]);
+  });
+});

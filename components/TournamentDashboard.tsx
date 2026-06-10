@@ -10,10 +10,15 @@ import {
   tournamentChampion,
 } from "@/lib/tournament";
 import { isDesktop, saveFileNative } from "@/lib/desktopStorage";
-import { qualifiedForInternational } from "@/lib/season/engine";
+import {
+  feederEventOf,
+  qualifiedForInternational,
+  qualifierTag,
+} from "@/lib/season/engine";
 import Modal from "./Modal";
 import MetaPanel from "./MetaPanel";
 import TeamIcon from "./TeamIcon";
+import { QualifierTagView, type QualifierTagInfo } from "./QualifierBadge";
 
 // ─── Bracket sub-modules ──────────────────────────────────────────────
 import { Header } from "./tournament/bracket/BracketViews";
@@ -160,9 +165,24 @@ export default function TournamentDashboard() {
     );
     if (!phase?.event) return null;
     const inTournament = new Set(tournament.teams.map((t) => t.id));
-    const field = qualifiedForInternational(season, phase.event).filter((q) =>
-      inTournament.has(q.team.id),
-    );
+    const event = phase.event;
+    // Compact tags: "LCK #1" for split seeds, the trophy pill for the
+    // defending champion's slot. Worlds keeps its route (finalist vs
+    // championship points vs play-in) in the tooltip.
+    const field = qualifiedForInternational(season, event)
+      .filter((q) => inTournament.has(q.team.id))
+      .map((q) => ({
+        ...q,
+        tag: (q.via === "champion"
+          ? { label: q.league, championOf: feederEventOf(event) ?? undefined }
+          : {
+              label: `${q.league} #${q.leagueSeed}`,
+              title:
+                event === "worlds"
+                  ? `Worlds: ${qualifierTag(event, q)}`
+                  : undefined,
+            }) satisfies QualifierTagInfo,
+      }));
     return field.length > 0 ? field : null;
   }, [season, tournament]);
   // Replay click-through is available only post-tournament. Mid-event
@@ -293,9 +313,7 @@ export default function TournamentDashboard() {
                     color={q.team.color}
                   />
                   <span>{q.team.name}</span>
-                  <span className="text-rift-gold/60 uppercase tracking-[0.15em] text-[9px]">
-                    {q.league} #{q.leagueSeed}
-                  </span>
+                  <QualifierTagView tag={q.tag} />
                 </span>
               ))}
             </div>

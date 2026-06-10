@@ -11,6 +11,8 @@ import {
   generateSingleElimBracket,
   generateSwissBracket,
   recordMatchWinner,
+  teamStreak,
+  teamWinStreak,
   type CreateTournamentParams,
   type TournamentDefaults,
   type TournamentMatch,
@@ -735,5 +737,169 @@ describe("createTournament — liveMeta", () => {
     // event — lib/metaEvolution owns writing them.
     expect(t.metaEvolutionLog).toBeUndefined();
     expect(t.metaEvolvedRounds).toBeUndefined();
+  });
+});
+
+// ─── teamStreak (signed, playoff-aware, season carry-in) ───────────────────
+
+describe("teamStreak", () => {
+  let mid = 0;
+  function resolvedMatch(opts: {
+    blue: string;
+    red: string;
+    winner: string;
+    round: number;
+    bracket?: TournamentMatch["bracket"];
+    isBye?: boolean;
+  }): TournamentMatch {
+    return {
+      id: `sm${++mid}`,
+      round: opts.round,
+      blueTeamId: opts.blue,
+      redTeamId: opts.red,
+      format: "bo3",
+      fearless: false,
+      mode: "aivai",
+      aiSide: null,
+      aiDifficulty: "medium",
+      series: null,
+      winner: { teamId: opts.winner, blueWins: 2, redWins: 0 },
+      feedsInto: null,
+      ...(opts.bracket ? { bracket: opts.bracket } : {}),
+      ...(opts.isBye ? { isBye: true } : {}),
+    };
+  }
+
+  function streakTournament(
+    matches: TournamentMatch[],
+    extra: Partial<TournamentState> = {},
+  ): TournamentState {
+    return {
+      id: "tour-streak",
+      name: "Streak Test",
+      format: "round-robin-playoffs",
+      status: "in-progress",
+      teams: makeTeams(4),
+      matches,
+      teamPickHistory: {},
+      globalPickHistory: [],
+      defaults: DEFAULTS,
+      fearlessConfig: { perSeries: false, perTeam: false, global: false },
+      createdAt: 0,
+      updatedAt: 0,
+      activeMatchId: null,
+      ...extra,
+    };
+  }
+
+  it("returns negative counts for loss streaks", () => {
+    const t = streakTournament([
+      resolvedMatch({ blue: "team-1", red: "team-2", winner: "team-2", round: 1 }),
+      resolvedMatch({ blue: "team-3", red: "team-1", winner: "team-3", round: 2 }),
+    ]);
+    expect(teamStreak(t, "team-1")).toBe(-2);
+    // The deprecated win-only wrapper floors losses at 0.
+    expect(teamWinStreak(t, "team-1")).toBe(0);
+  });
+
+  it("playoff bracket matches count as MOST RECENT despite round restarting at 1", () => {
+    // Stage: team-1 wins rounds 1-3. Playoffs (bracket round 1): team-1 LOSES.
+    // Sorting by round alone would bury the playoff loss between stage
+    // rounds and report a 3-win streak — the regression this guards.
+    const t = streakTournament([
+      resolvedMatch({ blue: "team-1", red: "team-2", winner: "team-1", round: 1 }),
+      resolvedMatch({ blue: "team-1", red: "team-3", winner: "team-1", round: 2 }),
+      resolvedMatch({ blue: "team-1", red: "team-4", winner: "team-1", round: 3 }),
+      resolvedMatch({
+        blue: "team-1",
+        red: "team-2",
+        winner: "team-2",
+        round: 1,
+        bracket: "winners",
+      }),
+    ]);
+    expect(teamStreak(t, "team-1")).toBe(-1);
+  });
+
+  it("playoff wins extend a stage streak", () => {
+    const t = streakTournament([
+      resolvedMatch({ blue: "team-1", red: "team-2", winner: "team-1", round: 2 }),
+      resolvedMatch({ blue: "team-1", red: "team-3", winner: "team-1", round: 3 }),
+      resolvedMatch({
+        blue: "team-1",
+        red: "team-4",
+        winner: "team-1",
+        round: 1,
+        bracket: "winners",
+      }),
+    ]);
+    expect(teamStreak(t, "team-1")).toBe(3);
+  });
+
+  it("losers-bracket matches come after winners-bracket matches", () => {
+    // team-1 wins WB round 1, loses WB round 2 (drops), then wins two LB
+    // rounds. Current streak should be +2, not contaminated by ordering.
+    const t = streakTournament([
+      resolvedMatch({ blue: "team-1", red: "team-2", winner: "team-1", round: 1, bracket: "winners" }),
+      resolvedMatch({ blue: "team-1", red: "team-3", winner: "team-3", round: 2, bracket: "winners" }),
+      resolvedMatch({ blue: "team-1", red: "team-4", winner: "team-1", round: 1, bracket: "losers" }),
+      resolvedMatch({ blue: "team-1", red: "team-2", winner: "team-1", round: 2, bracket: "losers" }),
+    ]);
+    expect(teamStreak(t, "team-1")).toBe(2);
+  });
+
+  it("byes are neutral: they neither extend nor break a streak", () => {
+    const t = streakTournament([
+      resolvedMatch({ blue: "team-1", red: "team-2", winner: "team-2", round: 1 }),
+      resolvedMatch({ blue: "team-1", red: "team-1", winner: "team-1", round: 2, isBye: true }),
+      resolvedMatch({ blue: "team-1", red: "team-3", winner: "team-3", round: 3 }),
+    ]);
+    expect(teamStreak(t, "team-1")).toBe(-2);
+  });
+
+  it("extends an unbroken streak with the season carry-in seed (same sign)", () => {
+    const t = streakTournament(
+      [
+        resolvedMatch({ blue: "team-1", red: "team-2", winner: "team-1", round: 1 }),
+        resolvedMatch({ blue: "team-1", red: "team-3", winner: "team-1", round: 2 }),
+      ],
+      { streakSeeds: { "team-1": 3 } },
+    );
+    expect(teamStreak(t, "team-1")).toBe(5);
+  });
+
+  it("does NOT apply the seed once the in-tournament history broke the streak", () => {
+    const t = streakTournament(
+      [
+        resolvedMatch({ blue: "team-1", red: "team-2", winner: "team-2", round: 1 }),
+        resolvedMatch({ blue: "team-1", red: "team-3", winner: "team-1", round: 2 }),
+      ],
+      { streakSeeds: { "team-1": 3 } },
+    );
+    expect(teamStreak(t, "team-1")).toBe(1);
+  });
+
+  it("ignores an opposite-sign seed", () => {
+    const t = streakTournament(
+      [resolvedMatch({ blue: "team-1", red: "team-2", winner: "team-1", round: 1 })],
+      { streakSeeds: { "team-1": -4 } },
+    );
+    expect(teamStreak(t, "team-1")).toBe(1);
+  });
+
+  it("returns the bare seed for a team with no completed matches yet", () => {
+    const t = streakTournament([], { streakSeeds: { "team-1": -4, "team-2": 2 } });
+    expect(teamStreak(t, "team-1")).toBe(-4);
+    expect(teamStreak(t, "team-2")).toBe(2);
+    expect(teamStreak(t, "team-3")).toBe(0);
+  });
+
+  it("excludeMatchId leaves the in-progress series out of the walk", () => {
+    const t = streakTournament([
+      resolvedMatch({ blue: "team-1", red: "team-2", winner: "team-1", round: 1 }),
+      resolvedMatch({ blue: "team-1", red: "team-3", winner: "team-1", round: 2 }),
+    ]);
+    const lastId = t.matches[1].id;
+    expect(teamStreak(t, "team-1", lastId)).toBe(1);
   });
 });
