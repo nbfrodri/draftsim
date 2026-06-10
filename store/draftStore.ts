@@ -1048,28 +1048,35 @@ function applyMetaSnapshotPatch(
 // healthy seasons.
 function ensureSeasonIdentities(season: SeasonState): SeasonState {
   const teams = ensureTeamIdentities(season.teams);
-  if (teams === season.teams) return season;
   const byId = new Map(teams.map((t) => [t.id, t]));
+  // Tournament copies are checked even when the season teams are already
+  // healthy: a prior load may have repaired (and persisted) the season
+  // teams while leaving stale tournament snapshots behind.
+  let tournamentsChanged = false;
+  const tournaments = Object.fromEntries(
+    Object.entries(season.tournaments).map(([id, t]) => {
+      let teamsChanged = false;
+      const fixed = t.teams.map((tt) => {
+        const st = byId.get(tt.id);
+        if (!st || (tt.iconKey && tt.color && tt.personalityId)) return tt;
+        teamsChanged = true;
+        return {
+          ...tt,
+          iconKey: tt.iconKey || st.iconKey,
+          color: tt.color || st.color,
+          personalityId: tt.personalityId || st.personalityId,
+        };
+      });
+      if (!teamsChanged) return [id, t] as const;
+      tournamentsChanged = true;
+      return [id, { ...t, teams: fixed }] as const;
+    }),
+  );
+  if (teams === season.teams && !tournamentsChanged) return season;
   return {
     ...season,
     teams,
-    tournaments: Object.fromEntries(
-      Object.entries(season.tournaments).map(([id, t]) => [
-        id,
-        {
-          ...t,
-          teams: t.teams.map((tt) => {
-            const st = byId.get(tt.id);
-            if (!st || (tt.iconKey && tt.color)) return tt;
-            return {
-              ...tt,
-              iconKey: tt.iconKey ?? st.iconKey,
-              color: tt.color ?? st.color,
-            };
-          }),
-        },
-      ]),
-    ),
+    tournaments: tournamentsChanged ? tournaments : season.tournaments,
   };
 }
 

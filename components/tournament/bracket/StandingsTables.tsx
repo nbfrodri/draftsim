@@ -6,8 +6,13 @@ import {
   computeStandings,
   computeSwissStandings,
 } from "@/lib/tournament";
-import type { TeamStanding, TournamentState } from "@/lib/tournament";
+import type {
+  TeamStanding,
+  TournamentState,
+  TournamentTeam,
+} from "@/lib/tournament";
 import type { TeamStreak } from "@/lib/streaks";
+import TeamIcon from "@/components/TeamIcon";
 import { teamStreaksFor } from "./MatchCard";
 
 // Compact streak chip for standings rows. Only shown when count >= 2.
@@ -27,6 +32,31 @@ function StreakChip({ streak }: { streak: TeamStreak | undefined }) {
       title={tooltip}
     >
       {label}
+    </span>
+  );
+}
+
+// Team cell shared by all standings tables: seed, identity icon painted
+// in the team's brand color, name, streak chip. The icon keeps its brand
+// color regardless of the row's lead/advancing tint — same convention as
+// the match cards, where it acts as a stable identity mark.
+function TeamCell({
+  team,
+  streak,
+}: {
+  team: TournamentTeam;
+  streak: TeamStreak | undefined;
+}) {
+  return (
+    <span className="truncate flex items-center gap-0">
+      <span className="text-rift-mutedbright/60 mr-2 tabular-nums text-[9px]">
+        #{team.seed}
+      </span>
+      <span className="mr-1.5 shrink-0 self-center">
+        <TeamIcon iconKey={team.iconKey} size={12} color={team.color ?? undefined} />
+      </span>
+      {team.name}
+      <StreakChip streak={streak} />
     </span>
   );
 }
@@ -67,13 +97,7 @@ export function StandingsTable({ tournament }: { tournament: TournamentState }) 
             <span className="font-display tabular-nums text-rift-goldbright/80">
               {row.rank}
             </span>
-            <span className="truncate flex items-center gap-0">
-              <span className="text-rift-mutedbright/60 mr-2 tabular-nums text-[9px]">
-                #{row.team.seed}
-              </span>
-              {row.team.name}
-              <StreakChip streak={streaks[row.team.id]} />
-            </span>
+            <TeamCell team={row.team} streak={streaks[row.team.id]} />
             <span className="text-center tabular-nums">{row.played}</span>
             <span className="text-center tabular-nums text-rift-bluebright">
               {row.wins}
@@ -146,13 +170,7 @@ export function GroupStandingsTable({
                   <span className="text-emerald-300/80 ml-0.5">▲</span>
                 )}
               </span>
-              <span className="truncate flex items-center gap-0">
-                <span className="text-rift-mutedbright/60 mr-2 tabular-nums text-[9px]">
-                  #{row.team.seed}
-                </span>
-                {row.team.name}
-                <StreakChip streak={streaks[row.team.id]} />
-              </span>
+              <TeamCell team={row.team} streak={streaks[row.team.id]} />
               <span className="text-center tabular-nums">{row.played}</span>
               <span className="text-center tabular-nums text-rift-bluebright">
                 {row.wins}
@@ -244,13 +262,7 @@ export function SwissStandingsTable({
               <span className="font-display tabular-nums text-rift-goldbright/80">
                 {row.rank}
               </span>
-              <span className="truncate flex items-center gap-0">
-                <span className="text-rift-mutedbright/60 mr-2 tabular-nums text-[9px]">
-                  #{row.team.seed}
-                </span>
-                {row.team.name}
-                <StreakChip streak={streaks[row.team.id]} />
-              </span>
+              <TeamCell team={row.team} streak={streaks[row.team.id]} />
               <span className="text-center tabular-nums">{row.played}</span>
               <span className="text-center tabular-nums text-rift-bluebright">
                 {row.wins}

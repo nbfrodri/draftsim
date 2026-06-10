@@ -183,7 +183,9 @@ const TeamRow = memo(function TeamRow({
         {team && (
           <StreakChip kind={streakKind} count={streakCount ?? 0} />
         )}
-        {team?.personalityId && team.personalityId !== "balanced" && (
+        {/* Shown for every team — including the "Balanced" default — so
+            no team appears to be missing its identity tag. */}
+        {team?.personalityId && (
           <span
             className="text-[8px] uppercase tracking-[0.1em] text-rift-mutedbright/50 shrink-0 hidden md:block"
             title={`${getPersonality(team.personalityId).name}: ${getPersonality(team.personalityId).description}`}
