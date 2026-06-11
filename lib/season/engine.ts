@@ -208,10 +208,11 @@ function intlSeries(config: SeasonConfig): {
   };
 }
 
-// Formats offered for international events. Team counts run 12-21 so
-// plain double-elim (power-of-2 field) is excluded; pure round-robin /
-// swiss without playoffs are excluded too — an international needs a
-// knockout to crown its champion.
+// Formats offered for international events. MSI/Worlds fields run
+// 18-21 teams so plain double-elim is excluded there (the DE generator
+// allows at most padded/4 byes); pure round-robin / swiss without
+// playoffs are excluded too — an international needs a knockout to
+// crown its champion.
 export const INTL_FORMAT_OPTIONS: Array<{
   value: TournamentFormat;
   label: string;
@@ -223,6 +224,23 @@ export const INTL_FORMAT_OPTIONS: Array<{
   { value: "swiss-playoffs-de", label: "Swiss + DE Playoffs" },
   { value: "round-robin-playoffs", label: "Round Robin + DE Playoffs" },
 ];
+
+// Per-event option list: First Stand's 12-team field fits a plain
+// double-elim bracket (a 16 bracket with exactly 4 byes — the
+// generator's limit), so the event additionally offers it. The shared
+// "All Events" card also offers it; events whose field can't host it
+// fall back to their canonical format (see intlConfigFor).
+export function intlFormatOptionsFor(
+  event: InternationalId | "shared",
+): Array<{ value: TournamentFormat; label: string }> {
+  if (event !== "first-stand" && event !== "shared")
+    return INTL_FORMAT_OPTIONS;
+  return [
+    INTL_FORMAT_OPTIONS[0],
+    { value: "double-elim", label: "Double Elimination" },
+    ...INTL_FORMAT_OPTIONS.slice(1),
+  ];
+}
 
 /** Canonical shape of each international, used when the season config
  *  has no entry for the event (including seasons saved before
@@ -252,14 +270,25 @@ export function intlConfigFor(
   config: SeasonConfig,
   event: InternationalId,
 ): SeasonIntlConfig {
-  return {
+  const cfg = {
     ...defaultIntlConfig(config, event),
     ...(config.intlConfigs?.[event] ?? {}),
   };
+  // Plain double-elim only fits First Stand's 12-team field; MSI/Worlds
+  // fields (18-21 teams) exceed the DE generator's bye limit. A stray
+  // config (e.g. a shared "All Events" setup picking double-elim)
+  // falls back to the event's canonical format.
+  if (cfg.format === "double-elim" && event !== "first-stand") {
+    cfg.format = defaultIntlConfig(config, event).format;
+  }
+  return cfg;
 }
 
 // Format overrides for an international: single-elim escalates from
 // early-round series through the semifinals to the finals length;
+// standalone double-elim does the same (the whole bracket IS the event
+// — every W/L round at the early length, W-Final + L-Final at the
+// semifinal length, the grand final at the finals length);
 // stage+playoffs formats play the stage at the early length and the
 // bracket at finals length, with the semifinals separately tunable.
 function intlOverridesFor(
@@ -267,9 +296,23 @@ function intlOverridesFor(
   teamCount: number,
 ): FormatOverrides {
   const semis = cfg.semifinalSeries ?? cfg.finalsSeries;
-  return cfg.format === "single-elim"
-    ? singleElimOverrides(teamCount, cfg.earlySeries, cfg.finalsSeries, semis)
-    : seriesOverrides(cfg.earlySeries, cfg.finalsSeries, semis, cfg.finalsSeries);
+  if (cfg.format === "single-elim") {
+    return singleElimOverrides(
+      teamCount,
+      cfg.earlySeries,
+      cfg.finalsSeries,
+      semis,
+    );
+  }
+  if (cfg.format === "double-elim") {
+    return seriesOverrides(
+      cfg.earlySeries,
+      cfg.earlySeries,
+      semis,
+      cfg.finalsSeries,
+    );
+  }
+  return seriesOverrides(cfg.earlySeries, cfg.finalsSeries, semis, cfg.finalsSeries);
 }
 
 // Format-specific createTournament params for an international event.

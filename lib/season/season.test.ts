@@ -16,6 +16,8 @@ import {
   championshipPoints,
   createSeason,
   currentPhase,
+  intlConfigFor,
+  intlFormatOptionsFor,
   nextPendingTournament,
   qualifiedForInternational,
   tournamentPlacements,
@@ -416,6 +418,101 @@ describe("custom international formats", () => {
     // And the customized event still resolves to completion.
     const done = resolveTournament(fs, rng);
     expect(done.status).toBe("complete");
+  });
+
+  it("builds First Stand as a 12-team double-elimination bracket", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(6));
+    const config = makeConfig();
+    config.intlConfigs = {
+      "first-stand": {
+        format: "double-elim",
+        earlySeries: "bo3",
+        semifinalSeries: "bo5",
+        finalsSeries: "bo5",
+        playoffTeams: 8,
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    const rng = rngFrom(11);
+    for (let i = 0; i < 6; i++) {
+      s = applyTournamentUpdate(
+        s,
+        resolveTournament(nextPendingTournament(s)!, rng),
+        champions,
+      );
+    }
+    const fs = nextPendingTournament(s)!;
+    expect(fs.name).toBe("First Stand");
+    expect(fs.format).toBe("double-elim");
+    expect(fs.teams).toHaveLength(12);
+    // 12 teams pad to a 16 bracket: the top 4 global seeds (the league
+    // #1s of the four strongest regions) skip W-R1, leaving 4 real
+    // first-round matches, a losers bracket, and one grand final.
+    const wR1 = fs.matches.filter(
+      (m) => m.bracket === "winners" && m.round === 1,
+    );
+    expect(wR1).toHaveLength(4);
+    expect(fs.matches.some((m) => m.bracket === "losers")).toBe(true);
+    expect(
+      fs.matches.filter((m) => m.bracket === "grand-final"),
+    ).toHaveLength(1);
+    // Series escalation: early bracket rounds at the early length, the
+    // W-Final (semifinal slot) and grand final at bo5.
+    expect(wR1.every((m) => m.format === "bo3")).toBe(true);
+    const wRounds = fs.matches
+      .filter((m) => m.bracket === "winners")
+      .map((m) => m.round);
+    const wFinal = fs.matches.filter(
+      (m) => m.bracket === "winners" && m.round === Math.max(...wRounds),
+    );
+    expect(wFinal.every((m) => m.format === "bo5")).toBe(true);
+    expect(
+      fs.matches.find((m) => m.bracket === "grand-final")!.format,
+    ).toBe("bo5");
+    // The event resolves to completion and records placements.
+    const done = resolveTournament(fs, rng);
+    expect(done.status).toBe("complete");
+    s = applyTournamentUpdate(s, done, champions);
+    expect(s.intlResults["first-stand"]).toBeDefined();
+    expect(currentPhase(s)!.split).toBe("spring");
+  });
+
+  it("offers double-elim only where the field fits, coercing strays", () => {
+    // Option lists: First Stand (and the shared card) offer plain
+    // double-elim; MSI/Worlds don't (18-21 team fields).
+    const has = (e: Parameters<typeof intlFormatOptionsFor>[0]) =>
+      intlFormatOptionsFor(e).some((o) => o.value === "double-elim");
+    expect(has("first-stand")).toBe(true);
+    expect(has("shared")).toBe(true);
+    expect(has("msi")).toBe(false);
+    expect(has("worlds")).toBe(false);
+    // A shared config that picked double-elim keeps it on First Stand
+    // but falls back to the canonical formats elsewhere.
+    const config = makeConfig();
+    const de = {
+      format: "double-elim" as const,
+      earlySeries: "bo3" as const,
+      finalsSeries: "bo5" as const,
+      playoffTeams: 8,
+    };
+    config.intlConfigs = {
+      "first-stand": { ...de },
+      msi: { ...de },
+      worlds: { ...de },
+    };
+    expect(intlConfigFor(config, "first-stand").format).toBe("double-elim");
+    expect(intlConfigFor(config, "msi").format).toBe("swiss-playoffs-de");
+    expect(intlConfigFor(config, "worlds").format).toBe("groups-playoffs");
   });
 });
 

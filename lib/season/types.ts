@@ -117,6 +117,9 @@ export interface SeasonLeagueConfig {
 export interface SeasonIntlConfig {
   // Tournament format of the event. For Worlds this configures the
   // MAIN event — the play-in is always a small single-elim qualifier.
+  // Plain "double-elim" is honored only for First Stand (its 12-team
+  // field fits the bracket); other events coerce it back to their
+  // canonical format (see intlConfigFor).
   format: TournamentFormat;
   // Series length for early rounds / regular stage, and for the
   // playoff bracket / late single-elim rounds.

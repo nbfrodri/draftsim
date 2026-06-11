@@ -7,7 +7,7 @@ import { deriveStar, randomizeTiersForStar } from "@/lib/players";
 import type { AIDifficulty, SeriesFormat } from "@/lib/types";
 import type { TournamentFormat } from "@/lib/tournament";
 import {
-  INTL_FORMAT_OPTIONS,
+  intlFormatOptionsFor,
   LEAGUE_FORMAT_OPTIONS,
 } from "@/lib/season/engine";
 import {
@@ -84,9 +84,10 @@ function formatHasPlayoffStage(format: TournamentFormat): boolean {
 // Bracket-size pickers apply to every stage+playoffs format. Swiss /
 // round-robin take the count directly; groups round it to a per-group
 // advancing count (e.g. "Top 8" with 4 groups → top 2 per group).
-// Single-elim has no separate playoff stage.
+// Single-elim and plain double-elim have no separate playoff stage —
+// the whole field enters one bracket.
 function intlFormatHasPlayoffSize(format: TournamentFormat): boolean {
-  return format !== "single-elim";
+  return format !== "single-elim" && format !== "double-elim";
 }
 
 // Shared select styling: dark control with cut corners + gold chevron
@@ -344,7 +345,7 @@ export default function SeasonSetup({ onCancel }: Props) {
                 : undefined
             }
           >
-            {INTL_FORMAT_OPTIONS.map((o) => (
+            {intlFormatOptionsFor(event).map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -394,6 +395,12 @@ export default function SeasonSetup({ onCancel }: Props) {
         {event === "worlds" && (
           <span className="text-[9px] text-rift-muted/70 pb-1.5">
             Main event only — the play-in stays single-elim
+          </span>
+        )}
+        {event === "shared" && cfg.format === "double-elim" && (
+          <span className="text-[9px] text-rift-muted/70 pb-1.5">
+            Only First Stand&apos;s 12-team field fits double-elim — MSI and
+            Worlds keep their canonical formats
           </span>
         )}
       </div>
