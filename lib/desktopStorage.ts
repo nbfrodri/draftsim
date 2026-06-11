@@ -354,6 +354,38 @@ export async function saveFileNative(opts: {
 }
 
 /**
+ * Open a native Save dialog and write binary `content` to the chosen file.
+ * Same contract as saveFileNative, but for non-text payloads (e.g. .xlsx).
+ */
+export async function saveBinaryFileNative(opts: {
+  defaultPath?: string;
+  filters?: Array<{ name: string; extensions: string[] }>;
+  content: Uint8Array;
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!isDesktop()) {
+    return { ok: false, error: "Not running in desktop mode" };
+  }
+  try {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const { writeFile } = await import("@tauri-apps/plugin-fs");
+
+    const filePath = await save({
+      defaultPath: opts.defaultPath,
+      filters: opts.filters,
+    });
+    if (filePath == null) {
+      // User cancelled.
+      return { ok: false, error: "cancelled" };
+    }
+    await writeFile(filePath, opts.content);
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+}
+
+/**
  * Open a native Open dialog and read the chosen file's contents.
  * Returns { ok: true, content } on success, { ok: false, error } on failure/cancel.
  */

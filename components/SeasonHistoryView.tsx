@@ -9,6 +9,10 @@ import {
   type SeasonHistoryTeamRef,
 } from "@/lib/season/history";
 import {
+  exportAllSeasonsXlsx,
+  exportSeasonXlsx,
+} from "@/lib/season/historyExport";
+import {
   CHAMPION_META,
   TIER_ORDER,
   type MetaOverride,
@@ -380,14 +384,49 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
     (s) => s.removeSeasonFromHistory,
   );
   const clearSeasonHistory = useDraftStore((s) => s.clearSeasonHistory);
+  const champions = useDraftStore((s) => s.champions);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<"all" | "one" | null>(null);
+  const [exportMsg, setExportMsg] = useState<{
+    where: "all" | "one";
+    kind: "ok" | "err";
+    text: string;
+  } | null>(null);
   const selected =
     seasonHistory.find((e) => e.id === selectedId) ?? seasonHistory[0] ?? null;
   const confirmEntry =
     confirmRemove && confirmRemove !== "all"
       ? seasonHistory.find((e) => e.id === confirmRemove)
       : null;
+  const nameByAlias = useMemo(
+    () => new Map(champions.map((c) => [c.alias, c.name])),
+    [champions],
+  );
+
+  // Styled .xlsx — opens in Google Sheets / Excel with colors intact.
+  const runExport = async (target: "all" | "one") => {
+    if (exporting) return;
+    setExporting(target);
+    setExportMsg(null);
+    const result =
+      target === "all"
+        ? await exportAllSeasonsXlsx(seasonHistory, nameByAlias, Date.now())
+        : selected
+          ? await exportSeasonXlsx(selected, nameByAlias)
+          : { ok: false as const, error: "No season selected" };
+    setExporting(null);
+    if (result.ok) {
+      setExportMsg({ where: target, kind: "ok", text: "Exported ✓" });
+    } else if (result.error !== "cancelled") {
+      setExportMsg({
+        where: target,
+        kind: "err",
+        text: `Export failed: ${result.error}`,
+      });
+    }
+    setTimeout(() => setExportMsg(null), 4000);
+  };
 
   return (
     <div className="min-h-screen px-4 py-10 md:py-14">
@@ -414,13 +453,35 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
             </h1>
           </div>
           {seasonHistory.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setConfirmRemove("all")}
-              className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/70 hover:text-rift-redbright transition-colors"
-            >
-              Clear All
-            </button>
+            <div className="flex items-center gap-4">
+              {exportMsg?.where === "all" && (
+                <span
+                  className={`text-[9px] uppercase tracking-[0.2em] ${
+                    exportMsg.kind === "ok"
+                      ? "text-rift-goldbright"
+                      : "text-rift-redbright"
+                  }`}
+                >
+                  {exportMsg.text}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => runExport("all")}
+                disabled={exporting != null}
+                title="Styled .xlsx — open or import it in Google Sheets / Excel with all colors intact"
+                className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/80 hover:text-rift-goldbright transition-colors disabled:opacity-50"
+              >
+                {exporting === "all" ? "Exporting…" : "Export All (.xlsx)"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmRemove("all")}
+                className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/70 hover:text-rift-redbright transition-colors"
+              >
+                Clear All
+              </button>
+            </div>
           )}
         </div>
 
@@ -494,7 +555,33 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
             </div>
 
             {/* Selected season */}
-            {selected && <SeasonDetail entry={selected} />}
+            {selected && (
+              <div className="min-w-0">
+                <div className="flex items-center justify-end gap-4 mb-2">
+                  {exportMsg?.where === "one" && (
+                    <span
+                      className={`text-[9px] uppercase tracking-[0.2em] ${
+                        exportMsg.kind === "ok"
+                          ? "text-rift-goldbright"
+                          : "text-rift-redbright"
+                      }`}
+                    >
+                      {exportMsg.text}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => runExport("one")}
+                    disabled={exporting != null}
+                    title="Export this season as a styled .xlsx — open or import it in Google Sheets / Excel"
+                    className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/80 hover:text-rift-goldbright transition-colors disabled:opacity-50"
+                  >
+                    {exporting === "one" ? "Exporting…" : "Export Season (.xlsx)"}
+                  </button>
+                </div>
+                <SeasonDetail entry={selected} />
+              </div>
+            )}
           </div>
         )}
       </div>
