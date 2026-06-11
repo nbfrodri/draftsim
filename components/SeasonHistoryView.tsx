@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import {
@@ -12,6 +12,14 @@ import {
   exportAllSeasonsXlsx,
   exportSeasonXlsx,
 } from "@/lib/season/historyExport";
+import { parseHistoryWorkbook } from "@/lib/season/historyImport";
+import {
+  computeTeamRecords,
+  splitWinnersByRegion,
+  DYNASTY_THRESHOLD,
+  type TeamRecord,
+} from "@/lib/season/historyRecords";
+import { isDesktop, openBinaryFileNative } from "@/lib/desktopStorage";
 import {
   CHAMPION_META,
   TIER_ORDER,
@@ -22,6 +30,7 @@ import type { Lane } from "@/lib/types";
 import {
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
+  LEAGUE_NAMES,
   SPLIT_LABELS,
   type InternationalId,
   type SplitId,
@@ -378,18 +387,166 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
   );
 }
 
+// One all-time leaderboard card: top teams by some title count.
+function RecordBoard({
+  title,
+  records,
+  count,
+  detail,
+}: {
+  title: string;
+  records: TeamRecord[];
+  count: (r: TeamRecord) => number;
+  detail?: (r: TeamRecord) => string;
+}) {
+  const rows = [...records]
+    .filter((r) => count(r) > 0)
+    .sort((a, b) => count(b) - count(a) || a.team.name.localeCompare(b.team.name))
+    .slice(0, 5);
+  return (
+    <div className="border border-rift-line/40 bg-rift-bg/30">
+      <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.35em] text-rift-gold/70">
+        {title}
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-3 py-2 text-[10px] italic text-rift-muted">
+          No titles recorded yet
+        </p>
+      ) : (
+        <div className="divide-y divide-rift-line/15">
+          {rows.map((r, i) => (
+            <div key={r.key} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
+              <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
+                {i + 1}
+              </span>
+              <span className="min-w-0 flex-1">
+                <TeamRef team={r.team} size={13} muted={i > 0} />
+              </span>
+              {detail && (
+                <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/70 flex-shrink-0">
+                  {detail(r)}
+                </span>
+              )}
+              <span
+                className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}
+              >
+                {count(r)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Records & Dynasties — all-time stats computed across every archived
+// season. Franchises are matched by team name within the same league.
+function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
+  const records = useMemo(() => computeTeamRecords(entries), [entries]);
+  const byRegion = useMemo(() => splitWinnersByRegion(records), [records]);
+  const intlDetail = (r: TeamRecord) =>
+    INTL_ORDER.filter((e) => (r.intlTitles[e] ?? 0) > 0)
+      .map((e) => `${r.intlTitles[e]}× ${INTERNATIONAL_LABELS[e]}`)
+      .join(" · ");
+
+  return (
+    <div className="space-y-6">
+      {/* All-time leaderboards */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          All-Time Records · {entries.length} season{entries.length === 1 ? "" : "s"}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <RecordBoard
+            title="Most Titles"
+            records={records}
+            count={(r) => r.totalTitles}
+            detail={(r) => `${r.splitTitles} splits · ${r.intlTotal} intl`}
+          />
+          <RecordBoard
+            title="Most Split Titles"
+            records={records}
+            count={(r) => r.splitTitles}
+          />
+          <RecordBoard
+            title="Most International Trophies"
+            records={records}
+            count={(r) => r.intlTotal}
+            detail={intlDetail}
+          />
+          <RecordBoard
+            title="Most Worlds Titles"
+            records={records}
+            count={(r) => r.worldsTitles}
+          />
+        </div>
+      </div>
+
+      {/* Per-region split winners — dynasty badge at 3+ titles */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          Split Winners by Region
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {LEAGUE_IDS.map((league) => {
+            const winners = byRegion[league];
+            if (!winners) return null;
+            return (
+              <div key={league} className="border border-rift-line/40 bg-rift-bg/30">
+                <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
+                  {LEAGUE_NAMES[league]}
+                </div>
+                <div className="divide-y divide-rift-line/15">
+                  {winners.map((r) => (
+                    <div
+                      key={r.key}
+                      className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
+                      title={r.splitTitleLabels.join("\n")}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <TeamRef team={r.team} size={13} />
+                      </span>
+                      {r.splitTitles >= DYNASTY_THRESHOLD && (
+                        <span className="px-1.5 py-px border border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright text-[8px] uppercase tracking-[0.25em] flex-shrink-0">
+                          Dynasty
+                        </span>
+                      )}
+                      <span className="tabular-nums font-semibold text-rift-mutedbright flex-shrink-0">
+                        {r.splitTitles}×
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-[9px] italic text-rift-muted">
+          Teams are matched across seasons by name within the same league —
+          a team keeping its name season to season builds one record.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
   const seasonHistory = useDraftStore((s) => s.seasonHistory);
   const removeSeasonFromHistory = useDraftStore(
     (s) => s.removeSeasonFromHistory,
   );
   const clearSeasonHistory = useDraftStore((s) => s.clearSeasonHistory);
+  const importSeasonHistory = useDraftStore((s) => s.importSeasonHistory);
   const champions = useDraftStore((s) => s.champions);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"timeline" | "records">("timeline");
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"all" | "one" | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [exportMsg, setExportMsg] = useState<{
-    where: "all" | "one";
+    where: "all" | "one" | "import";
     kind: "ok" | "err";
     text: string;
   } | null>(null);
@@ -428,6 +585,62 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
     setTimeout(() => setExportMsg(null), 4000);
   };
 
+  // Import a previously exported workbook (whole hall or one season).
+  // New exports carry a hidden lossless data sheet; older ones fall
+  // back to parsing the styled sheets (icons/meta don't survive those).
+  const handleImportBytes = async (data: ArrayBuffer) => {
+    setImporting(true);
+    setExportMsg(null);
+    const parsed = await parseHistoryWorkbook(data, Date.now());
+    setImporting(false);
+    if (!parsed.ok) {
+      setExportMsg({ where: "import", kind: "err", text: parsed.error });
+    } else {
+      const { added, updated } = importSeasonHistory(parsed.entries);
+      const total = added + updated;
+      setExportMsg({
+        where: "import",
+        kind: "ok",
+        text: `Imported ${total} season${total === 1 ? "" : "s"}${updated > 0 ? ` (${updated} updated)` : ""} ✓`,
+      });
+    }
+    setTimeout(() => setExportMsg(null), 6000);
+  };
+
+  const runImport = async () => {
+    if (importing || exporting) return;
+    if (isDesktop()) {
+      const result = await openBinaryFileNative({
+        filters: [
+          { name: "Excel / Google Sheets Workbook", extensions: ["xlsx"] },
+        ],
+      });
+      if (result.ok && result.content) {
+        const bytes = result.content;
+        const copy = new Uint8Array(bytes); // detach from any shared buffer
+        await handleImportBytes(copy.buffer);
+      } else if (result.error !== "cancelled") {
+        setExportMsg({
+          where: "import",
+          kind: "err",
+          text: `Import failed: ${result.error}`,
+        });
+        setTimeout(() => setExportMsg(null), 6000);
+      }
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const onImportFilePicked = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    await handleImportBytes(await file.arrayBuffer());
+  };
+
   return (
     <div className="min-h-screen px-4 py-10 md:py-14">
       <div className="max-w-6xl mx-auto">
@@ -452,46 +665,95 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
               Season History
             </h1>
           </div>
-          {seasonHistory.length > 0 && (
-            <div className="flex items-center gap-4">
-              {exportMsg?.where === "all" && (
-                <span
-                  className={`text-[9px] uppercase tracking-[0.2em] ${
-                    exportMsg.kind === "ok"
-                      ? "text-rift-goldbright"
-                      : "text-rift-redbright"
-                  }`}
+          <div className="flex items-center gap-4">
+            {(exportMsg?.where === "all" || exportMsg?.where === "import") && (
+              <span
+                className={`text-[9px] uppercase tracking-[0.2em] ${
+                  exportMsg.kind === "ok"
+                    ? "text-rift-goldbright"
+                    : "text-rift-redbright"
+                }`}
+              >
+                {exportMsg.text}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={runImport}
+              disabled={importing || exporting != null}
+              title="Import a previously exported Hall of Seasons or single-season .xlsx"
+              className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/80 hover:text-rift-goldbright transition-colors disabled:opacity-50"
+            >
+              {importing ? "Importing…" : "Import (.xlsx)"}
+            </button>
+            {seasonHistory.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => runExport("all")}
+                  disabled={importing || exporting != null}
+                  title="Styled .xlsx — open or import it in Google Sheets / Excel with all colors intact"
+                  className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/80 hover:text-rift-goldbright transition-colors disabled:opacity-50"
                 >
-                  {exportMsg.text}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => runExport("all")}
-                disabled={exporting != null}
-                title="Styled .xlsx — open or import it in Google Sheets / Excel with all colors intact"
-                className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/80 hover:text-rift-goldbright transition-colors disabled:opacity-50"
-              >
-                {exporting === "all" ? "Exporting…" : "Export All (.xlsx)"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmRemove("all")}
-                className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/70 hover:text-rift-redbright transition-colors"
-              >
-                Clear All
-              </button>
-            </div>
-          )}
+                  {exporting === "all" ? "Exporting…" : "Export All (.xlsx)"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmRemove("all")}
+                  className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/70 hover:text-rift-redbright transition-colors"
+                >
+                  Clear All
+                </button>
+              </>
+            )}
+          </div>
         </div>
+
+        {/* Web fallback for the import file picker (desktop uses the
+            native Open dialog instead). */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          className="hidden"
+          onChange={onImportFilePicked}
+        />
+
+        {/* Timeline ↔ Records tabs */}
+        {seasonHistory.length > 0 && (
+          <div className="flex items-center gap-1 mb-5">
+            {(
+              [
+                { id: "timeline", label: "Timeline" },
+                { id: "records", label: "Records & Dynasties" },
+              ] as const
+            ).map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setTab(id)}
+                className={`px-3 py-1.5 border text-[9px] uppercase tracking-[0.25em] transition-all ${
+                  tab === id
+                    ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                    : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {seasonHistory.length === 0 ? (
           <p className="text-[11px] md:text-xs text-rift-mutedbright leading-snug max-w-2xl">
             No seasons archived yet. Finish a season and use “Add to Season
             History” on its dashboard — or archive a completed saved season
             from the Saved Seasons list — to build your timeline of
-            champions, finalists, and the metas they played on.
+            champions, finalists, and the metas they played on. You can also
+            restore a previously exported archive with “Import (.xlsx)”.
           </p>
+        ) : tab === "records" ? (
+          <RecordsPanel entries={seasonHistory} />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-5 items-start">
             {/* Timeline list */}

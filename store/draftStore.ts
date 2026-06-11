@@ -554,6 +554,11 @@ interface DraftStore {
   archiveSavedSeasonToHistory: (entryId: string) => boolean;
   removeSeasonFromHistory: (entryId: string) => void;
   clearSeasonHistory: () => void;
+  /** Merge entries parsed from an imported .xlsx (upsert by id, newest
+   *  archive first). Returns how many were new vs. overwritten. */
+  importSeasonHistory: (
+    entries: SeasonHistoryEntry[],
+  ) => { added: number; updated: number };
 
   // ─── Preset libraries (main-menu sections) ─────────────────────────
   // Saved meta tier lists. createMetaPreset returns the new preset id.
@@ -1894,6 +1899,26 @@ export const useDraftStore = create<DraftStore>()(
   },
 
   clearSeasonHistory: () => set({ seasonHistory: [] }),
+
+  importSeasonHistory: (entries) => {
+    // Dedupe the incoming batch by id (last occurrence wins), then
+    // upsert into the existing archive and re-sort the timeline.
+    const incoming = [...new Map(entries.map((e) => [e.id, e])).values()];
+    const existingIds = new Set(get().seasonHistory.map((e) => e.id));
+    const added = incoming.filter((e) => !existingIds.has(e.id)).length;
+    const updated = incoming.length - added;
+    set((s) => {
+      const byId = new Map(incoming.map((e) => [e.id, e]));
+      const merged = [
+        ...s.seasonHistory.map((e) => byId.get(e.id) ?? e),
+        ...incoming.filter((e) => !existingIds.has(e.id)),
+      ]
+        .sort((a, b) => b.archivedAt - a.archivedAt)
+        .slice(0, seasonHistoryCap());
+      return { seasonHistory: merged };
+    });
+    return { added, updated };
+  },
 
   // ─── Preset libraries ────────────────────────────────────────────────
 

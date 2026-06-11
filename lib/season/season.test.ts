@@ -237,19 +237,27 @@ describe("season lifecycle", () => {
       const t = nextPendingTournament(s)!;
       s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
     }
-    const msi = nextPendingTournament(s)!;
-    expect(msi.name).toContain("Invitational");
     // 18 regional qualifiers, +1 when the First Stand champion didn't
-    // make spring top-3 (additive defending-champion slot).
+    // make spring top-3 (additive defending-champion slot). The default
+    // swiss format can't run 19 fairly, so that case opens with an MSI
+    // Play-In (two lowest seeds, loser out) before the 18-team main.
     const msiQ = qualifiedForInternational(s, "msi");
     const fsChampion = s.intlResults["first-stand"]![0];
     expect(msiQ.some((q) => q.team.id === fsChampion)).toBe(true);
     const msiExtra = msiQ.filter((q) => q.via === "champion");
-    expect(msi.teams).toHaveLength(18 + msiExtra.length);
     if (msiExtra.length > 0) {
       expect(msiExtra[0].team.id).toBe(fsChampion);
       expect(msiExtra[0].leagueSeed).toBe(0);
+      const msiPlayIn = nextPendingTournament(s)!;
+      expect(msiPlayIn.name).toBe("MSI Play-In");
+      expect(msiPlayIn.teams).toHaveLength(2);
+      s = applyTournamentUpdate(s, resolveTournament(msiPlayIn, rng), champions);
+      expect(s.intlResults.msi).toBeUndefined();
     }
+    const msi = nextPendingTournament(s)!;
+    expect(msi.name).toContain("Invitational");
+    expect(msi.teams).toHaveLength(18);
+    expect(msi.matches.some((m) => m.isBye)).toBe(false);
     s = applyTournamentUpdate(s, resolveTournament(msi, rng), champions);
     expect(s.intlResults.msi).toBeDefined();
 
@@ -308,15 +316,18 @@ describe("season lifecycle", () => {
     const playInDone = resolveTournament(playIn, rng);
     s = applyTournamentUpdate(s, playInDone, champions);
 
-    // Main event: 18 direct (+ MSI champion's additive slot when it
-    // applies) + the two play-in finalists.
+    // Main event: 18 direct + both play-in finalists (20 → four equal
+    // groups). When the MSI champion's additive slot makes it 19
+    // direct, only the play-in WINNER advances so the groups stay
+    // equal at 20 — no team rides an uneven group.
     const directCount = worldsQ.filter((q) => q.leagueSeed <= 3).length;
+    const advancing = (directCount + 2) % 4 === 0 ? 2 : 1;
     const main = nextPendingTournament(s)!;
     expect(main.name).toContain("World");
-    expect(main.teams).toHaveLength(directCount + 2);
+    expect(main.teams).toHaveLength(directCount + advancing);
     // The MSI champion never goes through the play-in.
     expect(playIn.teams.some((t) => t.id === msiChampion)).toBe(false);
-    const finalists = tournamentPlacements(playInDone).slice(0, 2);
+    const finalists = tournamentPlacements(playInDone).slice(0, advancing);
     for (const id of finalists) {
       expect(main.teams.some((t) => t.id === id)).toBe(true);
     }
@@ -332,8 +343,9 @@ describe("season lifecycle", () => {
     const finished = runSeason(base, champions);
     expect(finished.status).toBe("complete");
     expect(finished.champion).not.toBeNull();
-    // ~20 tournaments across the year (18 splits + FS + MSI + play-in + main).
-    expect(Object.keys(finished.tournaments).length).toBe(22);
+    // 18 splits + FS + MSI + Worlds play-in + main = 22, +1 when the
+    // First Stand champion's additive slot forced an MSI Play-In.
+    expect([22, 23]).toContain(Object.keys(finished.tournaments).length);
   });
 
   it("carries each team's end-of-split streak into the next tournament as a seed", () => {

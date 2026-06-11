@@ -82,8 +82,10 @@ export interface SeasonPhase {
   event?: InternationalId;
   label: string;
   // Tournament ids belonging to this phase. Splits hold 6 (one per
-  // league); First Stand / MSI hold 1; Worlds holds the play-in first
-  // and gains the main event id once the play-in completes.
+  // league); First Stand holds 1; Worlds holds the play-in first and
+  // gains the main event id once the play-in completes. MSI usually
+  // holds 1, but an odd swiss field (the First Stand champion's
+  // additive 19th slot) opens with an MSI Play-In the same way.
   tournamentIds: string[];
   status: "pending" | "in-progress" | "complete";
 }

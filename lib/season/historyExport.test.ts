@@ -50,7 +50,10 @@ describe("buildAllSeasonsWorkbook", () => {
       "Hall of Seasons",
       "Split Champions",
       "Meta Shifts",
+      "Archive Data",
     ]);
+    // The data sheet is the hidden round-trip payload, not user-facing.
+    expect(wb.getWorksheet("Archive Data")!.state).toBe("veryHidden");
 
     const overview = wb.getWorksheet("Hall of Seasons")!;
     // Title, subtitle, blank, header, then one row per season.
@@ -92,6 +95,7 @@ describe("buildSeasonWorkbook", () => {
       "Starting Meta",
       "Final Meta",
       "Meta Shifts",
+      "Archive Data",
     ]);
     const overview = wb.getWorksheet("Overview")!;
     expect(overview.getCell("A1").value).toBe("2026 SEASON");
@@ -115,7 +119,10 @@ describe("buildSeasonWorkbook", () => {
       }),
       NAMES,
     );
-    expect(wb.worksheets.map((ws) => ws.name)).toEqual(["Overview"]);
+    expect(wb.worksheets.map((ws) => ws.name)).toEqual([
+      "Overview",
+      "Archive Data",
+    ]);
   });
 
   it("handles an empty unfinished season without crashing", async () => {

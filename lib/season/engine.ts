@@ -624,13 +624,84 @@ function createFirstStand(season: SeasonState): TournamentState {
   return tagSeason(t, season.id);
 }
 
-function createMSI(season: SeasonState): TournamentState {
+// Formats where an ill-sized field is structurally unfair: a swiss
+// stage hands odd fields a synthetic bye every round (a free win
+// without playing), and a group stage wants every group the same size.
+// Round-robin sit-outs and seeding-earned single-elim byes are fair,
+// so those formats never trim the field.
+function isSwissFormat(format: TournamentFormat): boolean {
+  return format.startsWith("swiss");
+}
+
+function intlFieldMisfit(
+  format: TournamentFormat,
+  teamCount: number,
+  groupCount?: number,
+): boolean {
+  if (isSwissFormat(format)) return teamCount % 2 === 1;
+  if (format === "groups-playoffs" || format === "groups-playoffs-de") {
+    const gc = groupCount ?? inferGroupsConfig(teamCount).groupCount;
+    return teamCount % gc !== 0;
+  }
+  return false;
+}
+
+/** True when the MSI field doesn't fit its configured format — the
+ *  First Stand champion's additive 19th slot meeting a swiss stage
+ *  (odd field → bye rounds) or a group stage (unequal groups). A
+ *  play-in must trim the field first. */
+export function msiNeedsPlayIn(season: SeasonState): boolean {
+  const cfg = intlConfigFor(season.config, "msi");
+  return intlFieldMisfit(
+    cfg.format,
+    qualifiedForInternational(season, "msi").length,
+  );
+}
+
+function createMSIPlayIn(season: SeasonState): TournamentState {
+  // The two lowest global seeds (the weakest regions' #3s — never the
+  // defending champion, who holds the TOP seed) play one qualifying
+  // series; the loser is eliminated and the field fits the format
+  // again (18 → an even swiss, or six equal groups of 3).
   const qualified = qualifiedForInternational(season, "msi");
+  const pair = qualified.slice(-2);
+  const cfg = intlConfigFor(season.config, "msi");
+  const t = createTournament({
+    name: "MSI Play-In",
+    format: "single-elim",
+    teams: pair.map((q, i) => toTournamentTeam(q.team, i + 1)),
+    defaults: defaultsFor(season.config, cfg.earlySeries),
+    formatOverrides: singleElimOverrides(
+      pair.length,
+      cfg.earlySeries,
+      cfg.finalsSeries,
+    ),
+    metaSnapshot: cloneMeta(season.currentMeta),
+    liveMeta: season.config.liveMeta,
+    fearlessConfig: { perSeries: season.config.fearless },
+    streakSeeds: streakSeedsFor(
+      season,
+      pair.map((q) => q.team),
+    ),
+  });
+  return tagSeason(t, season.id);
+}
+
+function createMSI(
+  season: SeasonState,
+  playIn?: TournamentState,
+): TournamentState {
+  let qualified = qualifiedForInternational(season, "msi");
   // 18 teams (19 when the First Stand champion qualifies additively).
-  // Canonical shape: swiss stage into a top-8 double-elim bracket (a
-  // plain double-elim needs a power-of-2 field, so this is the closest
-  // realistic shape the engine supports; swiss handles odd counts via
-  // byes). Customizable per-event through config.intlConfigs.
+  // Canonical shape: swiss stage into a top-8 double-elim bracket.
+  // When the 19-team field misfits the format (swiss byes / unequal
+  // groups) an MSI Play-In ran first (startPhase decides); its loser
+  // is excluded here so the stage runs fair. Customizable per-event
+  // through config.intlConfigs.
+  if (playIn) {
+    const eliminated = tournamentPlacements(playIn)[1] ?? null;
+    qualified = qualified.filter((q) => q.team.id !== eliminated);
+  }
   const cfg = intlConfigFor(season.config, "msi");
   const t = createTournament({
     name: "Mid-Season Invitational",
@@ -691,9 +762,16 @@ function createWorldsMain(
   const direct = qualifiedForInternational(season, "worlds").filter(
     (q) => q.leagueSeed <= 3,
   );
+  const cfg = intlConfigFor(season.config, "worlds");
+  // Swiss wants an even field (odd counts hand out free bye wins every
+  // round) and groups want four EQUAL groups. When the MSI champion's
+  // additive slot breaks that (21 teams), only the play-in WINNER
+  // advances; round-robin and single-elim keep both finalists — they
+  // absorb odd counts without free wins.
+  const advancing = intlFieldMisfit(cfg.format, direct.length + 2, 4) ? 1 : 2;
   const playInPlacements = tournamentPlacements(playIn);
   const finalists = playInPlacements
-    .slice(0, 2)
+    .slice(0, advancing)
     .map((id) => season.teams.find((t) => t.id === id))
     .filter((t): t is SeasonTeam => t != null);
   const teams: TournamentTeam[] = [
@@ -702,7 +780,6 @@ function createWorldsMain(
       toTournamentTeam(team, direct.length + i + 1),
     ),
   ];
-  const cfg = intlConfigFor(season.config, "worlds");
   const t = createTournament({
     name: "World Championship",
     format: cfg.format,
@@ -852,7 +929,10 @@ function startPhase(season: SeasonState, index: number): SeasonState {
   } else if (phase.event === "first-stand") {
     created.push(createFirstStand(season));
   } else if (phase.event === "msi") {
-    created.push(createMSI(season));
+    // Ill-fitting field (odd swiss / unequal groups) → qualifier first;
+    // the main event spawns when it completes (applyTournamentUpdate),
+    // same as the Worlds play-in.
+    created.push(msiNeedsPlayIn(season) ? createMSIPlayIn(season) : createMSI(season));
   } else if (phase.event === "worlds") {
     created.push(createWorldsPlayIn(season));
   }
@@ -919,11 +999,11 @@ function recordTournamentResult(
       };
     }
   } else if (phase?.kind === "international" && phase.event) {
-    // Worlds play-in results aren't the event result — only the main
-    // event (second tournament of the phase) sets intlResults.worlds.
-    const isWorldsPlayIn =
-      phase.event === "worlds" && phase.tournamentIds[0] === t.id;
-    if (!isWorldsPlayIn) {
+    // Play-in results aren't the event result — only the main event
+    // sets intlResults (Worlds Play-In always; MSI Play-In when an odd
+    // swiss field forced one).
+    const isPlayIn = t.name.includes("Play-In");
+    if (!isPlayIn) {
       next = {
         ...next,
         intlResults: { ...next.intlResults, [phase.event]: placements },
@@ -979,13 +1059,17 @@ export function applyTournamentUpdate(
 
   next = recordTournamentResult(next, t);
 
-  // Worlds: play-in done → create the main event inside the same phase.
+  // Play-in done → create the main event inside the same phase
+  // (Worlds always opens with one; MSI only when an odd swiss field
+  // forced a qualifier).
   if (
-    phase.event === "worlds" &&
     phase.tournamentIds.length === 1 &&
-    phase.tournamentIds[0] === t.id
+    phase.tournamentIds[0] === t.id &&
+    (phase.event === "worlds" ||
+      (phase.event === "msi" && t.name.includes("Play-In")))
   ) {
-    const main = createWorldsMain(next, t);
+    const main =
+      phase.event === "worlds" ? createWorldsMain(next, t) : createMSI(next, t);
     return {
       ...next,
       tournaments: { ...next.tournaments, [main.id]: main },

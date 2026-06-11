@@ -386,6 +386,39 @@ export async function saveBinaryFileNative(opts: {
 }
 
 /**
+ * Open a native Open dialog and read the chosen file as binary.
+ * Same contract as openFileNative, but for non-text payloads (e.g. .xlsx).
+ */
+export async function openBinaryFileNative(opts: {
+  filters?: Array<{ name: string; extensions: string[] }>;
+}): Promise<{ ok: boolean; content?: Uint8Array; error?: string }> {
+  if (!isDesktop()) {
+    return { ok: false, error: "Not running in desktop mode" };
+  }
+  try {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const { readFile } = await import("@tauri-apps/plugin-fs");
+
+    const result = await open({
+      multiple: false,
+      filters: opts.filters,
+    });
+    if (result == null) {
+      // User cancelled.
+      return { ok: false, error: "cancelled" };
+    }
+    // result is a string (single file path) when multiple: false
+    const filePath = typeof result === "string" ? result : result[0];
+    if (!filePath) return { ok: false, error: "cancelled" };
+    const content = await readFile(filePath);
+    return { ok: true, content };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+}
+
+/**
  * Open a native Open dialog and read the chosen file's contents.
  * Returns { ok: true, content } on success, { ok: false, error } on failure/cancel.
  */

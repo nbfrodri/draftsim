@@ -26,6 +26,11 @@ import {
   type SplitId,
 } from "./types";
 import { isDesktop, saveBinaryFileNative } from "../desktopStorage";
+import {
+  HISTORY_DATA_CHUNK,
+  HISTORY_DATA_MARKER,
+  HISTORY_DATA_SHEET,
+} from "./historyImport";
 
 type Worksheet = import("exceljs").Worksheet;
 type Workbook = import("exceljs").Workbook;
@@ -532,6 +537,21 @@ function addSeasonOverviewSheet(
   }
 }
 
+/** Hidden machine-readable payload (read back by historyImport). The
+ *  styled sheets are lossy — icons, exact timestamps and the meta tier
+ *  tables don't survive them — so every export embeds the raw entries
+ *  as JSON, letting "Import (.xlsx)" round-trip the archive exactly. */
+function addDataSheet(wb: Workbook, entries: SeasonHistoryEntry[]): void {
+  const ws = wb.addWorksheet(HISTORY_DATA_SHEET, {
+    state: "veryHidden",
+  });
+  ws.getCell(1, 1).value = HISTORY_DATA_MARKER;
+  const json = JSON.stringify(entries);
+  for (let i = 0, row = 2; i < json.length; i += HISTORY_DATA_CHUNK, row++) {
+    ws.getCell(row, 1).value = json.slice(i, i + HISTORY_DATA_CHUNK);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Workbook builders + save
 // ---------------------------------------------------------------------------
@@ -602,6 +622,7 @@ export async function buildAllSeasonsWorkbook(
   addOverviewSheet(wb, entries, exportedAt);
   addSplitChampionsSheet(wb, entries);
   addMetaShiftsSheet(wb, entries, nameByAlias, true);
+  addDataSheet(wb, entries);
   return wb;
 }
 
@@ -631,6 +652,7 @@ export async function buildSeasonWorkbook(
     );
   }
   addMetaShiftsSheet(wb, [entry], nameByAlias, false);
+  addDataSheet(wb, [entry]);
   return wb;
 }
 

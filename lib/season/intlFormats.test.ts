@@ -17,8 +17,11 @@ import {
 import {
   applyTournamentUpdate,
   createSeason,
+  currentPhase,
   INTL_FORMAT_OPTIONS,
   nextPendingTournament,
+  qualifiedForInternational,
+  tournamentPlacements,
 } from "./engine";
 import { generateSeasonTeams } from "./teamGen";
 import {
@@ -132,6 +135,227 @@ function resolveTournament(
 }
 
 const EVENTS: InternationalId[] = ["first-stand", "msi", "worlds"];
+
+// The First Stand champion auto-qualifies for MSI; when it finished
+// outside its league's spring top-3 the slot is ADDITIVE, growing the
+// field from 18 to 19 teams. No format may hand out free wins for it:
+// swiss and groups trim the field with an MSI Play-In (two lowest seeds,
+// loser out) so the stage runs even / in equal groups; round-robin and
+// single-elim absorb the odd count without any credited byes.
+describe("MSI with the First Stand champion's additive 19th team", () => {
+  // Distinct teams per groupId, from the group-stage matches.
+  function groupSizes(t: TournamentState): number[] {
+    const byGroup = new Map<string, Set<string>>();
+    for (const m of t.matches) {
+      if (!m.groupId) continue;
+      const set = byGroup.get(m.groupId) ?? new Set<string>();
+      if (m.blueTeamId) set.add(m.blueTeamId);
+      if (m.redTeamId) set.add(m.redTeamId);
+      byGroup.set(m.groupId, set);
+    }
+    return [...byGroup.values()].map((s) => s.size);
+  }
+
+  for (const opt of INTL_FORMAT_OPTIONS) {
+    it(`runs fairly as ${opt.value}`, () => {
+      const champions = championPool();
+      const teams = generateSeasonTeams(champions, rngFrom(3));
+      const config = makeConfig();
+      config.intlConfigs = {
+        msi: {
+          format: opt.value as TournamentFormat,
+          earlySeries: "bo1",
+          finalsSeries: "bo1",
+          playoffTeams: 8,
+        },
+      };
+      let s = createSeason({
+        config,
+        teams,
+        activeMeta: {
+          metaOverride: null,
+          metaEnabled: true,
+          synergyOverride: null,
+          counterOverride: null,
+        },
+      });
+      const rng = rngFrom(11);
+      // Winter splits (6) + First Stand.
+      for (let i = 0; i < 7; i++) {
+        const t = nextPendingTournament(s)!;
+        s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
+      }
+      // Spring: resolve five leagues, then force the recorded First
+      // Stand champion to a team that finished OUTSIDE its league's
+      // top-3 — guaranteeing the additive 19th slot before the last
+      // spring result triggers MSI creation.
+      for (let i = 0; i < 5; i++) {
+        const t = nextPendingTournament(s)!;
+        s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
+      }
+      const resolvedLeague = LEAGUE_IDS.find(
+        (l) => s.splitResults.spring?.[l],
+      )!;
+      const outsider = s.splitResults.spring![resolvedLeague]![5];
+      s = {
+        ...s,
+        intlResults: { ...s.intlResults, "first-stand": [outsider] },
+      };
+      const lastSpring = nextPendingTournament(s)!;
+      s = applyTournamentUpdate(
+        s,
+        resolveTournament(lastSpring, rng),
+        champions,
+      );
+
+      const needsPlayIn =
+        opt.value.startsWith("swiss") || opt.value.startsWith("groups");
+      let msi = nextPendingTournament(s)!;
+      if (needsPlayIn) {
+        // Swiss/groups: the two lowest seeds fight for the last spot
+        // first, so the main stage never needs a synthetic bye.
+        expect(msi.name).toBe("MSI Play-In");
+        expect(msi.teams).toHaveLength(2);
+        const playInDone = resolveTournament(msi, rng);
+        s = applyTournamentUpdate(s, playInDone, champions);
+        // The play-in is a qualifier — it must not set the MSI result.
+        expect(s.intlResults.msi).toBeUndefined();
+        msi = nextPendingTournament(s)!;
+        expect(msi.teams).toHaveLength(18);
+        const winnerId = playInDone.matches[0].winner!.teamId;
+        const loserId =
+          playInDone.teams.find((t) => t.id !== winnerId)?.id ?? null;
+        expect(msi.teams.some((t) => t.id === winnerId)).toBe(true);
+        expect(msi.teams.some((t) => t.id === loserId)).toBe(false);
+      }
+      expect(msi.name).toContain("Invitational");
+      expect(msi.format).toBe(opt.value);
+      if (!needsPlayIn) expect(msi.teams).toHaveLength(19);
+      // The First Stand champion holds the TOP seed — never trimmed.
+      expect(msi.teams.some((t) => t.id === outsider)).toBe(true);
+
+      const done = resolveTournament(msi, rng);
+      expect(done.status, `MSI (${opt.value}) should complete`).toBe(
+        "complete",
+      );
+      // No free wins anywhere: synthetic bye matches never appear, and
+      // every decided match had two real teams in it.
+      expect(done.matches.some((m) => m.isBye)).toBe(false);
+      for (const m of done.matches) {
+        if (!m.winner) continue;
+        expect(m.blueTeamId).not.toBeNull();
+        expect(m.redTeamId).not.toBeNull();
+      }
+      if (opt.value.startsWith("groups")) {
+        // 18 teams → six EQUAL groups of 3 (19 would have made 4/3/3/3/3/3).
+        const sizes = groupSizes(done);
+        expect(sizes.length).toBeGreaterThan(0);
+        expect(new Set(sizes).size).toBe(1);
+      }
+      if (opt.value === "round-robin-playoffs") {
+        // Odd field is fine in RR: everyone still plays everyone.
+        const stage = done.matches.filter((m) => m.bracket === undefined);
+        const perTeam = new Map<string, number>();
+        for (const m of stage) {
+          for (const id of [m.blueTeamId, m.redTeamId]) {
+            if (id) perTeam.set(id, (perTeam.get(id) ?? 0) + 1);
+          }
+        }
+        for (const t of done.teams) {
+          expect(perTeam.get(t.id)).toBe(done.teams.length - 1);
+        }
+      }
+    });
+  }
+});
+
+// Same guarantee at Worlds: the MSI champion's additive slot makes the
+// main-event field 21 — swiss would need byes and the four groups would
+// go unequal, so in those formats only the play-in WINNER advances
+// (20 teams). Round-robin / single-elim keep both finalists.
+describe("Worlds main event with the MSI champion's additive slot", () => {
+  for (const format of ["groups-playoffs", "swiss-playoffs-de"] as const) {
+    it(`trims to an even field as ${format}`, () => {
+      const champions = championPool();
+      const teams = generateSeasonTeams(champions, rngFrom(5));
+      const config = makeConfig();
+      config.intlConfigs = {
+        worlds: {
+          format,
+          earlySeries: "bo1",
+          finalsSeries: "bo1",
+          playoffTeams: 8,
+        },
+      };
+      let s = createSeason({
+        config,
+        teams,
+        activeMeta: {
+          metaOverride: null,
+          metaEnabled: true,
+          synergyOverride: null,
+          counterOverride: null,
+        },
+      });
+      const rng = rngFrom(13);
+      // Play everything up to the summer split (winter, First Stand,
+      // spring, MSI — plus an MSI play-in if the RNG forced one).
+      while (currentPhase(s)?.split !== "summer") {
+        const t = nextPendingTournament(s)!;
+        s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
+      }
+      // Summer: resolve five leagues, pre-resolve the sixth, then use a
+      // probe (the sixth result applied to a throwaway copy) to find a
+      // team whose injected MSI title is guaranteed ADDITIVE — i.e. it
+      // doesn't sneak into Worlds through the points seeds even with
+      // the champion's 15 points.
+      for (let i = 0; i < 5; i++) {
+        const t = nextPendingTournament(s)!;
+        s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
+      }
+      const lastSummer = resolveTournament(nextPendingTournament(s)!, rng);
+      const probe = applyTournamentUpdate(s, lastSummer, champions);
+      let outsider: string | null = null;
+      for (const team of s.teams) {
+        const probe2 = {
+          ...probe,
+          intlResults: { ...probe.intlResults, msi: [team.id] },
+        };
+        const q = qualifiedForInternational(probe2, "worlds");
+        if (q.some((x) => x.team.id === team.id && x.via === "champion")) {
+          outsider = team.id;
+          break;
+        }
+      }
+      expect(outsider).not.toBeNull();
+      s = { ...s, intlResults: { ...s.intlResults, msi: [outsider!] } };
+      s = applyTournamentUpdate(s, lastSummer, champions);
+
+      const worldsQ = qualifiedForInternational(s, "worlds");
+      expect(
+        worldsQ.some((q) => q.team.id === outsider && q.via === "champion"),
+      ).toBe(true);
+      const direct = worldsQ.filter((q) => q.leagueSeed <= 3);
+      expect(direct).toHaveLength(19); // 18 + additive champion
+
+      const playIn = nextPendingTournament(s)!;
+      expect(playIn.name).toContain("Play-In");
+      const playInDone = resolveTournament(playIn, rng);
+      s = applyTournamentUpdate(s, playInDone, champions);
+
+      // 19 direct + ONLY the play-in winner = 20: even swiss / 4×5 groups.
+      const main = nextPendingTournament(s)!;
+      expect(main.name).toContain("World");
+      expect(main.teams).toHaveLength(20);
+      const [winner, runnerUp] = tournamentPlacements(playInDone);
+      expect(main.teams.some((t) => t.id === winner)).toBe(true);
+      expect(main.teams.some((t) => t.id === runnerUp)).toBe(false);
+      const done = resolveTournament(main, rng);
+      expect(done.status).toBe("complete");
+      expect(done.matches.some((m) => m.isBye)).toBe(false);
+    });
+  }
+});
 
 describe("intl format matrix", () => {
   for (const event of EVENTS) {
