@@ -3,7 +3,10 @@ import { describe, it, expect } from "vitest";
 import type { Champion, Lane } from "../types";
 import { LANE_ORDER } from "../players";
 import {
+  computeBracketFinishOrder,
+  computeStandings,
   createTournament,
+  playoffParticipantIds,
   recordMatchWinner,
   startGroupsPlayoffs,
   startRoundRobinPlayoffs,
@@ -873,6 +876,98 @@ describe("tournamentPlacements — play-in bracket ordering", () => {
         wins.get(placements[3]) ?? 0,
       );
       expect(placements).toHaveLength(8);
+    }
+  });
+
+  // Regression: a stage + DE-playoffs format (round-robin-playoffs) must
+  // rank the playoff finishers by WHERE they were eliminated, not by
+  // their regular-season standing. Previously these placements came from
+  // computeStandings (which skips bracket matches), so a team knocked out
+  // early in the bracket — or the 4th team that lost to the 3rd — could
+  // land below teams that never reached the playoffs and thus miss
+  // qualification.
+  it("a round-robin + DE playoff ranks playoff finishers by elimination, above non-qualifiers", () => {
+    for (let s = 0; s < 20; s++) {
+      const rng = rngFrom(s + 100);
+      let t = createTournament({
+        name: "League Split",
+        format: "round-robin-playoffs",
+        teams,
+        rrPlayoffsAdvancingOverride: 4,
+        defaults: {
+          format: "bo3",
+          fearless: false,
+          mode: "draft",
+          aiSide: null,
+          aiDifficulty: "medium",
+          timerEnabled: false,
+        },
+      });
+      for (let i = 0; i < 400 && t.status !== "complete"; i++) {
+        const m = t.matches.find(
+          (x) => !x.winner && x.blueTeamId != null && x.redTeamId != null,
+        );
+        if (!m) {
+          if (!t.rrPlayoffsStarted) {
+            t = startRoundRobinPlayoffs(t);
+            continue;
+          }
+          break;
+        }
+        const blueWon = rng() < 0.5;
+        t = recordMatchWinner(t, m.id, {
+          teamId: blueWon ? m.blueTeamId! : m.redTeamId!,
+          blueWins: blueWon ? 2 : 0,
+          redWins: blueWon ? 0 : 2,
+        });
+      }
+      expect(t.status).toBe("complete");
+
+      const placements = tournamentPlacements(t);
+      expect(placements).toHaveLength(8);
+      const participants = playoffParticipantIds(t);
+      expect(participants.size).toBe(4);
+
+      // The four playoff teams take the top four placements, ahead of every
+      // team that never reached the bracket — regardless of stage record.
+      expect(new Set(placements.slice(0, 4))).toEqual(participants);
+      for (let i = 0; i < placements.length; i++) {
+        const inBracket = participants.has(placements[i]);
+        expect(inBracket).toBe(i < 4);
+      }
+
+      // Within the bracket: 1st is the champion, 1st/2nd are the grand-
+      // final pair, and 3rd advanced at least as far as 4th (elimination
+      // depth = bracket series wins).
+      expect(placements[0]).toBe(tournamentChampion(t)!.id);
+      const gf = t.matches.find((m) => m.bracket === "grand-final")!;
+      expect(new Set(placements.slice(0, 2))).toEqual(
+        new Set([gf.blueTeamId, gf.redTeamId]),
+      );
+      const bracketWins = new Map<string, number>();
+      for (const m of t.matches) {
+        if (m.winner && !m.isBye && m.bracket != null) {
+          bracketWins.set(
+            m.winner.teamId,
+            (bracketWins.get(m.winner.teamId) ?? 0) + 1,
+          );
+        }
+      }
+      expect(bracketWins.get(placements[2]) ?? 0).toBeGreaterThanOrEqual(
+        bracketWins.get(placements[3]) ?? 0,
+      );
+
+      // Non-playoff teams keep their regular-season order behind the four.
+      const stageOrder = computeStandings(t)
+        .map((row) => row.team.id)
+        .filter((id) => !participants.has(id));
+      expect(placements.slice(4)).toEqual(stageOrder);
+
+      // And the top-4 order matches the bracket finish order (elimination).
+      const bracketOrder = computeBracketFinishOrder(t)
+        .map((team) => team.id)
+        .filter((id) => participants.has(id));
+      expect(placements.slice(0, 4)).toEqual(bracketOrder);
     }
   });
 });

@@ -1338,20 +1338,59 @@ export function computeTripleElimStandings(
   return rankTripleElim(tournament.teams, tournament.matches);
 }
 
+// The playoff-bracket matches only: every single/double-elim bracket
+// match, or the bracket portion of a stage+playoffs format. Regular-
+// stage matches (round-robin / swiss / group) carry neither a `bracket`
+// tag nor `feedsInto`, and nothing feeds into them, so they're excluded.
+// This is what lets the finish-order / participant helpers below work on
+// a combined format (e.g. round-robin-playoffs) without the regular
+// season polluting the playoff ranking.
+function playoffBracketMatches(
+  tournament: TournamentState,
+): TournamentMatch[] {
+  const fedIntoIds = new Set<string>();
+  for (const m of tournament.matches) {
+    if (m.feedsInto?.matchId) fedIntoIds.add(m.feedsInto.matchId);
+  }
+  return tournament.matches.filter(
+    (m) => m.bracket != null || m.feedsInto != null || fedIntoIds.has(m.id),
+  );
+}
+
+// Team ids that actually reached the playoff bracket (played in ≥1
+// bracket match). For pure single/double-elim this is every team; for a
+// stage+playoffs format it's only the teams that advanced out of the
+// stage. Used to keep playoff-eliminated teams ranked by WHERE they went
+// out, ahead of teams that never made the bracket.
+export function playoffParticipantIds(
+  tournament: TournamentState,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const m of playoffBracketMatches(tournament)) {
+    if (m.blueTeamId) ids.add(m.blueTeamId);
+    if (m.redTeamId) ids.add(m.redTeamId);
+  }
+  return ids;
+}
+
 // Finish order for a single/double-elim BRACKET, best first. Computed
-// from every match (including bracketed ones, which computeStandings
-// skips) so the order reflects how far each team actually advanced:
-// more series wins = further; fewer losses; eliminated later. This is
-// what gives a correct play-in ranking — e.g. for a 6-team DE play-in
-// the order is GF winner, GF loser, losers-final loser, the team that
-// lost to that losers-finalist, … (NOT seed order).
+// from the bracket matches only (which computeStandings skips) so the
+// order reflects how far each team actually advanced — i.e. WHERE it was
+// eliminated: more series wins = further; fewer losses; eliminated in a
+// later round. For a double-elim bracket this puts the grand-final
+// winner first, then the grand-final loser, then the losers-final loser
+// (3rd — knocked out one round from the final), then the team that lost
+// to that losers-finalist (4th), and so on down by elimination depth —
+// NOT by seed or by regular-stage record. Non-bracket teams (never
+// reached the playoff) sort last by seed; callers that have a stage
+// table should order those by standings instead.
 export function computeBracketFinishOrder(
   tournament: TournamentState,
 ): TournamentTeam[] {
   const wins = new Map<string, number>();
   const losses = new Map<string, number>();
   const lastRound = new Map<string, number>();
-  for (const m of tournament.matches) {
+  for (const m of playoffBracketMatches(tournament)) {
     if (!m.winner || m.isBye) continue;
     if (m.blueTeamId == null || m.redTeamId == null) continue;
     wins.set(m.winner.teamId, (wins.get(m.winner.teamId) ?? 0) + 1);

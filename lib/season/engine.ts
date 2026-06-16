@@ -21,6 +21,8 @@ import {
   computeStandings,
   computeTripleElimStandings,
   computeBracketFinishOrder,
+  playoffParticipantIds,
+  playoffBracketKindFor,
   formatHasPlayoffs,
   inferGroupsConfig,
   teamStreak,
@@ -414,21 +416,45 @@ export function tournamentPlacements(t: TournamentState): string[] {
     }
     return ranked;
   }
-  // Pure bracket formats: rank by how far each team advanced (the generic
-  // standings skip every bracket match and fall back to seed order, which
-  // mis-orders play-in qualifiers). The champion + runner-up are pinned
-  // below; the rest follow bracket-advancement order — so a play-in
-  // advancing 4 gives finalists, then the losers-bracket finalist, then
-  // the team that lost to it, etc.
+  // Elimination-bracket formats: rank by WHERE each team was eliminated,
+  // not by its regular-stage record. This covers pure single/double-elim
+  // AND stage+playoffs formats whose playoff is an SE/DE bracket (e.g.
+  // round-robin-playoffs, *-playoffs-de). The generic standings skip
+  // every bracket match and fall back to seed/stage order, which
+  // mis-ranks playoff finishers — e.g. a team knocked out in the playoff
+  // quarterfinal would outrank a semifinalist purely on group form, and
+  // the team that lost to the 3rd-place team could land below teams that
+  // never even reached the bracket. Qualification reads this order
+  // straight off, so it must reflect playoff placement.
   const isPureBracket =
     t.format === "single-elim" || t.format === "double-elim";
-  const order = isPureBracket
-    ? computeBracketFinishOrder(t).map((team) => team.id)
-    : computeStandings(t).map((s) => s.team.id);
+  const playoffKind = formatHasPlayoffs(t.format)
+    ? playoffBracketKindFor(t.format)
+    : null;
+  const eliminationBracket =
+    isPureBracket ||
+    playoffKind === "single-elim" ||
+    playoffKind === "double-elim";
+  let order: string[];
+  if (eliminationBracket) {
+    // Teams that reached the playoff bracket, ranked by elimination depth.
+    const participants = playoffParticipantIds(t);
+    const bracketOrder = computeBracketFinishOrder(t)
+      .map((team) => team.id)
+      .filter((id) => participants.has(id));
+    // Teams that never made the bracket fall in behind, by stage record.
+    // (Empty for pure-bracket formats — there everyone is a participant.)
+    const rest = computeStandings(t)
+      .map((s) => s.team.id)
+      .filter((id) => !participants.has(id));
+    order = [...bracketOrder, ...rest];
+  } else {
+    order = computeStandings(t).map((s) => s.team.id);
+  }
   const champion = tournamentChampion(t);
   if (!champion) return order;
   const head = [champion.id];
-  const bracketDecided = isPureBracket || formatHasPlayoffs(t.format);
+  const bracketDecided = eliminationBracket || formatHasPlayoffs(t.format);
   if (bracketDecided) {
     // The champion's LAST completed match is the deciding one (matches
     // are appended in play order; the grand final / final is last).
