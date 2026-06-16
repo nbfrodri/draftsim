@@ -2,20 +2,27 @@ import { describe, expect, it } from "vitest";
 import {
   bracketSeedOrder,
   clampDEAdvancing,
+  computeBracketFinishOrder,
   computeGroupStandings,
   computeStandings,
   computeSwissStandings,
   createTournament,
   crossMatchFearlessLocked,
   dePlayoffRounds,
+  swissThresholdFor,
   generateDoubleElimBracket,
   generateRoundRobinMatches,
   generateSingleElimBracket,
+  generateStepladderBracket,
   generateSwissBracket,
   recordMatchWinner,
   startRoundRobinPlayoffs,
+  startSwissPlayoffs,
+  startGroupsPlayoffs,
   teamStreak,
   teamWinStreak,
+  tournamentChampion,
+  tripleElimLosses,
   type CreateTournamentParams,
   type TournamentDefaults,
   type TournamentMatch,
@@ -239,6 +246,169 @@ describe("generateRoundRobinMatches", () => {
     const completed = simulateTournamentTo(tournament);
     expect(completed.status).toBe("complete");
   });
+
+  it("double round-robin produces twice the matches (each pair meets twice)", () => {
+    const teams = makeTeams(6);
+    const matches = generateRoundRobinMatches(teams, DEFAULTS, undefined, 2);
+    expect(matches).toHaveLength(6 * 5); // 2 × n*(n-1)/2
+    const pairCounts: Record<string, number> = {};
+    for (const m of matches) {
+      const key = [m.blueTeamId!, m.redTeamId!].sort().join("-");
+      pairCounts[key] = (pairCounts[key] ?? 0) + 1;
+    }
+    // Every unordered pair appears exactly twice.
+    expect(Object.values(pairCounts).every((v) => v === 2)).toBe(true);
+  });
+
+  it("double round-robin swaps sides between the two meetings", () => {
+    const teams = makeTeams(4);
+    const matches = generateRoundRobinMatches(teams, DEFAULTS, undefined, 2);
+    // Group meetings by unordered pair; the two meetings must have
+    // opposite blue/red so each team is home once and away once.
+    const byPair: Record<string, Array<{ blue: string; red: string }>> = {};
+    for (const m of matches) {
+      const key = [m.blueTeamId!, m.redTeamId!].sort().join("-");
+      (byPair[key] ??= []).push({ blue: m.blueTeamId!, red: m.redTeamId! });
+    }
+    for (const meetings of Object.values(byPair)) {
+      expect(meetings).toHaveLength(2);
+      expect(meetings[0].blue).toBe(meetings[1].red);
+      expect(meetings[0].red).toBe(meetings[1].blue);
+    }
+  });
+
+  it("double round-robin still completes end-to-end", () => {
+    const tournament = createTournament({
+      ...baseTournamentParams("round-robin", 4),
+      roundRobinLegs: 2,
+    });
+    expect(tournament.matches).toHaveLength(4 * 3);
+    const completed = simulateTournamentTo(tournament);
+    expect(completed.status).toBe("complete");
+  });
+});
+
+// ─── Triple-elimination (3-life) ──────────────────────────────────────────
+
+describe("triple-elim", () => {
+  // Small deterministic PRNG so the stress test is reproducible.
+  function rngFrom(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function playOut(
+    start: TournamentState,
+    rng: () => number,
+  ): TournamentState {
+    let state = start;
+    for (let i = 0; i < 2000 && state.status !== "complete"; i++) {
+      const m = state.matches.find(
+        (x) => !x.winner && x.blueTeamId != null && x.redTeamId != null,
+      );
+      if (!m) break;
+      const blueWon = rng() < 0.5;
+      state = recordMatchWinner(state, m.id, {
+        teamId: blueWon ? m.blueTeamId! : m.redTeamId!,
+        blueWins: blueWon ? 2 : 0,
+        redWins: blueWon ? 0 : 2,
+      });
+    }
+    return state;
+  }
+
+  it("round 1 fold-seeds the whole field", () => {
+    for (const n of [4, 8]) {
+      const t = createTournament(baseTournamentParams("triple-elim", n));
+      expect(t.matches).toHaveLength(n / 2);
+      // Top seed meets bottom seed; all round-1 matches are 'winners' tier.
+      const r1 = t.matches.filter((m) => m.round === 1);
+      expect(r1.every((m) => m.bracket === "winners")).toBe(true);
+      const first = r1[0];
+      const seeds = [first.blueTeamId, first.redTeamId]
+        .map((id) => t.teams.find((x) => x.id === id)!.seed)
+        .sort((a, b) => a - b);
+      expect(seeds).toEqual([1, n]);
+    }
+  });
+
+  it("completes via the 3-bracket → consolation → grand final structure", () => {
+    for (const n of [4, 8, 12, 18]) {
+      for (let s = 0; s < 25; s++) {
+        const state = playOut(
+          createTournament(baseTournamentParams("triple-elim", n)),
+          rngFrom(s + n * 1000),
+        );
+        expect(state.status).toBe("complete");
+        // Exactly ONE consolation final and ONE grand final per the spec.
+        const consolation = state.matches.filter(
+          (m) => m.bracket === "consolation",
+        );
+        const gf = state.matches.filter((m) => m.bracket === "grand-final");
+        expect(consolation).toHaveLength(1);
+        expect(gf).toHaveLength(1);
+        // Consolation = the 1-loss champ vs the 2-loss champ (loser → 3rd).
+        const lossesBeforeFinals = tripleElimLosses(
+          state.matches.filter(
+            (m) => m.bracket !== "consolation" && m.bracket !== "grand-final",
+          ),
+        );
+        const cb = lossesBeforeFinals.get(consolation[0].blueTeamId!) ?? 0;
+        const cr = lossesBeforeFinals.get(consolation[0].redTeamId!) ?? 0;
+        expect([cb, cr].sort()).toEqual([1, 2]);
+        // Grand final = Winners champ (0 losses pre-final) vs the
+        // consolation survivor; champion is the grand-final WINNER.
+        const champ = tournamentChampion(state)!;
+        expect(champ.id).toBe(gf[0].winner!.teamId);
+        const gbl = lossesBeforeFinals.get(gf[0].blueTeamId!) ?? 0;
+        const grd = lossesBeforeFinals.get(gf[0].redTeamId!) ?? 0;
+        expect(Math.min(gbl, grd)).toBe(0); // the undefeated Winners champ
+      }
+    }
+  });
+
+  it("tags every bracket band (winners / losers / last-chance / finals)", () => {
+    const state = playOut(
+      createTournament(baseTournamentParams("triple-elim", 8)),
+      rngFrom(42),
+    );
+    expect(state.matches.some((m) => m.bracket === "winners")).toBe(true);
+    expect(state.matches.some((m) => m.bracket === "losers")).toBe(true);
+    expect(state.matches.some((m) => m.bracket === "elimination")).toBe(true);
+    expect(state.matches.some((m) => m.bracket === "consolation")).toBe(true);
+    expect(state.matches.some((m) => m.bracket === "grand-final")).toBe(true);
+  });
+
+  it("never schedules an eliminated team and resolves to one champion", () => {
+    const state = playOut(
+      createTournament(baseTournamentParams("triple-elim", 8)),
+      rngFrom(7),
+    );
+    expect(state.status).toBe("complete");
+    // No team plays after being eliminated (3 losses, or losing the
+    // consolation final). Replay in order and check.
+    const losses = new Map<string, number>();
+    const consolationLost = new Set<string>();
+    for (const m of state.matches) {
+      if (m.isBye || m.blueTeamId == null || m.redTeamId == null) continue;
+      const outBefore = (id: string) =>
+        (losses.get(id) ?? 0) >= 3 || consolationLost.has(id);
+      expect(outBefore(m.blueTeamId)).toBe(false);
+      expect(outBefore(m.redTeamId)).toBe(false);
+      if (!m.winner) continue;
+      const loser =
+        m.winner.teamId === m.blueTeamId ? m.redTeamId : m.blueTeamId;
+      losses.set(loser, (losses.get(loser) ?? 0) + 1);
+      if (m.bracket === "consolation") consolationLost.add(loser);
+    }
+    expect(tournamentChampion(state)).not.toBeNull();
+  });
 });
 
 // ─── Double-elimination bracket ───────────────────────────────────────────
@@ -335,6 +505,142 @@ describe("generateDoubleElimBracket", () => {
   });
 });
 
+// ─── DE anti-rematch losers seeding ────────────────────────────────────────
+
+describe("double-elim avoids rematches", () => {
+  function rngFrom(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const pairKey = (m: TournamentMatch) =>
+    [m.blueTeamId!, m.redTeamId!].sort().join("|");
+
+  // Resolve a tournament with CHALK (higher seed always wins). Without the
+  // anti-rematch drop seeding this reliably produces losers-bracket
+  // rematches of winners-bracket pairings (e.g. the 4-5 W-R1 pair meeting
+  // again in L-R2); with it, the losers bracket is rematch-free.
+  function playChalk(start: TournamentState): TournamentState {
+    let state = start;
+    for (let i = 0; i < 200 && state.status !== "complete"; i++) {
+      const m = state.matches.find(
+        (x) => !x.winner && x.blueTeamId != null && x.redTeamId != null,
+      );
+      if (!m) break;
+      const blue = state.teams.find((t) => t.id === m.blueTeamId)!;
+      const red = state.teams.find((t) => t.id === m.redTeamId)!;
+      const winner = blue.seed <= red.seed ? blue.id : red.id;
+      state = recordMatchWinner(state, m.id, {
+        teamId: winner,
+        blueWins: winner === blue.id ? 2 : 0,
+        redWins: winner === red.id ? 2 : 0,
+      });
+    }
+    return state;
+  }
+
+  it("chalk 8-team bracket has no losers-bracket rematches before the L-Final", () => {
+    const state = playChalk(createTournament(baseTournamentParams("double-elim", 8)));
+    expect(state.status).toBe("complete");
+    const wPairs = new Set(
+      state.matches
+        .filter((m) => m.bracket === "winners" && m.blueTeamId && m.redTeamId)
+        .map(pairKey),
+    );
+    const losers = state.matches.filter(
+      (m) => m.bracket === "losers" && m.blueTeamId && m.redTeamId,
+    );
+    // The L-Final (highest losers round) pits the W-Final loser against the
+    // losers-bracket survivor — an inherent DE rematch, like the grand
+    // final. Every EARLIER losers match must be a fresh pairing.
+    const maxLosersRound = Math.max(...losers.map((m) => m.round));
+    for (const m of losers.filter((x) => x.round < maxLosersRound)) {
+      expect(wPairs.has(pairKey(m)), `losers rematch ${pairKey(m)}`).toBe(false);
+    }
+  });
+
+  it("still completes correctly across random outcomes (4/6/8/16)", () => {
+    for (const n of [4, 6, 8, 16]) {
+      for (let s = 0; s < 15; s++) {
+        const rng = rngFrom(s + n * 7);
+        let state = createTournament(baseTournamentParams("double-elim", n));
+        for (let i = 0; i < 300 && state.status !== "complete"; i++) {
+          const m = state.matches.find(
+            (x) => !x.winner && x.blueTeamId != null && x.redTeamId != null,
+          );
+          if (!m) break;
+          const blueWon = rng() < 0.5;
+          state = recordMatchWinner(state, m.id, {
+            teamId: blueWon ? m.blueTeamId! : m.redTeamId!,
+            blueWins: blueWon ? 2 : 0,
+            redWins: blueWon ? 0 : 2,
+          });
+        }
+        expect(state.status, `DE n=${n} seed=${s}`).toBe("complete");
+      }
+    }
+  });
+});
+
+// ─── Bracket finish order (play-in placement) ──────────────────────────────
+
+describe("computeBracketFinishOrder", () => {
+  function rngFrom(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function playOut(t: TournamentState, rng: () => number): TournamentState {
+    let s = t;
+    for (let i = 0; i < 300 && s.status !== "complete"; i++) {
+      const m = s.matches.find(
+        (x) => !x.winner && x.blueTeamId != null && x.redTeamId != null,
+      );
+      if (!m) break;
+      const blueWon = rng() < 0.5;
+      s = recordMatchWinner(s, m.id, {
+        teamId: blueWon ? m.blueTeamId! : m.redTeamId!,
+        blueWins: blueWon ? 2 : 0,
+        redWins: blueWon ? 0 : 2,
+      });
+    }
+    return s;
+  }
+
+  it("orders DE finishers by advancement (series wins), not by seed", () => {
+    for (let s = 0; s < 30; s++) {
+      const state = playOut(
+        createTournament(baseTournamentParams("double-elim", 8)),
+        rngFrom(s + 1),
+      );
+      expect(state.status).toBe("complete");
+      const order = computeBracketFinishOrder(state).map((t) => t.id);
+      // Ordered by series wins (desc) — i.e. how far each team advanced.
+      const wins = new Map<string, number>();
+      for (const m of state.matches) {
+        if (m.winner && !m.isBye) {
+          wins.set(m.winner.teamId, (wins.get(m.winner.teamId) ?? 0) + 1);
+        }
+      }
+      for (let i = 1; i < order.length; i++) {
+        expect(wins.get(order[i - 1]) ?? 0).toBeGreaterThanOrEqual(
+          wins.get(order[i]) ?? 0,
+        );
+      }
+    }
+  });
+});
+
 // ─── DE advancing-count clamp + round shape ────────────────────────────────
 
 describe("clampDEAdvancing / dePlayoffRounds", () => {
@@ -399,6 +705,105 @@ describe("round-robin-playoffs with Top 6", () => {
     // And the whole thing plays out to a champion.
     t = simulateTournamentTo(t, 500);
     expect(t.status).toBe("complete");
+  });
+});
+
+// ─── Stage + triple-elim playoffs ──────────────────────────────────────────
+
+describe("stage + triple-elim playoffs", () => {
+  const assertTECompletes = (t: TournamentState, advancing: number) => {
+    const playoff = t.matches.filter((m) => m.bracket != null);
+    const inBracket = new Set(
+      playoff.flatMap((m) => [m.blueTeamId, m.redTeamId]).filter(Boolean),
+    );
+    expect(inBracket.size).toBe(advancing);
+    const finished = simulateTournamentTo(t, 800);
+    expect(finished.status).toBe("complete");
+    // The TE playoff resolves via consolation + grand final; the champion
+    // is the grand-final winner.
+    const gf = finished.matches.find((m) => m.bracket === "grand-final");
+    expect(gf?.winner).toBeTruthy();
+    expect(tournamentChampion(finished)!.id).toBe(gf!.winner!.teamId);
+  };
+
+  it("round-robin → triple-elim playoff", () => {
+    let t = createTournament(
+      baseTournamentParams("round-robin-playoffs-te", 8, {
+        rrPlayoffsAdvancingOverride: 4,
+      }),
+    );
+    t = simulateTournamentTo(t, 500);
+    expect(t.status).toBe("in-progress");
+    t = startRoundRobinPlayoffs(t);
+    assertTECompletes(t, 4);
+  });
+
+  it("swiss → triple-elim playoff", () => {
+    let t = createTournament(
+      baseTournamentParams("swiss-playoffs-te", 8, {
+        swissPlayoffsAdvancingOverride: 4,
+      }),
+    );
+    t = simulateTournamentTo(t, 500);
+    expect(t.status).toBe("in-progress");
+    t = startSwissPlayoffs(t);
+    assertTECompletes(t, 4);
+  });
+
+  it("groups → triple-elim playoff", () => {
+    let t = createTournament(
+      baseTournamentParams("groups-playoffs-te", 8, {
+        groupsConfigOverride: { groupCount: 2, advancingPerGroup: 2 },
+      }),
+    );
+    t = simulateTournamentTo(t, 500);
+    expect(t.status).toBe("in-progress");
+    t = startGroupsPlayoffs(t);
+    assertTECompletes(t, 4);
+  });
+});
+
+// ─── Stepladder (gauntlet) playoffs ─────────────────────────────────────────
+
+describe("stepladder bracket", () => {
+  it("chains the lowest seeds up to the #1 seed (4 teams)", () => {
+    const teams = makeTeams(4); // seeds 1..4
+    const m = generateStepladderBracket(teams, DEFAULTS);
+    expect(m).toHaveLength(3); // N-1 rungs
+    const seedOf = (id: string | null) =>
+      teams.find((t) => t.id === id)!.seed;
+    const r1 = m.find((x) => x.round === 1)!;
+    const r2 = m.find((x) => x.round === 2)!;
+    const r3 = m.find((x) => x.round === 3)!;
+    // Rung 1 = the two lowest seeds.
+    expect([seedOf(r1.blueTeamId), seedOf(r1.redTeamId)].sort()).toEqual([3, 4]);
+    // Each rung's fixed (red) seed climbs: rung2 vs seed 2, final vs seed 1.
+    expect(seedOf(r2.redTeamId)).toBe(2);
+    expect(seedOf(r3.redTeamId)).toBe(1);
+    // Final has no feedsInto; rungs chain into the next via the blue slot.
+    expect(r3.feedsInto).toBeNull();
+    expect(r1.feedsInto?.matchId).toBe(r2.id);
+    expect(r1.feedsInto?.slot).toBe("blue");
+    expect(r2.feedsInto?.matchId).toBe(r3.id);
+    // Later rungs' climber slot starts empty (filled by the prior winner).
+    expect(r2.blueTeamId).toBeNull();
+    expect(r3.blueTeamId).toBeNull();
+  });
+
+  it("round-robin + stepladder completes with a champion", () => {
+    let t = createTournament(
+      baseTournamentParams("round-robin-playoffs-step", 8, {
+        rrPlayoffsAdvancingOverride: 4,
+      }),
+    );
+    t = simulateTournamentTo(t, 500);
+    expect(t.status).toBe("in-progress");
+    t = startRoundRobinPlayoffs(t);
+    const ladder = t.matches.filter((m) => m.bracket != null);
+    expect(ladder).toHaveLength(3); // top 4 → 3 rungs
+    t = simulateTournamentTo(t, 500);
+    expect(t.status).toBe("complete");
+    expect(tournamentChampion(t)).not.toBeNull();
   });
 });
 
@@ -492,6 +897,155 @@ describe("generateSwissBracket", () => {
   it("respects totalRoundsOverride", () => {
     const { totalRounds } = generateSwissBracket(makeTeams(4), DEFAULTS, undefined, 5);
     expect(totalRounds).toBe(5);
+  });
+});
+
+// ─── Swiss threshold mode (modern Worlds Swiss) ────────────────────────────
+
+describe("swissThresholdFor", () => {
+  it("derives symmetric X = log2(N) − 1 for power-of-2 fields", () => {
+    expect(swissThresholdFor(8)).toEqual({
+      winTarget: 2,
+      advancing: 4,
+      maxRounds: 3,
+    });
+    expect(swissThresholdFor(16)).toEqual({
+      winTarget: 3,
+      advancing: 8,
+      maxRounds: 5,
+    });
+    expect(swissThresholdFor(32)).toEqual({
+      winTarget: 4,
+      advancing: 16,
+      maxRounds: 7,
+    });
+  });
+
+  it("returns null for non-power-of-2 or sub-8 fields (would need byes)", () => {
+    expect(swissThresholdFor(10)).toBeNull();
+    expect(swissThresholdFor(18)).toBeNull();
+    expect(swissThresholdFor(12)).toBeNull();
+    expect(swissThresholdFor(4)).toBeNull();
+  });
+});
+
+describe("swiss threshold mode", () => {
+  it("engages symmetric 3-3 for a 16-team field", () => {
+    const t = createTournament(
+      baseTournamentParams("swiss", 16, { swissThreshold: true }),
+    );
+    expect(t.swissWinTarget).toBe(3);
+    expect(t.swissTotalRounds).toBe(5); // 2X−1 cap
+  });
+
+  it("falls back to fixed rounds when the field isn't a power of 2", () => {
+    const t = createTournament(
+      baseTournamentParams("swiss", 10, { swissThreshold: true }),
+    );
+    expect(t.swissWinTarget).toBeUndefined();
+  });
+
+  it("leaves default Swiss free of threshold fields", () => {
+    const t = createTournament(baseTournamentParams("swiss", 16));
+    expect(t.swissWinTarget).toBeUndefined();
+  });
+
+  it("never awards a bye and advances exactly half the field", () => {
+    let t = createTournament(
+      baseTournamentParams("swiss", 16, { swissThreshold: true }),
+    );
+    t = simulateTournamentTo(t);
+    expect(t.status).toBe("complete");
+    // No bye match should ever be generated in a power-of-2 threshold Swiss.
+    expect(t.matches.some((m) => m.isBye)).toBe(false);
+    const standings = computeSwissStandings(t);
+    expect(standings.filter((s) => s.wins >= 3)).toHaveLength(8);
+    expect(standings.filter((s) => s.losses >= 3)).toHaveLength(8);
+  });
+
+  it("pairs strictly within the same record each round", () => {
+    let t = createTournament(
+      baseTournamentParams("swiss", 16, { swissThreshold: true }),
+    );
+    // Replay round by round, checking every freshly generated pairing joins
+    // two teams with identical W-L records (no 2-1 vs 1-2 cross pairings).
+    for (let guard = 0; guard < 50 && t.status === "in-progress"; guard++) {
+      const standings = computeSwissStandings(t);
+      const recOf = new Map(
+        standings.map((s) => [s.team.id, `${s.wins}-${s.losses}`]),
+      );
+      const pending = t.matches.filter(
+        (m) => !m.winner && m.blueTeamId && m.redTeamId,
+      );
+      for (const m of pending) {
+        expect(recOf.get(m.blueTeamId!)).toBe(recOf.get(m.redTeamId!));
+      }
+      for (const m of pending) {
+        t = recordMatchWinner(t, m.id, {
+          teamId: m.blueTeamId!,
+          blueWins: 2,
+          redWins: 0,
+        });
+      }
+    }
+    expect(t.status).toBe("complete");
+  });
+
+  it("makes deciding matches one series longer than the rest", () => {
+    // 8-team threshold (X=2) over a Bo1 base: round 1 is all (0-0) — no one
+    // can qualify/eliminate yet — so Bo1; every later match is a decider
+    // (a win reaches 2 or a loss reaches 2), so Bo3.
+    let t = createTournament(
+      baseTournamentParams("swiss", 8, {
+        swissThreshold: true,
+        defaults: { ...DEFAULTS, format: "bo1" },
+      }),
+    );
+    t = simulateTournamentTo(t);
+    const r1 = t.matches.filter((m) => m.round === 1 && !m.isBye);
+    const later = t.matches.filter((m) => m.round >= 2 && !m.isBye);
+    expect(r1.length).toBeGreaterThan(0);
+    expect(later.length).toBeGreaterThan(0);
+    expect(r1.every((m) => m.format === "bo1")).toBe(true);
+    expect(later.every((m) => m.format === "bo3")).toBe(true);
+  });
+
+  it("seeds qualifiers by record — earliest (fewest losses) on top", () => {
+    let t = createTournament(
+      baseTournamentParams("swiss", 16, { swissThreshold: true }),
+    );
+    t = simulateTournamentTo(t);
+    const standings = computeSwissStandings(t);
+    const y = t.swissWinTarget!;
+    const qualified = standings.filter((s) => s.wins >= y);
+    for (let i = 1; i < qualified.length; i++) {
+      expect(qualified[i].losses).toBeGreaterThanOrEqual(
+        qualified[i - 1].losses,
+      );
+    }
+    expect(qualified.map((s) => s.rank)).toEqual(
+      qualified.map((_, i) => i + 1),
+    );
+  });
+
+  it("swiss-playoffs threshold advances exactly the qualified teams", () => {
+    let t = createTournament(
+      baseTournamentParams("swiss-playoffs", 16, { swissThreshold: true }),
+    );
+    const y = t.swissWinTarget!;
+    t = simulateTournamentTo(t);
+    const qualifiedCount = computeSwissStandings(t).filter(
+      (s) => s.wins >= y,
+    ).length;
+    const started = startSwissPlayoffs(t);
+    expect(started.swissPlayoffsStarted).toBe(true);
+    const bracketTeams = new Set<string>();
+    for (const m of started.matches) {
+      if (m.bracket === undefined) continue;
+      if (m.blueTeamId) bracketTeams.add(m.blueTeamId);
+      if (m.redTeamId) bracketTeams.add(m.redTeamId);
+    }
+    expect(bracketTeams.size).toBe(qualifiedCount);
   });
 });
 

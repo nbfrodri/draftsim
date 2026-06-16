@@ -20,6 +20,7 @@ import {
 } from "@/lib/season/realTeams";
 import {
   INTERNATIONAL_LABELS,
+  SPLIT_LABELS,
   LEAGUE_IDS,
   LEAGUE_NAMES,
   type InternationalId,
@@ -78,7 +79,34 @@ const DEFAULT_INTL_CONFIGS: Record<InternationalId, SeasonIntlConfig> = {
 const SERIES_OPTIONS: SeriesFormat[] = ["bo1", "bo3", "bo5"];
 
 function formatHasPlayoffStage(format: TournamentFormat): boolean {
-  return format !== "round-robin" && format !== "swiss";
+  // round-robin / swiss have no playoffs; triple-elim is one continuous
+  // bracket (the whole field, no separate "playoff teams" cut).
+  return (
+    format !== "round-robin" &&
+    format !== "swiss" &&
+    format !== "triple-elim"
+  );
+}
+
+// Formats whose decisive series is a double-elim grand final — the only
+// ones for which the "true grand final" (no bracket reset) toggle means
+// anything: standalone double-elim, the DE-playoff variants, and
+// round-robin-playoffs (which feeds a DE bracket).
+function formatHasDEGrandFinal(format: TournamentFormat): boolean {
+  // Only double-elim brackets have a resettable grand final. Triple-elim
+  // (and the stage+TE variants) use a fixed consolation → grand-final
+  // sequence, so the "true grand final" toggle doesn't apply to them.
+  return (
+    format === "double-elim" ||
+    format === "round-robin-playoffs" ||
+    format.endsWith("-de")
+  );
+}
+
+// Any Swiss-based format (plain or stage+playoffs) — these support the
+// threshold qualification mode (X wins qualify / X losses out).
+function formatIsSwiss(format: TournamentFormat): boolean {
+  return format === "swiss" || format.startsWith("swiss-playoffs");
 }
 
 // Bracket-size pickers apply to every stage+playoffs format. Swiss /
@@ -87,7 +115,11 @@ function formatHasPlayoffStage(format: TournamentFormat): boolean {
 // Single-elim and plain double-elim have no separate playoff stage —
 // the whole field enters one bracket.
 function intlFormatHasPlayoffSize(format: TournamentFormat): boolean {
-  return format !== "single-elim" && format !== "double-elim";
+  return (
+    format !== "single-elim" &&
+    format !== "double-elim" &&
+    format !== "triple-elim"
+  );
 }
 
 // Shared select styling: dark control with cut corners + gold chevron
@@ -169,6 +201,9 @@ export default function SeasonSetup({ onCancel }: Props) {
     null,
   );
   const [openLeague, setOpenLeague] = useState<LeagueId | null>(null);
+  // Starting Meta is bulky — collapsed by default so the creator opens on
+  // the parts most users change (formats + teams).
+  const [metaOpen, setMetaOpen] = useState(false);
   const [realNames, setRealNames] = useState<
     "idle" | "loading" | "done" | "error"
   >("idle");
@@ -392,9 +427,128 @@ export default function SeasonSetup({ onCancel }: Props) {
           onChange={(v) => updateIntlConfig(key, { finalsSeries: v })}
           title="Series length for the playoff bracket and the final"
         />
+        {/* Play-in customization. Worlds runs a 6-team play-in (the #4
+            seeds); MSI runs one only on an ill-fitting field. Both can be
+            toggled off. First Stand has no play-in. */}
+        {(() => {
+          const showPlayIn =
+            event === "worlds" || event === "msi" || event === "shared";
+          if (!showPlayIn) return null;
+          const enabled = cfg.playInEnabled !== false;
+          const showWorlds = event === "worlds" || event === "shared";
+          return (
+            <>
+              <label className="flex flex-col gap-1">
+                <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+                  Play-In
+                </span>
+                <select
+                  value={enabled ? "on" : "off"}
+                  onChange={(e) =>
+                    updateIntlConfig(key, {
+                      playInEnabled: e.target.value === "on",
+                    })
+                  }
+                  className={SELECT_CLS}
+                  title="Worlds OFF = all qualified teams (incl. #4 seeds) enter the main event directly. MSI OFF = never run the field-trimming play-in."
+                >
+                  <option value="on">On</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+              {enabled && showWorlds && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+                    Play-In Format
+                  </span>
+                  <select
+                    value={cfg.playInFormat ?? "single-elim"}
+                    onChange={(e) =>
+                      updateIntlConfig(key, {
+                        playInFormat: e.target.value as
+                          | "single-elim"
+                          | "double-elim",
+                      })
+                    }
+                    className={SELECT_CLS}
+                    title="Bracket format for the 6-team Worlds play-in (double-elim gives eliminated teams a second life)"
+                  >
+                    <option value="single-elim">Single Elim</option>
+                    <option value="double-elim">Double Elim</option>
+                  </select>
+                </label>
+              )}
+              {enabled && showWorlds && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+                    Advance
+                  </span>
+                  <select
+                    value={cfg.playInAdvancing ?? 2}
+                    onChange={(e) =>
+                      updateIntlConfig(key, {
+                        playInAdvancing: Number(e.target.value),
+                      })
+                    }
+                    className={SELECT_CLS}
+                    title="How many play-in finalists reach the main event (auto-reduced to keep groups/swiss fields even)"
+                  >
+                    <option value={1}>1 team</option>
+                    <option value={2}>2 teams</option>
+                    <option value={4}>4 teams</option>
+                  </select>
+                </label>
+              )}
+              {enabled && (
+                <SeriesSelect
+                  label="Play-In Series"
+                  value={cfg.playInSeries ?? cfg.earlySeries}
+                  onChange={(v) => updateIntlConfig(key, { playInSeries: v })}
+                  title="Series length for play-in matches"
+                />
+              )}
+            </>
+          );
+        })()}
+        {formatHasDEGrandFinal(cfg.format) && (
+          <label
+            className="flex items-center gap-1.5 cursor-pointer pb-1.5"
+            title="Single decisive grand final in the double-elim bracket — no bracket reset"
+          >
+            <input
+              type="checkbox"
+              checked={cfg.trueGrandFinal === true}
+              onChange={(e) =>
+                updateIntlConfig(key, { trueGrandFinal: e.target.checked })
+              }
+              className="accent-rift-gold"
+            />
+            <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+              True GF
+            </span>
+          </label>
+        )}
+        {formatIsSwiss(cfg.format) && (
+          <label
+            className="flex items-center gap-1.5 cursor-pointer pb-1.5"
+            title="Modern Worlds Swiss: teams play until X wins (qualify) or X losses (eliminated) with strict same-record pairing and no byes, instead of a fixed number of rounds. X is fixed by the field size and it only engages for a power-of-2 field (e.g. the 16-team Worlds main stage); otherwise it falls back to fixed rounds. Off = fixed rounds."
+          >
+            <input
+              type="checkbox"
+              checked={cfg.swissThreshold === true}
+              onChange={(e) =>
+                updateIntlConfig(key, { swissThreshold: e.target.checked })
+              }
+              className="accent-rift-gold"
+            />
+            <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+              Threshold
+            </span>
+          </label>
+        )}
         {event === "worlds" && (
           <span className="text-[9px] text-rift-muted/70 pb-1.5">
-            Main event only — the play-in stays single-elim
+            Main-event format is separate from the play-in
           </span>
         )}
         {event === "shared" && cfg.format === "double-elim" && (
@@ -481,6 +635,63 @@ export default function SeasonSetup({ onCancel }: Props) {
           onChange={(v) => updateConfig(key, { finalsSeries: v })}
           title="Series length for the final / grand final"
         />
+        {(cfg.format === "round-robin" ||
+          cfg.format === "round-robin-playoffs") && (
+          <label
+            className="flex items-center gap-1.5 cursor-pointer pb-1.5"
+            title="Each team plays every other team twice (home & away), doubling the matchdays"
+          >
+            <input
+              type="checkbox"
+              checked={cfg.roundRobinLegs === 2}
+              onChange={(e) =>
+                updateConfig(key, {
+                  roundRobinLegs: e.target.checked ? 2 : 1,
+                })
+              }
+              className="accent-rift-gold"
+            />
+            <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+              Double RR
+            </span>
+          </label>
+        )}
+        {formatHasDEGrandFinal(cfg.format) && (
+          <label
+            className="flex items-center gap-1.5 cursor-pointer pb-1.5"
+            title="Single decisive grand final in the double-elim playoff bracket — no bracket reset for the losers-bracket finalist"
+          >
+            <input
+              type="checkbox"
+              checked={cfg.trueGrandFinal === true}
+              onChange={(e) =>
+                updateConfig(key, { trueGrandFinal: e.target.checked })
+              }
+              className="accent-rift-gold"
+            />
+            <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+              True GF
+            </span>
+          </label>
+        )}
+        {formatIsSwiss(cfg.format) && (
+          <label
+            className="flex items-center gap-1.5 cursor-pointer pb-1.5"
+            title="Modern Worlds Swiss: teams play until X wins (qualify) or X losses (eliminated) with strict same-record pairing and no byes, instead of a fixed number of rounds. X is fixed by the field size and it only engages for a power-of-2 field (e.g. the 16-team Worlds main stage); otherwise it falls back to fixed rounds. Off = fixed rounds."
+          >
+            <input
+              type="checkbox"
+              checked={cfg.swissThreshold === true}
+              onChange={(e) =>
+                updateConfig(key, { swissThreshold: e.target.checked })
+              }
+              className="accent-rift-gold"
+            />
+            <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
+              Threshold
+            </span>
+          </label>
+        )}
       </div>
     );
   };
@@ -518,6 +729,37 @@ export default function SeasonSetup({ onCancel }: Props) {
           across events, and seeding decides international bracket
           draws.
         </p>
+
+        {/* Calendar preview — the fixed phase flow of every season. */}
+        <div className="mb-6 overflow-x-auto">
+          <div className="inline-flex items-center gap-1.5 min-w-full">
+            {[
+              { label: SPLIT_LABELS.winter, kind: "split" as const },
+              { label: INTERNATIONAL_LABELS["first-stand"], kind: "intl" as const },
+              { label: SPLIT_LABELS.spring, kind: "split" as const },
+              { label: INTERNATIONAL_LABELS.msi, kind: "intl" as const },
+              { label: SPLIT_LABELS.summer, kind: "split" as const },
+              { label: INTERNATIONAL_LABELS.worlds, kind: "intl" as const },
+            ].map((phase, i) => (
+              <div key={phase.label} className="flex items-center gap-1.5">
+                {i > 0 && (
+                  <span className="text-rift-gold/30 text-[10px]" aria-hidden>
+                    →
+                  </span>
+                )}
+                <span
+                  className={`px-2.5 py-1 border text-[8px] md:text-[9px] uppercase tracking-[0.2em] whitespace-nowrap ${
+                    phase.kind === "intl"
+                      ? "border-rift-gold/55 bg-rift-gold/10 text-rift-goldbright"
+                      : "border-rift-line/60 bg-rift-bg/40 text-rift-mutedbright"
+                  }`}
+                >
+                  {phase.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
 
         {/* Name */}
         <label className="block mb-5">
@@ -657,13 +899,24 @@ export default function SeasonSetup({ onCancel }: Props) {
         </div>
 
         {/* Starting meta — the season snapshots the active meta at
-            creation and evolves it from there. */}
-        <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
+            creation and evolves it from there. Collapsed by default since
+            most users keep the current meta. */}
+        <button
+          type="button"
+          onClick={() => setMetaOpen((o) => !o)}
+          className="flex items-center gap-2 mb-2 text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 hover:text-rift-goldbright transition-colors"
+        >
+          <span aria-hidden>{metaOpen ? "▾" : "▸"}</span>
           Starting Meta
-        </div>
-        <div className="border border-rift-line/40 bg-rift-bg/30 p-3 mb-6">
-          <MetaPanel variant="compact" />
-        </div>
+          <span className="text-[8px] tracking-[0.2em] text-rift-mutedbright/55 normal-case">
+            {metaOpen ? "" : "(optional — uses your current meta)"}
+          </span>
+        </button>
+        {metaOpen && (
+          <div className="border border-rift-line/40 bg-rift-bg/30 p-3 mb-6">
+            <MetaPanel variant="compact" />
+          </div>
+        )}
 
         {/* Teams */}
         <div className="flex items-center gap-3 mb-2">
@@ -791,8 +1044,9 @@ export default function SeasonSetup({ onCancel }: Props) {
           })}
         </div>
 
-        {/* Actions */}
-        <div className="grid grid-cols-2 gap-3">
+        {/* Actions — sticky so Start/Cancel stay reachable on this long
+            form without scrolling to the very bottom. */}
+        <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-3 py-3 bg-rift-bg/90 backdrop-blur-sm border-t border-rift-line/40">
           <button
             type="button"
             onClick={onCancel}

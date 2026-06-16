@@ -38,7 +38,10 @@ export function RoundRobinView({
   const generatePlayoffBracket = useDraftStore(
     (s) => s.generatePlayoffBracket,
   );
-  const isRRPlayoffs = tournament.format === "round-robin-playoffs";
+  const isRRPlayoffs =
+    tournament.format === "round-robin-playoffs" ||
+    tournament.format === "round-robin-playoffs-te" ||
+    tournament.format === "round-robin-playoffs-step";
   // Regular-stage matches only — strips out the DE playoff matches
   // (winners/losers/grand-final) so they don't double up in the
   // matchday view. For plain round-robin every match has bracket
@@ -199,6 +202,17 @@ export function GroupsPlayoffsView({
         .map((m) => m.id),
     [tournament.matches],
   );
+  // The current matchday across ALL groups: the lowest round that still
+  // has unplayed group-stage matches, then every unplayed match in that
+  // round (so all groups advance one matchday in lockstep).
+  const matchdayPendingIds = useMemo(() => {
+    const pend = tournament.matches.filter(
+      (m) => m.bracket === undefined && !m.winner && m.blueTeamId && m.redTeamId,
+    );
+    if (pend.length === 0) return [];
+    const round = Math.min(...pend.map((m) => m.round));
+    return pend.filter((m) => m.round === round).map((m) => m.id);
+  }, [tournament.matches]);
   // Group-stage matches in groups-playoffs DON'T have a `bracket` set
   // (only the dynamically-created playoff matches do). They DO have a
   // `groupId` letter assigned at creation.
@@ -246,14 +260,26 @@ export function GroupsPlayoffsView({
             </div>
           </div>
           {groupStagePendingIds.length > 0 && (
-            <button
-              type="button"
-              onClick={() => simulateMatches(groupStagePendingIds)}
-              className="px-2.5 py-1 border border-rift-gold/60 text-rift-goldbright hover:bg-rift-gold/10 text-[9px] uppercase tracking-[0.3em] transition-all"
-              title="Auto-play all remaining group-stage matches"
-            >
-              Sim Group Stage
-            </button>
+            <div className="flex items-center gap-1.5">
+              {matchdayPendingIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => simulateMatches(matchdayPendingIds)}
+                  className="px-2.5 py-1 border border-rift-gold/40 text-rift-gold hover:bg-rift-gold/10 hover:text-rift-goldbright text-[9px] uppercase tracking-[0.3em] transition-all"
+                  title="Play the next matchday across every group at once"
+                >
+                  Sim Matchday
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => simulateMatches(groupStagePendingIds)}
+                className="px-2.5 py-1 border border-rift-gold/60 text-rift-goldbright hover:bg-rift-gold/10 text-[9px] uppercase tracking-[0.3em] transition-all"
+                title="Auto-play all remaining group-stage matches"
+              >
+                Sim Group Stage
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -323,6 +349,7 @@ function GroupPanel({
   onStartMatch: (matchId: string) => void;
   onViewMatch: (matchId: string) => void;
 }) {
+  const simulateMatches = useDraftStore((s) => s.simulateMatches);
   const standings = useMemo(
     () => computeGroupStandings(tournament, groupId),
     [tournament, groupId],
@@ -332,6 +359,9 @@ function GroupPanel({
     () => tournament.matches.filter((m) => m.groupId === groupId),
     [tournament.matches, groupId],
   );
+  const groupPendingIds = groupMatches
+    .filter((m) => !m.winner && m.blueTeamId && m.redTeamId)
+    .map((m) => m.id);
   const matchdays = useMemo(() => {
     const max = groupMatches.reduce((a, m) => Math.max(a, m.round), 0);
     const out: TournamentMatch[][] = [];
@@ -353,8 +383,20 @@ function GroupPanel({
             {standings.length} teams
           </div>
         </div>
-        <div className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/55 tabular-nums">
-          {done}/{groupMatches.length}
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/55 tabular-nums">
+            {done}/{groupMatches.length}
+          </span>
+          {groupPendingIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => simulateMatches(groupPendingIds)}
+              className="px-1.5 py-0.5 border border-rift-gold/40 text-rift-gold hover:bg-rift-gold/10 hover:text-rift-goldbright text-[8px] uppercase tracking-[0.2em] transition-all"
+              title={`Auto-play all of Group ${groupId}`}
+            >
+              Sim Group
+            </button>
+          )}
         </div>
       </div>
       <div className="p-2">
@@ -462,16 +504,22 @@ export function SwissView({
     return out;
   }, [swissMatches, swissRounds.length, tournament.teams]);
 
+  // Threshold mode (modern Worlds Swiss): symmetric X wins qualify / X
+  // losses out (X fixed by field size).
+  const winTarget = tournament.swissWinTarget ?? null;
   const swissStageComplete =
-    swissRounds.length >= total &&
     swissMatches.length > 0 &&
-    swissMatches.every((m) => m.winner != null);
+    swissMatches.every((m) => m.winner != null) &&
+    // In threshold mode the engine has already added any next round by the
+    // time every match is resolved, so all-resolved means the stage is over.
+    (winTarget != null || swissRounds.length >= total);
   const allSwissPendingIds = swissMatches
     .filter((m) => !m.winner && m.blueTeamId && m.redTeamId)
     .map((m) => m.id);
   const isSwissPlayoffs =
     tournament.format === "swiss-playoffs" ||
-    tournament.format === "swiss-playoffs-de";
+    tournament.format === "swiss-playoffs-de" ||
+    tournament.format === "swiss-playoffs-te";
   const playoffStarted = tournament.swissPlayoffsStarted ?? false;
   const advancing = tournament.swissPlayoffsAdvancing ?? 0;
   const playoffKind = playoffBracketKindFor(tournament.format);
@@ -486,7 +534,9 @@ export function SwissView({
           </span>
           <div className="flex items-center gap-2">
             <span className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/60">
-              Round {Math.min(swissRounds.length, currentRoundIdx + 1)} of {total}
+              {winTarget != null
+                ? `Round ${Math.min(swissRounds.length, currentRoundIdx + 1)} · ${winTarget}W qualify / ${winTarget}L out`
+                : `Round ${Math.min(swissRounds.length, currentRoundIdx + 1)} of ${total}`}
             </span>
             {allSwissPendingIds.length > 0 && (
               <button
@@ -500,7 +550,10 @@ export function SwissView({
             )}
           </div>
         </div>
-        <SwissStandingsTable tournament={tournament} />
+        <SwissStandingsTable
+          tournament={tournament}
+          advancing={isSwissPlayoffs ? advancing : 0}
+        />
       </div>
 
       {isSwissPlayoffs && swissStageComplete && !playoffStarted && (
@@ -570,9 +623,53 @@ export function SwissView({
   );
 }
 
+// Visual treatment for a record bracket ("2-1", "0-2", …): winning
+// brackets read green, even brackets gold, losing brackets red — so the
+// Swiss ladder is legible at a glance.
+function recordBracketStyle(rec: string): {
+  border: string;
+  bg: string;
+  text: string;
+  bar: string;
+} {
+  const parts = rec.split("-").map(Number);
+  const diff = (parts[0] || 0) - (parts[1] || 0);
+  if (rec === "—" || Number.isNaN(diff)) {
+    return {
+      border: "border-rift-line/40",
+      bg: "bg-rift-bg/20",
+      text: "text-rift-mutedbright/70",
+      bar: "bg-rift-line/10",
+    };
+  }
+  if (diff > 0) {
+    return {
+      border: "border-emerald-500/40",
+      bg: "bg-emerald-500/[0.035]",
+      text: "text-emerald-300",
+      bar: "bg-emerald-500/10",
+    };
+  }
+  if (diff < 0) {
+    return {
+      border: "border-rift-red/45",
+      bg: "bg-rift-red/[0.035]",
+      text: "text-rift-redbright",
+      bar: "bg-rift-red/10",
+    };
+  }
+  return {
+    border: "border-rift-gold/45",
+    bg: "bg-rift-gold/[0.035]",
+    text: "text-rift-goldbright",
+    bar: "bg-rift-gold/10",
+  };
+}
+
 // One Swiss round rendered as a vertical column (mirrors single-elim
 // RoundColumn). Header includes the round label, completion ratio, and
-// a Sim Round button when there are pending matches.
+// a Sim Round button when there are pending matches. Within the column
+// each record bracket is a distinct tinted card with its own Sim button.
 function SwissRoundColumn({
   roundIdx,
   isCurrent,
@@ -596,6 +693,25 @@ function SwissRoundColumn({
   const completed = matches.filter((m) => m.winner).length;
   const total = matches.length;
   const notStarted = total === 0;
+  // Swiss pairs same-record teams, so group each round's matches by the
+  // pairing's pre-round record ("2-0", "1-1", …) and label them — the
+  // signature Swiss "record brackets" readout. Round 1 is all 0-0 so the
+  // single-group label is suppressed.
+  const recordGroups = useMemo(() => {
+    const byRecord = new Map<string, TournamentMatch[]>();
+    for (const m of matches) {
+      const rec = m.blueTeamId ? preRoundRecord.get(m.blueTeamId) : null;
+      const key = rec ? `${rec.w}-${rec.l}` : "—";
+      const arr = byRecord.get(key);
+      if (arr) arr.push(m);
+      else byRecord.set(key, [m]);
+    }
+    return [...byRecord.entries()].sort((a, b) => {
+      const [aw, al] = a[0].split("-").map(Number);
+      const [bw, bl] = b[0].split("-").map(Number);
+      return (bw || 0) - (aw || 0) || (al || 0) - (bl || 0);
+    });
+  }, [matches, preRoundRecord]);
   return (
     <div
       className={`flex-1 min-w-[220px] md:min-w-[240px] flex flex-col border ${
@@ -633,22 +749,62 @@ function SwissRoundColumn({
           Sim Round
         </button>
       )}
-      <div className="flex-1 flex flex-col gap-2">
+      <div className="flex-1 flex flex-col gap-2.5">
         {notStarted ? (
           <div className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/40 text-center py-3">
             Pairs after prior round resolves
           </div>
         ) : (
-          matches.map((m) => (
-            <SwissPairingRow
-              key={m.id}
-              match={m}
-              tournament={tournament}
-              preRoundRecord={preRoundRecord}
-              onStart={() => onStartMatch(m.id)}
-              onView={onViewMatch ? () => onViewMatch(m.id) : undefined}
-            />
-          ))
+          recordGroups.map(([rec, groupMatches]) => {
+            const style = recordBracketStyle(rec);
+            const groupPending = groupMatches
+              .filter((m) => !m.winner && m.blueTeamId && m.redTeamId)
+              .map((m) => m.id);
+            const groupDone = groupMatches.filter((m) => m.winner).length;
+            return (
+              <div
+                key={rec}
+                className={`border ${style.border} ${style.bg}`}
+              >
+                <div
+                  className={`flex items-center justify-between gap-1 px-2 py-1 border-b ${style.border} ${style.bar}`}
+                >
+                  <span
+                    className={`font-display text-[11px] tracking-[0.2em] tabular-nums ${style.text}`}
+                  >
+                    {rec === "—" ? "Bracket" : rec}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[8px] uppercase tracking-[0.25em] text-rift-mutedbright/55 tabular-nums">
+                      {groupDone}/{groupMatches.length}
+                    </span>
+                    {groupPending.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => simulateMatches(groupPending)}
+                        className={`px-1.5 py-0.5 border ${style.border} ${style.text} hover:brightness-125 text-[8px] uppercase tracking-[0.2em] transition-all`}
+                        title={`Auto-play every match in the ${rec} bracket`}
+                      >
+                        Sim
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="p-1.5 flex flex-col gap-1.5">
+                  {groupMatches.map((m) => (
+                    <SwissPairingRow
+                      key={m.id}
+                      match={m}
+                      tournament={tournament}
+                      preRoundRecord={preRoundRecord}
+                      onStart={() => onStartMatch(m.id)}
+                      onView={onViewMatch ? () => onViewMatch(m.id) : undefined}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })
         )}
       </div>
     </div>

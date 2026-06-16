@@ -41,6 +41,16 @@ export function formatHeaderLabel(format: TournamentState["format"]): string {
       return "Groups + DE Playoffs";
     case "round-robin-playoffs":
       return "Round Robin + DE Playoffs";
+    case "triple-elim":
+      return "Triple Elimination";
+    case "round-robin-playoffs-te":
+      return "Round Robin + TE Playoffs";
+    case "round-robin-playoffs-step":
+      return "Round Robin + Stepladder";
+    case "swiss-playoffs-te":
+      return "Swiss + TE Playoffs";
+    case "groups-playoffs-te":
+      return "Groups + TE Playoffs";
     default:
       return "Tournament";
   }

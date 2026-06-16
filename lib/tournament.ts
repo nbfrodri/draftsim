@@ -31,7 +31,21 @@ export type TournamentFormat =
   // generator differs.
   | "round-robin-playoffs"
   | "swiss-playoffs-de"
-  | "groups-playoffs-de";
+  | "groups-playoffs-de"
+  // 3-life elimination: a team is out after its 3rd series loss.
+  // Generated dynamically round-by-round (see generateTripleElimRound),
+  // rendered as three bracket bands (winners / losers / last-chance).
+  | "triple-elim"
+  // Stage + triple-elim playoff variants: run the regular stage
+  // (round-robin / swiss / groups) for seeding, then drop the top-N into
+  // a triple-elim playoff bracket.
+  | "round-robin-playoffs-te"
+  | "swiss-playoffs-te"
+  | "groups-playoffs-te"
+  // Round-robin + stepladder ("gauntlet") playoffs: the two lowest
+  // advancing seeds play, the winner climbs to face the next seed up, and
+  // so on until the #1 seed (who waits at the top) in the final.
+  | "round-robin-playoffs-step";
 
 // Returns true when the format runs a regular stage and then promotes
 // top-N teams into a separate playoff bracket. Used to centralize the
@@ -42,9 +56,34 @@ export function formatHasPlayoffs(format: TournamentFormat): boolean {
   return (
     format === "swiss-playoffs" ||
     format === "swiss-playoffs-de" ||
+    format === "swiss-playoffs-te" ||
     format === "groups-playoffs" ||
     format === "groups-playoffs-de" ||
-    format === "round-robin-playoffs"
+    format === "groups-playoffs-te" ||
+    format === "round-robin-playoffs" ||
+    format === "round-robin-playoffs-te" ||
+    format === "round-robin-playoffs-step"
+  );
+}
+
+/** Whether a format has a meaningful standings table. Pure bracket
+ *  formats (single/double/triple-elim) are decided entirely by the
+ *  bracket, so a standings table is noise; every other format runs a
+ *  round-robin / Swiss / group regular stage with real standings. */
+export function formatHasStandings(format: TournamentFormat): boolean {
+  return (
+    format !== "single-elim" &&
+    format !== "double-elim" &&
+    format !== "triple-elim"
+  );
+}
+
+/** True for the stage + triple-elim playoff variants. */
+export function isTriplePlayoffsFormat(format: TournamentFormat): boolean {
+  return (
+    format === "round-robin-playoffs-te" ||
+    format === "swiss-playoffs-te" ||
+    format === "groups-playoffs-te"
   );
 }
 
@@ -55,7 +94,9 @@ export function formatHasPlayoffs(format: TournamentFormat): boolean {
 // formats — caller should branch on formatHasPlayoffs first.
 export function playoffBracketKindFor(
   format: TournamentFormat,
-): "single-elim" | "double-elim" {
+): "single-elim" | "double-elim" | "triple-elim" | "stepladder" {
+  if (format === "round-robin-playoffs-step") return "stepladder";
+  if (isTriplePlayoffsFormat(format)) return "triple-elim";
   if (
     format === "swiss-playoffs-de" ||
     format === "groups-playoffs-de" ||
@@ -73,13 +114,27 @@ export function playoffBracketKindFor(
 export function stageFormatFor(
   format: TournamentFormat,
 ): "round-robin" | "swiss" | "groups" | null {
-  if (format === "swiss-playoffs" || format === "swiss-playoffs-de") {
+  if (
+    format === "swiss-playoffs" ||
+    format === "swiss-playoffs-de" ||
+    format === "swiss-playoffs-te"
+  ) {
     return "swiss";
   }
-  if (format === "groups-playoffs" || format === "groups-playoffs-de") {
+  if (
+    format === "groups-playoffs" ||
+    format === "groups-playoffs-de" ||
+    format === "groups-playoffs-te"
+  ) {
     return "groups";
   }
-  if (format === "round-robin-playoffs") return "round-robin";
+  if (
+    format === "round-robin-playoffs" ||
+    format === "round-robin-playoffs-te" ||
+    format === "round-robin-playoffs-step"
+  ) {
+    return "round-robin";
+  }
   return null;
 }
 
@@ -101,6 +156,11 @@ export function stageFormatFor(
 export type TournamentBracket =
   | "winners"
   | "losers"
+  // Triple-elim only: the 2-loss "last-chance" tier (one more loss = out).
+  | "elimination"
+  // Triple-elim only: the consolation final (losers-bracket champ vs
+  // last-chance champ); its loser takes 3rd and is out.
+  | "consolation"
   | "grand-final"
   | "grand-final-reset";
 
@@ -670,6 +730,15 @@ export interface TournamentState {
   // bound tells the system when to stop. ceil(log2(N)) by default at
   // creation time. Undefined for non-Swiss tournaments.
   swissTotalRounds?: number;
+  // Swiss only (modern "Worlds Swiss"): when set, the stage runs to a
+  // win/loss THRESHOLD instead of a fixed round count — a team that
+  // reaches `swissWinTarget` wins qualifies (and stops playing) and one
+  // that reaches the SAME number of losses is eliminated (symmetric, like
+  // the real Worlds format). X is fixed by the field size: X = log2(N) − 1
+  // for a power-of-2 field ≥ 8 (16 → 3W/3L), so exactly N/2 advance and no
+  // bye is ever needed. swissTotalRounds holds the 2X−1 round cap.
+  // Undefined = the classic fixed-round Swiss.
+  swissWinTarget?: number;
   // Swiss-playoffs only: how many top-of-standings teams advance to the
   // single-elim playoff bracket. Defaults to a sensible power of 2
   // (4 / 8 / 16) based on team count. Undefined for plain swiss.
@@ -969,30 +1038,43 @@ export function generateRoundRobinMatches(
   teams: TournamentTeam[],
   defaults: TournamentDefaults,
   formatOverrides?: FormatOverrides,
+  // Number of times every team plays every other team. 1 = standard
+  // (single) round-robin; 2 = double round-robin (a "home" and an "away"
+  // leg, with sides swapped between the two meetings). Defaults to 1 so
+  // existing tournaments are byte-identical.
+  legs: number = 1,
 ): TournamentMatch[] {
   if (teams.length < 2) {
     throw new Error("Round-robin needs at least 2 teams");
   }
+  const legCount = Math.max(1, Math.floor(legs));
   // Pad with a sentinel "bye" if odd count. Sentinel id is null after
   // normalization; we skip pairings against it.
   const padded: (TournamentTeam | null)[] = [...teams];
   if (padded.length % 2 === 1) padded.push(null);
   const n = padded.length;
-  const totalRounds = n - 1;
+  const roundsPerLeg = n - 1;
   const matchesPerRound = n / 2;
 
-  // Circle method: fix team[0], rotate the rest by one each round.
-  // Round k pair (i, n-1-i) for i in 0..matchesPerRound-1, then rotate
-  // padded[1..n-1] by one position.
+  // Circle method: fix team[0], rotate the rest by one each round. The
+  // rotation is cyclic with period `roundsPerLeg`, so simply continuing
+  // to rotate past one leg reproduces the same pairings — that's the
+  // second leg of a double round-robin. Matchdays (`round`) keep counting
+  // up across legs so the dashboard renders one continuous schedule.
   const rotation = padded.slice();
   const out: TournamentMatch[] = [];
-  for (let round = 1; round <= totalRounds; round++) {
+  for (let round = 1; round <= roundsPerLeg * legCount; round++) {
+    const leg = Math.floor((round - 1) / roundsPerLeg);
+    const localRound = round - leg * roundsPerLeg; // 1..roundsPerLeg
     for (let i = 0; i < matchesPerRound; i++) {
       const a = rotation[i];
       const b = rotation[n - 1 - i];
       if (!a || !b) continue; // bye
-      // Alternate which team is "blue" each round so totals are fair.
-      const isBlue = (round + i) % 2 === 0;
+      // Alternate which team is "blue" each round so totals are fair. On
+      // even legs use the base parity; on odd (return) legs invert it, so
+      // a pair that was blue-side in leg 1 is red-side in leg 2.
+      const baseBlue = (localRound + i) % 2 === 0;
+      const isBlue = leg % 2 === 0 ? baseBlue : !baseBlue;
       const blueTeam = isBlue ? a : b;
       const redTeam = isBlue ? b : a;
       out.push({
@@ -1023,6 +1105,265 @@ export function generateRoundRobinMatches(
     rotation[1] = last;
   }
   return out;
+}
+
+// ─── Triple elimination (3 brackets) ──────────────────────────────────
+//
+// A true three-bracket cascade, generated dynamically round-by-round:
+//
+//   • Winners (0 losses)     — everyone starts here. Lose once → drop to
+//                              the Losers bracket.
+//   • Losers (1 loss)        — the second-chance bracket. Lose here (2nd
+//                              loss) → drop to the Last-Chance bracket.
+//   • Last-Chance (2 losses) — your last life. Lose here (3rd loss) → out.
+//
+// Each tier resolves to a single champion (lowest tier still holding ≥2
+// teams plays first, so Winners crowns its champ, then Losers, then
+// Last-Chance). THREE champions reach the finals — one per bracket — and
+// the title is decided as:
+//
+//   1. Consolation Final: Losers champ (1L) vs Last-Chance champ (2L).
+//      The loser takes 3rd; the winner advances.
+//   2. Grand Final: that winner vs the undefeated Winners champ. The
+//      winner is the tournament champion.
+//
+// Works for any field ≥ 4; the standalone setup picker offers 4 and 8.
+
+export const TRIPLE_ELIM_LIVES = 3;
+
+/** Losses per team from completed, non-bye triple-elim matches. */
+export function tripleElimLosses(
+  matches: TournamentMatch[],
+): Map<string, number> {
+  const losses = new Map<string, number>();
+  for (const m of matches) {
+    if (!m.winner || m.isBye) continue;
+    if (m.blueTeamId == null || m.redTeamId == null) continue;
+    const loserId =
+      m.winner.teamId === m.blueTeamId ? m.redTeamId : m.blueTeamId;
+    losses.set(loserId, (losses.get(loserId) ?? 0) + 1);
+  }
+  return losses;
+}
+
+function tripleElimTierBracket(loss: number): TournamentBracket {
+  return loss <= 0 ? "winners" : loss === 1 ? "losers" : "elimination";
+}
+
+/** Teams that are out: 3 losses, OR the loser of a completed consolation
+ *  final (3rd place), OR the loser of the grand final (runner-up) —
+ *  the finals decide structurally, even when the loser has < 3 losses. */
+export function tripleElimEliminated(
+  matches: TournamentMatch[],
+): Set<string> {
+  const losses = tripleElimLosses(matches);
+  const out = new Set<string>();
+  for (const [id, n] of losses) if (n >= TRIPLE_ELIM_LIVES) out.add(id);
+  for (const m of matches) {
+    if (
+      (m.bracket !== "consolation" && m.bracket !== "grand-final") ||
+      !m.winner
+    ) {
+      continue;
+    }
+    if (m.blueTeamId == null || m.redTeamId == null) continue;
+    out.add(m.winner.teamId === m.blueTeamId ? m.redTeamId : m.blueTeamId);
+  }
+  return out;
+}
+
+/** Build the next triple-elim round from the teams + matches so far.
+ *  Returns [] when ≤1 team is still alive (champion decided). */
+export function generateTripleElimRound(
+  teams: TournamentTeam[],
+  existingMatches: TournamentMatch[],
+  roundNumber: number,
+  defaults: TournamentDefaults,
+  formatOverrides?: FormatOverrides,
+  // "" for a standalone / season triple-elim event (tier matches use the
+  // "main" series, the deciders the "final" series). "po:" when this is
+  // the triple-elim PLAYOFF bracket of a stage+TE format — tier matches
+  // then read the playoff series (po:wb) and the deciders the po:final.
+  keyPrefix: string = "",
+): TournamentMatch[] {
+  const losses = tripleElimLosses(existingMatches);
+  const lossOf = (id: string) => losses.get(id) ?? 0;
+  const eliminated = tripleElimEliminated(existingMatches);
+  const alive = teams.filter((t) => !eliminated.has(t.id));
+  if (alive.length <= 1) return [];
+  const playoff = keyPrefix === "po:";
+
+  const makeMatch = (
+    a: TournamentTeam,
+    b: TournamentTeam,
+    bracket: TournamentBracket,
+  ): TournamentMatch => {
+    const isFinal = bracket === "consolation" || bracket === "grand-final";
+    // Finals read the configured "final"/"gf" series; tier matches the
+    // regular ("main") length. Playoff brackets use the "po:" keyspace.
+    const format = isFinal
+      ? playoff
+        ? pickFormat(defaults, formatOverrides, "po:te:final", "po:final", "po:gf", "main")
+        : pickFormat(defaults, formatOverrides, "te:final", "final", "gf", "main")
+      : playoff
+        ? pickFormat(defaults, formatOverrides, `po:te:${bracket}`, "po:wb:1", "main")
+        : pickFormat(defaults, formatOverrides, `te:${bracket}`, "main");
+    return {
+      id: makeMatchId(),
+      round: roundNumber,
+      blueTeamId: a.id,
+      redTeamId: b.id,
+      format,
+      fearless: defaults.fearless,
+      mode: defaults.mode,
+      aiSide: defaults.aiSide,
+      aiDifficulty: defaults.aiDifficulty,
+      series: null,
+      winner: null,
+      feedsInto: null,
+      bracket,
+    };
+  };
+
+  // Prior opponents → avoid rematches where possible.
+  const prevOpp = new Map<string, Set<string>>();
+  for (const m of existingMatches) {
+    if (m.isBye || m.blueTeamId == null || m.redTeamId == null) continue;
+    (prevOpp.get(m.blueTeamId) ?? prevOpp.set(m.blueTeamId, new Set()).get(m.blueTeamId)!).add(m.redTeamId);
+    (prevOpp.get(m.redTeamId) ?? prevOpp.set(m.redTeamId, new Set()).get(m.redTeamId)!).add(m.blueTeamId);
+  }
+  const haveMet = (a: string, b: string) => prevOpp.get(a)?.has(b) ?? false;
+
+  // Fold-pair a seed-sorted group, skipping rematches; returns the pairs
+  // plus an odd leftover (which sits out this round).
+  const pairGroup = (
+    group: TournamentTeam[],
+  ): { pairs: [TournamentTeam, TournamentTeam][]; leftover: TournamentTeam | null } => {
+    const remaining = [...group].sort((a, b) => a.seed - b.seed);
+    const pairs: [TournamentTeam, TournamentTeam][] = [];
+    while (remaining.length >= 2) {
+      const a = remaining.shift()!;
+      let idx = -1;
+      for (let j = remaining.length - 1; j >= 0; j--) {
+        if (!haveMet(a.id, remaining[j].id)) {
+          idx = j;
+          break;
+        }
+      }
+      if (idx === -1) idx = remaining.length - 1;
+      const b = remaining.splice(idx, 1)[0];
+      pairs.push([a, b]);
+    }
+    return { pairs, leftover: remaining[0] ?? null };
+  };
+
+  // Resolve the lowest loss-tier that still has ≥2 alive teams FIRST, so
+  // Winners crowns its champion before Losers, and Losers before
+  // Last-Chance — leaving exactly one champion per bracket for the finals.
+  const tiers = [...new Set(alive.map((t) => lossOf(t.id)))].sort(
+    (a, b) => a - b,
+  );
+  for (const tier of tiers) {
+    const group = alive.filter((t) => lossOf(t.id) === tier);
+    if (group.length < 2) continue; // tier already has its champion
+    const { pairs } = pairGroup(group); // odd team sits out, paired next round
+    if (pairs.length === 0) continue;
+    return pairs.map(([a, b]) => makeMatch(a, b, tripleElimTierBracket(tier)));
+  }
+
+  // No tier has ≥2 alive → the finals. The survivors are the bracket
+  // champions, sorted by losses (Winners 0L, Losers 1L, Last-Chance 2L).
+  const champs = [...alive].sort(
+    (a, b) => lossOf(a.id) - lossOf(b.id) || a.seed - b.seed,
+  );
+  if (champs.length >= 3) {
+    // Consolation Final: Losers champ vs Last-Chance champ (loser → 3rd).
+    return [makeMatch(champs[1], champs[2], "consolation")];
+  }
+  if (champs.length === 2) {
+    // Grand Final: Winners champ vs the consolation survivor.
+    return [makeMatch(champs[0], champs[1], "grand-final")];
+  }
+  return [];
+}
+
+// Rank a triple-elim field by fewest losses, then survived-longer, then
+// match wins, then seed — from a given team list + match subset.
+function rankTripleElim(
+  teams: TournamentTeam[],
+  matches: TournamentMatch[],
+): TournamentTeam[] {
+  const losses = tripleElimLosses(matches);
+  const wins = new Map<string, number>();
+  const lastRound = new Map<string, number>();
+  for (const m of matches) {
+    if (!m.winner || m.isBye) continue;
+    if (m.blueTeamId == null || m.redTeamId == null) continue;
+    wins.set(m.winner.teamId, (wins.get(m.winner.teamId) ?? 0) + 1);
+    lastRound.set(m.blueTeamId, Math.max(lastRound.get(m.blueTeamId) ?? 0, m.round));
+    lastRound.set(m.redTeamId, Math.max(lastRound.get(m.redTeamId) ?? 0, m.round));
+  }
+  return [...teams].sort(
+    (a, b) =>
+      (losses.get(a.id) ?? 0) - (losses.get(b.id) ?? 0) ||
+      (lastRound.get(b.id) ?? 0) - (lastRound.get(a.id) ?? 0) ||
+      (wins.get(b.id) ?? 0) - (wins.get(a.id) ?? 0) ||
+      a.seed - b.seed,
+  );
+}
+
+/** Triple-elim ranking (champion at index 0). For the stage+TE playoff
+ *  formats this ranks ONLY the playoff bracket (bracketed matches + the
+ *  teams that advanced); for a pure triple-elim event it ranks the whole
+ *  field over every match. */
+export function computeTripleElimStandings(
+  tournament: TournamentState,
+): TournamentTeam[] {
+  if (isTriplePlayoffsFormat(tournament.format)) {
+    const playoffMatches = tournament.matches.filter(
+      (m) => m.bracket !== undefined,
+    );
+    const ids = new Set<string>();
+    for (const m of playoffMatches) {
+      if (m.blueTeamId) ids.add(m.blueTeamId);
+      if (m.redTeamId) ids.add(m.redTeamId);
+    }
+    const teTeams = tournament.teams.filter((t) => ids.has(t.id));
+    return rankTripleElim(teTeams, playoffMatches);
+  }
+  return rankTripleElim(tournament.teams, tournament.matches);
+}
+
+// Finish order for a single/double-elim BRACKET, best first. Computed
+// from every match (including bracketed ones, which computeStandings
+// skips) so the order reflects how far each team actually advanced:
+// more series wins = further; fewer losses; eliminated later. This is
+// what gives a correct play-in ranking — e.g. for a 6-team DE play-in
+// the order is GF winner, GF loser, losers-final loser, the team that
+// lost to that losers-finalist, … (NOT seed order).
+export function computeBracketFinishOrder(
+  tournament: TournamentState,
+): TournamentTeam[] {
+  const wins = new Map<string, number>();
+  const losses = new Map<string, number>();
+  const lastRound = new Map<string, number>();
+  for (const m of tournament.matches) {
+    if (!m.winner || m.isBye) continue;
+    if (m.blueTeamId == null || m.redTeamId == null) continue;
+    wins.set(m.winner.teamId, (wins.get(m.winner.teamId) ?? 0) + 1);
+    const loser =
+      m.winner.teamId === m.blueTeamId ? m.redTeamId : m.blueTeamId;
+    losses.set(loser, (losses.get(loser) ?? 0) + 1);
+    lastRound.set(m.blueTeamId, Math.max(lastRound.get(m.blueTeamId) ?? 0, m.round));
+    lastRound.set(m.redTeamId, Math.max(lastRound.get(m.redTeamId) ?? 0, m.round));
+  }
+  return [...tournament.teams].sort(
+    (a, b) =>
+      (wins.get(b.id) ?? 0) - (wins.get(a.id) ?? 0) ||
+      (losses.get(a.id) ?? 0) - (losses.get(b.id) ?? 0) ||
+      (lastRound.get(b.id) ?? 0) - (lastRound.get(a.id) ?? 0) ||
+      a.seed - b.seed,
+  );
 }
 
 // ─── Groups + playoffs (Phase 4 / 5) ──────────────────────────────────
@@ -1285,7 +1626,13 @@ export function generateDoubleElimBracket(
     const isLFinal = wRound === wRoundCount;
     for (let i = 0; i < wLosers.length; i++) {
       const queueItem = lQueue[i];
-      const wL = wLosers[i];
+      // Anti-rematch seeding: drop the W-round losers in REVERSED order
+      // against the L-queue. The L-queue winners at slot i come from one
+      // half of the bracket; reversing makes the W-loser they meet come
+      // from the OTHER half (a disjoint team pool), so a team never
+      // immediately replays whoever just knocked it down. (For a clean
+      // 8-team bracket this removes every pre-grand-final rematch.)
+      const wL = wLosers[wLosers.length - 1 - i];
       const m: TournamentMatch = {
         id: makeMatchId(),
         round: lRoundIdx,
@@ -1619,6 +1966,15 @@ export function computeSwissStandings(
   });
   out.sort((a, b) => {
     if (a.wins !== b.wins) return b.wins - a.wins;
+    // Full win–loss record: among equal wins, fewer losses ranks higher.
+    // For fixed-round Swiss every team plays the same number of rounds, so
+    // this is a no-op (equal wins ⇒ equal losses). It matters in threshold
+    // mode (modern Worlds Swiss), where qualifiers all stop at the same win
+    // target but with different loss counts — fewer losses means you
+    // qualified EARLIER (e.g. a 3-0 outseeds a 3-2), so the earliest
+    // qualifiers take the top playoff seeds instead of strength-of-schedule
+    // deciding it.
+    if (a.losses !== b.losses) return a.losses - b.losses;
     if (a.medianBuchholz !== b.medianBuchholz)
       return b.medianBuchholz - a.medianBuchholz;
     if (a.buchholz !== b.buchholz) return b.buchholz - a.buchholz;
@@ -1644,6 +2000,34 @@ export function computeSwissStandings(
 // unpaired team that has NOT yet received a bye this tournament — if all
 // remaining candidates have had a bye already, the lowest-ranked is picked
 // again (minimises repeat byes).
+// Symmetric modern-Worlds-Swiss threshold for a power-of-2 field of at
+// least 8 teams. A team qualifies at X wins and is eliminated at X losses,
+// where X = log2(N) − 1 (16 → 3, 8 → 2, 32 → 4). Because the field is a
+// power of two the active pool halves evenly every round: each record
+// group is always an even size, so pairing stays strictly within a record
+// AND no team ever receives a bye. Exactly N/2 teams advance. Returns null
+// when the field can't support a clean, bye-free threshold Swiss (not a
+// power of two, or fewer than 8 teams) — callers fall back to fixed rounds.
+export function swissThresholdFor(
+  teamCount: number,
+): { winTarget: number; advancing: number; maxRounds: number } | null {
+  if (!isPowerOfTwo(teamCount) || teamCount < 8) return null;
+  const winTarget = Math.log2(teamCount) - 1;
+  return {
+    winTarget,
+    advancing: teamCount / 2,
+    // A team plays at most this many games before hitting X wins or X
+    // losses (the last possible record being X−1 wins and X−1 losses).
+    maxRounds: 2 * winTarget - 1,
+  };
+}
+
+// One step up the series ladder (bo1 → bo3 → bo5), used to make Swiss
+// "deciding" matches longer than the rest. bo5 is the top, so it stays.
+function nextSeriesUp(f: SeriesFormat): SeriesFormat {
+  return f === "bo1" ? "bo3" : f === "bo3" ? "bo5" : "bo5";
+}
+
 function generateNextSwissRound(
   tournament: TournamentState,
   currentRound: number,
@@ -1654,7 +2038,21 @@ function generateNextSwissRound(
   ) {
     return [];
   }
-  const standings = computeSwissStandings(tournament);
+  const fullStandings = computeSwissStandings(tournament);
+  // Threshold mode (modern Worlds Swiss): once a team reaches the win
+  // target it has qualified and once it reaches the SAME loss target it is
+  // eliminated — either way it stops playing. Only the remaining "active"
+  // pool gets paired. When fewer than 2 active teams remain, the stage is
+  // over (return []).
+  const winTarget = tournament.swissWinTarget ?? null;
+  const active =
+    winTarget != null
+      ? fullStandings.filter((s) => s.wins < winTarget && s.losses < winTarget)
+      : fullStandings;
+  if (winTarget != null && active.length < 2) {
+    return [];
+  }
+
   const prevOpponents = new Map<string, Set<string>>();
   for (const team of tournament.teams) prevOpponents.set(team.id, new Set());
   for (const m of tournament.matches) {
@@ -1664,97 +2062,134 @@ function generateNextSwissRound(
   }
 
   const round = currentRound + 1;
-  const isOdd = tournament.teams.length % 2 === 1;
-
-  // Determine which teams have already received a bye so we can prefer
-  // teams that haven't had one yet.
   const byeRecipients = new Set<string>();
   for (const m of tournament.matches) {
     if (m.isBye && m.winner) byeRecipients.add(m.winner.teamId);
   }
+  const recordOf = new Map<string, { wins: number; losses: number }>();
+  for (const s of active) recordOf.set(s.team.id, { wins: s.wins, losses: s.losses });
 
-  // For odd team count: pre-select the bye recipient before greedy
-  // pairing so the remaining even pool pairs cleanly.
+  // If the active pool is odd, one team must sit out (a bye). This only
+  // happens in fixed-round Swiss with a non-power-of-2 field — a threshold
+  // Swiss always runs a power-of-2 field that halves evenly, so the pool is
+  // never odd and no bye is ever awarded. Pick the bye fairly: the
+  // lowest-ranked active team that hasn't had a bye yet (rotation), then
+  // remove it so the remaining even pool pairs cleanly.
   let byeTeam: TournamentTeam | null = null;
-  if (isOdd) {
-    // Walk standings bottom-to-top; pick the first team that hasn't had a
-    // bye. If every team has had one, fall back to the lowest-ranked.
-    for (let i = standings.length - 1; i >= 0; i--) {
-      const candidate = standings[i].team;
-      if (!byeRecipients.has(candidate.id)) {
-        byeTeam = candidate;
+  let pool = active.map((s) => s.team);
+  if (pool.length % 2 === 1) {
+    for (let i = pool.length - 1; i >= 0; i--) {
+      if (!byeRecipients.has(pool[i].id)) {
+        byeTeam = pool[i];
         break;
       }
     }
-    if (!byeTeam) {
-      // All have had a bye — give it to the lowest-ranked team.
-      byeTeam = standings[standings.length - 1].team;
-    }
+    if (!byeTeam) byeTeam = pool[pool.length - 1];
+    pool = pool.filter((t) => t.id !== byeTeam!.id);
   }
 
-  // Greedy: walk standings top to bottom, pair each unmatched team
-  // with the next unmatched team they haven't played, falling back to
-  // a rematch if no fresh pairing is left.
-  const paired = new Set<string>();
-  if (byeTeam) paired.add(byeTeam.id); // exclude bye recipient from regular pairing
-  const result: TournamentMatch[] = [];
-
-  for (let i = 0; i < standings.length; i++) {
-    const a = standings[i].team;
-    if (paired.has(a.id)) continue;
-    let pairedB: TournamentTeam | null = null;
-    for (let j = i + 1; j < standings.length; j++) {
-      const b = standings[j].team;
-      if (paired.has(b.id)) continue;
-      if (prevOpponents.get(a.id)!.has(b.id)) continue;
-      pairedB = b;
-      break;
+  // STRICT same-record pairing (real Swiss): group the (now even) pool by
+  // win-loss record, best record first — `active` is already sorted by
+  // record, so equal-record teams are contiguous. Pair only within a
+  // record group; if a group is odd, the lowest-seeded leftover "floats
+  // down" to join the next group. A power-of-2 threshold field never floats
+  // (every group is even); floats only occur in non-power-of-2 fixed Swiss.
+  const groups: TournamentTeam[][] = [];
+  let prevKey = "";
+  for (const t of pool) {
+    const rec = recordOf.get(t.id)!;
+    const key = `${rec.wins}-${rec.losses}`;
+    if (key !== prevKey) {
+      groups.push([]);
+      prevKey = key;
     }
-    if (!pairedB) {
-      for (let j = i + 1; j < standings.length; j++) {
-        const b = standings[j].team;
-        if (paired.has(b.id)) continue;
-        pairedB = b;
+    groups[groups.length - 1].push(t);
+  }
+
+  const result: TournamentMatch[] = [];
+  let sideFlip = round; // alternate blue/red across the round
+  let floater: TournamentTeam | null = null;
+  for (const group of groups) {
+    const tier: TournamentTeam[] = floater ? [floater, ...group] : [...group];
+    floater = null;
+    const paired = new Set<string>();
+    for (let i = 0; i < tier.length; i++) {
+      const a = tier[i];
+      if (paired.has(a.id)) continue;
+      // Prefer an opponent in the same tier not yet played; fall back to a
+      // rematch only if every fresh pairing is exhausted.
+      let b: TournamentTeam | null = null;
+      for (let j = i + 1; j < tier.length; j++) {
+        const cand = tier[j];
+        if (paired.has(cand.id)) continue;
+        if (prevOpponents.get(a.id)!.has(cand.id)) continue;
+        b = cand;
         break;
       }
-    }
-    if (!pairedB) continue;
-    paired.add(a.id);
-    paired.add(pairedB.id);
-    // Alternate sides each round so totals balance.
-    const aIsBlue = (round + i) % 2 === 0;
-    const blue = aIsBlue ? a : pairedB;
-    const red = aIsBlue ? pairedB : a;
-    result.push({
-      id: makeMatchId(),
-      round,
-      blueTeamId: blue.id,
-      redTeamId: red.id,
-      format: pickFormat(
+      if (!b) {
+        for (let j = i + 1; j < tier.length; j++) {
+          const cand = tier[j];
+          if (paired.has(cand.id)) continue;
+          b = cand;
+          break;
+        }
+      }
+      if (!b) continue; // a is the odd one out → floats to the next group
+      paired.add(a.id);
+      paired.add(b.id);
+      const aRec = recordOf.get(a.id)!;
+      const bRec = recordOf.get(b.id)!;
+      // A "deciding" match is one whose result qualifies a team (a win
+      // takes someone to the win target) or eliminates one (a loss takes
+      // someone to the loss target). Those play one series longer than the
+      // rest — Bo3 deciders over a Bo1 stage, like real Worlds Swiss.
+      const isDecider =
+        winTarget != null &&
+        (aRec.wins === winTarget - 1 ||
+          bRec.wins === winTarget - 1 ||
+          aRec.losses === winTarget - 1 ||
+          bRec.losses === winTarget - 1);
+      const baseFormat = pickFormat(
         tournament.defaults,
         tournament.formatOverrides,
         `main:${round}`,
         "main",
-      ),
-      fearless: tournament.defaults.fearless,
-      mode: tournament.defaults.mode,
-      aiSide: tournament.defaults.aiSide,
-      aiDifficulty: tournament.defaults.aiDifficulty,
-      series: null,
-      winner: null,
-      feedsInto: null,
-    });
+      );
+      const aIsBlue = sideFlip % 2 === 0;
+      sideFlip++;
+      const blue = aIsBlue ? a : b;
+      const red = aIsBlue ? b : a;
+      result.push({
+        id: makeMatchId(),
+        round,
+        blueTeamId: blue.id,
+        redTeamId: red.id,
+        format: isDecider ? nextSeriesUp(baseFormat) : baseFormat,
+        fearless: tournament.defaults.fearless,
+        mode: tournament.defaults.mode,
+        aiSide: tournament.defaults.aiSide,
+        aiDifficulty: tournament.defaults.aiDifficulty,
+        series: null,
+        winner: null,
+        feedsInto: null,
+      });
+    }
+    const leftover: TournamentTeam | undefined = tier.find(
+      (t: TournamentTeam) => !paired.has(t.id),
+    );
+    if (leftover) floater = leftover;
+  }
+  // A leftover floater after the last group means the pool was genuinely
+  // unpairable into the final group — give it the bye (defensive; the
+  // even-pool float math normally lands every team in a pairing).
+  if (floater && !byeTeam) {
+    byeTeam = floater;
   }
 
   // Append the bye match last so it sorts with its round peers.
   if (byeTeam) {
     result.push(
-      makeBye(
-        byeTeam,
-        round,
-        tournament.defaults,
-        tournament.formatOverrides,
-      ),
+      makeBye(byeTeam, round, tournament.defaults, tournament.formatOverrides),
     );
   }
 
@@ -1896,6 +2331,12 @@ export interface CreateTournamentParams {
   // Ignored for non-Swiss formats. Useful for shorter or longer Swiss
   // events (e.g. 5 rounds for 16 teams instead of the default 4).
   swissTotalRoundsOverride?: number;
+  // Swiss only: run to a symmetric win/loss threshold (modern Worlds
+  // Swiss) instead of a fixed round count — X wins qualify / X losses
+  // eliminate, X fixed by the field size (see swissThresholdFor). Only
+  // engages for a power-of-2 field ≥ 8; any other field falls back to fixed
+  // rounds. Overrides swissTotalRoundsOverride.
+  swissThreshold?: boolean;
   // Override the auto-derived advancing count for *-playoffs formats.
   // Ignored for non-*-playoffs formats.
   swissPlayoffsAdvancingOverride?: number;
@@ -1921,6 +2362,10 @@ export interface CreateTournamentParams {
   // Season mode: signed per-team streaks carried in from earlier
   // tournaments of the season — see TournamentState.streakSeeds.
   streakSeeds?: Record<string, number>;
+  // Round-robin formats only: number of legs (times each pair meets).
+  // 1 = single round-robin (default), 2 = double round-robin. Ignored
+  // for non round-robin formats.
+  roundRobinLegs?: number;
 }
 
 export function createTournament(
@@ -1930,38 +2375,62 @@ export function createTournament(
   const teams = [...params.teams].sort((a, b) => a.seed - b.seed);
   let matches: TournamentMatch[];
   let swissTotalRounds: number | undefined;
+  // Swiss threshold mode (modern Worlds Swiss): symmetric X wins to
+  // qualify / X losses to eliminate, where X and the round cap are fixed by
+  // the field size. Only engages for a power-of-2 field ≥ 8 (so the pool
+  // halves evenly, pairing stays same-record and no bye is ever needed);
+  // any other field silently falls back to fixed-round Swiss.
+  const swissThreshold = params.swissThreshold
+    ? swissThresholdFor(teams.length)
+    : null;
+  const swissWinTarget = swissThreshold?.winTarget;
   let groupsPlayoffs: TournamentState["groupsPlayoffs"] | undefined;
   const fo = params.formatOverrides;
   if (params.format === "single-elim") {
     matches = generateSingleElimBracket(teams, params.defaults, fo);
   } else if (params.format === "round-robin") {
-    matches = generateRoundRobinMatches(teams, params.defaults, fo);
+    matches = generateRoundRobinMatches(
+      teams,
+      params.defaults,
+      fo,
+      params.roundRobinLegs,
+    );
   } else if (params.format === "double-elim") {
     matches = generateDoubleElimBracket(teams, params.defaults, fo);
+  } else if (params.format === "triple-elim") {
+    if (teams.length < 4) {
+      throw new Error(`Triple-elim requires at least 4 teams (got ${teams.length})`);
+    }
+    // Round 1: everyone at 0 losses, fold-seeded.
+    matches = generateTripleElimRound(teams, [], 1, params.defaults, fo);
   } else if (params.format === "swiss") {
     const swiss = generateSwissBracket(
       teams,
       params.defaults,
       fo,
-      params.swissTotalRoundsOverride,
+      // Threshold mode: max rounds a team can play before hitting X wins
+      // or X losses (the 2X−1 cap).
+      swissThreshold ? swissThreshold.maxRounds : params.swissTotalRoundsOverride,
     );
     matches = swiss.matches;
     swissTotalRounds = swiss.totalRounds;
   } else if (
     params.format === "swiss-playoffs" ||
-    params.format === "swiss-playoffs-de"
+    params.format === "swiss-playoffs-de" ||
+    params.format === "swiss-playoffs-te"
   ) {
     const swiss = generateSwissBracket(
       teams,
       params.defaults,
       fo,
-      params.swissTotalRoundsOverride,
+      swissThreshold ? swissThreshold.maxRounds : params.swissTotalRoundsOverride,
     );
     matches = swiss.matches;
     swissTotalRounds = swiss.totalRounds;
   } else if (
     params.format === "groups-playoffs" ||
-    params.format === "groups-playoffs-de"
+    params.format === "groups-playoffs-de" ||
+    params.format === "groups-playoffs-te"
   ) {
     // Groups+playoffs starts as a per-group round-robin stage; the
     // playoff bracket gets generated when the user freezes standings.
@@ -1973,11 +2442,20 @@ export function createTournament(
       advancingPerGroup: cfg.advancingPerGroup,
       playoffStarted: false,
     };
-  } else if (params.format === "round-robin-playoffs") {
+  } else if (
+    params.format === "round-robin-playoffs" ||
+    params.format === "round-robin-playoffs-te" ||
+    params.format === "round-robin-playoffs-step"
+  ) {
     // Same regular stage as plain round-robin; playoff bracket gets
     // generated when the user freezes standings (analogous to swiss-
     // playoffs / groups-playoffs flow).
-    matches = generateRoundRobinMatches(teams, params.defaults, fo);
+    matches = generateRoundRobinMatches(
+      teams,
+      params.defaults,
+      fo,
+      params.roundRobinLegs,
+    );
   } else {
     throw new Error(`Unsupported tournament format: ${params.format}`);
   }
@@ -1996,6 +2474,9 @@ export function createTournament(
     // serialize byte-identically to pre-feature snapshots.
     ...(params.liveMeta ? { liveMeta: true } : {}),
     swissTotalRounds,
+    // Only materialize the threshold field when enabled so default Swiss
+    // tournaments serialize identically to pre-feature snapshots.
+    ...(swissThreshold ? { swissWinTarget: swissWinTarget! } : {}),
     swissPlayoffsAdvancing:
       params.format === "swiss-playoffs"
         ? params.swissPlayoffsAdvancingOverride ??
@@ -2010,10 +2491,18 @@ export function createTournament(
               params.swissPlayoffsAdvancingOverride ??
                 Math.min(16, Math.max(4, Math.floor(teams.length / 2))),
             )
-          : undefined,
+          : params.format === "swiss-playoffs-te"
+            ? // Triple-elim accepts any field ≥ 4 (no power-of-2 snap).
+              Math.max(
+                4,
+                params.swissPlayoffsAdvancingOverride ??
+                  Math.min(8, Math.max(4, Math.floor(teams.length / 2))),
+              )
+            : undefined,
     swissPlayoffsStarted:
       params.format === "swiss-playoffs" ||
-      params.format === "swiss-playoffs-de"
+      params.format === "swiss-playoffs-de" ||
+      params.format === "swiss-playoffs-te"
         ? false
         : undefined,
     rrPlayoffsAdvancing:
@@ -2022,9 +2511,26 @@ export function createTournament(
             params.rrPlayoffsAdvancingOverride ??
               Math.min(16, Math.max(4, Math.floor(teams.length / 2))),
           )
-        : undefined,
+        : params.format === "round-robin-playoffs-te"
+          ? Math.max(
+              4,
+              params.rrPlayoffsAdvancingOverride ??
+                Math.min(8, Math.max(4, Math.floor(teams.length / 2))),
+            )
+          : params.format === "round-robin-playoffs-step"
+            ? // Stepladder works for any field ≥ 2; no power-of-2 snap.
+              Math.max(
+                2,
+                params.rrPlayoffsAdvancingOverride ??
+                  Math.min(6, Math.max(4, Math.floor(teams.length / 2))),
+              )
+            : undefined,
     rrPlayoffsStarted:
-      params.format === "round-robin-playoffs" ? false : undefined,
+      params.format === "round-robin-playoffs" ||
+      params.format === "round-robin-playoffs-te" ||
+      params.format === "round-robin-playoffs-step"
+        ? false
+        : undefined,
     groupsPlayoffs,
     formatOverrides: params.formatOverrides,
     fearlessConfig: {
@@ -2114,7 +2620,10 @@ export function recordMatchWinner(
   // so the same completion check covers all of them.
   const isSEPlayoffsFinal =
     (tournament.format === "groups-playoffs" ||
-      tournament.format === "swiss-playoffs") &&
+      tournament.format === "swiss-playoffs" ||
+      // Stepladder is a single-elim-shaped chain — its final is the only
+      // winners match with no feedsInto, same completion shape.
+      tournament.format === "round-robin-playoffs-step") &&
     finishedMatch.bracket === "winners" &&
     !finishedMatch.feedsInto;
   // DE-playoff variants use the same grand-final / grand-final-reset
@@ -2140,7 +2649,8 @@ export function recordMatchWinner(
   } else if (
     tournament.format === "swiss" ||
     ((tournament.format === "swiss-playoffs" ||
-      tournament.format === "swiss-playoffs-de") &&
+      tournament.format === "swiss-playoffs-de" ||
+      tournament.format === "swiss-playoffs-te") &&
       finishedMatch.bracket === undefined)
   ) {
     // Swiss completes when all rounds have run AND every match has a
@@ -2151,21 +2661,67 @@ export function recordMatchWinner(
       (m) => m.round === round && m.bracket === undefined,
     );
     if (sameRound.every((m) => m.winner != null)) {
-      const total = tournament.swissTotalRounds ?? round;
-      if (round >= total) {
-        // For plain Swiss the tournament finishes here. For
-        // swiss-playoffs / swiss-playoffs-de the user advances to the
-        // playoff bracket via a separate "Generate Playoff Bracket"
-        // action — leave status as in-progress.
-        if (tournament.format === "swiss") {
-          status = "complete";
-        }
-      } else {
-        const nextMatches = generateNextSwissRound(
-          { ...tournament, matches },
-          round,
-        );
+      const nextMatches = generateNextSwissRound(
+        { ...tournament, matches },
+        round,
+      );
+      if (nextMatches.length > 0) {
         matches.push(...nextMatches);
+      } else if (tournament.format === "swiss") {
+        // No further rounds: either the round cap was reached or, in
+        // threshold mode, fewer than 2 teams are still active (everyone
+        // else has qualified or been eliminated). Plain Swiss finishes
+        // here. The swiss-playoffs variants advance to the playoff
+        // bracket via a separate "Generate Playoff Bracket" action, so
+        // they stay in-progress.
+        status = "complete";
+      }
+    }
+  } else if (tournament.format === "triple-elim") {
+    // When the current round is fully resolved, generate the next round
+    // (pairing survivors by loss count). An empty next round means ≤1
+    // team is still alive → champion decided.
+    const round = finishedMatch.round;
+    const sameRound = matches.filter((m) => m.round === round);
+    if (sameRound.every((m) => m.winner != null)) {
+      const next = generateTripleElimRound(
+        tournament.teams,
+        matches,
+        round + 1,
+        tournament.defaults,
+        tournament.formatOverrides,
+      );
+      if (next.length === 0) status = "complete";
+      else matches.push(...next);
+    }
+  } else if (
+    isTriplePlayoffsFormat(tournament.format) &&
+    finishedMatch.bracket !== undefined
+  ) {
+    // Triple-elim PLAYOFF bracket of a stage+TE format. Operates only on
+    // the bracketed (playoff) matches + the teams that advanced, so the
+    // regular-stage results don't count as playoff losses.
+    const playoffMatches = matches.filter((m) => m.bracket !== undefined);
+    const round = finishedMatch.round;
+    const sameRound = playoffMatches.filter((m) => m.round === round);
+    if (sameRound.every((m) => m.winner != null)) {
+      {
+        const ids = new Set<string>();
+        for (const m of playoffMatches) {
+          if (m.blueTeamId) ids.add(m.blueTeamId);
+          if (m.redTeamId) ids.add(m.redTeamId);
+        }
+        const teTeams = tournament.teams.filter((t) => ids.has(t.id));
+        const next = generateTripleElimRound(
+          teTeams,
+          playoffMatches,
+          round + 1,
+          tournament.defaults,
+          tournament.formatOverrides,
+          "po:",
+        );
+        if (next.length === 0) status = "complete";
+        else matches.push(...next);
       }
     }
   } else if (
@@ -2314,12 +2870,68 @@ function applySingleElimReseed(
 // supports (a power of 2 ≥ 4, or the bye-friendly 6/12 counts where
 // top seeds skip W-R1) — caller is responsible for trimming via
 // clampDEAdvancing.
+// Stepladder ("gauntlet") bracket: the two LOWEST advancing seeds play
+// the first rung; the winner climbs to face the next seed up; and so on
+// until the #1 seed — who waits at the top — in the final. N seeds → N-1
+// sequential matches (one per "rung" / round), each feeding the next.
+// The fixed (higher) seed enters the RED slot; the climber the BLUE slot.
+export function generateStepladderBracket(
+  teams: TournamentTeam[],
+  defaults: TournamentDefaults,
+  formatOverrides?: FormatOverrides,
+  keyPrefix: string = "",
+): TournamentMatch[] {
+  const sorted = [...teams].sort((a, b) => a.seed - b.seed);
+  const n = sorted.length;
+  if (n < 2) throw new Error(`Stepladder needs at least 2 teams (got ${n})`);
+  const matches: TournamentMatch[] = [];
+  let prevId: string | null = null;
+  for (let k = 1; k <= n - 1; k++) {
+    const fixed = sorted[n - 1 - k]; // the higher seed entering this rung
+    const isFinal = k === n - 1;
+    const m: TournamentMatch = {
+      id: makeMatchId(),
+      round: k,
+      // Rung 1's climber is the lowest seed; later rungs are filled by the
+      // previous rung's winner (wired below).
+      blueTeamId: k === 1 ? sorted[n - 1].id : null,
+      redTeamId: fixed.id,
+      format: isFinal
+        ? pickFormat(defaults, formatOverrides, `${keyPrefix}final`, `${keyPrefix}wb:${k}`, "main")
+        : pickFormat(defaults, formatOverrides, `${keyPrefix}wb:${k}`, "main"),
+      fearless: defaults.fearless,
+      mode: defaults.mode,
+      aiSide: defaults.aiSide,
+      aiDifficulty: defaults.aiDifficulty,
+      series: null,
+      winner: null,
+      feedsInto: null,
+      bracket: "winners",
+    };
+    if (prevId) {
+      const prev = matches.find((x) => x.id === prevId);
+      if (prev) prev.feedsInto = { matchId: m.id, slot: "blue" };
+    }
+    matches.push(m);
+    prevId = m.id;
+  }
+  return matches;
+}
+
 function buildPlayoffMatches(
   seededTeams: TournamentTeam[],
   defaults: TournamentDefaults,
-  kind: "single-elim" | "double-elim",
+  kind: "single-elim" | "double-elim" | "triple-elim" | "stepladder",
   formatOverrides?: FormatOverrides,
 ): TournamentMatch[] {
+  if (kind === "stepladder") {
+    return generateStepladderBracket(seededTeams, defaults, formatOverrides, "po:");
+  }
+  if (kind === "triple-elim") {
+    // Only round 1 is materialized up front (all teams at 0 losses);
+    // subsequent rounds spawn dynamically in recordMatchWinner.
+    return generateTripleElimRound(seededTeams, [], 1, defaults, formatOverrides, "po:");
+  }
   if (kind === "double-elim") {
     // "po:" prefix routes the override lookups to the playoff key
     // namespace (po:wb / po:lb / po:gf), distinct from any standalone
@@ -2352,15 +2964,21 @@ export function startSwissPlayoffs(
 ): TournamentState {
   if (
     tournament.format !== "swiss-playoffs" &&
-    tournament.format !== "swiss-playoffs-de"
+    tournament.format !== "swiss-playoffs-de" &&
+    tournament.format !== "swiss-playoffs-te"
   ) {
     return tournament;
   }
   if (tournament.swissPlayoffsStarted) return tournament;
   const kind = playoffBracketKindFor(tournament.format);
-  let advancing = tournament.swissPlayoffsAdvancing ?? 4;
-  if (kind === "double-elim") advancing = clampDEAdvancing(advancing);
   const standings = computeSwissStandings(tournament);
+  // Threshold mode: the advancing field is the count of teams that
+  // reached the win target (qualified), not a fixed top-N.
+  let advancing =
+    tournament.swissWinTarget != null
+      ? standings.filter((s) => s.wins >= tournament.swissWinTarget!).length
+      : tournament.swissPlayoffsAdvancing ?? 4;
+  if (kind === "double-elim") advancing = clampDEAdvancing(advancing);
   if (standings.length < 2) return tournament;
   let top = standings.slice(0, advancing);
   if (top.length < 2) return tournament;
@@ -2398,9 +3016,15 @@ export function startSwissPlayoffs(
 export function startRoundRobinPlayoffs(
   tournament: TournamentState,
 ): TournamentState {
-  if (tournament.format !== "round-robin-playoffs") return tournament;
+  if (
+    tournament.format !== "round-robin-playoffs" &&
+    tournament.format !== "round-robin-playoffs-te" &&
+    tournament.format !== "round-robin-playoffs-step"
+  ) {
+    return tournament;
+  }
   if (tournament.rrPlayoffsStarted) return tournament;
-  const kind = playoffBracketKindFor(tournament.format); // always "double-elim"
+  const kind = playoffBracketKindFor(tournament.format);
   let advancing = tournament.rrPlayoffsAdvancing ?? 4;
   if (kind === "double-elim") advancing = clampDEAdvancing(advancing);
   const standings = computeStandings(tournament);
@@ -2508,7 +3132,8 @@ export function startGroupsPlayoffs(
 ): TournamentState {
   if (
     tournament.format !== "groups-playoffs" &&
-    tournament.format !== "groups-playoffs-de"
+    tournament.format !== "groups-playoffs-de" &&
+    tournament.format !== "groups-playoffs-te"
   ) {
     return tournament;
   }
@@ -3321,6 +3946,19 @@ export function tournamentChampion(
     const standings = computeSwissStandings(tournament);
     return standings[0]?.team ?? null;
   }
+  if (
+    tournament.format === "triple-elim" ||
+    isTriplePlayoffsFormat(tournament.format)
+  ) {
+    // The champion is the Grand Final winner — which can have MORE losses
+    // than the Winners-bracket finalist it just beat, so it can't be read
+    // off the loss-based standings.
+    const gf = [...tournament.matches]
+      .reverse()
+      .find((m) => m.bracket === "grand-final" && m.winner != null);
+    if (gf?.winner) return getTeam(tournament, gf.winner.teamId);
+    return computeTripleElimStandings(tournament)[0] ?? null;
+  }
   // *-playoffs (single-elim and double-elim variants) all crown the
   // playoff-bracket champion once that bracket exists. SE playoff
   // brackets only produce bracket="winners" matches, so the final is
@@ -3331,7 +3969,8 @@ export function tournamentChampion(
     tournament.format === "swiss-playoffs-de" ||
     tournament.format === "groups-playoffs" ||
     tournament.format === "groups-playoffs-de" ||
-    tournament.format === "round-robin-playoffs";
+    tournament.format === "round-robin-playoffs" ||
+    tournament.format === "round-robin-playoffs-step";
   if (isPlayoffsFormat) {
     const reset = tournament.matches.find(
       (m) => m.bracket === "grand-final-reset",

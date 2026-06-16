@@ -3,12 +3,15 @@ import { describe, it, expect } from "vitest";
 import type { Champion, Lane } from "../types";
 import { LANE_ORDER } from "../players";
 import {
+  createTournament,
   recordMatchWinner,
   startGroupsPlayoffs,
   startRoundRobinPlayoffs,
   startSwissPlayoffs,
   teamStreak,
+  tournamentChampion,
   type TournamentState,
+  type TournamentTeam,
 } from "../tournament";
 import {
   applyPatchShift,
@@ -18,8 +21,10 @@ import {
   currentPhase,
   intlConfigFor,
   intlFormatOptionsFor,
+  LEAGUE_FORMAT_OPTIONS,
   nextPendingTournament,
   qualifiedForInternational,
+  seasonGoldenRoadTeamId,
   tournamentPlacements,
 } from "./engine";
 import { generateSeasonTeams } from "./teamGen";
@@ -100,7 +105,8 @@ function resolveTournament(
         .every((m) => m.winner != null);
       if (
         (working.format === "groups-playoffs" ||
-          working.format === "groups-playoffs-de") &&
+          working.format === "groups-playoffs-de" ||
+          working.format === "groups-playoffs-te") &&
         !working.groupsPlayoffs?.playoffStarted &&
         stageDone
       ) {
@@ -109,7 +115,8 @@ function resolveTournament(
       }
       if (
         (working.format === "swiss-playoffs" ||
-          working.format === "swiss-playoffs-de") &&
+          working.format === "swiss-playoffs-de" ||
+          working.format === "swiss-playoffs-te") &&
         !working.swissPlayoffsStarted &&
         stageDone
       ) {
@@ -117,7 +124,9 @@ function resolveTournament(
         continue;
       }
       if (
-        working.format === "round-robin-playoffs" &&
+        (working.format === "round-robin-playoffs" ||
+          working.format === "round-robin-playoffs-te" ||
+          working.format === "round-robin-playoffs-step") &&
         !working.rrPlayoffsStarted &&
         stageDone
       ) {
@@ -487,6 +496,283 @@ describe("custom international formats", () => {
     expect(currentPhase(s)!.split).toBe("spring");
   });
 
+  it("propagates the true-grand-final toggle to season double-elim events", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(12));
+    const config = makeConfig();
+    config.intlConfigs = {
+      "first-stand": {
+        format: "double-elim",
+        earlySeries: "bo3",
+        finalsSeries: "bo5",
+        playoffTeams: 8,
+        trueGrandFinal: true,
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    const rng = rngFrom(15);
+    for (let i = 0; i < 6; i++) {
+      s = applyTournamentUpdate(
+        s,
+        resolveTournament(nextPendingTournament(s)!, rng),
+        champions,
+      );
+    }
+    const fs = nextPendingTournament(s)!;
+    expect(fs.format).toBe("double-elim");
+    expect(fs.trueGrandFinal).toBe(true);
+    const done = resolveTournament(fs, rng);
+    expect(done.status).toBe("complete");
+    // A true grand final never spawns a reset match.
+    expect(done.matches.some((m) => m.bracket === "grand-final-reset")).toBe(
+      false,
+    );
+  });
+
+  it("disabling the Worlds play-in sends every qualified team to the main event", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(41));
+    const config = makeConfig();
+    config.intlConfigs = {
+      worlds: {
+        // round-robin absorbs any field size — safe with all seeds direct.
+        format: "round-robin-playoffs",
+        earlySeries: "bo1",
+        finalsSeries: "bo5",
+        playoffTeams: 8,
+        playInEnabled: false,
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    s = runSeason(s, champions);
+    expect(s.status).toBe("complete");
+    // No play-in tournament was ever created.
+    expect(
+      Object.values(s.tournaments).some((t) => t.name === "Worlds Play-In"),
+    ).toBe(false);
+    const main = Object.values(s.tournaments).find(
+      (t) => t.name === "World Championship",
+    )!;
+    // Every qualified team (incl. the #4 seeds) is in the main event.
+    const qualified = qualifiedForInternational(s, "worlds");
+    expect(main.teams).toHaveLength(qualified.length);
+  });
+
+  it("honors the Worlds play-in advancers count", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(43));
+    const config = makeConfig();
+    config.intlConfigs = {
+      worlds: {
+        format: "round-robin-playoffs", // absorbs odd fields
+        earlySeries: "bo1",
+        finalsSeries: "bo5",
+        playoffTeams: 8,
+        playInAdvancing: 4,
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    s = runSeason(s, champions);
+    expect(s.status).toBe("complete");
+    const playIn = Object.values(s.tournaments).find(
+      (t) => t.name === "Worlds Play-In",
+    )!;
+    const main = Object.values(s.tournaments).find(
+      (t) => t.name === "World Championship",
+    )!;
+    const directCount = qualifiedForInternational(s, "worlds").filter(
+      (q) => q.leagueSeed <= 3,
+    ).length;
+    // 4 play-in finalists advanced (round-robin needs no field-fit trim).
+    expect(main.teams).toHaveLength(directCount + 4);
+    expect(playIn.teams).toHaveLength(6);
+  });
+
+  it("honors the advancers count even for the groups format (no silent reduction)", () => {
+    // Regression: an explicit advancers count must NOT be reduced to keep
+    // groups even — the user asked for 4, so 4 advance (groups go uneven).
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(44));
+    const config = makeConfig();
+    config.intlConfigs = {
+      worlds: {
+        format: "groups-playoffs",
+        earlySeries: "bo1",
+        finalsSeries: "bo5",
+        playoffTeams: 8,
+        playInAdvancing: 4,
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    s = runSeason(s, champions);
+    expect(s.status).toBe("complete");
+    const main = Object.values(s.tournaments).find(
+      (t) => t.name === "World Championship",
+    )!;
+    const directCount = qualifiedForInternational(s, "worlds").filter(
+      (q) => q.leagueSeed <= 3,
+    ).length;
+    expect(main.teams).toHaveLength(directCount + 4);
+  });
+
+  it("runs a configurable double-elim Worlds play-in to completion", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(8));
+    const config = makeConfig();
+    config.intlConfigs = {
+      worlds: {
+        format: "groups-playoffs",
+        earlySeries: "bo3",
+        finalsSeries: "bo5",
+        playoffTeams: 8,
+        playInFormat: "double-elim",
+        playInSeries: "bo3",
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    s = runSeason(s, champions);
+    expect(s.status).toBe("complete");
+    const playIn = Object.values(s.tournaments).find(
+      (t) => t.name === "Worlds Play-In",
+    )!;
+    expect(playIn.format).toBe("double-elim");
+    expect(playIn.teams).toHaveLength(6);
+    // A losers bracket exists, and every real play-in match uses the
+    // configured play-in series (bo3) — independent of the main event.
+    expect(playIn.matches.some((m) => m.bracket === "losers")).toBe(true);
+    expect(
+      playIn.matches.filter((m) => !m.isBye).every((m) => m.format === "bo3"),
+    ).toBe(true);
+  });
+
+  it("runs a triple-elimination international event to completion", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(21));
+    const config = makeConfig();
+    config.intlConfigs = {
+      "first-stand": {
+        format: "triple-elim",
+        earlySeries: "bo3",
+        finalsSeries: "bo5",
+        playoffTeams: 8, // ignored by triple-elim
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    const rng = rngFrom(23);
+    for (let i = 0; i < 6; i++) {
+      s = applyTournamentUpdate(
+        s,
+        resolveTournament(nextPendingTournament(s)!, rng),
+        champions,
+      );
+    }
+    const fs = nextPendingTournament(s)!;
+    expect(fs.name).toBe("First Stand");
+    expect(fs.format).toBe("triple-elim");
+    expect(fs.teams).toHaveLength(12);
+    const done = resolveTournament(fs, rng);
+    expect(done.status).toBe("complete");
+    // 12 teams → 11 eliminated at exactly 3 losses, 1 champion under 3.
+    s = applyTournamentUpdate(s, done, champions);
+    const placements = s.intlResults["first-stand"]!;
+    expect(placements).toHaveLength(12);
+    expect(currentPhase(s)!.split).toBe("spring");
+  });
+
+  it("runs a swiss + triple-elim international event to completion", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(31));
+    const config = makeConfig();
+    config.intlConfigs = {
+      "first-stand": {
+        format: "swiss-playoffs-te",
+        earlySeries: "bo1",
+        finalsSeries: "bo5",
+        playoffTeams: 4,
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    s = runSeason(s, champions);
+    expect(s.status).toBe("complete");
+    const fs = Object.values(s.tournaments).find((t) => t.name === "First Stand")!;
+    expect(fs.format).toBe("swiss-playoffs-te");
+    // The Swiss stage seeded a 4-team triple-elim playoff bracket.
+    expect(fs.matches.some((m) => m.bracket === "winners")).toBe(true);
+    expect(fs.matches.some((m) => m.bracket === "grand-final")).toBe(true);
+  });
+
+  it("offers triple-elim in both league and international format lists", () => {
+    expect(
+      LEAGUE_FORMAT_OPTIONS.some((o) => o.value === "triple-elim"),
+    ).toBe(true);
+    expect(
+      intlFormatOptionsFor("worlds").some((o) => o.value === "triple-elim"),
+    ).toBe(true);
+  });
+
   it("offers double-elim only where the field fits, coercing strays", () => {
     // Option lists: First Stand (and the shared card) offer plain
     // double-elim; MSI/Worlds don't (18-21 team fields).
@@ -518,6 +804,79 @@ describe("custom international formats", () => {
 
 // ── Championship points & qualification rules (fabricated states) ──────────
 
+describe("tournamentPlacements — play-in bracket ordering", () => {
+  function rngFrom(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const teams: TournamentTeam[] = Array.from({ length: 8 }, (_, i) => ({
+    id: `t${i + 1}`,
+    name: `T${i + 1}`,
+    seed: i + 1,
+    starRating: 3,
+  }));
+
+  it("a double-elim play-in ranks finalists 1-2, then by bracket advancement", () => {
+    for (let s = 0; s < 20; s++) {
+      const rng = rngFrom(s + 1);
+      let t = createTournament({
+        name: "Play-In",
+        format: "double-elim",
+        teams,
+        defaults: {
+          format: "bo3",
+          fearless: false,
+          mode: "draft",
+          aiSide: null,
+          aiDifficulty: "medium",
+          timerEnabled: false,
+        },
+      });
+      for (let i = 0; i < 200 && t.status !== "complete"; i++) {
+        const m = t.matches.find(
+          (x) => !x.winner && x.blueTeamId != null && x.redTeamId != null,
+        );
+        if (!m) break;
+        const blueWon = rng() < 0.5;
+        t = recordMatchWinner(t, m.id, {
+          teamId: blueWon ? m.blueTeamId! : m.redTeamId!,
+          blueWins: blueWon ? 2 : 0,
+          redWins: blueWon ? 0 : 2,
+        });
+      }
+      const placements = tournamentPlacements(t);
+      // 1st = champion (grand-final/reset winner).
+      expect(placements[0]).toBe(tournamentChampion(t)!.id);
+      // 1st & 2nd are the grand-final participants (the finalists).
+      const gf =
+        t.matches.find((m) => m.bracket === "grand-final-reset") ??
+        t.matches.find((m) => m.bracket === "grand-final")!;
+      expect(new Set(placements.slice(0, 2))).toEqual(
+        new Set([gf.blueTeamId, gf.redTeamId]),
+      );
+      // The top 4 advancing are by bracket advancement (series wins), not
+      // seed — so e.g. seeds 3/4 aren't automatically 3rd/4th.
+      const wins = new Map<string, number>();
+      for (const m of t.matches) {
+        if (m.winner && !m.isBye) {
+          wins.set(m.winner.teamId, (wins.get(m.winner.teamId) ?? 0) + 1);
+        }
+      }
+      // 3rd has ≥ as many series wins as 4th (advancement order).
+      expect(wins.get(placements[2]) ?? 0).toBeGreaterThanOrEqual(
+        wins.get(placements[3]) ?? 0,
+      );
+      expect(placements).toHaveLength(8);
+    }
+  });
+});
+
 describe("championship points & qualification", () => {
   // Minimal LCK-only season state: only the fields the qualification
   // helpers read (teams, splitResults, intlResults).
@@ -540,6 +899,32 @@ describe("championship points & qualification", () => {
       intlResults: opts.intlResults ?? {},
     } as unknown as SeasonState;
   }
+
+  it("seasonGoldenRoadTeamId detects a six-title sweep (and rejects a near-miss)", () => {
+    const sweep = fabricate({
+      splitResults: {
+        winter: { LCK: ["t1", "t2"] },
+        spring: { LCK: ["t1", "t2"] },
+        summer: { LCK: ["t1", "t2"] },
+      },
+      intlResults: {
+        "first-stand": ["t1"],
+        msi: ["t1"],
+        worlds: ["t1"],
+      },
+    });
+    expect(seasonGoldenRoadTeamId(sweep)).toBe("t1");
+
+    const nearMiss = fabricate({
+      splitResults: {
+        winter: { LCK: ["t1"] },
+        spring: { LCK: ["t2"] }, // dropped Spring
+        summer: { LCK: ["t1"] },
+      },
+      intlResults: { "first-stand": ["t1"], msi: ["t1"], worlds: ["t1"] },
+    });
+    expect(seasonGoldenRoadTeamId(nearMiss)).toBeNull();
+  });
 
   it("championshipPoints sums split placements and international results", () => {
     const s = fabricate({

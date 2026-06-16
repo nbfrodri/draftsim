@@ -103,6 +103,54 @@ function sanitizeMetaOverride(v: unknown): MetaOverride | null | undefined {
   return out;
 }
 
+function intOr(v: unknown, fallback = 0): number {
+  return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.round(v)) : fallback;
+}
+
+/** Per-league best-team map from an imported entry. Malformed entries
+ *  are dropped; an empty result returns undefined so the field stays off. */
+function sanitizeLeagueBestTeams(
+  v: unknown,
+): SeasonHistoryEntry["leagueBestTeams"] | undefined {
+  const o = asRecord(v);
+  if (!o) return undefined;
+  const out: NonNullable<SeasonHistoryEntry["leagueBestTeams"]> = {};
+  for (const league of LEAGUE_IDS) {
+    const cell = asRecord(o[league]);
+    if (!cell) continue;
+    const team = sanitizeTeamRef(cell.team);
+    if (!team) continue;
+    out[league] = {
+      team,
+      wins: intOr(cell.wins),
+      losses: intOr(cell.losses),
+      titles: intOr(cell.titles),
+    };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Award tallies (team-position MVP / All-Pro counts) from an imported
+ *  entry. Rows with no team, bad lane, or zero counts are dropped. */
+function sanitizeAwardTally(
+  v: unknown,
+): SeasonHistoryEntry["awardTally"] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: NonNullable<SeasonHistoryEntry["awardTally"]> = [];
+  for (const raw of v) {
+    const o = asRecord(raw);
+    if (!o) continue;
+    const team = sanitizeTeamRef(o.team);
+    if (!team) continue;
+    if (!VALID_LANES.includes(o.lane as Lane)) continue;
+    const mvp = intOr(o.mvp);
+    const allPro = intOr(o.allPro);
+    if (mvp === 0 && allPro === 0) continue;
+    out.push({ team, lane: o.lane as Lane, mvp, allPro });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 function slugId(name: string): string {
   const slug = name
     .toLowerCase()
@@ -137,6 +185,8 @@ function sanitizeEntry(v: unknown, now: number): SeasonHistoryEntry | null {
   }
   const initial = sanitizeMetaOverride(o.initialMetaOverride);
   const final = sanitizeMetaOverride(o.finalMetaOverride);
+  const leagueBestTeams = sanitizeLeagueBestTeams(o.leagueBestTeams);
+  const awardTally = sanitizeAwardTally(o.awardTally);
   return {
     id:
       typeof o.id === "string" && o.id.trim() !== "" ? o.id.trim() : slugId(name),
@@ -152,6 +202,8 @@ function sanitizeEntry(v: unknown, now: number): SeasonHistoryEntry | null {
     splitChampions,
     ...(initial !== undefined ? { initialMetaOverride: initial } : {}),
     ...(final !== undefined ? { finalMetaOverride: final } : {}),
+    ...(leagueBestTeams ? { leagueBestTeams } : {}),
+    ...(awardTally ? { awardTally } : {}),
   };
 }
 

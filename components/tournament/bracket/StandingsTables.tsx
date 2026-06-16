@@ -48,14 +48,14 @@ function TeamCell({
   streak: TeamStreak | undefined;
 }) {
   return (
-    <span className="truncate flex items-center gap-0">
+    <span className="truncate flex items-center gap-0" title={team.name}>
       <span className="text-rift-mutedbright/60 mr-2 tabular-nums text-[9px]">
         #{team.seed}
       </span>
       <span className="mr-1.5 shrink-0 self-center">
         <TeamIcon iconKey={team.iconKey} size={12} color={team.color ?? undefined} />
       </span>
-      {team.name}
+      <span className="truncate">{team.name}</span>
       <StreakChip streak={streak} />
     </span>
   );
@@ -227,16 +227,34 @@ function SwissStandingsLegend() {
 
 export function SwissStandingsTable({
   tournament,
+  // When set (swiss-playoffs variants), the top-N rows are tinted as the
+  // qualification zone with a cutline, mirroring the groups view.
+  advancing = 0,
 }: {
   tournament: TournamentState;
+  advancing?: number;
 }) {
   const standings = useMemo(() => computeSwissStandings(tournament), [tournament]);
   const streaks = teamStreaksFor(tournament);
+  // Threshold mode (modern Worlds Swiss): qualification/elimination is by
+  // record (X wins → qualified, X losses → out), not by rank. It takes
+  // precedence over the fixed top-N cutline.
+  // Symmetric threshold (modern Worlds Swiss): X wins qualify / X losses out.
+  const winTarget = tournament.swissWinTarget ?? null;
+  const showCut = winTarget == null && advancing > 0 && advancing < standings.length;
+  const cols =
+    "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_2.75rem_3rem]";
   return (
     <div className="border border-rift-line/50 bg-rift-panel/40">
+      {winTarget != null && (
+        <div className="flex items-center justify-center gap-4 px-3 py-1.5 border-b border-rift-line/40 bg-rift-bg/40 text-[9px] uppercase tracking-[0.25em]">
+          <span className="text-emerald-300/80">▲ {winTarget}W → Qualify</span>
+          <span className="text-rift-redbright/70">✕ {winTarget}L → Eliminated</span>
+        </div>
+      )}
       <div className="overflow-x-auto">
         <div className="min-w-[640px]">
-          <div className="grid grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_2.75rem_3rem] gap-2 px-3 py-2 border-b border-rift-line/40 text-[8px] uppercase tracking-[0.3em] text-rift-gold/60">
+          <div className={`grid ${cols} gap-2 px-3 py-2 border-b border-rift-line/40 text-[8px] uppercase tracking-[0.3em] text-rift-gold/60`}>
             <span>#</span>
             <span>Team</span>
             <span className="text-center" title="Played: total matches played">P</span>
@@ -246,37 +264,60 @@ export function SwissStandingsTable({
             <span className="text-center" title="Buchholz: sum of every opponent's match wins. Higher = harder schedule.">Bch</span>
             <span className="text-center" title="Median Buchholz: Buchholz with the highest and lowest opponent dropped. Less swayed by extreme schedules.">M-Bch</span>
           </div>
-        {standings.map((row) => {
+        {standings.map((row, idx) => {
           const isLead = row.rank === 1 && row.played > 0;
           const isDecided = tournament.status === "complete" && row.rank === 1;
+          const isAdvancing = showCut && row.rank <= advancing;
+          const isQualified = winTarget != null && row.wins >= winTarget;
+          const isEliminated = winTarget != null && row.losses >= winTarget;
           const rowCls = isDecided
             ? "bg-rift-gold/10 text-rift-goldbright"
+            : isQualified
+            ? "text-emerald-300 bg-emerald-500/[0.06]"
+            : isEliminated
+            ? "text-rift-redbright/55 bg-rift-red/[0.04]"
+            : isAdvancing
+            ? "text-rift-bluebright bg-rift-blue/[0.04]"
             : isLead
             ? "text-rift-bluebright"
+            : showCut
+            ? "text-rift-mutedbright/65"
             : "text-rift-mutedbright";
           return (
-            <div
-              key={row.team.id}
-              className={`grid grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_2.75rem_3rem] gap-2 px-3 py-1.5 border-b border-rift-line/20 last:border-b-0 text-[11px] md:text-xs items-baseline ${rowCls}`}
-            >
-              <span className="font-display tabular-nums text-rift-goldbright/80">
-                {row.rank}
-              </span>
-              <TeamCell team={row.team} streak={streaks[row.team.id]} />
-              <span className="text-center tabular-nums">{row.played}</span>
-              <span className="text-center tabular-nums text-rift-bluebright">
-                {row.wins}
-              </span>
-              <span className="text-center tabular-nums text-rift-redbright">
-                {row.losses}
-              </span>
-              <span className="text-center tabular-nums text-rift-mutedbright/85">
-                {row.gamesWon}-{row.gamesLost}
-              </span>
-              <span className="text-center tabular-nums text-rift-mutedbright/70">
-                {row.buchholz}
-              </span>
-              <span className="text-center tabular-nums">{row.medianBuchholz}</span>
+            <div key={row.team.id}>
+              <div
+                className={`grid ${cols} gap-2 px-3 py-1.5 border-b border-rift-line/20 last:border-b-0 text-[11px] md:text-xs items-baseline ${rowCls}`}
+              >
+                <span className="font-display tabular-nums text-rift-goldbright/80">
+                  {row.rank}
+                  {(isAdvancing || isQualified) && (
+                    <span className="text-emerald-300/80 ml-0.5">▲</span>
+                  )}
+                  {isEliminated && (
+                    <span className="text-rift-redbright/70 ml-0.5">✕</span>
+                  )}
+                </span>
+                <TeamCell team={row.team} streak={streaks[row.team.id]} />
+                <span className="text-center tabular-nums">{row.played}</span>
+                <span className="text-center tabular-nums text-rift-bluebright">
+                  {row.wins}
+                </span>
+                <span className="text-center tabular-nums text-rift-redbright">
+                  {row.losses}
+                </span>
+                <span className="text-center tabular-nums text-rift-mutedbright/85">
+                  {row.gamesWon}-{row.gamesLost}
+                </span>
+                <span className="text-center tabular-nums text-rift-mutedbright/70">
+                  {row.buchholz}
+                </span>
+                <span className="text-center tabular-nums">{row.medianBuchholz}</span>
+              </div>
+              {showCut && row.rank === advancing && idx < standings.length - 1 && (
+                <div className="px-3 py-0.5 text-[8px] uppercase tracking-[0.4em] text-rift-mutedbright/50 border-b border-dashed border-rift-gold/40 bg-rift-bg/40 text-center">
+                  — playoff cutline —
+                </div>
+              )}
             </div>
           );
         })}

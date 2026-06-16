@@ -93,7 +93,8 @@ function resolveTournament(
         .every((m) => m.winner != null);
       if (
         (working.format === "groups-playoffs" ||
-          working.format === "groups-playoffs-de") &&
+          working.format === "groups-playoffs-de" ||
+          working.format === "groups-playoffs-te") &&
         !working.groupsPlayoffs?.playoffStarted &&
         stageDone
       ) {
@@ -102,7 +103,8 @@ function resolveTournament(
       }
       if (
         (working.format === "swiss-playoffs" ||
-          working.format === "swiss-playoffs-de") &&
+          working.format === "swiss-playoffs-de" ||
+          working.format === "swiss-playoffs-te") &&
         !working.swissPlayoffsStarted &&
         stageDone
       ) {
@@ -110,7 +112,9 @@ function resolveTournament(
         continue;
       }
       if (
-        working.format === "round-robin-playoffs" &&
+        (working.format === "round-robin-playoffs" ||
+          working.format === "round-robin-playoffs-te" ||
+          working.format === "round-robin-playoffs-step") &&
         !working.rrPlayoffsStarted &&
         stageDone
       ) {

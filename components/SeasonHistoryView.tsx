@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import {
   diffMetaOverrides,
+  goldenRoadTeam,
   type SeasonHistoryEntry,
   type SeasonHistoryTeamRef,
 } from "@/lib/season/history";
@@ -16,8 +17,13 @@ import { parseHistoryWorkbook } from "@/lib/season/historyImport";
 import {
   computeTeamRecords,
   splitWinnersByRegion,
-  DYNASTY_THRESHOLD,
+  bestTeamPerRegion,
+  computeRegionStrength,
+  computeTitleStreaks,
+  computePlayerAllTime,
+  DYNASTY_WINDOW,
   type TeamRecord,
+  type DynastyTier,
 } from "@/lib/season/historyRecords";
 import { isDesktop, openBinaryFileNative } from "@/lib/desktopStorage";
 import {
@@ -313,6 +319,13 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
             No champion recorded
           </div>
         )}
+        {goldenRoadTeam(entry) && (
+          <div className="mt-2 inline-block border border-rift-goldbright/70 bg-rift-goldbright/10 px-2.5 py-1">
+            <span className="text-[9px] uppercase tracking-[0.3em] text-rift-goldbright">
+              ★ Golden Road — swept all six titles
+            </span>
+          </div>
+        )}
       </div>
 
       {/* International title holders */}
@@ -442,9 +455,93 @@ function RecordBoard({
 
 // Records & Dynasties — all-time stats computed across every archived
 // season. Franchises are matched by team name within the same league.
+const LANE_SHORT: Record<Lane, string> = {
+  top: "TOP",
+  jungle: "JNG",
+  middle: "MID",
+  bottom: "BOT",
+  support: "SUP",
+};
+
+function DynastyBadge({ tier }: { tier: DynastyTier }) {
+  if (tier === "none") return null;
+  const legendary = tier === "legendary";
+  return (
+    <span
+      className={`px-1.5 py-px border text-[8px] uppercase tracking-[0.25em] flex-shrink-0 ${
+        legendary
+          ? "border-rift-goldbright bg-rift-goldbright/15 text-rift-goldbright"
+          : "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+      }`}
+    >
+      {legendary ? "Legendary Dynasty" : "Dynasty"}
+    </span>
+  );
+}
+
 function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
   const records = useMemo(() => computeTeamRecords(entries), [entries]);
   const byRegion = useMemo(() => splitWinnersByRegion(records), [records]);
+  // Only franchises that earned a dynasty — strongest tier first, then
+  // by how many titles their dominant window held.
+  const dynasties = useMemo(
+    () =>
+      records
+        .filter((r) => r.dynasty.tier !== "none")
+        .sort(
+          (a, b) =>
+            (b.dynasty.tier === "legendary" ? 1 : 0) -
+              (a.dynasty.tier === "legendary" ? 1 : 0) ||
+            b.dynasty.windowTitles - a.dynasty.windowTitles ||
+            b.totalTitles - a.totalTitles,
+        ),
+    [records],
+  );
+  const bestByRegion = useMemo(() => bestTeamPerRegion(records), [records]);
+  const regionStrength = useMemo(
+    () => computeRegionStrength(records, entries),
+    [records, entries],
+  );
+  const streaks = useMemo(
+    () =>
+      computeTitleStreaks(entries)
+        .filter((s) => s.longestStreak >= 2 || s.longestDrought >= 2)
+        .slice(0, 8),
+    [entries],
+  );
+  // Golden Roads — perfect seasons (one team swept all six titles).
+  const goldenRoads = useMemo(
+    () =>
+      entries
+        .map((e) => ({
+          team: goldenRoadTeam(e),
+          season: e.name,
+          at: e.archivedAt,
+        }))
+        .filter(
+          (g): g is { team: SeasonHistoryTeamRef; season: string; at: number } =>
+            g.team != null,
+        )
+        .sort((a, b) => b.at - a.at),
+    [entries],
+  );
+  const players = useMemo(() => computePlayerAllTime(entries), [entries]);
+  const topMVP = useMemo(
+    () =>
+      [...players]
+        .filter((p) => p.mvp > 0)
+        .sort((a, b) => b.mvp - a.mvp || b.allPro - a.allPro)
+        .slice(0, 5),
+    [players],
+  );
+  const topAllPro = useMemo(
+    () =>
+      [...players]
+        .filter((p) => p.allPro > 0)
+        .sort((a, b) => b.allPro - a.allPro || b.mvp - a.mvp)
+        .slice(0, 5),
+    [players],
+  );
   const intlDetail = (r: TeamRecord) =>
     INTL_ORDER.filter((e) => (r.intlTitles[e] ?? 0) > 0)
       .map((e) => `${r.intlTitles[e]}× ${INTERNATIONAL_LABELS[e]}`)
@@ -483,7 +580,286 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
         </div>
       </div>
 
-      {/* Per-region split winners — dynasty badge at 3+ titles */}
+      {/* Best team per region (all-time, by total titles) */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          Best Team per Region
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+          {LEAGUE_IDS.map((league) => {
+            const best = bestByRegion[league];
+            return (
+              <div
+                key={league}
+                className="border border-rift-line/40 bg-rift-bg/30 px-3 py-2"
+              >
+                <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1">
+                  {LEAGUE_NAMES[league]}
+                </div>
+                {best ? (
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span className="min-w-0 flex-1">
+                      <TeamRef team={best.team} size={14} />
+                    </span>
+                    <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/70 flex-shrink-0">
+                      {best.splitTitles}s · {best.intlTotal}i
+                    </span>
+                    <span className="tabular-nums font-semibold text-rift-goldbright flex-shrink-0">
+                      {best.totalTitles}×
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[10px] italic text-rift-muted">
+                    No titles yet
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Region strength — silverware pulled in per region */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          Region Strength
+        </div>
+        <div className="border border-rift-line/40 bg-rift-bg/30">
+          <div className="grid grid-cols-[1.6fr_repeat(4,0.7fr)] gap-2 px-3 py-1.5 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.2em] text-rift-muted/70">
+            <span>Region</span>
+            <span className="text-right">Worlds</span>
+            <span className="text-right">Intl</span>
+            <span className="text-right">W-Finals</span>
+            <span className="text-right">Splits</span>
+          </div>
+          <div className="divide-y divide-rift-line/15">
+            {regionStrength.map((row, i) => (
+              <div
+                key={row.league}
+                className="grid grid-cols-[1.6fr_repeat(4,0.7fr)] gap-2 px-3 py-1.5 text-[11px] items-center"
+              >
+                <span
+                  className={`uppercase tracking-[0.15em] ${i === 0 ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright"}`}
+                >
+                  {row.league}
+                </span>
+                <span className="text-right tabular-nums text-rift-goldbright">
+                  {row.worldsTitles}
+                </span>
+                <span className="text-right tabular-nums text-rift-mutedbright">
+                  {row.intlTitles}
+                </span>
+                <span className="text-right tabular-nums text-rift-mutedbright">
+                  {row.worldsFinals}
+                </span>
+                <span className="text-right tabular-nums text-rift-mutedbright">
+                  {row.splitTitles}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Golden Roads — perfect seasons (a six-title sweep) */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          Golden Roads
+        </div>
+        {goldenRoads.length === 0 ? (
+          <p className="text-[10px] italic text-rift-muted">
+            No Golden Roads yet — a franchise earns one by winning all three
+            of its splits (Winter, Spring, Summer) AND all three
+            internationals (First Stand, MSI, Worlds) in a single season.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            {goldenRoads.map((g) => (
+              <div
+                key={`${g.season}-${g.team.leagueId}-${g.team.name}`}
+                className="flex items-center gap-2 px-3 py-2 border border-rift-goldbright/50 bg-gradient-to-r from-rift-gold/10 to-rift-goldbright/10 text-[11px]"
+                title={`${g.team.name} swept all six titles in ${g.season}`}
+              >
+                <span aria-hidden className="text-rift-goldbright">
+                  ★
+                </span>
+                <span className="min-w-0 flex-1">
+                  <TeamRef team={g.team} size={14} />
+                  <span className="block text-[8px] uppercase tracking-[0.2em] text-rift-mutedbright/60 mt-0.5">
+                    {g.season}
+                  </span>
+                </span>
+                <span className="px-1.5 py-px border border-rift-goldbright/60 text-rift-goldbright text-[8px] uppercase tracking-[0.2em] flex-shrink-0">
+                  Golden Road
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Dynasties — concentrated dominance, not lifetime totals */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          Dynasties
+        </div>
+        {dynasties.length === 0 ? (
+          <p className="text-[10px] italic text-rift-muted">
+            No dynasties yet — a franchise earns one with 4+ major titles
+            <strong className="text-rift-mutedbright"> including at least one
+            international</strong> within any {DYNASTY_WINDOW}-season window
+            (a splits-only run never qualifies). A Worlds title plus 6+ majors
+            in the window makes a Legendary Dynasty.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            {dynasties.map((r) => (
+              <div
+                key={r.key}
+                className="flex items-center gap-2 px-3 py-2 border border-rift-line/40 bg-rift-bg/30 text-[11px]"
+                title={
+                  r.dynasty.windowSpan
+                    ? `${r.dynasty.windowTitles} major titles (${r.dynasty.windowIntl}× international${r.dynasty.windowWorlds > 0 ? `, ${r.dynasty.windowWorlds}× Worlds` : ""}) across ${r.dynasty.windowSpan[0]} → ${r.dynasty.windowSpan[1]}`
+                    : undefined
+                }
+              >
+                <span className="min-w-0 flex-1">
+                  <TeamRef team={r.team} size={14} />
+                  <span className="block text-[8px] uppercase tracking-[0.2em] text-rift-mutedbright/60 mt-0.5">
+                    {r.dynasty.windowTitles} titles
+                    {r.dynasty.windowSpan
+                      ? ` · ${r.dynasty.windowSpan[0]}${r.dynasty.windowSpan[0] !== r.dynasty.windowSpan[1] ? `–${r.dynasty.windowSpan[1]}` : ""}`
+                      : ""}
+                  </span>
+                </span>
+                <DynastyBadge tier={r.dynasty.tier} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Title streaks & droughts across seasons */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          Title Streaks &amp; Droughts
+        </div>
+        {streaks.length === 0 ? (
+          <p className="text-[10px] italic text-rift-muted">
+            Multi-season streaks and droughts appear once franchises start
+            winning across consecutive seasons.
+          </p>
+        ) : (
+          <div className="border border-rift-line/40 bg-rift-bg/30">
+            <div className="grid grid-cols-[1.8fr_repeat(3,0.8fr)] gap-2 px-3 py-1.5 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.2em] text-rift-muted/70">
+              <span>Franchise</span>
+              <span className="text-right">Streak</span>
+              <span className="text-right">Drought</span>
+              <span className="text-right">Titles</span>
+            </div>
+            <div className="divide-y divide-rift-line/15">
+              {streaks.map((s) => (
+                <div
+                  key={`${s.team.leagueId}:${s.team.name}`}
+                  className="grid grid-cols-[1.8fr_repeat(3,0.8fr)] gap-2 px-3 py-1.5 text-[11px] items-center"
+                >
+                  <span className="min-w-0">
+                    <TeamRef team={s.team} size={13} />
+                  </span>
+                  <span className="text-right tabular-nums text-rift-goldbright">
+                    {s.longestStreak >= 2 ? `${s.longestStreak}×` : "—"}
+                  </span>
+                  <span className="text-right tabular-nums text-rift-mutedbright">
+                    {s.longestDrought >= 1 ? s.longestDrought : "—"}
+                  </span>
+                  <span className="text-right tabular-nums text-rift-mutedbright">
+                    {s.totalTitles}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <p className="mt-2 text-[9px] italic text-rift-muted">
+          Streak = consecutive archived seasons winning at least one major;
+          drought = longest gap, in seasons, between a franchise&apos;s titles.
+        </p>
+      </div>
+
+      {/* Player all-time (team-position MVP / All-Pro tallies) */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          Player All-Time
+        </div>
+        {topMVP.length === 0 && topAllPro.length === 0 ? (
+          <p className="text-[10px] italic text-rift-muted">
+            MVP and All-Pro tallies are recorded for seasons archived from now
+            on — finish and archive a season to start the all-time boards.
+            Players are tracked by team &amp; position (e.g. T1 · MID).
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="border border-rift-line/40 bg-rift-bg/30">
+              <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.35em] text-rift-gold/70">
+                Most MVPs
+              </div>
+              <div className="divide-y divide-rift-line/15">
+                {topMVP.map((p, i) => (
+                  <div
+                    key={`mvp:${p.team.leagueId}:${p.team.name}:${p.lane}`}
+                    className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
+                  >
+                    <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <TeamRef team={p.team} size={13} muted={i > 0} />
+                    </span>
+                    <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 flex-shrink-0">
+                      {LANE_SHORT[p.lane]}
+                    </span>
+                    <span
+                      className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}
+                    >
+                      {p.mvp}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="border border-rift-line/40 bg-rift-bg/30">
+              <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.35em] text-rift-gold/70">
+                Most All-Pro Selections
+              </div>
+              <div className="divide-y divide-rift-line/15">
+                {topAllPro.map((p, i) => (
+                  <div
+                    key={`ap:${p.team.leagueId}:${p.team.name}:${p.lane}`}
+                    className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
+                  >
+                    <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <TeamRef team={p.team} size={13} muted={i > 0} />
+                    </span>
+                    <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 flex-shrink-0">
+                      {LANE_SHORT[p.lane]}
+                    </span>
+                    <span
+                      className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}
+                    >
+                      {p.allPro}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Per-region split winners */}
       <div>
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
           Split Winners by Region
@@ -507,11 +883,7 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                       <span className="min-w-0 flex-1">
                         <TeamRef team={r.team} size={13} />
                       </span>
-                      {r.splitTitles >= DYNASTY_THRESHOLD && (
-                        <span className="px-1.5 py-px border border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright text-[8px] uppercase tracking-[0.25em] flex-shrink-0">
-                          Dynasty
-                        </span>
-                      )}
+                      <DynastyBadge tier={r.dynasty.tier} />
                       <span className="tabular-nums font-semibold text-rift-mutedbright flex-shrink-0">
                         {r.splitTitles}×
                       </span>
@@ -588,20 +960,44 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
   // Import a previously exported workbook (whole hall or one season).
   // New exports carry a hidden lossless data sheet; older ones fall
   // back to parsing the styled sheets (icons/meta don't survive those).
-  const handleImportBytes = async (data: ArrayBuffer) => {
+  // Import one or many workbooks at once. Every selected file is parsed,
+  // its seasons collected, and the whole batch is merged in a single store
+  // update so duplicate ids dedupe cleanly across files. Per-file parse
+  // failures are tallied but don't abort the rest of the batch.
+  const handleImportBuffers = async (buffers: ArrayBuffer[]) => {
+    if (buffers.length === 0) return;
     setImporting(true);
     setExportMsg(null);
-    const parsed = await parseHistoryWorkbook(data, Date.now());
+    const allEntries: SeasonHistoryEntry[] = [];
+    let failed = 0;
+    let firstError = "";
+    for (const buf of buffers) {
+      const parsed = await parseHistoryWorkbook(buf, Date.now());
+      if (parsed.ok) {
+        allEntries.push(...parsed.entries);
+      } else {
+        failed += 1;
+        if (!firstError) firstError = parsed.error;
+      }
+    }
     setImporting(false);
-    if (!parsed.ok) {
-      setExportMsg({ where: "import", kind: "err", text: parsed.error });
-    } else {
-      const { added, updated } = importSeasonHistory(parsed.entries);
-      const total = added + updated;
+    if (allEntries.length === 0) {
       setExportMsg({
         where: "import",
-        kind: "ok",
-        text: `Imported ${total} season${total === 1 ? "" : "s"}${updated > 0 ? ` (${updated} updated)` : ""} ✓`,
+        kind: "err",
+        text: firstError || "No seasons found in the selected file(s).",
+      });
+    } else {
+      const { added, updated } = importSeasonHistory(allEntries);
+      const total = added + updated;
+      const fileNote =
+        buffers.length > 1 ? ` from ${buffers.length} files` : "";
+      const failNote =
+        failed > 0 ? ` · ${failed} file${failed === 1 ? "" : "s"} failed` : "";
+      setExportMsg({
+        where: "import",
+        kind: failed > 0 ? "err" : "ok",
+        text: `Imported ${total} season${total === 1 ? "" : "s"}${fileNote}${updated > 0 ? ` (${updated} updated)` : ""}${failNote} ✓`,
       });
     }
     setTimeout(() => setExportMsg(null), 6000);
@@ -614,11 +1010,14 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
         filters: [
           { name: "Excel / Google Sheets Workbook", extensions: ["xlsx"] },
         ],
+        multiple: true,
       });
-      if (result.ok && result.content) {
-        const bytes = result.content;
-        const copy = new Uint8Array(bytes); // detach from any shared buffer
-        await handleImportBytes(copy.buffer);
+      if (result.ok && result.contents && result.contents.length > 0) {
+        // Detach each from any shared buffer before handing off.
+        const buffers = result.contents.map((bytes) =>
+          new Uint8Array(bytes).buffer,
+        );
+        await handleImportBuffers(buffers);
       } else if (result.error !== "cancelled") {
         setExportMsg({
           where: "import",
@@ -635,10 +1034,11 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
   const onImportFilePicked = async (
     e: React.ChangeEvent<HTMLInputElement>,
   ) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-picking the same file
-    if (!file) return;
-    await handleImportBytes(await file.arrayBuffer());
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // allow re-picking the same file(s)
+    if (files.length === 0) return;
+    const buffers = await Promise.all(files.map((f) => f.arrayBuffer()));
+    await handleImportBuffers(buffers);
   };
 
   return (
@@ -681,7 +1081,7 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
               type="button"
               onClick={runImport}
               disabled={importing || exporting != null}
-              title="Import a previously exported Hall of Seasons or single-season .xlsx"
+              title="Import one or more previously exported Hall of Seasons or single-season .xlsx files"
               className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/80 hover:text-rift-goldbright transition-colors disabled:opacity-50"
             >
               {importing ? "Importing…" : "Import (.xlsx)"}
@@ -714,6 +1114,7 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           className="hidden"
           onChange={onImportFilePicked}
@@ -779,6 +1180,15 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="font-display text-sm tracking-wider text-rift-goldbright truncate">
                           {entry.name}
+                          {goldenRoadTeam(entry) && (
+                            <span
+                              className="ml-1.5 text-rift-goldbright"
+                              title="Golden Road — a six-title sweep"
+                              aria-label="Golden Road"
+                            >
+                              ★
+                            </span>
+                          )}
                         </span>
                         <span className="text-[8px] uppercase tracking-[0.2em] text-rift-mutedbright/50 flex-shrink-0 tabular-nums">
                           {dateLabel}

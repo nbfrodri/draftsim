@@ -3,14 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
-import { computeStandings, tournamentChampion } from "@/lib/tournament";
-import type { TournamentState } from "@/lib/tournament";
+import type { SeasonMatchdayResult } from "@/store/draftStore";
+import {
+  computeStandings,
+  formatHasStandings,
+  tournamentChampion,
+} from "@/lib/tournament";
+import type { TournamentMatch, TournamentState } from "@/lib/tournament";
 import {
   feederEventOf,
   leagueOfTournament,
   phaseProgress,
   qualifiedForInternational,
   qualifierTag,
+  seasonGoldenRoadTeamId,
 } from "@/lib/season/engine";
 import { computeSeasonStats, computeStageStats } from "@/lib/season/stats";
 import {
@@ -33,6 +39,7 @@ import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
 import Modal from "./Modal";
 import SeasonMetaPanel from "./SeasonMetaPanel";
 import { SimulatingOverlay } from "./tournament/bracket/DashboardModals";
+import { GroupStandingsTable } from "./tournament/bracket/StandingsTables";
 
 // Season dashboard: phase timeline, the current phase's tournaments
 // (league cards with standings, international cards with seeds), sim
@@ -45,6 +52,8 @@ export default function SeasonDashboard() {
   const simProgress = useDraftStore((s) => s.simProgress);
   const openSeasonTournament = useDraftStore((s) => s.openSeasonTournament);
   const simSeason = useDraftStore((s) => s.simSeason);
+  const simSeasonMatchday = useDraftStore((s) => s.simSeasonMatchday);
+  const seasonMatchday = useDraftStore((s) => s.seasonMatchday);
   const exitSeasonView = useDraftStore((s) => s.exitSeasonView);
   const abandonSeason = useDraftStore((s) => s.abandonSeason);
   const saveCurrentSeason = useDraftStore((s) => s.saveCurrentSeason);
@@ -72,6 +81,12 @@ export default function SeasonDashboard() {
   const phase = season.phases[season.phaseIndex] ?? null;
   const controlled = seasonTeam(season, season.config.controlledTeamId);
   const championTeam = seasonTeam(season, season.champion);
+  // Golden Road: did the Worlds champion also sweep its 3 splits + the
+  // other 2 internationals this season?
+  const goldenRoadId = useMemo(
+    () => seasonGoldenRoadTeamId(season),
+    [season],
+  );
 
   return (
     <div className="min-h-screen px-4 py-8 md:py-10 relative">
@@ -152,6 +167,16 @@ export default function SeasonDashboard() {
                 {championTeam.leagueId}
               </span>
             </div>
+            {goldenRoadId === championTeam.id && (
+              <div className="mt-3 inline-block border border-rift-goldbright bg-gradient-to-r from-rift-gold/20 via-rift-goldbright/25 to-rift-gold/20 px-4 py-1.5">
+                <span className="font-display text-sm md:text-lg tracking-[0.3em] uppercase bg-gold-sheen bg-clip-text text-transparent">
+                  ★ Golden Road ★
+                </span>
+                <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/70 mt-0.5">
+                  Swept all 3 splits + First Stand, MSI &amp; Worlds
+                </div>
+              </div>
+            )}
             <div className="mt-3">
               <button
                 type="button"
@@ -170,28 +195,108 @@ export default function SeasonDashboard() {
           </div>
         )}
 
-        {/* Phase timeline */}
-        <div className="flex items-center justify-center gap-1.5 flex-wrap mb-7">
-          {season.phases.map((p, i) => (
-            <span
-              key={`${p.label}-${i}`}
-              className={`px-2.5 py-1 border text-[9px] uppercase tracking-[0.25em] ${
-                p.status === "complete"
-                  ? "border-rift-gold/40 text-rift-gold/60 bg-rift-gold/5"
-                  : p.status === "in-progress"
-                    ? "border-rift-gold text-rift-goldbright bg-rift-gold/15"
-                    : "border-rift-line/50 text-rift-muted"
-              }`}
-            >
-              {p.label}
-              {p.status === "complete" && " ✓"}
-            </span>
-          ))}
+        {/* Phase timeline — a left-to-right tracker of the season's six
+            phases. Splits read neutral, internationals gold; the active
+            phase shows a live match-progress bar, finished phases a ✓. */}
+        <div className="mb-7 overflow-x-auto pb-1">
+          <div className="inline-flex items-stretch gap-0 min-w-full justify-center">
+            {season.phases.map((p, i) => {
+              const prog = phaseProgress(season, p);
+              const pct =
+                prog.total > 0
+                  ? Math.round((100 * prog.done) / prog.total)
+                  : p.status === "complete"
+                    ? 100
+                    : 0;
+              const isIntl = p.kind === "international";
+              const active = p.status === "in-progress";
+              const complete = p.status === "complete";
+              return (
+                <div key={`${p.label}-${i}`} className="flex items-stretch">
+                  {i > 0 && (
+                    <span
+                      className={`self-center px-1 text-xs ${complete || active ? "text-rift-gold/50" : "text-rift-line/50"}`}
+                      aria-hidden
+                    >
+                      →
+                    </span>
+                  )}
+                  <div
+                    className={`min-w-[92px] md:min-w-[104px] px-2.5 py-1.5 border flex flex-col gap-1 ${
+                      active
+                        ? "border-rift-gold bg-rift-gold/15"
+                        : complete
+                          ? isIntl
+                            ? "border-rift-gold/45 bg-rift-gold/[0.06]"
+                            : "border-rift-gold/30 bg-rift-gold/[0.03]"
+                          : "border-rift-line/50 bg-rift-bg/30"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span
+                        className={`text-[9px] uppercase tracking-[0.2em] truncate ${
+                          active
+                            ? "text-rift-goldbright"
+                            : complete
+                              ? "text-rift-gold/70"
+                              : "text-rift-muted"
+                        }`}
+                      >
+                        {p.label}
+                      </span>
+                      {complete ? (
+                        <span className="text-rift-gold/70 text-[9px]" aria-hidden>
+                          ✓
+                        </span>
+                      ) : active ? (
+                        <span className="text-rift-goldbright text-[8px] animate-pulse" aria-hidden>
+                          ●
+                        </span>
+                      ) : null}
+                    </div>
+                    <div
+                      className={`text-[7px] uppercase tracking-[0.2em] ${
+                        isIntl ? "text-rift-gold/55" : "text-rift-mutedbright/45"
+                      }`}
+                    >
+                      {isIntl ? "International" : "Split"}
+                    </div>
+                    {(active || (complete && prog.total > 0)) && (
+                      <div className="flex items-center gap-1">
+                        <div className="flex-1 h-1 bg-rift-line/30 overflow-hidden">
+                          <div
+                            className="h-full bg-rift-gold/70"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className="text-[7px] tabular-nums text-rift-mutedbright/55">
+                          {prog.done}/{prog.total}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Sim controls */}
         {season.status !== "complete" && (
-          <div className="flex items-center justify-center gap-2 mb-7">
+          <div className="flex items-center justify-center gap-2 mb-7 flex-wrap">
+            <button
+              type="button"
+              disabled={!!simulating}
+              onClick={() => simSeasonMatchday()}
+              className="px-4 py-2 border-2 border-rift-gold bg-rift-gold/10 text-rift-goldbright text-[10px] uppercase tracking-[0.3em] hover:bg-rift-gold/20 disabled:opacity-40 transition-all"
+              title={
+                phase?.kind === "split"
+                  ? "Play the next matchday across all six regions at once"
+                  : "Play the next round of this event"
+              }
+            >
+              ▸ Sim Matchday
+            </button>
             <button
               type="button"
               disabled={!!simulating}
@@ -227,6 +332,11 @@ export default function SeasonDashboard() {
               </span>
             )}
           </div>
+        )}
+
+        {/* Latest matchday results, per region (updates each matchday). */}
+        {seasonMatchday && season.status !== "complete" && (
+          <LatestMatchdayPanel matchday={seasonMatchday} />
         )}
 
         {/* Season-wide stats, available any time once games exist. */}
@@ -277,6 +387,228 @@ export default function SeasonDashboard() {
         }}
         onCancel={() => setConfirmAbandon(false)}
       />
+    </div>
+  );
+}
+
+// ─── Compact read-only playoff bracket (inside a region card) ───────────────
+
+function MiniBracket({
+  tournament,
+  matches,
+}: {
+  tournament: TournamentState;
+  matches: TournamentMatch[];
+}) {
+  const bands: Array<{ key: string; label: string }> = [
+    { key: "winners", label: "Winners" },
+    { key: "losers", label: "Losers" },
+    { key: "elimination", label: "Last-Chance" },
+    { key: "consolation", label: "Consolation Final" },
+    { key: "grand-final", label: "Grand Final" },
+    { key: "grand-final-reset", label: "Reset" },
+  ];
+  // Banded matches (DE/TE/stage-playoffs). Standalone single-elim has no
+  // bracket tag — fall back to a single "by round" band so SE renders too.
+  const present = bands.filter((b) =>
+    matches.some((m) => m.bracket === b.key),
+  );
+  const useByRound = present.length === 0 && matches.length > 0;
+  const byRound: TournamentMatch[][] = useByRound
+    ? (() => {
+        const max = matches.reduce((a, m) => Math.max(a, m.round), 0);
+        const out: TournamentMatch[][] = [];
+        for (let r = 1; r <= max; r++) {
+          const inR = matches.filter((m) => m.round === r);
+          if (inR.length > 0) out.push(inR);
+        }
+        return out;
+      })()
+    : [];
+  const roundLabel = (idx: number, total: number) =>
+    idx === total - 1
+      ? "Final"
+      : idx === total - 2
+        ? "Semifinals"
+        : idx === total - 3
+          ? "Quarterfinals"
+          : `Round ${idx + 1}`;
+  const teamOf = (id: string | null) =>
+    id ? tournament.teams.find((t) => t.id === id) ?? null : null;
+  const MatchRow = ({ m }: { m: TournamentMatch }) => {
+    const blue = teamOf(m.blueTeamId);
+    const red = teamOf(m.redTeamId);
+    const blueWon = m.winner?.teamId === m.blueTeamId;
+    const redWon = m.winner?.teamId === m.redTeamId;
+    return (
+      <div className="flex items-center gap-1 text-[9px]">
+        <span className="flex-1 flex items-center justify-end gap-1 min-w-0">
+          <span
+            title={blue?.name}
+            className={`truncate ${blueWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/60"}`}
+          >
+            {blue?.name ?? "TBD"}
+          </span>
+          {blue && <TeamIcon iconKey={blue.iconKey} size={11} color={blue.color} />}
+        </span>
+        <span className="text-rift-mutedbright/70 px-1 flex-shrink-0 tabular-nums">
+          {m.winner ? `${m.winner.blueWins}-${m.winner.redWins}` : "vs"}
+        </span>
+        <span className="flex-1 flex items-center gap-1 min-w-0">
+          {red && <TeamIcon iconKey={red.iconKey} size={11} color={red.color} />}
+          <span
+            title={red?.name}
+            className={`truncate ${redWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/60"}`}
+          >
+            {red?.name ?? "TBD"}
+          </span>
+        </span>
+      </div>
+    );
+  };
+  return (
+    <div className="border border-rift-line/30 bg-rift-bg/30 p-2 space-y-2">
+      <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60">
+        Bracket
+      </div>
+      {present.map((band) => {
+        const bm = matches
+          .filter((m) => m.bracket === band.key)
+          .sort((a, b) => a.round - b.round);
+        return (
+          <div key={band.key}>
+            {present.length > 1 && (
+              <div className="text-[7px] uppercase tracking-[0.25em] text-rift-mutedbright/45 mb-0.5">
+                {band.label}
+              </div>
+            )}
+            <div className="space-y-0.5">
+              {bm.map((m) => (
+                <MatchRow key={m.id} m={m} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {byRound.map((roundMatches, idx) => (
+        <div key={idx}>
+          <div className="text-[7px] uppercase tracking-[0.25em] text-rift-mutedbright/45 mb-0.5">
+            {roundLabel(idx, byRound.length)}
+          </div>
+          <div className="space-y-0.5">
+            {roundMatches.map((m) => (
+              <MatchRow key={m.id} m={m} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Latest matchday results ───────────────────────────────────────────────
+
+// Small colored tag for a match's stage (playoff round / group / etc.).
+function MatchdayStageTag({ stage, group }: { stage: string; group?: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    winners: { label: "Winners", cls: "border-rift-gold/50 text-rift-gold/80" },
+    losers: { label: "Losers", cls: "border-amber-500/50 text-amber-300/90" },
+    elimination: { label: "Last-Chance", cls: "border-rift-red/50 text-rift-redbright/90" },
+    consolation: { label: "Consolation", cls: "border-rift-red/50 text-rift-redbright/90" },
+    "grand-final": { label: "Grand Final", cls: "border-rift-goldbright/60 text-rift-goldbright" },
+    "grand-final-reset": { label: "GF Reset", cls: "border-rift-goldbright/60 text-rift-goldbright" },
+    stepladder: { label: "Stepladder", cls: "border-rift-gold/50 text-rift-gold/80" },
+    group: { label: group ? `Group ${group}` : "Group", cls: "border-rift-line/60 text-rift-mutedbright/70" },
+    regular: { label: "", cls: "" },
+  };
+  const t = map[stage] ?? { label: stage, cls: "border-rift-line/60 text-rift-mutedbright/70" };
+  if (!t.label) return null;
+  return (
+    <span className={`px-1 py-px border text-[7px] uppercase tracking-[0.15em] flex-shrink-0 ${t.cls}`}>
+      {t.label}
+    </span>
+  );
+}
+
+function LatestMatchdayPanel({ matchday }: { matchday: SeasonMatchdayResult }) {
+  if (matchday.regions.length === 0) return null;
+  return (
+    <div className="mb-7 border border-rift-gold/40 bg-rift-bg/40">
+      <div className="px-3 py-1.5 border-b border-rift-gold/30 bg-rift-gold/[0.05] flex items-baseline gap-2">
+        <span className="text-[10px] uppercase tracking-[0.4em] text-rift-goldbright">
+          Latest Matchday
+        </span>
+        <span className="text-[9px] uppercase tracking-[0.25em] text-rift-mutedbright/60 truncate">
+          {matchday.label}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-x-4 gap-y-3 p-3">
+        {matchday.regions.map((r) => (
+          <div key={r.name} className="min-w-0">
+            <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/65 mb-1.5 truncate border-b border-rift-line/20 pb-0.5">
+              {r.name}
+            </div>
+            {r.results.length === 0 ? (
+              <div className="text-[10px] italic text-rift-muted">
+                {r.qualified ? "Play-in decided" : "—"}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {r.results.map((m, i) => (
+                  <div key={i} className="flex items-center gap-1.5 text-[10px]">
+                    {/* Blue side (right-aligned toward the score) */}
+                    <span className="flex-1 flex items-center justify-end gap-1 min-w-0">
+                      <span
+                        className={`truncate ${m.blueWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/55"}`}
+                      >
+                        {m.blue.name}
+                      </span>
+                      <TeamIcon iconKey={m.blue.iconKey} size={12} color={m.blue.color} />
+                    </span>
+                    <span className="tabular-nums text-rift-mutedbright/85 px-1 flex-shrink-0 font-display">
+                      <span className={m.blueWon ? "text-rift-goldbright" : ""}>
+                        {m.blueScore}
+                      </span>
+                      <span className="text-rift-mutedbright/40">-</span>
+                      <span className={!m.blueWon ? "text-rift-goldbright" : ""}>
+                        {m.redScore}
+                      </span>
+                    </span>
+                    {/* Red side (left-aligned from the score) */}
+                    <span className="flex-1 flex items-center gap-1 min-w-0">
+                      <TeamIcon iconKey={m.red.iconKey} size={12} color={m.red.color} />
+                      <span
+                        className={`truncate ${!m.blueWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/55"}`}
+                      >
+                        {m.red.name}
+                      </span>
+                    </span>
+                    <MatchdayStageTag stage={m.stage} group={m.group} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {r.qualified && r.qualified.length > 0 && (
+              <div className="mt-1.5 pt-1 border-t border-rift-line/20">
+                <span className="text-[8px] uppercase tracking-[0.2em] text-rift-bluebright/70">
+                  Qualified →
+                </span>
+                <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
+                  {r.qualified.map((q) => (
+                    <span
+                      key={q.name}
+                      className="inline-flex items-center gap-1 text-[10px] text-rift-bluebright"
+                    >
+                      <TeamIcon iconKey={q.iconKey} size={11} color={q.color} />
+                      {q.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -346,10 +678,26 @@ function TournamentCard({
 }) {
   const simSeason = useDraftStore((s) => s.simSeason);
   const simulating = useDraftStore((s) => s.simulating);
-  const standings = useMemo(
-    () => computeStandings(tournament).slice(0, 4),
+  const [expanded, setExpanded] = useState(false);
+  const fullStandings = useMemo(
+    () => computeStandings(tournament),
     [tournament],
   );
+  const standings = useMemo(() => fullStandings.slice(0, 4), [fullStandings]);
+  // Pure-bracket formats (single/double/triple-elim) have no standings —
+  // the bracket IS the result. Everything else has a regular-stage table.
+  const hasStandings = formatHasStandings(tournament.format);
+  // Playoff bracket matches (set once the bracket is generated) + the
+  // advancing cutline for the standings table. For pure-bracket formats
+  // the whole event is the bracket (single-elim leaves bracket undefined,
+  // so fall back to all matches there).
+  const playoffMatches = useMemo(() => {
+    const banded = tournament.matches.filter((m) => m.bracket != null);
+    if (hasStandings) return banded;
+    return banded.length > 0 ? banded : tournament.matches;
+  }, [tournament.matches, hasStandings]);
+  const advancing =
+    tournament.rrPlayoffsAdvancing ?? tournament.swissPlayoffsAdvancing ?? 0;
   const done = tournament.matches.filter((m) => m.winner).length;
   const champion = tournamentChampion(tournament);
   const controlledId = season.config.controlledTeamId;
@@ -398,8 +746,37 @@ function TournamentCard({
     if (qualifiers.length === 0) return null;
     return { event, qualifiers };
   }, [season, tournament]);
+  // A play-in: the teams that advanced to the main event (intersection of
+  // this play-in's teams with the main event's field).
+  const isPlayIn = tournament.name.includes("Play-In");
+  const playInQualified = useMemo(() => {
+    if (!isPlayIn || tournament.status !== "complete") return null;
+    const phase = season.phases.find((p) =>
+      p.tournamentIds.includes(tournament.id),
+    );
+    const mainId = phase?.tournamentIds.find((id) => id !== tournament.id);
+    const main = mainId ? season.tournaments[mainId] : null;
+    if (!main) return null;
+    const inPlayIn = new Set(tournament.teams.map((t) => t.id));
+    const adv = main.teams.filter((t) => inPlayIn.has(t.id));
+    return adv.length > 0 ? adv : null;
+  }, [season, tournament, isPlayIn]);
+  const total = tournament.matches.length;
+  const pct =
+    tournament.status === "complete"
+      ? 100
+      : total > 0
+        ? Math.round((100 * done) / total)
+        : 0;
   return (
     <div className="border border-rift-line/50 bg-rift-bg/40 hover:border-rift-gold/40 transition-colors flex flex-col">
+      {/* Completion strip — quick visual read of how far this stage is. */}
+      <div className="h-1 bg-rift-line/25 overflow-hidden">
+        <div
+          className={`h-full ${tournament.status === "complete" ? "bg-rift-bluebright/70" : "bg-rift-gold/70"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
       <div className="flex items-center justify-between gap-2 px-3 pt-2.5">
         <div className="font-display text-sm tracking-wider text-rift-goldbright truncate">
           {tournament.name}
@@ -417,13 +794,30 @@ function TournamentCard({
         </span>
       </div>
       <div className="px-3 py-2 flex-1">
-        {champion ? (
+        {playInQualified ? (
+          <div>
+            <div className="text-[8px] uppercase tracking-[0.3em] text-rift-bluebright/80 mb-1">
+              Qualified → Main Event
+            </div>
+            <div className="space-y-0.5">
+              {playInQualified.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center gap-1.5 text-[10px] text-rift-goldbright"
+                >
+                  <TeamIcon iconKey={t.iconKey} size={12} color={t.color} />
+                  <span className="truncate">{t.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : champion && !isPlayIn ? (
           <div className="text-[10px] uppercase tracking-[0.25em] text-rift-goldbright flex items-center gap-1.5 flex-wrap">
             <TeamIcon iconKey={champion.iconKey} size={13} color={champion.color} />
             <span className="truncate">Champion: {champion.name}</span>
             <QualifierTagView tag={regionSeeds?.get(champion.id)} />
           </div>
-        ) : (
+        ) : hasStandings ? (
           <div className="space-y-0.5">
             {standings.map((s) => (
               <div
@@ -451,6 +845,9 @@ function TournamentCard({
               </div>
             )}
           </div>
+        ) : (
+          // Pure-bracket format: no standings — show a compact bracket.
+          <MiniBracket tournament={tournament} matches={playoffMatches} />
         )}
         {/* Once the split wraps, surface who this region sends to the
             next international and how each slot was earned. */}
@@ -487,6 +884,41 @@ function TournamentCard({
               ))}
             </div>
           </div>
+        )}
+        {/* Expand for the full standings table + playoff bracket. Only
+            shown for formats that HAVE standings — pure-bracket formats
+            already render their bracket inline above. */}
+        {hasStandings && (
+          <>
+            <button
+              type="button"
+              onClick={() => setExpanded((e) => !e)}
+              className="mt-2 w-full text-[8px] uppercase tracking-[0.3em] text-rift-mutedbright/55 hover:text-rift-goldbright border-t border-rift-line/20 pt-1.5 transition-colors text-center"
+            >
+              {expanded
+                ? "▴ Hide standings"
+                : playoffMatches.length > 0
+                  ? "▾ Full standings & bracket"
+                  : "▾ Full standings"}
+            </button>
+            {expanded && (
+              <div className="mt-2 space-y-2">
+                <GroupStandingsTable
+                  standings={fullStandings}
+                  advancingTeams={
+                    advancing > 0 ? advancing : fullStandings.length
+                  }
+                  tournament={tournament}
+                />
+                {playoffMatches.length > 0 && (
+                  <MiniBracket
+                    tournament={tournament}
+                    matches={playoffMatches}
+                  />
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
       <div className="border-t border-rift-line/30 flex">

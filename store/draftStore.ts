@@ -114,6 +114,7 @@ import {
   nextPendingTournament as nextPendingSeasonTournament,
   currentPhase as currentSeasonPhase,
   phaseProgress as seasonPhaseProgress,
+  leagueOfTournament,
 } from "@/lib/season/engine";
 import { ensureTeamIdentities } from "@/lib/season/teamGen";
 import {
@@ -121,6 +122,7 @@ import {
   type SeasonHistoryEntry,
 } from "@/lib/season/history";
 import type {
+  LeagueId,
   SeasonConfig,
   SeasonMetaSnapshot,
   SeasonState,
@@ -273,6 +275,44 @@ export interface SavedSeasonEntry {
   savedAt: number;
   season: SeasonState;
   playerForms: PlayerFormMap;
+}
+
+/** Team identity carried into a Latest Matchday row (so the panel can
+ *  render icons + brand colors without re-reading season state). */
+export interface SeasonMatchdayTeam {
+  name: string;
+  iconKey: string;
+  color: string;
+}
+
+/** One match result inside a Latest Matchday region row. */
+export interface SeasonMatchdayMatch {
+  blue: SeasonMatchdayTeam;
+  red: SeasonMatchdayTeam;
+  blueScore: number;
+  redScore: number;
+  /** True when the blue team won the series. */
+  blueWon: boolean;
+  /** Stage tag: "winners" | "losers" | "elimination" | "grand-final" |
+   *  "grand-final-reset" | "group" | "regular". */
+  stage: string;
+  /** Group letter when stage === "group". */
+  group?: string;
+}
+
+/** Per-region (or per-event) results for one simulated matchday. */
+export interface SeasonMatchdayRegion {
+  league: LeagueId | null;
+  name: string;
+  results: SeasonMatchdayMatch[];
+  /** Teams that advanced when a play-in completed this matchday. */
+  qualified?: SeasonMatchdayTeam[];
+}
+
+/** The dashboard's Latest Matchday panel payload. */
+export interface SeasonMatchdayResult {
+  label: string;
+  regions: SeasonMatchdayRegion[];
 }
 
 // Seasons are heavy (20+ tournaments each), so the caps are tighter
@@ -532,6 +572,15 @@ interface DraftStore {
   // split, or one international). Auto-advances phases, applies patch
   // shifts, and crowns the Worlds champion.
   simSeason: (scope: "phase" | "all" | { tournamentId: string }) => void;
+  // Advance every region (split phases) — or the current event (intl
+  // phases) — by exactly ONE matchday/round, in lockstep, and record the
+  // results into `seasonMatchday` for the dashboard's Latest Matchday
+  // panel. Works for the round-robin/Swiss/group regular stage AND for
+  // playoff brackets (freezing standings into the bracket transparently).
+  simSeasonMatchday: () => void;
+  // Results of the most recently simulated matchday (ephemeral — not
+  // persisted; resets on reload). null until the first matchday is run.
+  seasonMatchday: SeasonMatchdayResult | null;
   // ─── Saved seasons (manual save slots, like saved tournaments) ─────
   savedSeasons: SavedSeasonEntry[];
   // Snapshot the active season (upsert by season id). Returns false
@@ -1275,6 +1324,7 @@ export const useDraftStore = create<DraftStore>()(
   preSeasonMetaSnapshot: null,
   savedSeasons: [],
   seasonHistory: [],
+  seasonMatchday: null,
   simulating: null,
   simProgress: null,
   playerForms: {},
@@ -1670,20 +1720,24 @@ export const useDraftStore = create<DraftStore>()(
               .every((m) => m.winner != null);
             if (
               (t.format === "groups-playoffs" ||
-                t.format === "groups-playoffs-de") &&
+                t.format === "groups-playoffs-de" ||
+                t.format === "groups-playoffs-te") &&
               !t.groupsPlayoffs?.playoffStarted &&
               stageDone
             ) {
               frozen = startGroupsPlayoffs(t);
             } else if (
               (t.format === "swiss-playoffs" ||
-                t.format === "swiss-playoffs-de") &&
+                t.format === "swiss-playoffs-de" ||
+                t.format === "swiss-playoffs-te") &&
               !t.swissPlayoffsStarted &&
               stageDone
             ) {
               frozen = startSwissPlayoffs(t);
             } else if (
-              t.format === "round-robin-playoffs" &&
+              (t.format === "round-robin-playoffs" ||
+                t.format === "round-robin-playoffs-te" ||
+                t.format === "round-robin-playoffs-step") &&
               !t.rrPlayoffsStarted &&
               stageDone
             ) {
@@ -1742,6 +1796,186 @@ export const useDraftStore = create<DraftStore>()(
                   s,
                 ),
               }
+            : {},
+        );
+      } finally {
+        set({ simulating: null, simProgress: null });
+      }
+    })();
+  },
+
+  simSeasonMatchday: () => {
+    const { season, simulating } = get();
+    if (!season || simulating || season.status === "complete") return;
+    set({ simulating: "all", simProgress: null });
+    void (async () => {
+      try {
+        await new Promise((r) => setTimeout(r, 0));
+        const runId = season.id;
+        const champions = get().champions;
+        let forms = get().playerForms;
+
+        // Freeze a completed regular stage into its playoff bracket, so a
+        // single matchday click transparently crosses the regular→playoff
+        // boundary.
+        const freezeStage = (t: TournamentState): TournamentState => {
+          const stageDone = t.matches
+            .filter((m) => m.bracket === undefined)
+            .every((m) => m.winner != null);
+          if (!stageDone) return t;
+          if (
+            (t.format === "groups-playoffs" ||
+              t.format === "groups-playoffs-de" ||
+              t.format === "groups-playoffs-te") &&
+            !t.groupsPlayoffs?.playoffStarted
+          ) {
+            return startGroupsPlayoffs(t);
+          }
+          if (
+            (t.format === "swiss-playoffs" ||
+              t.format === "swiss-playoffs-de" ||
+              t.format === "swiss-playoffs-te") &&
+            !t.swissPlayoffsStarted
+          ) {
+            return startSwissPlayoffs(t);
+          }
+          if (
+            (t.format === "round-robin-playoffs" ||
+              t.format === "round-robin-playoffs-te" ||
+              t.format === "round-robin-playoffs-step") &&
+            !t.rrPlayoffsStarted
+          ) {
+            return startRoundRobinPlayoffs(t);
+          }
+          return t;
+        };
+        // The current matchday = every ready match at the lowest unplayed
+        // round (one RR/Swiss round, one group matchday, or one bracket
+        // round).
+        const matchdayIds = (t: TournamentState): string[] => {
+          const ready = t.matches.filter(
+            (m) => !m.winner && m.blueTeamId != null && m.redTeamId != null,
+          );
+          if (ready.length === 0) return [];
+          const round = Math.min(...ready.map((m) => m.round));
+          return ready.filter((m) => m.round === round).map((m) => m.id);
+        };
+
+        const cur0 = get().season;
+        if (!cur0) return;
+        const phase = cur0.phases[cur0.phaseIndex];
+        if (!phase) return;
+        const isSplit = phase.kind === "split";
+        const targetIds: string[] = isSplit
+          ? phase.tournamentIds.slice()
+          : (() => {
+              const t = nextPendingSeasonTournament(cur0);
+              return t ? [t.id] : [];
+            })();
+
+        const regions: SeasonMatchdayRegion[] = [];
+        let mdRound = 0;
+        let sawBracket = false;
+
+        for (const tid of targetIds) {
+          const live0 = get().season?.tournaments[tid];
+          if (!live0 || live0.status === "complete") continue;
+          let t = live0;
+          const frozen = freezeStage(t);
+          if (frozen !== t) {
+            set((s) => ({ ...seasonPatchFor(s, frozen) }));
+            t = get().season?.tournaments[tid] ?? frozen;
+          }
+          const wasPlayIn = t.name.includes("Play-In");
+          const ids = matchdayIds(t);
+          if (ids.length === 0) continue;
+          const results: SeasonMatchdayMatch[] = [];
+          for (const id of ids) {
+            const liveT = get().season?.tournaments[tid];
+            if (!liveT) break;
+            const m = liveT.matches.find((x) => x.id === id);
+            if (!m || m.winner || m.blueTeamId == null || m.redTeamId == null) {
+              continue;
+            }
+            const blue = liveT.teams.find((x) => x.id === m.blueTeamId);
+            const red = liveT.teams.find((x) => x.id === m.redTeamId);
+            let [after, nf] = autoPlayMatch(liveT, id, champions, forms);
+            forms = nf;
+            const evo = evolveMetaForTournament(after, champions);
+            if (evo.tournament !== after) {
+              setActiveMetaOverride(evo.snapshot?.metaOverride ?? null);
+              saveMetaOverride(evo.snapshot?.metaOverride ?? null);
+              after = evo.tournament;
+            }
+            const fm = after.matches.find((x) => x.id === id);
+            if (fm?.winner && blue && red) {
+              mdRound = Math.max(mdRound, fm.round);
+              if (fm.bracket != null) sawBracket = true;
+              const teamRef = (tt: typeof blue): SeasonMatchdayTeam => ({
+                name: tt.name,
+                iconKey: tt.iconKey ?? "shield",
+                color: tt.color ?? "#c8aa6e",
+              });
+              results.push({
+                blue: teamRef(blue),
+                red: teamRef(red),
+                blueScore: fm.winner.blueWins,
+                redScore: fm.winner.redWins,
+                blueWon: fm.winner.teamId === blue.id,
+                stage:
+                  fm.bracket != null
+                    ? liveT.format === "round-robin-playoffs-step"
+                      ? "stepladder"
+                      : fm.bracket
+                    : fm.groupId
+                      ? "group"
+                      : "regular",
+                ...(fm.groupId ? { group: fm.groupId } : {}),
+              });
+            }
+            set((s) => ({ ...seasonPatchFor(s, after), playerForms: forms }));
+            await new Promise((r) => setTimeout(r, 0));
+          }
+          // A play-in that just finished → list who reached the main event.
+          let qualified: SeasonMatchdayTeam[] | undefined;
+          const afterT = get().season?.tournaments[tid];
+          if (wasPlayIn && afterT?.status === "complete") {
+            const ph2 = get().season?.phases[get().season!.phaseIndex];
+            const mainId = ph2?.tournamentIds.find((x) => x !== tid);
+            const main = mainId ? get().season?.tournaments[mainId] : null;
+            if (main) {
+              const inPlayIn = new Set(afterT.teams.map((x) => x.id));
+              qualified = main.teams
+                .filter((x) => inPlayIn.has(x.id))
+                .map((x) => ({
+                  name: x.name,
+                  iconKey: x.iconKey ?? "shield",
+                  color: x.color ?? "#c8aa6e",
+                }));
+            }
+          }
+          regions.push({
+            league: leagueOfTournament(cur0, t),
+            name: t.name,
+            results,
+            ...(qualified && qualified.length > 0 ? { qualified } : {}),
+          });
+        }
+
+        const stageWord = sawBracket
+          ? isSplit
+            ? "Playoffs"
+            : "Round"
+          : isSplit
+            ? "Matchday"
+            : "Round";
+        const label =
+          regions.length > 0
+            ? `${phase.label} · ${stageWord}${mdRound > 0 ? ` ${mdRound}` : ""}`
+            : phase.label;
+        set((s) =>
+          s.season && s.season.id === runId
+            ? { seasonMatchday: { label, regions }, playerForms: forms }
             : {},
         );
       } finally {
@@ -2948,10 +3182,15 @@ export const useDraftStore = create<DraftStore>()(
     let updated: TournamentState;
     if (
       tournament.format === "swiss-playoffs" ||
-      tournament.format === "swiss-playoffs-de"
+      tournament.format === "swiss-playoffs-de" ||
+      tournament.format === "swiss-playoffs-te"
     ) {
       updated = startSwissPlayoffs(tournament);
-    } else if (tournament.format === "round-robin-playoffs") {
+    } else if (
+      tournament.format === "round-robin-playoffs" ||
+      tournament.format === "round-robin-playoffs-te" ||
+      tournament.format === "round-robin-playoffs-step"
+    ) {
       updated = startRoundRobinPlayoffs(tournament);
     } else {
       updated = startGroupsPlayoffs(tournament);
@@ -3129,7 +3368,8 @@ export const useDraftStore = create<DraftStore>()(
           if (!startable) {
             if (
               (working.format === "groups-playoffs" ||
-                working.format === "groups-playoffs-de") &&
+                working.format === "groups-playoffs-de" ||
+                working.format === "groups-playoffs-te") &&
               !working.groupsPlayoffs?.playoffStarted &&
               working.matches
                 .filter((m) => m.bracket === undefined)
@@ -3140,7 +3380,8 @@ export const useDraftStore = create<DraftStore>()(
             }
             if (
               (working.format === "swiss-playoffs" ||
-                working.format === "swiss-playoffs-de") &&
+                working.format === "swiss-playoffs-de" ||
+                working.format === "swiss-playoffs-te") &&
               !working.swissPlayoffsStarted &&
               working.matches
                 .filter((m) => m.bracket === undefined)
@@ -3150,7 +3391,9 @@ export const useDraftStore = create<DraftStore>()(
               continue;
             }
             if (
-              working.format === "round-robin-playoffs" &&
+              (working.format === "round-robin-playoffs" ||
+                working.format === "round-robin-playoffs-te" ||
+                working.format === "round-robin-playoffs-step") &&
               !working.rrPlayoffsStarted &&
               working.matches
                 .filter((m) => m.bracket === undefined)

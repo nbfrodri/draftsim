@@ -10,6 +10,7 @@ import {
   inferGroupsConfig,
   makeTeamId,
   playoffBracketKindFor,
+  swissThresholdFor,
   TEAM_COLORS,
   TEAM_ICON_KEYS,
 } from "@/lib/tournament";
@@ -41,6 +42,9 @@ import { PersonalityChipSelect } from "./PersonalitySelect";
 const ELIM_COUNTS = [2, 3, 4, 5, 6, 7, 8] as const;
 const RR_COUNTS = [3, 4, 5, 6, 7, 8, 10] as const;
 const DOUBLE_ELIM_COUNTS = [4, 6, 8, 12, 16, 32] as const;
+// Triple-elim (3-life) is generated dynamically and works at any size,
+// but the picker offers the two cleanest fields.
+const TRIPLE_ELIM_COUNTS = [4, 8] as const;
 const SWISS_COUNTS = [4, 6, 8, 10, 12, 16] as const;
 const GROUPS_PLAYOFFS_COUNTS = [4, 6, 8, 12, 16, 24, 32] as const;
 // Round-robin-playoffs needs at least 5 teams so the round-robin stage
@@ -135,6 +139,11 @@ const TOURNAMENT_FORMATS: { value: TournamentFormat; label: string; sub: string 
     sub: "Winners + losers bracket; lose twice to be eliminated",
   },
   {
+    value: "triple-elim",
+    label: "Triple Elimination",
+    sub: "Winners / losers / last-chance brackets; lose 3 times to be out",
+  },
+  {
     value: "swiss",
     label: "Swiss",
     sub: "Pair by record each round; ceil(log2 N) rounds total",
@@ -163,6 +172,26 @@ const TOURNAMENT_FORMATS: { value: TournamentFormat; label: string; sub: string 
     value: "groups-playoffs-de",
     label: "Groups + DE Playoffs",
     sub: "Round-robin groups, then top N play double-elim",
+  },
+  {
+    value: "round-robin-playoffs-te",
+    label: "Round Robin + TE Playoffs",
+    sub: "Round-robin stage, then top N play triple-elim (3 lives)",
+  },
+  {
+    value: "round-robin-playoffs-step",
+    label: "Round Robin + Stepladder",
+    sub: "Round-robin stage, then a gauntlet: low seeds climb to the #1 seed",
+  },
+  {
+    value: "swiss-playoffs-te",
+    label: "Swiss + TE Playoffs",
+    sub: "Swiss stage, then top N play triple-elim (3 lives)",
+  },
+  {
+    value: "groups-playoffs-te",
+    label: "Groups + TE Playoffs",
+    sub: "Round-robin groups, then top N play triple-elim (3 lives)",
   },
 ];
 
@@ -220,6 +249,9 @@ export default function TournamentSetup({ onCancel }: Props) {
   // True grand-final convention — Phase 5. Double-elim only; when on,
   // the grand final is a single decisive series with no bracket reset.
   const [trueGrandFinal, setTrueGrandFinal] = useState(false);
+  // Round-robin legs — round-robin / round-robin + playoffs only. 1 =
+  // each pair plays once; 2 = double round-robin (home + away).
+  const [rrLegs, setRrLegs] = useState<1 | 2>(1);
 
   // Advanced customization. Each entry overrides one match's series
   // format (Bo1/Bo3/Bo5) keyed per FormatOverrides schema in
@@ -244,6 +276,11 @@ export default function TournamentSetup({ onCancel }: Props) {
   const [swissRoundsOverride, setSwissRoundsOverride] = useState<
     number | undefined
   >(undefined);
+  // Swiss threshold mode (modern Worlds Swiss): when true, teams play until
+  // they qualify (win bar) or are eliminated (loss bar) instead of a fixed
+  // round count. The bars are auto-derived from the field size and the
+  // desired qualifier count, so this is a simple on/off toggle.
+  const [swissThreshold, setSwissThreshold] = useState(false);
   // Show/hide the advanced settings panel. Closed by default to keep
   // the setup form approachable for casual users; power users can
   // expand to fine-tune every round.
@@ -256,14 +293,20 @@ export default function TournamentSetup({ onCancel }: Props) {
       ? RR_COUNTS
       : tournamentFormat === "double-elim"
       ? DOUBLE_ELIM_COUNTS
+      : tournamentFormat === "triple-elim"
+      ? TRIPLE_ELIM_COUNTS
       : tournamentFormat === "swiss" ||
         tournamentFormat === "swiss-playoffs"
       ? SWISS_COUNTS
-      : tournamentFormat === "swiss-playoffs-de"
+      : tournamentFormat === "swiss-playoffs-de" ||
+        tournamentFormat === "swiss-playoffs-te"
       ? SWISS_DE_COUNTS
-      : tournamentFormat === "round-robin-playoffs"
+      : tournamentFormat === "round-robin-playoffs" ||
+        tournamentFormat === "round-robin-playoffs-te" ||
+        tournamentFormat === "round-robin-playoffs-step"
       ? RR_PLAYOFFS_COUNTS
-      : tournamentFormat === "groups-playoffs-de"
+      : tournamentFormat === "groups-playoffs-de" ||
+        tournamentFormat === "groups-playoffs-te"
       ? GROUPS_DE_COUNTS
       : GROUPS_PLAYOFFS_COUNTS;
 
@@ -463,6 +506,13 @@ export default function TournamentSetup({ onCancel }: Props) {
         tournamentFormat === "single-elim" ? reseedBetweenRounds : undefined,
       trueGrandFinal:
         tournamentFormat === "double-elim" ? trueGrandFinal : undefined,
+      roundRobinLegs:
+        (tournamentFormat === "round-robin" ||
+          tournamentFormat === "round-robin-playoffs" ||
+          tournamentFormat === "round-robin-playoffs-te") &&
+        rrLegs === 2
+          ? 2
+          : undefined,
       // Strip empty / no-op overrides so the persisted tournament
       // doesn't carry dead state. Empty map → undefined.
       formatOverrides:
@@ -473,27 +523,41 @@ export default function TournamentSetup({ onCancel }: Props) {
       // *-playoffs formats — gate per format.
       swissPlayoffsAdvancingOverride:
         (tournamentFormat === "swiss-playoffs" ||
-          tournamentFormat === "swiss-playoffs-de") &&
+          tournamentFormat === "swiss-playoffs-de" ||
+          tournamentFormat === "swiss-playoffs-te") &&
         advancingOverride != null
           ? advancingOverride
           : undefined,
       rrPlayoffsAdvancingOverride:
-        tournamentFormat === "round-robin-playoffs" &&
+        (tournamentFormat === "round-robin-playoffs" ||
+          tournamentFormat === "round-robin-playoffs-te" ||
+          tournamentFormat === "round-robin-playoffs-step") &&
         advancingOverride != null
           ? advancingOverride
           : undefined,
       groupsConfigOverride:
         (tournamentFormat === "groups-playoffs" ||
-          tournamentFormat === "groups-playoffs-de") &&
+          tournamentFormat === "groups-playoffs-de" ||
+          tournamentFormat === "groups-playoffs-te") &&
         groupsConfigOverride
           ? groupsConfigOverride
           : undefined,
       swissTotalRoundsOverride:
         (tournamentFormat === "swiss" ||
           tournamentFormat === "swiss-playoffs" ||
-          tournamentFormat === "swiss-playoffs-de") &&
+          tournamentFormat === "swiss-playoffs-de" ||
+          tournamentFormat === "swiss-playoffs-te") &&
+        !swissThreshold &&
         swissRoundsOverride != null
           ? swissRoundsOverride
+          : undefined,
+      swissThreshold:
+        (tournamentFormat === "swiss" ||
+          tournamentFormat === "swiss-playoffs" ||
+          tournamentFormat === "swiss-playoffs-de" ||
+          tournamentFormat === "swiss-playoffs-te") &&
+        swissThreshold
+          ? true
           : undefined,
     });
   };
@@ -509,6 +573,7 @@ export default function TournamentSetup({ onCancel }: Props) {
     setAdvancingOverride(undefined);
     setGroupsConfigOverride(undefined);
     setSwissRoundsOverride(undefined);
+    setSwissThreshold(false);
     const options =
       f === "single-elim"
         ? ELIM_COUNTS
@@ -516,13 +581,17 @@ export default function TournamentSetup({ onCancel }: Props) {
         ? RR_COUNTS
         : f === "double-elim"
         ? DOUBLE_ELIM_COUNTS
+        : f === "triple-elim"
+        ? TRIPLE_ELIM_COUNTS
         : f === "swiss" || f === "swiss-playoffs"
         ? SWISS_COUNTS
-        : f === "swiss-playoffs-de"
+        : f === "swiss-playoffs-de" || f === "swiss-playoffs-te"
         ? SWISS_DE_COUNTS
-        : f === "round-robin-playoffs"
+        : f === "round-robin-playoffs" ||
+          f === "round-robin-playoffs-te" ||
+          f === "round-robin-playoffs-step"
         ? RR_PLAYOFFS_COUNTS
-        : f === "groups-playoffs-de"
+        : f === "groups-playoffs-de" || f === "groups-playoffs-te"
         ? GROUPS_DE_COUNTS
         : GROUPS_PLAYOFFS_COUNTS;
     if (!options.includes(teamCount as never)) {
@@ -959,6 +1028,24 @@ export default function TournamentSetup({ onCancel }: Props) {
                 </span>
               </label>
             )}
+            {(tournamentFormat === "round-robin" ||
+              tournamentFormat === "round-robin-playoffs") && (
+              <label className="flex items-start gap-2 cursor-pointer text-[10px] uppercase tracking-[0.2em] text-rift-mutedbright pt-2 border-t border-rift-line/30 mt-2">
+                <input
+                  type="checkbox"
+                  checked={rrLegs === 2}
+                  onChange={(e) => setRrLegs(e.target.checked ? 2 : 1)}
+                  className="accent-rift-gold mt-0.5"
+                />
+                <span>
+                  <span>Double round-robin</span>
+                  <span className="block text-[9px] tracking-[0.15em] text-rift-mutedbright/55 normal-case mt-0.5">
+                    Every team plays every other team twice (home & away),
+                    doubling the matchdays. Sides swap between the two meetings.
+                  </span>
+                </span>
+              </label>
+            )}
           </div>
         </div>
 
@@ -975,6 +1062,8 @@ export default function TournamentSetup({ onCancel }: Props) {
           setGroupsConfigOverride={setGroupsConfigOverride}
           swissRoundsOverride={swissRoundsOverride}
           setSwissRoundsOverride={setSwissRoundsOverride}
+          swissThreshold={swissThreshold}
+          setSwissThreshold={setSwissThreshold}
           open={advancedOpen}
           setOpen={setAdvancedOpen}
         />
@@ -1551,6 +1640,8 @@ function AdvancedSettingsPanel({
   setGroupsConfigOverride,
   swissRoundsOverride,
   setSwissRoundsOverride,
+  swissThreshold,
+  setSwissThreshold,
   open,
   setOpen,
 }: {
@@ -1569,6 +1660,8 @@ function AdvancedSettingsPanel({
   ) => void;
   swissRoundsOverride: number | undefined;
   setSwissRoundsOverride: (n: number | undefined) => void;
+  swissThreshold: boolean;
+  setSwissThreshold: (v: boolean) => void;
   open: boolean;
   setOpen: (v: boolean) => void;
 }) {
@@ -1660,13 +1753,15 @@ function AdvancedSettingsPanel({
     setAdvancingOverride(undefined);
     setGroupsConfigOverride(undefined);
     setSwissRoundsOverride(undefined);
+    setSwissThreshold(false);
   };
 
   const overrideCount =
     Object.keys(formatOverrides).length +
     (advancingOverride != null ? 1 : 0) +
     (groupsConfigOverride ? 1 : 0) +
-    (swissRoundsOverride != null ? 1 : 0);
+    (swissRoundsOverride != null ? 1 : 0) +
+    (swissThreshold ? 1 : 0);
 
   return (
     <div className="mb-5 border border-rift-line/40 bg-rift-bg/30">
@@ -1711,20 +1806,39 @@ function AdvancedSettingsPanel({
                 )}
               </div>
               <div className="space-y-2">
-                {/* Swiss round count */}
+                {/* Swiss qualification mode (fixed rounds vs threshold) */}
                 {(format === "swiss" ||
                   format === "swiss-playoffs" ||
-                  format === "swiss-playoffs-de") && (
+                  format === "swiss-playoffs-de" ||
+                  format === "swiss-playoffs-te") && (
+                  <SwissThresholdControl
+                    teamCount={teamCount}
+                    enabled={swissThreshold}
+                    onChange={setSwissThreshold}
+                  />
+                )}
+                {/* Swiss round count (only when NOT in threshold mode) */}
+                {(format === "swiss" ||
+                  format === "swiss-playoffs" ||
+                  format === "swiss-playoffs-de" ||
+                  format === "swiss-playoffs-te") &&
+                  !swissThreshold && (
                   <SwissRoundsControl
                     teamCount={teamCount}
                     value={swissRoundsOverride}
                     onChange={setSwissRoundsOverride}
                   />
                 )}
-                {/* Advancing count for *-playoffs (non-groups) */}
-                {(format === "swiss-playoffs" ||
+                {/* Advancing count for *-playoffs (non-groups). In Swiss
+                    threshold mode exactly half the field advances
+                    automatically, so the manual control is hidden. */}
+                {((format === "swiss-playoffs" ||
                   format === "swiss-playoffs-de" ||
-                  format === "round-robin-playoffs") && (
+                  format === "swiss-playoffs-te") &&
+                  !(swissThreshold && swissThresholdFor(teamCount))) ||
+                format === "round-robin-playoffs" ||
+                format === "round-robin-playoffs-te" ||
+                format === "round-robin-playoffs-step" ? (
                   <AdvancingCountControl
                     teamCount={teamCount}
                     kind={playoffBracketKindFor(format)}
@@ -1732,10 +1846,11 @@ function AdvancedSettingsPanel({
                     onChange={setAdvancingOverride}
                     fallback={dePlayoffAdvancingFor(teamCount)}
                   />
-                )}
+                ) : null}
                 {/* Groups config (groupCount × advancingPerGroup) */}
                 {(format === "groups-playoffs" ||
-                  format === "groups-playoffs-de") && (
+                  format === "groups-playoffs-de" ||
+                  format === "groups-playoffs-te") && (
                   <GroupsConfigControl
                     teamCount={teamCount}
                     value={groupsConfigOverride}
@@ -1852,20 +1967,34 @@ function AdvancingCountControl({
   fallback,
 }: {
   teamCount: number;
-  kind: "single-elim" | "double-elim";
+  kind: "single-elim" | "double-elim" | "triple-elim" | "stepladder";
   value: number | undefined;
   onChange: (n: number | undefined) => void;
   fallback: number;
 }) {
   const effective = value ?? fallback;
-  if (kind === "double-elim") {
-    const options = DE_PLAYOFF_SIZES.filter((n) => n <= teamCount);
+  if (
+    kind === "double-elim" ||
+    kind === "triple-elim" ||
+    kind === "stepladder"
+  ) {
+    const options = (
+      kind === "double-elim"
+        ? DE_PLAYOFF_SIZES
+        : kind === "stepladder"
+          ? [2, 3, 4, 6, 8]
+          : [4, 6, 8]
+    ).filter((n) => n <= teamCount);
     return (
       <div>
         <div className="text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright mb-1">
           Teams in Playoffs
           <span className="ml-2 text-[9px] text-rift-mutedbright/55 normal-case">
-            (DE bracket — 6/12 give the top seeds a first-round bye)
+            {kind === "double-elim"
+              ? "(DE bracket — 6/12 give the top seeds a first-round bye)"
+              : kind === "stepladder"
+                ? "(stepladder — lowest seeds climb to the #1 seed)"
+                : "(triple-elim — lose 3 series to be out)"}
           </span>
         </div>
         <div className="flex gap-1.5">
@@ -2065,6 +2194,74 @@ function GroupsConfigControl({
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+// Swiss qualification mode toggle. Off (default) = fixed round count.
+// On = threshold mode (modern Worlds Swiss): play until X wins (qualify)
+// or X losses (eliminated). X ranges 2..teamCount-1.
+// Swiss qualification mode: fixed rounds vs threshold (modern Worlds
+// Swiss). Threshold is a simple on/off — X wins to qualify / X losses to
+// eliminate, with X fixed by the field size. It only works for a power-of-2
+// field of 8/16/32… (so the pool halves evenly, pairing stays same-record
+// and no bye is ever needed); for any other count the Threshold button is
+// disabled with a hint, since enabling it would silently fall back to
+// fixed rounds.
+function SwissThresholdControl({
+  teamCount,
+  enabled,
+  onChange,
+}: {
+  teamCount: number;
+  enabled: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  const cfg = swissThresholdFor(teamCount);
+  const available = cfg != null;
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright mb-1">
+        Qualification Mode
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={() => onChange(false)}
+          className={`px-2.5 py-1 border text-[10px] uppercase tracking-[0.25em] transition-all ${
+            !enabled
+              ? "border-rift-gold/60 bg-rift-gold/10 text-rift-goldbright"
+              : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60"
+          }`}
+        >
+          Fixed Rounds
+        </button>
+        <button
+          type="button"
+          disabled={!available}
+          onClick={() => available && onChange(true)}
+          className={`px-2.5 py-1 border text-[10px] uppercase tracking-[0.25em] transition-all ${
+            !available
+              ? "border-rift-line/40 text-rift-mutedbright/40 cursor-not-allowed"
+              : enabled
+                ? "border-rift-gold/60 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/60"
+          }`}
+        >
+          Threshold
+        </button>
+      </div>
+      {available && enabled ? (
+        <div className="text-[9px] tracking-[0.2em] text-rift-mutedbright/55 mt-1">
+          {cfg.winTarget}W qualifies · {cfg.winTarget}L eliminates · exactly{" "}
+          {cfg.advancing} of {teamCount} advance · no byes (max {cfg.maxRounds}{" "}
+          rounds)
+        </div>
+      ) : !available ? (
+        <div className="text-[9px] tracking-[0.2em] text-rift-mutedbright/55 mt-1">
+          Threshold needs a power-of-2 field (8 / 16 / 32 teams)
+        </div>
+      ) : null}
     </div>
   );
 }

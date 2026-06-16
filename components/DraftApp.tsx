@@ -426,21 +426,22 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
               Saved Seasons ({savedSeasons.length})
             </button>
           )}
-          {seasonHistory.length > 0 && (
-            <button
-              type="button"
-              onClick={() => onChoose("season-history")}
-              className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright hover:text-rift-goldbright transition-colors"
-              title="The Hall of Seasons — every archived champion, finalist, and the metas they played on"
-            >
-              <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M4 2h8v2.5a4 4 0 0 1-8 0V2z" strokeLinejoin="round" />
-                <path d="M4 3H2v1a2.5 2.5 0 0 0 2 2.45M12 3h2v1a2.5 2.5 0 0 1-2 2.45" strokeLinejoin="round" />
-                <path d="M8 8.5V11M5.5 13h5M6.5 11h3v2h-3z" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              Season History ({seasonHistory.length})
-            </button>
-          )}
+          {/* Always shown — the Hall of Seasons is the entry point for
+              browsing archived seasons AND for importing .xlsx archives,
+              so it must be reachable even when the hall is currently empty. */}
+          <button
+            type="button"
+            onClick={() => onChoose("season-history")}
+            className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright hover:text-rift-goldbright transition-colors"
+            title="The Hall of Seasons — every archived champion, finalist, and the metas they played on"
+          >
+            <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M4 2h8v2.5a4 4 0 0 1-8 0V2z" strokeLinejoin="round" />
+              <path d="M4 3H2v1a2.5 2.5 0 0 0 2 2.45M12 3h2v1a2.5 2.5 0 0 1-2 2.45" strokeLinejoin="round" />
+              <path d="M8 8.5V11M5.5 13h5M6.5 11h3v2h-3z" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Season History{seasonHistory.length > 0 ? ` (${seasonHistory.length})` : ""}
+          </button>
           {savedTournaments.length > 0 && (
             <button
               type="button"

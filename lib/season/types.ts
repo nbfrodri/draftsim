@@ -109,6 +109,21 @@ export interface SeasonLeagueConfig {
   // existed; both fall back to playoffSeries.
   semifinalSeries?: SeriesFormat;
   finalsSeries?: SeriesFormat;
+  // Round-robin / round-robin-playoffs formats only: number of times
+  // every team plays every other team. 1 = single round-robin
+  // (default), 2 = double round-robin (home & away). Optional for older
+  // saves; ignored for non round-robin formats.
+  roundRobinLegs?: number;
+  // Double-elim playoff brackets only: when true the grand final is a
+  // single decisive series (no bracket reset). Omitted/false keeps the
+  // standard reset convention. Ignored for non-DE formats.
+  trueGrandFinal?: boolean;
+  // Swiss formats only: threshold mode (modern Worlds Swiss). When true,
+  // teams play until they reach X wins (qualify) or X losses (eliminated)
+  // — X fixed by the field size — instead of a fixed round count. Only
+  // engages for a power-of-2 field ≥ 8 (else it falls back to fixed
+  // rounds). Omitted/false = fixed rounds. Ignored for non-Swiss formats.
+  swissThreshold?: boolean;
 }
 
 // Per-international format configuration. Optional on SeasonConfig —
@@ -132,6 +147,35 @@ export interface SeasonIntlConfig {
   // Teams advancing to the playoff bracket for stage+playoffs formats
   // (double-elim brackets snap to the nearest supported size).
   playoffTeams: number;
+  // ─── Play-in customization ──────────────────────────────────────────
+  // Bracket format for this event's play-in qualifier. Only meaningful
+  // where the play-in has enough teams for the choice (the Worlds play-in
+  // is a 6-team field — single- or double-elim both fit). Omitted keeps
+  // the canonical single-elim play-in. The MSI play-in is a 2-team
+  // decider, so it ignores this.
+  playInFormat?: "single-elim" | "double-elim";
+  // Series length for play-in matches. Omitted falls back to earlySeries.
+  playInSeries?: SeriesFormat;
+  // Turn the play-in stage on/off. Omitted/true keeps the canonical
+  // behavior (Worlds always runs a play-in; MSI runs one only when the
+  // field misfits its format). false at Worlds = every qualified team
+  // (incl. the #4 seeds) enters the main event directly; false at MSI =
+  // never run the field-trimming play-in.
+  playInEnabled?: boolean;
+  // Worlds only: how many play-in finalists advance to the main event
+  // (default 2, auto-reduced to keep groups/swiss fields even). The
+  // entrant pool — each league's #4 seed — is unchanged.
+  playInAdvancing?: number;
+  // Double-elim brackets only (First Stand DE, or the DE playoff bracket
+  // of swiss-/groups-playoffs-de): when true the grand final is a single
+  // decisive series with no bracket reset. Ignored for non-DE formats.
+  trueGrandFinal?: boolean;
+  // Swiss formats only: threshold mode (modern Worlds Swiss). When true,
+  // teams play until X wins (qualify) or X losses (out), X fixed by the
+  // field size. Only engages for a power-of-2 field ≥ 8 (e.g. the 16-team
+  // Worlds main stage); otherwise falls back to fixed rounds. Omitted/false
+  // = fixed rounds. Ignored for non-Swiss formats.
+  swissThreshold?: boolean;
 }
 
 export interface SeasonConfig {

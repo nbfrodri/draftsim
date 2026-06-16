@@ -23,7 +23,7 @@ import { QualifierTagView, type QualifierTagInfo } from "./QualifierBadge";
 // ─── Bracket sub-modules ──────────────────────────────────────────────
 import { Header } from "./tournament/bracket/BracketViews";
 import { RoundColumn } from "./tournament/bracket/BracketViews";
-import { DoubleElimView } from "./tournament/bracket/BracketViews";
+import { DoubleElimView, TripleElimView } from "./tournament/bracket/BracketViews";
 import { LiveChampionMetaPanel, MetaEvolutionFeed } from "./tournament/bracket/LiveChampionMetaPanel";
 import { MatchOverrideModal } from "./tournament/bracket/MatchOverrideModal";
 import { SaveTournamentModal, SimulatingOverlay } from "./tournament/bracket/DashboardModals";
@@ -355,7 +355,9 @@ export default function TournamentDashboard() {
             tree. Double-elim renders winners + losers + grand-final
             stacked. */}
         {tournament.format === "round-robin" ||
-        tournament.format === "round-robin-playoffs" ? (
+        tournament.format === "round-robin-playoffs" ||
+        tournament.format === "round-robin-playoffs-te" ||
+        tournament.format === "round-robin-playoffs-step" ? (
           <RoundRobinView
             tournament={tournament}
             rounds={rounds}
@@ -364,7 +366,8 @@ export default function TournamentDashboard() {
             onViewMatch={handleViewMatch}
           />
         ) : tournament.format === "groups-playoffs" ||
-          tournament.format === "groups-playoffs-de" ? (
+          tournament.format === "groups-playoffs-de" ||
+          tournament.format === "groups-playoffs-te" ? (
           <GroupsPlayoffsView
             tournament={tournament}
             rounds={rounds}
@@ -374,7 +377,8 @@ export default function TournamentDashboard() {
           />
         ) : tournament.format === "swiss" ||
           tournament.format === "swiss-playoffs" ||
-          tournament.format === "swiss-playoffs-de" ? (
+          tournament.format === "swiss-playoffs-de" ||
+          tournament.format === "swiss-playoffs-te" ? (
           <SwissView
             tournament={tournament}
             rounds={rounds}
@@ -384,6 +388,12 @@ export default function TournamentDashboard() {
           />
         ) : tournament.format === "double-elim" ? (
           <DoubleElimView
+            tournament={tournament}
+            onStartMatch={(id) => setPendingMatchId(id)}
+            onViewMatch={reviewMode ? handleViewMatch : undefined}
+          />
+        ) : tournament.format === "triple-elim" ? (
+          <TripleElimView
             tournament={tournament}
             onStartMatch={(id) => setPendingMatchId(id)}
             onViewMatch={reviewMode ? handleViewMatch : undefined}

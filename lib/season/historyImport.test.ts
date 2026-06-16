@@ -81,6 +81,26 @@ describe("parseHistoryWorkbook — embedded data sheet (lossless)", () => {
     expect(result.entries).toEqual([entry]);
   });
 
+  it("round-trips the expanded stats fields (best teams + award tallies)", async () => {
+    const entry = fabricateEntry({
+      leagueBestTeams: {
+        LCK: { team: team("T1"), wins: 40, losses: 8, titles: 3 },
+        LPL: { team: team("BLG", "LPL", "#0ac8b9"), wins: 35, losses: 12, titles: 1 },
+      },
+      awardTally: [
+        { team: team("T1"), lane: "middle", mvp: 3, allPro: 5 },
+        { team: team("GEN"), lane: "top", mvp: 0, allPro: 2 },
+      ],
+    });
+    const wb = await buildSeasonWorkbook(entry, NAMES);
+    const result = await parseHistoryWorkbook(await workbookBytes(wb), NOW);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entries[0].leagueBestTeams?.LCK?.wins).toBe(40);
+    expect(result.entries[0].awardTally).toEqual(entry.awardTally);
+    expect(result.entries).toEqual([entry]);
+  });
+
   it("drops invalid lanes/tiers/teams instead of importing garbage", async () => {
     const corrupt = {
       ...fabricateEntry(),

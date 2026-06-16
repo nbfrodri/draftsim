@@ -185,6 +185,42 @@ if (typeof window !== "undefined") {
     // Fire-and-forget; we can't await in beforeunload handlers.
     void flushPendingWrites();
   });
+
+  // Tauri's native window close (clicking the ✕) does NOT reliably fire
+  // `beforeunload`, and even when it does the async file write can't finish
+  // before the webview is torn down. That means a debounced write still in
+  // flight — e.g. a season just archived to the Hall of Seasons — is lost,
+  // so the Hall looks empty on the next launch. Register Tauri's real
+  // `onCloseRequested` event: veto the close, await the flush to disk, then
+  // destroy the window for good. Dynamic import keeps this SSG-safe and out
+  // of plain (non-Tauri) browsers.
+  if (isDesktop()) {
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const appWindow = getCurrentWindow();
+        await appWindow.onCloseRequested(async (event) => {
+          if (pendingWrites.size === 0) return; // nothing pending — let it close
+          // Hold the close until everything is safely on disk.
+          event.preventDefault();
+          try {
+            await flushPendingWrites();
+          } catch {
+            // Ignore — we're shutting down regardless.
+          } finally {
+            // destroy() force-closes WITHOUT re-emitting onCloseRequested
+            // (unlike close()), so this can't loop.
+            await appWindow.destroy();
+          }
+        });
+      } catch (err) {
+        console.warn(
+          "[desktopStorage] could not register Tauri close handler:",
+          err,
+        );
+      }
+    })();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -386,12 +422,15 @@ export async function saveBinaryFileNative(opts: {
 }
 
 /**
- * Open a native Open dialog and read the chosen file as binary.
+ * Open a native Open dialog and read the chosen file(s) as binary.
  * Same contract as openFileNative, but for non-text payloads (e.g. .xlsx).
+ * Always returns the selection as an array in `contents` (one entry per
+ * file); pass `multiple: true` to let the user pick several at once.
  */
 export async function openBinaryFileNative(opts: {
   filters?: Array<{ name: string; extensions: string[] }>;
-}): Promise<{ ok: boolean; content?: Uint8Array; error?: string }> {
+  multiple?: boolean;
+}): Promise<{ ok: boolean; contents?: Uint8Array[]; error?: string }> {
   if (!isDesktop()) {
     return { ok: false, error: "Not running in desktop mode" };
   }
@@ -400,18 +439,18 @@ export async function openBinaryFileNative(opts: {
     const { readFile } = await import("@tauri-apps/plugin-fs");
 
     const result = await open({
-      multiple: false,
+      multiple: opts.multiple ?? false,
       filters: opts.filters,
     });
     if (result == null) {
       // User cancelled.
       return { ok: false, error: "cancelled" };
     }
-    // result is a string (single file path) when multiple: false
-    const filePath = typeof result === "string" ? result : result[0];
-    if (!filePath) return { ok: false, error: "cancelled" };
-    const content = await readFile(filePath);
-    return { ok: true, content };
+    // result is a string (single file) or string[] (multiple).
+    const paths = Array.isArray(result) ? result : [result];
+    if (paths.length === 0) return { ok: false, error: "cancelled" };
+    const contents = await Promise.all(paths.map((p) => readFile(p)));
+    return { ok: true, contents };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error: msg };

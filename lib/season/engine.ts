@@ -19,6 +19,8 @@ import { deriveStar, type RNG } from "../players";
 import {
   createTournament,
   computeStandings,
+  computeTripleElimStandings,
+  computeBracketFinishOrder,
   formatHasPlayoffs,
   inferGroupsConfig,
   teamStreak,
@@ -59,7 +61,12 @@ export const LEAGUE_FORMAT_OPTIONS: Array<{
   label: string;
 }> = [
   { value: "round-robin-playoffs", label: "Round Robin + DE Playoffs" },
+  { value: "round-robin-playoffs-te", label: "Round Robin + TE Playoffs" },
+  { value: "round-robin-playoffs-step", label: "Round Robin + Stepladder" },
   { value: "round-robin", label: "Round Robin (no playoffs)" },
+  { value: "triple-elim", label: "Triple Elimination (3 lives)" },
+  { value: "groups-playoffs-te", label: "Groups + TE Playoffs" },
+  { value: "swiss-playoffs-te", label: "Swiss + TE Playoffs" },
   { value: "groups-playoffs", label: "Groups + SE Playoffs" },
   { value: "groups-playoffs-de", label: "Groups + DE Playoffs" },
   { value: "swiss-playoffs", label: "Swiss + SE Playoffs" },
@@ -218,11 +225,16 @@ export const INTL_FORMAT_OPTIONS: Array<{
   label: string;
 }> = [
   { value: "single-elim", label: "Single Elimination" },
+  { value: "triple-elim", label: "Triple Elimination (3 lives)" },
   { value: "groups-playoffs", label: "Groups + SE Playoffs" },
   { value: "groups-playoffs-de", label: "Groups + DE Playoffs" },
+  { value: "groups-playoffs-te", label: "Groups + TE Playoffs" },
   { value: "swiss-playoffs", label: "Swiss + SE Playoffs" },
   { value: "swiss-playoffs-de", label: "Swiss + DE Playoffs" },
+  { value: "swiss-playoffs-te", label: "Swiss + TE Playoffs" },
   { value: "round-robin-playoffs", label: "Round Robin + DE Playoffs" },
+  { value: "round-robin-playoffs-te", label: "Round Robin + TE Playoffs" },
+  { value: "round-robin-playoffs-step", label: "Round Robin + Stepladder" },
 ];
 
 // Per-event option list: First Stand's 12-team field fits a plain
@@ -329,16 +341,32 @@ function intlFormatParams(
   teamCount: number,
 ): {
   swissPlayoffsAdvancingOverride?: number;
+  swissThreshold?: boolean;
   rrPlayoffsAdvancingOverride?: number;
   groupsConfigOverride?: { groupCount: number; advancingPerGroup: number };
 } {
-  if (cfg.format === "swiss-playoffs" || cfg.format === "swiss-playoffs-de") {
-    return { swissPlayoffsAdvancingOverride: cfg.playoffTeams };
+  if (
+    cfg.format === "swiss-playoffs" ||
+    cfg.format === "swiss-playoffs-de" ||
+    cfg.format === "swiss-playoffs-te"
+  ) {
+    return {
+      swissPlayoffsAdvancingOverride: cfg.playoffTeams,
+      swissThreshold: cfg.swissThreshold,
+    };
   }
-  if (cfg.format === "round-robin-playoffs") {
+  if (
+    cfg.format === "round-robin-playoffs" ||
+    cfg.format === "round-robin-playoffs-te" ||
+    cfg.format === "round-robin-playoffs-step"
+  ) {
     return { rrPlayoffsAdvancingOverride: cfg.playoffTeams };
   }
-  if (cfg.format === "groups-playoffs" || cfg.format === "groups-playoffs-de") {
+  if (
+    cfg.format === "groups-playoffs" ||
+    cfg.format === "groups-playoffs-de" ||
+    cfg.format === "groups-playoffs-te"
+  ) {
     const groupCount =
       event === "worlds" ? 4 : inferGroupsConfig(teamCount).groupCount;
     const minGroupSize = Math.floor(teamCount / groupCount);
@@ -347,6 +375,9 @@ function intlFormatParams(
       Math.max(1, minGroupSize),
     );
     return { groupsConfigOverride: { groupCount, advancingPerGroup } };
+  }
+  if (cfg.format === "swiss") {
+    return { swissThreshold: cfg.swissThreshold };
   }
   return {};
 }
@@ -372,15 +403,31 @@ function cloneMeta(meta: SeasonMetaSnapshot): {
 // game diff → head-to-head → seed).
 
 export function tournamentPlacements(t: TournamentState): string[] {
-  const standings = computeStandings(t);
-  const order = standings.map((s) => s.team.id);
+  // Triple-elim has its own loss-based ranking (the generic standings
+  // skip bracket-tagged matches, which is every triple-elim match).
+  if (t.format === "triple-elim") {
+    const ranked = computeTripleElimStandings(t).map((team) => team.id);
+    const champion = tournamentChampion(t);
+    if (champion) {
+      return [champion.id, ...ranked.filter((id) => id !== champion.id)];
+    }
+    return ranked;
+  }
+  // Pure bracket formats: rank by how far each team advanced (the generic
+  // standings skip every bracket match and fall back to seed order, which
+  // mis-orders play-in qualifiers). The champion + runner-up are pinned
+  // below; the rest follow bracket-advancement order — so a play-in
+  // advancing 4 gives finalists, then the losers-bracket finalist, then
+  // the team that lost to it, etc.
+  const isPureBracket =
+    t.format === "single-elim" || t.format === "double-elim";
+  const order = isPureBracket
+    ? computeBracketFinishOrder(t).map((team) => team.id)
+    : computeStandings(t).map((s) => s.team.id);
   const champion = tournamentChampion(t);
   if (!champion) return order;
   const head = [champion.id];
-  const bracketDecided =
-    t.format === "single-elim" ||
-    t.format === "double-elim" ||
-    formatHasPlayoffs(t.format);
+  const bracketDecided = isPureBracket || formatHasPlayoffs(t.format);
   if (bracketDecided) {
     // The champion's LAST completed match is the deciding one (matches
     // are appended in play order; the grand final / final is last).
@@ -591,6 +638,24 @@ export function feederEventOf(
   return event === "msi" ? "first-stand" : event === "worlds" ? "msi" : null;
 }
 
+/** The team id that completed a Golden Road — winning all three of its
+ *  domestic splits (Winter/Spring/Summer) AND all three internationals
+ *  (First Stand/MSI/Worlds) — this season, or null. Computed live from
+ *  the season's results (no history entry required). */
+export function seasonGoldenRoadTeamId(season: SeasonState): string | null {
+  const worlds = season.intlResults.worlds?.[0] ?? season.champion ?? null;
+  if (!worlds) return null;
+  const team = season.teams.find((t) => t.id === worlds);
+  if (!team) return null;
+  const won = (id: string | undefined) => id === worlds;
+  if (!won(season.intlResults["first-stand"]?.[0])) return null;
+  if (!won(season.intlResults.msi?.[0])) return null;
+  for (const split of ["winter", "spring", "summer"] as SplitId[]) {
+    if (!won(season.splitResults[split]?.[team.leagueId]?.[0])) return null;
+  }
+  return worlds;
+}
+
 // ─── Tournament builders ───────────────────────────────────────────────────
 
 function tagSeason(t: TournamentState, seasonId: string): TournamentState {
@@ -631,8 +696,13 @@ function createSplitTournament(
     ),
     rrPlayoffsAdvancingOverride: cfg.playoffTeams,
     swissPlayoffsAdvancingOverride: cfg.playoffTeams,
+    swissThreshold: cfg.swissThreshold,
+    roundRobinLegs: cfg.roundRobinLegs,
+    trueGrandFinal: cfg.trueGrandFinal,
     groupsConfigOverride:
-      cfg.format === "groups-playoffs" || cfg.format === "groups-playoffs-de"
+      cfg.format === "groups-playoffs" ||
+      cfg.format === "groups-playoffs-de" ||
+      cfg.format === "groups-playoffs-te"
         ? {
             groupCount: 2,
             advancingPerGroup: Math.max(2, Math.round(cfg.playoffTeams / 2)),
@@ -656,6 +726,7 @@ function createFirstStand(season: SeasonState): TournamentState {
     defaults: defaultsFor(season.config, cfg.earlySeries),
     formatOverrides: intlOverridesFor(cfg, qualified.length),
     ...intlFormatParams(cfg, "first-stand", qualified.length),
+    trueGrandFinal: cfg.trueGrandFinal,
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
@@ -682,7 +753,11 @@ function intlFieldMisfit(
   groupCount?: number,
 ): boolean {
   if (isSwissFormat(format)) return teamCount % 2 === 1;
-  if (format === "groups-playoffs" || format === "groups-playoffs-de") {
+  if (
+    format === "groups-playoffs" ||
+    format === "groups-playoffs-de" ||
+    format === "groups-playoffs-te"
+  ) {
     const gc = groupCount ?? inferGroupsConfig(teamCount).groupCount;
     return teamCount % gc !== 0;
   }
@@ -695,10 +770,18 @@ function intlFieldMisfit(
  *  play-in must trim the field first. */
 export function msiNeedsPlayIn(season: SeasonState): boolean {
   const cfg = intlConfigFor(season.config, "msi");
+  if (cfg.playInEnabled === false) return false; // user disabled it
   return intlFieldMisfit(
     cfg.format,
     qualifiedForInternational(season, "msi").length,
   );
+}
+
+/** Whether Worlds runs a play-in (default true; the user can disable it,
+ *  sending every qualified team — incl. the #4 seeds — straight to the
+ *  main event). */
+export function worldsPlayInEnabled(season: SeasonState): boolean {
+  return intlConfigFor(season.config, "worlds").playInEnabled !== false;
 }
 
 function createMSIPlayIn(season: SeasonState): TournamentState {
@@ -709,14 +792,15 @@ function createMSIPlayIn(season: SeasonState): TournamentState {
   const qualified = qualifiedForInternational(season, "msi");
   const pair = qualified.slice(-2);
   const cfg = intlConfigFor(season.config, "msi");
+  const series = cfg.playInSeries ?? cfg.earlySeries;
   const t = createTournament({
     name: "MSI Play-In",
     format: "single-elim",
     teams: pair.map((q, i) => toTournamentTeam(q.team, i + 1)),
-    defaults: defaultsFor(season.config, cfg.earlySeries),
+    defaults: defaultsFor(season.config, series),
     formatOverrides: singleElimOverrides(
       pair.length,
-      cfg.earlySeries,
+      series,
       cfg.finalsSeries,
     ),
     metaSnapshot: cloneMeta(season.currentMeta),
@@ -753,6 +837,7 @@ function createMSI(
     defaults: defaultsFor(season.config, cfg.earlySeries),
     formatOverrides: intlOverridesFor(cfg, qualified.length),
     ...intlFormatParams(cfg, "msi", qualified.length),
+    trueGrandFinal: cfg.trueGrandFinal,
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
@@ -766,22 +851,27 @@ function createMSI(
 
 function createWorldsPlayIn(season: SeasonState): TournamentState {
   // The six 4th seeds fight for the last two main-event spots; both
-  // finalists advance. Always a small single-elim qualifier — the
-  // configurable Worlds format applies to the main event.
+  // finalists advance. Single-elim by default; the user can opt into a
+  // double-elim play-in (the 6-team field fits the DE generator) and pick
+  // the play-in series length — independent of the main-event format.
   const qualified = qualifiedForInternational(season, "worlds").filter(
     (q) => q.leagueSeed === 4,
   );
   const cfg = intlConfigFor(season.config, "worlds");
+  const series = cfg.playInSeries ?? cfg.earlySeries;
+  // Double-elim needs ≥ 4 teams with limited byes; fall back to single-
+  // elim for short fields so a sparse season can't break the play-in.
+  const useDE = cfg.playInFormat === "double-elim" && qualified.length >= 4;
   const t = createTournament({
     name: "Worlds Play-In",
-    format: "single-elim",
+    format: useDE ? "double-elim" : "single-elim",
     teams: qualified.map((q, i) => toTournamentTeam(q.team, i + 1)),
-    defaults: defaultsFor(season.config, cfg.earlySeries),
-    formatOverrides: singleElimOverrides(
-      qualified.length,
-      cfg.earlySeries,
-      cfg.finalsSeries,
-    ),
+    defaults: defaultsFor(season.config, series),
+    formatOverrides: useDE
+      ? // Uniform play-in series across every W/L/GF round.
+        seriesOverrides(series, series, series, series)
+      : singleElimOverrides(qualified.length, series, cfg.finalsSeries),
+    ...(useDE ? { trueGrandFinal: cfg.trueGrandFinal } : {}),
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
@@ -795,34 +885,57 @@ function createWorldsPlayIn(season: SeasonState): TournamentState {
 
 function createWorldsMain(
   season: SeasonState,
-  playIn: TournamentState,
+  playIn: TournamentState | null,
 ): TournamentState {
-  // Seeds 1–3 of every league enter directly (18 teams — 19 when the
-  // MSI champion qualifies additively at leagueSeed 0); the two play-in
-  // finalists take the last two seeds → 20-21 teams. Canonical shape:
-  // 4 snake-seeded groups, top 2 per group into a single-elim bo5
-  // knockout. Customizable through config.intlConfigs.worlds.
-  const direct = qualifiedForInternational(season, "worlds").filter(
-    (q) => q.leagueSeed <= 3,
-  );
   const cfg = intlConfigFor(season.config, "worlds");
-  // Swiss wants an even field (odd counts hand out free bye wins every
-  // round) and groups want four EQUAL groups. When the MSI champion's
-  // additive slot breaks that (21 teams), only the play-in WINNER
-  // advances; round-robin and single-elim keep both finalists — they
-  // absorb odd counts without free wins.
-  const advancing = intlFieldMisfit(cfg.format, direct.length + 2, 4) ? 1 : 2;
-  const playInPlacements = tournamentPlacements(playIn);
-  const finalists = playInPlacements
-    .slice(0, advancing)
-    .map((id) => season.teams.find((t) => t.id === id))
-    .filter((t): t is SeasonTeam => t != null);
-  const teams: TournamentTeam[] = [
-    ...direct.map((q, i) => toTournamentTeam(q.team, i + 1)),
-    ...finalists.map((team, i) =>
-      toTournamentTeam(team, direct.length + i + 1),
-    ),
-  ];
+  let teams: TournamentTeam[];
+  let streakTeams: SeasonTeam[];
+  if (!playIn) {
+    // Play-in disabled: every qualified team — including the #4 seeds —
+    // enters the main event directly.
+    const all = qualifiedForInternational(season, "worlds");
+    teams = all.map((q, i) => toTournamentTeam(q.team, i + 1));
+    streakTeams = all.map((q) => q.team);
+  } else {
+    // Seeds 1–3 of every league enter directly (18 teams — 19 when the
+    // MSI champion qualifies additively at leagueSeed 0); the play-in
+    // finalists take the last seeds. Canonical shape: 4 snake-seeded
+    // groups, top 2 per group into a single-elim bo5 knockout.
+    const direct = qualifiedForInternational(season, "worlds").filter(
+      (q) => q.leagueSeed <= 3,
+    );
+    // How many play-in finalists advance. When the user EXPLICITLY sets a
+    // count we honor it exactly (the group stage simply takes slightly
+    // uneven groups — the user asked for that many teams). Only the
+    // DEFAULT (2) auto-reduces to keep swiss even / groups in four equal
+    // pots when the MSI champion's additive slot would otherwise break it.
+    const playInTeams = playIn.teams.length;
+    const explicit = cfg.playInAdvancing != null;
+    let advancing = Math.max(
+      1,
+      Math.min(cfg.playInAdvancing ?? 2, playInTeams),
+    );
+    if (!explicit) {
+      while (
+        advancing > 1 &&
+        intlFieldMisfit(cfg.format, direct.length + advancing, 4)
+      ) {
+        advancing -= 1;
+      }
+    }
+    const playInPlacements = tournamentPlacements(playIn);
+    const finalists = playInPlacements
+      .slice(0, advancing)
+      .map((id) => season.teams.find((t) => t.id === id))
+      .filter((t): t is SeasonTeam => t != null);
+    teams = [
+      ...direct.map((q, i) => toTournamentTeam(q.team, i + 1)),
+      ...finalists.map((team, i) =>
+        toTournamentTeam(team, direct.length + i + 1),
+      ),
+    ];
+    streakTeams = [...direct.map((q) => q.team), ...finalists];
+  }
   const t = createTournament({
     name: "World Championship",
     format: cfg.format,
@@ -830,15 +943,13 @@ function createWorldsMain(
     defaults: defaultsFor(season.config, cfg.earlySeries),
     formatOverrides: intlOverridesFor(cfg, teams.length),
     ...intlFormatParams(cfg, "worlds", teams.length),
+    trueGrandFinal: cfg.trueGrandFinal,
     metaSnapshot: cloneMeta(season.currentMeta),
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
     // Play-in finalists carry their play-in run (the play-in is already
     // complete and recorded by the time the main event is created).
-    streakSeeds: streakSeedsFor(season, [
-      ...direct.map((q) => q.team),
-      ...finalists,
-    ]),
+    streakSeeds: streakSeedsFor(season, streakTeams),
   });
   return tagSeason(t, season.id);
 }
@@ -977,7 +1088,13 @@ function startPhase(season: SeasonState, index: number): SeasonState {
     // same as the Worlds play-in.
     created.push(msiNeedsPlayIn(season) ? createMSIPlayIn(season) : createMSI(season));
   } else if (phase.event === "worlds") {
-    created.push(createWorldsPlayIn(season));
+    // Worlds opens with the play-in; when disabled, the main event is
+    // built directly with every qualified team.
+    created.push(
+      worldsPlayInEnabled(season)
+        ? createWorldsPlayIn(season)
+        : createWorldsMain(season, null),
+    );
   }
   const tournaments = { ...season.tournaments };
   for (const t of created) tournaments[t.id] = t;
@@ -1108,8 +1225,8 @@ export function applyTournamentUpdate(
   if (
     phase.tournamentIds.length === 1 &&
     phase.tournamentIds[0] === t.id &&
-    (phase.event === "worlds" ||
-      (phase.event === "msi" && t.name.includes("Play-In")))
+    (phase.event === "worlds" || phase.event === "msi") &&
+    t.name.includes("Play-In")
   ) {
     const main =
       phase.event === "worlds" ? createWorldsMain(next, t) : createMSI(next, t);
