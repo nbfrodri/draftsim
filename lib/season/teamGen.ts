@@ -238,6 +238,8 @@ export function rerollTeamIdentity(
   return {
     ...team,
     name: pickName(team.leagueId, takenNames, rng),
+    // Re-rolling reverts to a generated name, so drop any real-team logo.
+    logoUrl: undefined,
     iconKey:
       freeIcons.length > 0
         ? freeIcons[Math.floor(rng() * freeIcons.length)]

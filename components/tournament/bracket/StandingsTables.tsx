@@ -53,7 +53,7 @@ function TeamCell({
         #{team.seed}
       </span>
       <span className="mr-1.5 shrink-0 self-center">
-        <TeamIcon iconKey={team.iconKey} size={12} color={team.color ?? undefined} />
+        <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={12} color={team.color ?? undefined} />
       </span>
       <span className="truncate">{team.name}</span>
       <StreakChip streak={streak} />

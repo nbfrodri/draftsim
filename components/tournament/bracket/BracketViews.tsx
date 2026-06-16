@@ -508,7 +508,7 @@ function TripleElimLivesBoard({
                 out ? "opacity-40" : ""
               }`}
             >
-              <TeamIcon iconKey={team.iconKey} size={12} color={team.color ?? undefined} />
+              <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={12} color={team.color ?? undefined} />
               <span
                 className={`truncate flex-1 ${
                   out ? "line-through text-rift-mutedbright/70" : "text-rift-mutedbright"

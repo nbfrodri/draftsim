@@ -190,6 +190,10 @@ export interface TournamentTeam {
   // tints the team name accent in match cards. Undefined = use the
   // default sider colors (blue/red).
   color?: string;
+  // Real pro team logo URL (https). Set for season teams named from the
+  // LoL Esports API; the dashboard/bracket render it in place of the
+  // Tabler icon, falling back to the icon when absent or unreachable.
+  logoUrl?: string;
   // Player roster (5 players, positional lane order). Persistent identity
   // across every match the team plays. The team's effective star rating is
   // DERIVED from this roster (see teamStarRating) — `starRating` above is

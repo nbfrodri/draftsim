@@ -309,6 +309,7 @@ export default function TournamentDashboard() {
                 >
                   <TeamIcon
                     iconKey={q.team.iconKey}
+                    logoUrl={q.team.logoUrl}
                     size={12}
                     color={q.team.color}
                   />

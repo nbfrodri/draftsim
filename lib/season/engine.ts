@@ -140,6 +140,7 @@ function toTournamentTeam(team: SeasonTeam, seed: number): TournamentTeam {
     starRating: deriveStar(team.players),
     iconKey: team.iconKey,
     color: team.color,
+    logoUrl: team.logoUrl,
     players: team.players,
     personalityId: team.personalityId,
   };

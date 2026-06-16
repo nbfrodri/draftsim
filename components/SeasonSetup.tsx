@@ -15,8 +15,9 @@ import {
   rerollTeamIdentity,
 } from "@/lib/season/teamGen";
 import {
-  BUNDLED_TEAM_NAMES,
-  fetchRealTeamNames,
+  BUNDLED_TEAMS,
+  fetchRealTeams,
+  type RealTeam,
 } from "@/lib/season/realTeams";
 import {
   INTERNATIONAL_LABELS,
@@ -271,38 +272,41 @@ export default function SeasonSetup({ onCancel }: Props) {
     setRealNames("idle");
   };
 
-  // Rename teams league-by-league from a names table. Teams keep their
-  // ids, colors, icons, rosters, and personalities; leagues with fewer
-  // than 10 names keep generated names for the remainder.
-  const applyNamesByLeague = (
-    namesByLeague: Partial<Record<LeagueId, string[]>>,
+  // Rename teams league-by-league from a real-teams table. Teams keep
+  // their ids, colors, icons, rosters, and personalities; each named team
+  // also picks up that team's logo. Leagues with fewer than 10 entries
+  // keep generated names (and no logo) for the remainder.
+  const applyTeamsByLeague = (
+    teamsByLeague: Partial<Record<LeagueId, RealTeam[]>>,
   ) => {
     setTeams((prev) => {
       const used: Partial<Record<LeagueId, number>> = {};
       return prev.map((t) => {
         const idx = used[t.leagueId] ?? 0;
         used[t.leagueId] = idx + 1;
-        const name = namesByLeague[t.leagueId]?.[idx];
-        return name ? { ...t, name } : t;
+        const real = teamsByLeague[t.leagueId]?.[idx];
+        return real
+          ? { ...t, name: real.name, logoUrl: real.logoUrl }
+          : t;
       });
     });
   };
 
-  // Instant: the bundled offline snapshot of real pro team names.
+  // Instant: the bundled offline snapshot of real pro teams.
   const applyBundledNames = () => {
-    applyNamesByLeague(BUNDLED_TEAM_NAMES);
+    applyTeamsByLeague(BUNDLED_TEAMS);
     setRealNames("done");
   };
 
-  // Live: real team names per region from the public LoL Esports API,
-  // falling back to the bundled snapshot when the API is unreachable.
+  // Live: real teams per region from the public LoL Esports API, falling
+  // back to the bundled snapshot when the API is unreachable.
   const applyRealNames = async () => {
     setRealNames("loading");
     try {
-      applyNamesByLeague(await fetchRealTeamNames(AbortSignal.timeout(20_000)));
+      applyTeamsByLeague(await fetchRealTeams(AbortSignal.timeout(20_000)));
       setRealNames("done");
     } catch {
-      applyNamesByLeague(BUNDLED_TEAM_NAMES);
+      applyTeamsByLeague(BUNDLED_TEAMS);
       setRealNames("error");
     }
   };
@@ -989,7 +993,12 @@ export default function SeasonSetup({ onCancel }: Props) {
                           style={{ backgroundColor: t.color }}
                           aria-hidden
                         />
-                        <TeamIcon iconKey={t.iconKey} size={16} color={t.color} />
+                        <TeamIcon
+                          iconKey={t.iconKey}
+                          logoUrl={t.logoUrl}
+                          size={16}
+                          color={t.color}
+                        />
                         <input
                           value={t.name}
                           onChange={(e) =>
@@ -1125,6 +1134,7 @@ function TeamPicker({
           <>
             <TeamIcon
               iconKey={selected.iconKey}
+              logoUrl={selected.logoUrl}
               size={13}
               color={selected.color}
             />
@@ -1183,7 +1193,12 @@ function TeamPicker({
                       : "text-rift-mutedbright hover:bg-rift-gold/5 hover:text-rift-goldbright"
                   }`}
                 >
-                  <TeamIcon iconKey={t.iconKey} size={13} color={t.color} />
+                  <TeamIcon
+                    iconKey={t.iconKey}
+                    logoUrl={t.logoUrl}
+                    size={13}
+                    color={t.color}
+                  />
                   <span className="truncate">{t.name}</span>
                 </button>
               ))}

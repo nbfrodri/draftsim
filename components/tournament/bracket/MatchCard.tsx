@@ -158,6 +158,7 @@ const TeamRow = memo(function TeamRow({
           >
             <TeamIcon
               iconKey={team.iconKey}
+              logoUrl={team.logoUrl}
               size={12}
               // Icon stays in the team's brand color regardless of
               // win/lose. Name + score still go gold for the winner;

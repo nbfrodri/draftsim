@@ -78,6 +78,7 @@ function sanitizeTeamRef(v: unknown): SeasonHistoryTeamRef | null {
     leagueId: o.leagueId,
     color: typeof o.color === "string" ? o.color : "#c8aa6e",
     iconKey: typeof o.iconKey === "string" ? o.iconKey : "shield",
+    ...(typeof o.logoUrl === "string" ? { logoUrl: o.logoUrl } : {}),
   };
 }
 

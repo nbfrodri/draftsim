@@ -283,6 +283,9 @@ export interface SeasonMatchdayTeam {
   name: string;
   iconKey: string;
   color: string;
+  // Real pro team logo URL (https), when the team was named from the LoL
+  // Esports API. Absent for generated teams → falls back to the icon.
+  logoUrl?: string;
 }
 
 /** One match result inside a Latest Matchday region row. */
@@ -1915,6 +1918,7 @@ export const useDraftStore = create<DraftStore>()(
                 name: tt.name,
                 iconKey: tt.iconKey ?? "shield",
                 color: tt.color ?? "#c8aa6e",
+                logoUrl: tt.logoUrl,
               });
               results.push({
                 blue: teamRef(blue),
@@ -1951,6 +1955,7 @@ export const useDraftStore = create<DraftStore>()(
                   name: x.name,
                   iconKey: x.iconKey ?? "shield",
                   color: x.color ?? "#c8aa6e",
+                  logoUrl: x.logoUrl,
                 }));
             }
           }

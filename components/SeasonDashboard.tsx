@@ -148,7 +148,7 @@ export default function SeasonDashboard() {
           </h1>
           {controlled && (
             <div className="mt-1 text-[10px] uppercase tracking-[0.3em] text-rift-bluebright inline-flex items-center gap-1.5">
-              <TeamIcon iconKey={controlled.iconKey} size={12} color={controlled.color} />
+              <TeamIcon iconKey={controlled.iconKey} logoUrl={controlled.logoUrl} size={12} color={controlled.color} />
               Following {controlled.name} ({controlled.leagueId})
             </div>
           )}
@@ -161,7 +161,7 @@ export default function SeasonDashboard() {
               World Champion
             </div>
             <div className="font-display text-2xl md:text-4xl tracking-[0.15em] text-rift-goldbright inline-flex items-center gap-3">
-              <TeamIcon iconKey={championTeam.iconKey} size={28} color={championTeam.color} />
+              <TeamIcon iconKey={championTeam.iconKey} logoUrl={championTeam.logoUrl} size={28} color={championTeam.color} />
               {championTeam.name}
               <span className="text-rift-gold/60 text-base md:text-xl">
                 {championTeam.leagueId}
@@ -449,13 +449,13 @@ function MiniBracket({
           >
             {blue?.name ?? "TBD"}
           </span>
-          {blue && <TeamIcon iconKey={blue.iconKey} size={11} color={blue.color} />}
+          {blue && <TeamIcon iconKey={blue.iconKey} logoUrl={blue.logoUrl} size={11} color={blue.color} />}
         </span>
         <span className="text-rift-mutedbright/70 px-1 flex-shrink-0 tabular-nums">
           {m.winner ? `${m.winner.blueWins}-${m.winner.redWins}` : "vs"}
         </span>
         <span className="flex-1 flex items-center gap-1 min-w-0">
-          {red && <TeamIcon iconKey={red.iconKey} size={11} color={red.color} />}
+          {red && <TeamIcon iconKey={red.iconKey} logoUrl={red.logoUrl} size={11} color={red.color} />}
           <span
             title={red?.name}
             className={`truncate ${redWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/60"}`}
@@ -563,7 +563,7 @@ function LatestMatchdayPanel({ matchday }: { matchday: SeasonMatchdayResult }) {
                       >
                         {m.blue.name}
                       </span>
-                      <TeamIcon iconKey={m.blue.iconKey} size={12} color={m.blue.color} />
+                      <TeamIcon iconKey={m.blue.iconKey} logoUrl={m.blue.logoUrl} size={12} color={m.blue.color} />
                     </span>
                     <span className="tabular-nums text-rift-mutedbright/85 px-1 flex-shrink-0 font-display">
                       <span className={m.blueWon ? "text-rift-goldbright" : ""}>
@@ -576,7 +576,7 @@ function LatestMatchdayPanel({ matchday }: { matchday: SeasonMatchdayResult }) {
                     </span>
                     {/* Red side (left-aligned from the score) */}
                     <span className="flex-1 flex items-center gap-1 min-w-0">
-                      <TeamIcon iconKey={m.red.iconKey} size={12} color={m.red.color} />
+                      <TeamIcon iconKey={m.red.iconKey} logoUrl={m.red.logoUrl} size={12} color={m.red.color} />
                       <span
                         className={`truncate ${!m.blueWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/55"}`}
                       >
@@ -599,7 +599,7 @@ function LatestMatchdayPanel({ matchday }: { matchday: SeasonMatchdayResult }) {
                       key={q.name}
                       className="inline-flex items-center gap-1 text-[10px] text-rift-bluebright"
                     >
-                      <TeamIcon iconKey={q.iconKey} size={11} color={q.color} />
+                      <TeamIcon iconKey={q.iconKey} logoUrl={q.logoUrl} size={11} color={q.color} />
                       {q.name}
                     </span>
                   ))}
@@ -805,7 +805,7 @@ function TournamentCard({
                   key={t.id}
                   className="flex items-center gap-1.5 text-[10px] text-rift-goldbright"
                 >
-                  <TeamIcon iconKey={t.iconKey} size={12} color={t.color} />
+                  <TeamIcon iconKey={t.iconKey} logoUrl={t.logoUrl} size={12} color={t.color} />
                   <span className="truncate">{t.name}</span>
                 </div>
               ))}
@@ -813,7 +813,7 @@ function TournamentCard({
           </div>
         ) : champion && !isPlayIn ? (
           <div className="text-[10px] uppercase tracking-[0.25em] text-rift-goldbright flex items-center gap-1.5 flex-wrap">
-            <TeamIcon iconKey={champion.iconKey} size={13} color={champion.color} />
+            <TeamIcon iconKey={champion.iconKey} logoUrl={champion.logoUrl} size={13} color={champion.color} />
             <span className="truncate">Champion: {champion.name}</span>
             <QualifierTagView tag={regionSeeds?.get(champion.id)} />
           </div>
@@ -831,7 +831,7 @@ function TournamentCard({
                 <span className="w-3 text-rift-muted/70 tabular-nums">
                   {s.rank}
                 </span>
-                <TeamIcon iconKey={s.team.iconKey} size={12} color={s.team.color} />
+                <TeamIcon iconKey={s.team.iconKey} logoUrl={s.team.logoUrl} size={12} color={s.team.color} />
                 <span className="truncate flex-1">{s.team.name}</span>
                 <QualifierTagView tag={regionSeeds?.get(s.team.id)} />
                 <span className="tabular-nums text-rift-muted/70 flex-shrink-0">
@@ -864,6 +864,7 @@ function TournamentCard({
                 >
                   <TeamIcon
                     iconKey={q.team.iconKey}
+                    logoUrl={q.team.logoUrl}
                     size={11}
                     color={q.team.color}
                   />
@@ -1022,7 +1023,7 @@ function PastResults({
                       <span className="text-rift-muted/70">{t.name}:</span>
                       {champ ? (
                         <>
-                          <TeamIcon iconKey={champ.iconKey} size={12} color={champ.color} />
+                          <TeamIcon iconKey={champ.iconKey} logoUrl={champ.logoUrl} size={12} color={champ.color} />
                           <span className="text-rift-goldbright">
                             {champ.name}
                           </span>
@@ -1192,7 +1193,7 @@ function PlacementRow({
       <span className="w-4 text-rift-muted/70 tabular-nums flex-shrink-0">
         {rank}.
       </span>
-      <TeamIcon iconKey={team.iconKey} size={12} color={team.color} />
+      <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={12} color={team.color} />
       <span className="truncate">{team.name}</span>
       {rank === 1 && <span aria-hidden>🏆</span>}
       <QualifierTagView tag={tag} />
@@ -1276,6 +1277,7 @@ function StageStatsRow({
             <span aria-hidden>🏆</span>
             <TeamIcon
               iconKey={champion.iconKey}
+              logoUrl={champion.logoUrl}
               size={13}
               color={champion.color}
             />
@@ -1463,6 +1465,7 @@ function SeasonRecapPanel({
               <div className="flex items-center gap-1.5 mb-0.5">
                 <TeamIcon
                   iconKey={bestTeam.iconKey}
+                  logoUrl={bestTeam.logoUrl}
                   size={13}
                   color={bestTeam.color}
                 />
@@ -1534,7 +1537,7 @@ function SeasonRecapPanel({
                   <span className="text-rift-muted/80 w-24">
                     {INTERNATIONAL_LABELS[event]}
                   </span>
-                  <TeamIcon iconKey={team.iconKey} size={13} color={team.color} />
+                  <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={13} color={team.color} />
                   <span className="text-rift-goldbright">{team.name}</span>
                   <span className="text-rift-muted/60">({team.leagueId})</span>
                 </div>

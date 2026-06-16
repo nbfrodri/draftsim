@@ -30,6 +30,9 @@ export interface SeasonHistoryTeamRef {
   leagueId: LeagueId;
   color: string;
   iconKey: string;
+  // Real pro team logo URL (https), when the team was named from the LoL
+  // Esports API. Optional — older archives and generated teams omit it.
+  logoUrl?: string;
 }
 
 /** A league's best team for the whole season, with its aggregate record
@@ -149,6 +152,7 @@ function teamRef(
     leagueId: team.leagueId,
     color: team.color,
     iconKey: team.iconKey,
+    logoUrl: team.logoUrl,
   };
 }
 

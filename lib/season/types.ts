@@ -215,6 +215,10 @@ export interface SeasonTeam {
   name: string;
   color: string;
   iconKey: string;
+  // Real pro team logo URL (https), set when the team is named from the
+  // LoL Esports API or the bundled snapshot. Absent for generated teams,
+  // which fall back to the colored Tabler icon.
+  logoUrl?: string;
   players: Roster;
   personalityId: string;
 }

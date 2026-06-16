@@ -25,6 +25,7 @@ import {
   type TeamRecord,
   type DynastyTier,
 } from "@/lib/season/historyRecords";
+import { logoForTeamName } from "@/lib/season/realTeams";
 import { isDesktop, openBinaryFileNative } from "@/lib/desktopStorage";
 import {
   CHAMPION_META,
@@ -39,6 +40,7 @@ import {
   LEAGUE_NAMES,
   SPLIT_LABELS,
   type InternationalId,
+  type LeagueId,
   type SplitId,
 } from "@/lib/season/types";
 import TeamIcon from "./TeamIcon";
@@ -83,7 +85,12 @@ function TeamRef({
 }) {
   return (
     <span className="inline-flex items-center gap-1.5 min-w-0">
-      <TeamIcon iconKey={team.iconKey} size={size} color={team.color} />
+      <TeamIcon
+        iconKey={team.iconKey}
+        logoUrl={team.logoUrl ?? logoForTeamName(team.name)}
+        size={size}
+        color={team.color}
+      />
       <span
         className={`truncate ${muted ? "text-rift-mutedbright" : "text-rift-goldbright"}`}
       >
@@ -373,6 +380,7 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
                         </span>
                         <TeamIcon
                           iconKey={team.iconKey}
+                          logoUrl={team.logoUrl ?? logoForTeamName(team.name)}
                           size={11}
                           color={team.color}
                         />
@@ -412,10 +420,11 @@ function RecordBoard({
   count: (r: TeamRecord) => number;
   detail?: (r: TeamRecord) => string;
 }) {
+  // Every franchise with at least one title — the list scrolls so no team
+  // is hidden, however many have won.
   const rows = [...records]
     .filter((r) => count(r) > 0)
-    .sort((a, b) => count(b) - count(a) || a.team.name.localeCompare(b.team.name))
-    .slice(0, 5);
+    .sort((a, b) => count(b) - count(a) || a.team.name.localeCompare(b.team.name));
   return (
     <div className="border border-rift-line/40 bg-rift-bg/30">
       <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.35em] text-rift-gold/70">
@@ -426,7 +435,7 @@ function RecordBoard({
           No titles recorded yet
         </p>
       ) : (
-        <div className="divide-y divide-rift-line/15">
+        <div className="divide-y divide-rift-line/15 max-h-56 overflow-y-auto">
           {rows.map((r, i) => (
             <div key={r.key} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
               <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
@@ -546,6 +555,20 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
     INTL_ORDER.filter((e) => (r.intlTitles[e] ?? 0) > 0)
       .map((e) => `${r.intlTitles[e]}× ${INTERNATIONAL_LABELS[e]}`)
       .join(" · ");
+  // Chronological roll of honour for each international — every season's
+  // winner of First Stand, MSI, and Worlds, oldest first.
+  const intlRoll = useMemo(() => {
+    const chrono = [...entries].sort((a, b) => a.archivedAt - b.archivedAt);
+    return INTL_ORDER.map((event) => ({
+      event,
+      winners: chrono
+        .map((e) => ({ season: e.name, team: e.intlChampions[event] ?? null }))
+        .filter(
+          (w): w is { season: string; team: SeasonHistoryTeamRef } =>
+            w.team != null,
+        ),
+    }));
+  }, [entries]);
 
   return (
     <div className="space-y-6">
@@ -577,6 +600,49 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
             records={records}
             count={(r) => r.worldsTitles}
           />
+        </div>
+      </div>
+
+      {/* International champions — full roll of honour, oldest first */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          International Champions
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {intlRoll.map(({ event, winners }) => (
+            <div
+              key={event}
+              className="border border-rift-line/40 bg-rift-bg/30"
+            >
+              <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
+                {INTERNATIONAL_LABELS[event]}
+              </div>
+              {winners.length === 0 ? (
+                <p className="px-3 py-2 text-[10px] italic text-rift-muted">
+                  No {INTERNATIONAL_LABELS[event]} winner recorded yet.
+                </p>
+              ) : (
+                <div className="divide-y divide-rift-line/15 max-h-56 overflow-y-auto">
+                  {winners.map((w, i) => (
+                    <div
+                      key={`${event}:${i}:${w.season}`}
+                      className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
+                    >
+                      <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
+                        {i + 1}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <TeamRef team={w.team} size={13} />
+                      </span>
+                      <span className="text-[8px] uppercase tracking-[0.18em] text-rift-mutedbright/60 flex-shrink-0 truncate max-w-[40%]">
+                        {w.season}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -903,6 +969,118 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
   );
 }
 
+// A real chronological timeline of every archived season (oldest at the
+// top), threaded on a vertical rail. The region filter switches what each
+// node shows: "Internationals" lists the season's First Stand / MSI /
+// Worlds winners; a league lists that region's split winners.
+function OverallTimeline({ entries }: { entries: SeasonHistoryEntry[] }) {
+  const [filter, setFilter] = useState<"intl" | LeagueId>("intl");
+  const chrono = useMemo(
+    () => [...entries].sort((a, b) => a.archivedAt - b.archivedAt),
+    [entries],
+  );
+
+  const filters = [
+    { id: "intl" as const, label: "Internationals" },
+    ...LEAGUE_IDS.map((l) => ({ id: l, label: l })),
+  ];
+
+  // The winner rows for one season under the current filter.
+  const rowsFor = (entry: SeasonHistoryEntry) => {
+    if (filter === "intl") {
+      return INTL_ORDER.map((event) => ({
+        key: event,
+        label: INTERNATIONAL_LABELS[event],
+        team: entry.intlChampions[event] ?? null,
+      }));
+    }
+    return SPLIT_ORDER.map((split) => ({
+      key: split,
+      label: SPLIT_LABELS[split],
+      team: entry.splitChampions[split]?.[filter] ?? null,
+    }));
+  };
+
+  return (
+    <div>
+      {/* Region / internationals filter */}
+      <div className="flex flex-wrap items-center gap-1 mb-4">
+        {filters.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => setFilter(f.id)}
+            className={`px-2.5 py-1 border text-[9px] uppercase tracking-[0.2em] transition-all ${
+              filter === f.id
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {chrono.length === 0 ? (
+        <p className="text-[11px] italic text-rift-muted">No seasons yet.</p>
+      ) : (
+        <ol className="relative ml-3 border-l border-rift-line/40 space-y-5">
+          {chrono.map((entry) => {
+            const date = new Date(entry.archivedAt);
+            const dateLabel = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+            const rows = rowsFor(entry);
+            const champ = entry.champion;
+            return (
+              <li key={entry.id} className="relative pl-5">
+                {/* Node on the rail */}
+                <span
+                  className="absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full bg-rift-gold/80 ring-2 ring-rift-bg"
+                  aria-hidden
+                />
+                <div className="flex items-baseline justify-between gap-2 mb-1">
+                  <span className="font-display text-sm tracking-wider text-rift-goldbright truncate">
+                    {entry.name}
+                    {filter === "intl" && champ && (
+                      <span
+                        className="ml-1.5 text-[10px] tracking-normal text-rift-mutedbright"
+                        title="Worlds champion"
+                      >
+                        🏆 {champ.name}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[8px] uppercase tracking-[0.2em] text-rift-mutedbright/50 flex-shrink-0 tabular-nums">
+                    {dateLabel}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                  {rows.map((row) => (
+                    <div
+                      key={row.key}
+                      className="flex items-center gap-1.5 border border-rift-line/30 bg-rift-bg/30 px-2 py-1 text-[10px] min-w-0"
+                    >
+                      <span className="text-[7px] uppercase tracking-[0.2em] text-rift-gold/60 w-12 flex-shrink-0">
+                        {row.label}
+                      </span>
+                      {row.team ? (
+                        <span className="min-w-0 flex-1">
+                          <TeamRef team={row.team} size={12} />
+                        </span>
+                      ) : (
+                        <span className="italic text-rift-muted/60">—</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
   const seasonHistory = useDraftStore((s) => s.seasonHistory);
   const removeSeasonFromHistory = useDraftStore(
@@ -913,6 +1091,11 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
   const champions = useDraftStore((s) => s.champions);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<"timeline" | "records">("timeline");
+  // Within the Timeline tab: "seasons" = the list + selected-season résumé;
+  // "overall" = a single chronological timeline across all seasons.
+  const [timelineView, setTimelineView] = useState<"seasons" | "overall">(
+    "seasons",
+  );
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"all" | "one" | null>(null);
   const [importing, setImporting] = useState(false);
@@ -1156,9 +1339,36 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
         ) : tab === "records" ? (
           <RecordsPanel entries={seasonHistory} />
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-5 items-start">
-            {/* Timeline list */}
-            <div className="space-y-1.5">
+          <>
+            {/* Timeline sub-views: per-season résumé, or one overall timeline */}
+            <div className="flex items-center gap-1 mb-4">
+              {(
+                [
+                  { id: "seasons", label: "By Season" },
+                  { id: "overall", label: "Overall" },
+                ] as const
+              ).map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTimelineView(id)}
+                  className={`px-3 py-1.5 border text-[9px] uppercase tracking-[0.25em] transition-all ${
+                    timelineView === id
+                      ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                      : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {timelineView === "overall" ? (
+              <OverallTimeline entries={seasonHistory} />
+            ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-5 items-start">
+            {/* Timeline list — scrollable so every season stays reachable
+                while the selected season's résumé stays in view */}
+            <div className="space-y-1.5 lg:max-h-[72vh] lg:overflow-y-auto lg:pr-1">
               {seasonHistory.map((entry) => {
                 const active = entry.id === selected?.id;
                 const date = new Date(entry.archivedAt);
@@ -1199,6 +1409,10 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
                           <span aria-hidden>🏆</span>
                           <TeamIcon
                             iconKey={entry.champion.iconKey}
+                            logoUrl={
+                              entry.champion.logoUrl ??
+                              logoForTeamName(entry.champion.name)
+                            }
                             size={12}
                             color={entry.champion.color}
                           />
@@ -1228,7 +1442,7 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
 
             {/* Selected season */}
             {selected && (
-              <div className="min-w-0">
+              <div className="min-w-0 lg:sticky lg:top-4">
                 <div className="flex items-center justify-end gap-4 mb-2">
                   {exportMsg?.where === "one" && (
                     <span
@@ -1254,7 +1468,9 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
                 <SeasonDetail entry={selected} />
               </div>
             )}
-          </div>
+            </div>
+            )}
+          </>
         )}
       </div>
 

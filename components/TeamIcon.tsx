@@ -89,6 +89,7 @@ import {
   IconUmbrella,
   IconWand,
 } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 import type { TeamIconKey } from "@/lib/tournament";
 
 // Map curated TeamIconKey → Tabler React component. The set is grown
@@ -201,6 +202,10 @@ export interface TeamIconProps {
   // chosen color always paints its icon, even nested inside elements
   // that set their own text color.
   color?: string;
+  // Optional real-team logo URL. When present (and it loads), the logo
+  // is shown instead of the Tabler icon; on a load error we fall back to
+  // the colored icon so a dead URL never leaves a blank space.
+  logoUrl?: string;
 }
 
 export default function TeamIcon({
@@ -209,9 +214,31 @@ export default function TeamIcon({
   className = "",
   strokeWidth = 1.6,
   color,
+  logoUrl,
 }: TeamIconProps) {
-  const Component =
-    (iconKey && ICON_MAP[iconKey]) || ICON_MAP.shield;
+  const [logoFailed, setLogoFailed] = useState(false);
+  // Reset the failure flag when the URL changes so a new logo gets a
+  // fresh chance to load.
+  useEffect(() => setLogoFailed(false), [logoUrl]);
+
+  if (logoUrl && !logoFailed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- remote esports
+      // CDN host; next/image would need per-host config and offers no win
+      // for a tiny icon.
+      <img
+        src={logoUrl}
+        alt=""
+        width={size}
+        height={size}
+        className={className}
+        style={{ width: size, height: size, objectFit: "contain" }}
+        onError={() => setLogoFailed(true)}
+      />
+    );
+  }
+
+  const Component = (iconKey && ICON_MAP[iconKey]) || ICON_MAP.shield;
   return (
     <Component
       size={size}
