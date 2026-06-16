@@ -791,13 +791,31 @@ function intlFieldMisfit(
   return false;
 }
 
+// The MSI playoff bracket is a fixed 12-team double-elimination bracket
+// (a supported DE size): the region #1 seeds bye in, the swiss stage
+// fills the rest. See createMSI.
+const MSI_BRACKET_SIZE = 12;
+
+/** Whether MSI runs the canonical seeds-bye structure — region #1 seeds
+ *  (and the additive First Stand champion) skip the swiss stage and enter
+ *  the playoff bracket directly. Only the default/canonical swiss-into-DE
+ *  format does this; any other configured MSI format runs every team
+ *  through its stage. */
+function msiUsesSeedByes(cfg: SeasonIntlConfig): boolean {
+  return cfg.format === "swiss-playoffs-de";
+}
+
 /** True when the MSI field doesn't fit its configured format — the
  *  First Stand champion's additive 19th slot meeting a swiss stage
  *  (odd field → bye rounds) or a group stage (unequal groups). A
- *  play-in must trim the field first. */
+ *  play-in must trim the field first. The canonical seeds-bye format
+ *  never needs one: only the twelve #2/#3 seeds play the swiss stage, an
+ *  always-even field, and the bracket is a fixed 12 regardless of the
+ *  additive champion. */
 export function msiNeedsPlayIn(season: SeasonState): boolean {
   const cfg = intlConfigFor(season.config, "msi");
   if (cfg.playInEnabled === false) return false; // user disabled it
+  if (msiUsesSeedByes(cfg)) return false;
   return intlFieldMisfit(
     cfg.format,
     qualifiedForInternational(season, "msi").length,
@@ -847,16 +865,47 @@ function createMSI(
 ): TournamentState {
   let qualified = qualifiedForInternational(season, "msi");
   // 18 teams (19 when the First Stand champion qualifies additively).
-  // Canonical shape: swiss stage into a top-8 double-elim bracket.
-  // When the 19-team field misfits the format (swiss byes / unequal
-  // groups) an MSI Play-In ran first (startPhase decides); its loser
-  // is excluded here so the stage runs fair. Customizable per-event
-  // through config.intlConfigs.
+  const cfg = intlConfigFor(season.config, "msi");
+
+  // Canonical shape: the region #1 seeds (leagueSeed 1) — and the additive
+  // First Stand champion, who holds the top seed (leagueSeed 0) — skip the
+  // swiss stage and are pre-seeded into a 12-team double-elim bracket. The
+  // #2 and #3 seeds (always exactly 12) play the swiss stage for the
+  // remaining bracket spots: top 6 normally, top 5 when the champion's
+  // additive slot makes 7 byes. The swiss field is always even and the
+  // bracket always a clean 12, so this path never needs a play-in.
+  if (msiUsesSeedByes(cfg)) {
+    const byes = qualified.filter((q) => q.leagueSeed <= 1);
+    const advancing = Math.max(2, MSI_BRACKET_SIZE - byes.length);
+    const t = createTournament({
+      name: "Mid-Season Invitational",
+      format: cfg.format,
+      teams: qualified.map((q, i) => toTournamentTeam(q.team, i + 1)),
+      defaults: defaultsFor(season.config, cfg.earlySeries),
+      formatOverrides: intlOverridesFor(cfg, qualified.length),
+      swissByeTeamIds: byes.map((q) => q.team.id),
+      swissPlayoffsAdvancingOverride: advancing,
+      swissThreshold: cfg.swissThreshold,
+      trueGrandFinal: cfg.trueGrandFinal,
+      metaSnapshot: cloneMeta(season.currentMeta),
+      liveMeta: season.config.liveMeta,
+      fearlessConfig: { perSeries: season.config.fearless },
+      streakSeeds: streakSeedsFor(
+        season,
+        qualified.map((q) => q.team),
+      ),
+    });
+    return tagSeason(t, season.id);
+  }
+
+  // Any other configured format runs every qualified team through its
+  // stage. When the 19-team field misfits the format (swiss byes /
+  // unequal groups) an MSI Play-In ran first (startPhase decides); its
+  // loser is excluded here so the stage runs fair.
   if (playIn) {
     const eliminated = tournamentPlacements(playIn)[1] ?? null;
     qualified = qualified.filter((q) => q.team.id !== eliminated);
   }
-  const cfg = intlConfigFor(season.config, "msi");
   const t = createTournament({
     name: "Mid-Season Invitational",
     format: cfg.format,

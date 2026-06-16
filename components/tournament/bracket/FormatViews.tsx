@@ -523,6 +523,16 @@ export function SwissView({
   const playoffStarted = tournament.swissPlayoffsStarted ?? false;
   const advancing = tournament.swissPlayoffsAdvancing ?? 0;
   const playoffKind = playoffBracketKindFor(tournament.format);
+  // Teams pre-seeded into the playoff bracket without playing the swiss
+  // stage (e.g. MSI region #1 seeds). They're shown separately so they're
+  // not invisible while the swiss field plays out.
+  const byeTeams = useMemo(() => {
+    const ids = tournament.swissByeTeamIds ?? [];
+    return ids
+      .map((id) => tournament.teams.find((t) => t.id === id))
+      .filter((t): t is TournamentTeam => t != null)
+      .sort((a, b) => a.seed - b.seed);
+  }, [tournament.swissByeTeamIds, tournament.teams]);
 
   return (
     <div className="space-y-6">
@@ -556,13 +566,43 @@ export function SwissView({
         />
       </div>
 
+      {/* ─── Teams that bypassed the swiss stage (e.g. MSI #1 seeds) ─── */}
+      {byeTeams.length > 0 && (
+        <div>
+          <div className="flex items-baseline justify-between mb-2 gap-2">
+            <span className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
+              Pre-Qualified to Playoffs
+            </span>
+            <span className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/60">
+              Bye · seeded into the bracket
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {byeTeams.map((team, i) => (
+              <span
+                key={team.id}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 border border-rift-gold/30 bg-rift-gold/5 text-[11px] font-display tracking-wider text-rift-goldbright"
+              >
+                <span className="text-rift-mutedbright/50 tabular-nums">
+                  {i + 1}
+                </span>
+                <span className="truncate max-w-[12rem]">{team.name}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {isSwissPlayoffs && swissStageComplete && !playoffStarted && (
         <button
           type="button"
           onClick={generatePlayoffBracket}
           className="w-full py-3 border-2 border-rift-gold bg-rift-gold/10 text-rift-goldbright hover:bg-rift-gold/20 font-display text-sm tracking-[0.3em] uppercase transition-all"
         >
-          Lock In Standings → Generate Playoff Bracket (Top {advancing})
+          Lock In Standings → Generate Playoff Bracket
+          {byeTeams.length > 0
+            ? ` (Top ${advancing} + ${byeTeams.length} seeded)`
+            : ` (Top ${advancing})`}
         </button>
       )}
 

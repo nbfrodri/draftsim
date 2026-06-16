@@ -252,9 +252,10 @@ describe("season lifecycle", () => {
       s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
     }
     // 18 regional qualifiers, +1 when the First Stand champion didn't
-    // make spring top-3 (additive defending-champion slot). The default
-    // swiss format can't run 19 fairly, so that case opens with an MSI
-    // Play-In (two lowest seeds, loser out) before the 18-team main.
+    // make spring top-3 (additive defending-champion slot). The canonical
+    // MSI seeds the region #1 seeds (and the additive champion) straight
+    // into a 12-team double-elim bracket; only the twelve #2/#3 seeds play
+    // the swiss stage, so the field is always even and no play-in is run.
     const msiQ = qualifiedForInternational(s, "msi");
     const fsChampion = s.intlResults["first-stand"]![0];
     expect(msiQ.some((q) => q.team.id === fsChampion)).toBe(true);
@@ -262,15 +263,15 @@ describe("season lifecycle", () => {
     if (msiExtra.length > 0) {
       expect(msiExtra[0].team.id).toBe(fsChampion);
       expect(msiExtra[0].leagueSeed).toBe(0);
-      const msiPlayIn = nextPendingTournament(s)!;
-      expect(msiPlayIn.name).toBe("MSI Play-In");
-      expect(msiPlayIn.teams).toHaveLength(2);
-      s = applyTournamentUpdate(s, resolveTournament(msiPlayIn, rng), champions);
-      expect(s.intlResults.msi).toBeUndefined();
     }
     const msi = nextPendingTournament(s)!;
     expect(msi.name).toContain("Invitational");
-    expect(msi.teams).toHaveLength(18);
+    expect(msi.teams).toHaveLength(msiQ.length);
+    // Byes = region #1 seeds (leagueSeed 1) + any additive champion (0).
+    const msiByes = msiQ.filter((q) => q.leagueSeed <= 1).length;
+    expect(msi.swissByeTeamIds).toHaveLength(msiByes);
+    // Bracket is a fixed 12: byes + swiss qualifiers.
+    expect(msiByes + (msi.swissPlayoffsAdvancing ?? 0)).toBe(12);
     expect(msi.matches.some((m) => m.isBye)).toBe(false);
     s = applyTournamentUpdate(s, resolveTournament(msi, rng), champions);
     expect(s.intlResults.msi).toBeDefined();

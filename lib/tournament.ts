@@ -746,7 +746,17 @@ export interface TournamentState {
   // Swiss-playoffs only: how many top-of-standings teams advance to the
   // single-elim playoff bracket. Defaults to a sensible power of 2
   // (4 / 8 / 16) based on team count. Undefined for plain swiss.
+  // When swissByeTeamIds is set this counts ONLY the teams promoted out
+  // of the swiss stage — the bye teams join them on top of this count.
   swissPlayoffsAdvancing?: number;
+  // Swiss-playoffs only: team ids that skip the swiss stage entirely and
+  // are pre-seeded into the playoff bracket (the MSI region #1 seeds —
+  // see createMSI). These teams are present in `teams` so the bracket and
+  // UI can resolve them, but they play no swiss rounds: swiss pairing and
+  // standings exclude them, and startSwissPlayoffs prepends them (by seed)
+  // to the swiss qualifiers. Undefined/absent = a normal swiss stage where
+  // every team plays.
+  swissByeTeamIds?: string[];
   // Swiss-playoffs only: false until the user freezes standings and
   // generates the playoff bracket.
   swissPlayoffsStarted?: boolean;
@@ -1984,7 +1994,13 @@ export function computeSwissStandings(
       losses.set(blueId, (losses.get(blueId) ?? 0) + 1);
     }
   }
-  const out: SwissStanding[] = tournament.teams.map((team) => {
+  // Teams pre-seeded into the playoff bracket (MSI region #1 seeds) play
+  // no swiss rounds — keep them out of the swiss standings entirely so the
+  // table, pairing pool and "advancing" cut all see only the swiss field.
+  const byeIds = new Set(tournament.swissByeTeamIds ?? []);
+  const out: SwissStanding[] = tournament.teams
+    .filter((team) => !byeIds.has(team.id))
+    .map((team) => {
     const oppList = opponents.get(team.id) ?? [];
     const oppWins = oppList.map((oid) => wins.get(oid) ?? 0);
     const buchholz = oppWins.reduce((a, b) => a + b, 0);
@@ -2383,6 +2399,12 @@ export interface CreateTournamentParams {
   // Override the auto-derived advancing count for *-playoffs formats.
   // Ignored for non-*-playoffs formats.
   swissPlayoffsAdvancingOverride?: number;
+  // Swiss-playoffs-de only: team ids that bypass the swiss stage and are
+  // pre-seeded into the playoff bracket (MSI region #1 seeds). The swiss
+  // stage runs over the remaining teams; swissPlayoffsAdvancingOverride
+  // then counts how many of THOSE join the bye teams in the bracket (so
+  // the bracket size is byes + advancing). See TournamentState.
+  swissByeTeamIds?: string[];
   rrPlayoffsAdvancingOverride?: number;
   // Override the auto-derived groups config (groupCount × advancing).
   // Ignored for non-groups-playoffs formats.
@@ -2418,13 +2440,22 @@ export function createTournament(
   const teams = [...params.teams].sort((a, b) => a.seed - b.seed);
   let matches: TournamentMatch[];
   let swissTotalRounds: number | undefined;
+  // Teams that skip the swiss stage and go straight into the playoff
+  // bracket (MSI region #1 seeds). The swiss stage runs over everyone
+  // else; standings/pairing exclude these ids (see computeSwissStandings,
+  // startSwissPlayoffs). Empty for a normal swiss stage.
+  const swissByeIds = new Set(params.swissByeTeamIds ?? []);
+  const swissFieldTeams = swissByeIds.size
+    ? teams.filter((t) => !swissByeIds.has(t.id))
+    : teams;
   // Swiss threshold mode (modern Worlds Swiss): symmetric X wins to
   // qualify / X losses to eliminate, where X and the round cap are fixed by
   // the field size. Only engages for a power-of-2 field ≥ 8 (so the pool
   // halves evenly, pairing stays same-record and no bye is ever needed);
-  // any other field silently falls back to fixed-round Swiss.
+  // any other field silently falls back to fixed-round Swiss. Sized by the
+  // playing field — the bye teams don't count toward the threshold.
   const swissThreshold = params.swissThreshold
-    ? swissThresholdFor(teams.length)
+    ? swissThresholdFor(swissFieldTeams.length)
     : null;
   const swissWinTarget = swissThreshold?.winTarget;
   let groupsPlayoffs: TournamentState["groupsPlayoffs"] | undefined;
@@ -2462,8 +2493,10 @@ export function createTournament(
     params.format === "swiss-playoffs-de" ||
     params.format === "swiss-playoffs-te"
   ) {
+    // Bye teams (if any) sit out the swiss stage — pair only the playing
+    // field, and size the round count to it.
     const swiss = generateSwissBracket(
-      teams,
+      swissFieldTeams,
       params.defaults,
       fo,
       swissThreshold ? swissThreshold.maxRounds : params.swissTotalRoundsOverride,
@@ -2525,15 +2558,21 @@ export function createTournament(
         ? params.swissPlayoffsAdvancingOverride ??
           Math.min(8, Math.max(4, Math.floor(teams.length / 2)))
         : params.format === "swiss-playoffs-de"
-          ? // DE playoffs require a bracket size the generator supports
-            // (powers of 2 plus the bye-friendly 6/12), so snap to the
-            // largest supported size ≤ the requested count. User
-            // overrides also get clamped so the playoff generator
-            // doesn't choke on an invalid count.
-            clampDEAdvancing(
-              params.swissPlayoffsAdvancingOverride ??
-                Math.min(16, Math.max(4, Math.floor(teams.length / 2))),
-            )
+          ? swissByeIds.size
+            ? // Seed-bye mode (MSI): this counts ONLY the teams promoted
+              // out of the swiss stage; the bye teams join them on top, and
+              // the caller (createMSI) sizes byes + advancing to a valid DE
+              // bracket, so don't clamp the swiss count itself here.
+              Math.max(2, params.swissPlayoffsAdvancingOverride ?? 4)
+            : // DE playoffs require a bracket size the generator supports
+              // (powers of 2 plus the bye-friendly 6/12), so snap to the
+              // largest supported size ≤ the requested count. User
+              // overrides also get clamped so the playoff generator
+              // doesn't choke on an invalid count.
+              clampDEAdvancing(
+                params.swissPlayoffsAdvancingOverride ??
+                  Math.min(16, Math.max(4, Math.floor(teams.length / 2))),
+              )
           : params.format === "swiss-playoffs-te"
             ? // Triple-elim accepts any field ≥ 4 (no power-of-2 snap).
               Math.max(
@@ -2548,6 +2587,11 @@ export function createTournament(
       params.format === "swiss-playoffs-te"
         ? false
         : undefined,
+    // Only materialize the bye list when teams actually bypass the swiss
+    // stage, so ordinary swiss tournaments serialize unchanged.
+    ...(swissByeIds.size
+      ? { swissByeTeamIds: (params.swissByeTeamIds ?? []).filter((id) => swissByeIds.has(id)) }
+      : {}),
     rrPlayoffsAdvancing:
       params.format === "round-robin-playoffs"
         ? clampDEAdvancing(
@@ -3015,25 +3059,37 @@ export function startSwissPlayoffs(
   if (tournament.swissPlayoffsStarted) return tournament;
   const kind = playoffBracketKindFor(tournament.format);
   const standings = computeSwissStandings(tournament);
+  // Bye teams (MSI region #1 seeds) skip the swiss stage and are pre-
+  // seeded above the swiss qualifiers in the bracket, in their own seed
+  // order. The swiss field competes for the REMAINING bracket spots.
+  const byeTeams: TournamentTeam[] = (tournament.swissByeTeamIds ?? [])
+    .map((id) => tournament.teams.find((t) => t.id === id))
+    .filter((t): t is TournamentTeam => t != null)
+    .sort((a, b) => a.seed - b.seed);
+  const hasByes = byeTeams.length > 0;
   // Threshold mode: the advancing field is the count of teams that
   // reached the win target (qualified), not a fixed top-N.
   let advancing =
     tournament.swissWinTarget != null
       ? standings.filter((s) => s.wins >= tournament.swissWinTarget!).length
       : tournament.swissPlayoffsAdvancing ?? 4;
-  if (kind === "double-elim") advancing = clampDEAdvancing(advancing);
-  if (standings.length < 2) return tournament;
-  let top = standings.slice(0, advancing);
-  if (top.length < 2) return tournament;
-  // Fewer teams than the configured advancing count (short standings)
-  // — re-snap to a bracket size the DE generator supports.
-  if (kind === "double-elim" && !isSupportedDESize(top.length)) {
-    if (top.length < 4) return tournament;
-    top = top.slice(0, clampDEAdvancing(top.length));
+  // With byes, `advancing` is the swiss-qualifier count and the bracket is
+  // byes + qualifiers — clamp the COMBINED size to a valid DE bracket
+  // below. Without byes the advancing count IS the bracket size, so clamp
+  // it directly.
+  if (kind === "double-elim" && !hasByes) advancing = clampDEAdvancing(advancing);
+  const swissQualifiers = standings.slice(0, advancing).map((s) => s.team);
+  let bracketTeams = [...byeTeams, ...swissQualifiers];
+  if (bracketTeams.length < 2) return tournament;
+  // Re-snap to a bracket size the DE generator supports (short standings,
+  // or a bye + qualifier total that isn't a clean DE size).
+  if (kind === "double-elim" && !isSupportedDESize(bracketTeams.length)) {
+    if (bracketTeams.length < 4) return tournament;
+    bracketTeams = bracketTeams.slice(0, clampDEAdvancing(bracketTeams.length));
   }
-  // Re-seed: standings rank → bracket seed.
-  const reseededTeams: TournamentTeam[] = top.map((s, i) => ({
-    ...s.team,
+  // Re-seed: bye teams first (by seed), then swiss qualifiers by standings.
+  const reseededTeams: TournamentTeam[] = bracketTeams.map((team, i) => ({
+    ...team,
     seed: i + 1,
   }));
   const playoffMatches = buildPlayoffMatches(

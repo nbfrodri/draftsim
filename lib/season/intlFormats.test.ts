@@ -212,8 +212,14 @@ describe("MSI with the First Stand champion's additive 19th team", () => {
         champions,
       );
 
+      // The canonical seeds-bye MSI (swiss-playoffs-de) runs only the
+      // twelve #2/#3 seeds through the swiss stage — an always-even field
+      // — so it never needs a play-in; the region #1 seeds and the
+      // additive champion bye straight into the bracket. Other swiss/groups
+      // formats run every team through the stage and trim the odd field.
       const needsPlayIn =
-        opt.value.startsWith("swiss") || opt.value.startsWith("groups");
+        (opt.value.startsWith("swiss") && opt.value !== "swiss-playoffs-de") ||
+        opt.value.startsWith("groups");
       let msi = nextPendingTournament(s)!;
       if (needsPlayIn) {
         // Swiss/groups: the two lowest seeds fight for the last spot
@@ -404,11 +410,20 @@ describe("intl format matrix", () => {
               t!.matches.every((m) => m.isBye || m.format === "bo1"),
             ).toBe(true);
             // The playoff-size setting reaches the right knob.
-            if (
-              opt.value === "swiss-playoffs" ||
-              opt.value === "swiss-playoffs-de"
-            ) {
+            if (opt.value === "swiss-playoffs") {
               expect(t!.swissPlayoffsAdvancing).toBe(8);
+            } else if (opt.value === "swiss-playoffs-de") {
+              if (event === "msi") {
+                // Seeds-bye MSI: region #1 seeds bye in, the swiss stage
+                // fills the rest of a fixed 12-team bracket (so the
+                // advancing count tracks the bye count, not playoffTeams).
+                expect(t!.swissByeTeamIds!.length).toBeGreaterThanOrEqual(6);
+                expect(
+                  t!.swissByeTeamIds!.length + t!.swissPlayoffsAdvancing!,
+                ).toBe(12);
+              } else {
+                expect(t!.swissPlayoffsAdvancing).toBe(8);
+              }
             } else if (opt.value === "round-robin-playoffs") {
               expect(t!.rrPlayoffsAdvancing).toBe(8);
             } else if (
