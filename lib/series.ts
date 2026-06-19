@@ -10,6 +10,7 @@ import type {
   SeriesFormat,
   SeriesState,
   Side,
+  VariancePreset,
 } from "./types";
 
 // ─── Side selection between games ───────────────────────────────────────────
@@ -83,6 +84,12 @@ export function createSeries(params: {
   blueWinStreak?: number;
   redWinStreak?: number;
   tournamentRound?: "early" | "quarterfinal" | "semifinal" | "final";
+  // Season-realism modifiers (see SeriesState / starRatingBias). Optional —
+  // omitted in non-season play, leaving the classic bias model untouched.
+  blueForm?: number;
+  redForm?: number;
+  blueClutch?: number;
+  redClutch?: number;
   // Optional player rosters. When provided and an explicit star rating
   // isn't, the team's star derives from the roster (deriveStar).
   bluePlayers?: Roster;
@@ -94,6 +101,9 @@ export function createSeries(params: {
   // Undefined → 'balanced' (exact historical behavior).
   bluePersonalityId?: string;
   redPersonalityId?: string;
+  // Match-variance intensity (see VariancePreset / starRatingBias). Optional —
+  // omitted ⇒ classic bias model.
+  variancePreset?: VariancePreset;
 }): SeriesState {
   return {
     id: `series-${Date.now()}`,
@@ -123,6 +133,10 @@ export function createSeries(params: {
     blueWinStreak: params.blueWinStreak,
     redWinStreak: params.redWinStreak,
     tournamentRound: params.tournamentRound,
+    blueForm: params.blueForm,
+    redForm: params.redForm,
+    blueClutch: params.blueClutch,
+    redClutch: params.redClutch,
     bluePlayers: params.bluePlayers,
     redPlayers: params.redPlayers,
     // Only persist the rule when explicitly set — keeps the default state
@@ -131,6 +145,8 @@ export function createSeries(params: {
     // Only persist personality ids when explicitly set.
     ...(params.bluePersonalityId ? { bluePersonalityId: params.bluePersonalityId } : {}),
     ...(params.redPersonalityId ? { redPersonalityId: params.redPersonalityId } : {}),
+    // Only persist the variance preset when opted in — absent ⇒ classic.
+    ...(params.variancePreset ? { variancePreset: params.variancePreset } : {}),
   };
 }
 
@@ -201,11 +217,59 @@ const WIN_STREAK_BIAS_CAP = 6.0;
 const UNDERDOG_BLUNT = 0.35;
 const UNDERDOG_FLAT = 1.5;
 const UNDERDOG_MIN_GAP = 3;
+// Season-realism gradients (all deliberately gentle — "a little"). Form is
+// a signed hot/cold modifier in [-1, 1]: at the extremes it's worth ~±0.3
+// of a star, far smaller than a real rating gap. Clutch (also [-1, 1])
+// tilts only elimination rounds. Within-series momentum gives the current
+// series leader a small per-game-lead nudge (game 1 winner enters game 2
+// slightly favored), capped so a 2-0 lead never runs away on its own.
+const FORM_BIAS_K = 3.0;
+const CLUTCH_BIAS_K = 3.0;
+const MOMENTUM_BIAS_K = 1.2;
+const MOMENTUM_BIAS_CAP = 3.0;
+// ─── Match-variance preset (opt-in; see VariancePreset) ──────────────────────
+// A single dial over upset likelihood, applied only when series.variancePreset
+// is set (absent ⇒ classic model, byte-identical). Three independent levers,
+// all keyed by the same preset so the user only picks one vibe:
+//
+//   BIAS_SCALE     — multiplies the star-rating portion of the bias. "chalky"
+//                    sharpens the favorite's edge; "chaotic" flattens it so the
+//                    rating gap matters less and upsets are more common (#15).
+//   DECIDER_DAMPEN — on a series decider (both sides one win from clinching:
+//                    Bo5 at 2-2, Bo3 at 1-1, every Bo1), the WHOLE bias is
+//                    scaled toward a coinflip — game 5s and reverse sweeps
+//                    become real (#6).
+//   CHOKE_FLAT     — in an elimination round, when the higher-rated side is
+//                    facing series elimination (one loss from out), a flat
+//                    nudge toward the underdog: the favorite chokes on the
+//                    brink (#9). Generalizes the finals-only UNDERDOG_FLAT.
+const BIAS_SCALE: Record<VariancePreset, number> = {
+  chalky: 1.25,
+  balanced: 1.0,
+  chaotic: 0.75,
+};
+const DECIDER_DAMPEN: Record<VariancePreset, number> = {
+  chalky: 1.0,
+  balanced: 0.8,
+  chaotic: 0.6,
+};
+const CHOKE_FLAT: Record<VariancePreset, number> = {
+  chalky: 0.0,
+  balanced: 1.5,
+  chaotic: 2.5,
+};
 export function starRatingBias(series: SeriesState): number {
   const blue = series.blueStarRating;
   const red = series.redStarRating;
   if (typeof blue !== "number" || typeof red !== "number") return 0;
+  // Match-variance preset (opt-in). Absent ⇒ every block below is a no-op
+  // and the function stays byte-identical to the classic model.
+  const preset = series.variancePreset;
   let starBias = (blue - red) * STAR_RATING_BIAS_K;
+  // [#15] Scale the star-rating influence by the preset: chalky sharpens the
+  // favorite, chaotic flattens it. Applied before underdog protection so the
+  // two compose (both just reshape how much the rating gap matters).
+  if (preset) starBias *= BIAS_SCALE[preset];
   // Underdog protection in finals only. Operates on the star bias
   // alone — leaves streak and base draft signals untouched, since they
   // already reflect the underdog's real form. Scoped to FINAL (not
@@ -237,7 +301,61 @@ export function starRatingBias(series: SeriesState): number {
     Math.min(WIN_STREAK_BIAS_CAP, Math.abs(streak) * WIN_STREAK_BIAS_K);
   const blueStreakBias = streakBias(series.blueWinStreak ?? 0);
   const redStreakBias = streakBias(series.redWinStreak ?? 0);
-  return starBias + (blueStreakBias - redStreakBias);
+  let total = starBias + (blueStreakBias - redStreakBias);
+  // Form (hot/cold): a longer-horizon companion to the streak bias, fed by
+  // the season engine's per-team form. Symmetric — bad form subtracts.
+  total +=
+    (series.blueForm ?? 0) * FORM_BIAS_K - (series.redForm ?? 0) * FORM_BIAS_K;
+  // Clutch: a stable team trait that only matters when the bracket bites.
+  // Applied in every elimination round (quarterfinal → final), separate
+  // from the finals-only underdog protection above.
+  const isElimination =
+    round === "final" || round === "semifinal" || round === "quarterfinal";
+  if (isElimination) {
+    total +=
+      (series.blueClutch ?? 0) * CLUTCH_BIAS_K -
+      (series.redClutch ?? 0) * CLUTCH_BIAS_K;
+  }
+  // Within-series momentum (variance feature; gated on the clutch trait
+  // being present, which the season engine sets only when clutchFactor is
+  // on). The side currently ahead in the series gets a small, capped bump.
+  if (series.blueClutch != null || series.redClutch != null) {
+    const sc = seriesScore(series);
+    const lead = Math.max(
+      -MOMENTUM_BIAS_CAP,
+      Math.min(MOMENTUM_BIAS_CAP, (sc.blue - sc.red) * MOMENTUM_BIAS_K),
+    );
+    total += lead;
+  }
+  // [#9] Favorites choking under elimination. When the higher-rated side is
+  // one loss from being knocked out of an elimination-round series, the
+  // pressure flips a little of the edge to the underdog. Series-state aware
+  // (only fires on the brink) and scoped to elimination rounds — a richer
+  // cousin of the finals-only UNDERDOG_FLAT above. Skipped when the ratings
+  // are even (no "favorite" to choke).
+  if (preset && isElimination && blue !== red) {
+    const need = requiredWins(series.format);
+    const sc = seriesScore(series);
+    const favoriteIsBlue = blue > red;
+    const favoriteWins = favoriteIsBlue ? sc.blue : sc.red;
+    const underdogWins = favoriteIsBlue ? sc.red : sc.blue;
+    const favoriteFacingElimination =
+      underdogWins === need - 1 && favoriteWins < need;
+    if (favoriteFacingElimination) {
+      total += (favoriteIsBlue ? -1 : 1) * CHOKE_FLAT[preset];
+    }
+  }
+  // [#6] Deciding-game coin-flippiness. On a series decider (both sides one
+  // win from clinching — Bo5 at 2-2, Bo3 at 1-1, every Bo1) the whole bias is
+  // pulled toward a coinflip, so game 5s and reverse sweeps actually happen.
+  // Applied last so it dampens every other term uniformly.
+  if (preset) {
+    const need = requiredWins(series.format);
+    const sc = seriesScore(series);
+    const isDecider = sc.blue === need - 1 && sc.red === need - 1;
+    if (isDecider) total *= DECIDER_DAMPEN[preset];
+  }
+  return total;
 }
 
 // Pick the effective AI difficulty for a given side. Per-side overrides
@@ -460,6 +578,12 @@ export function startNextGame(
           redStarRating: series.blueStarRating,
           blueWinStreak: series.redWinStreak,
           redWinStreak: series.blueWinStreak,
+          // Season-realism modifiers are team properties too — swap them so
+          // form/clutch stay attached to the right roster after the swap.
+          blueForm: series.redForm,
+          redForm: series.blueForm,
+          blueClutch: series.redClutch,
+          redClutch: series.blueClutch,
           // Player rosters follow their team across the side swap, so
           // blue*/red* always describe the CURRENT sides (matching the
           // star-rating convention above). Keeps the simulator's per-lane

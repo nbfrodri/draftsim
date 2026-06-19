@@ -212,6 +212,17 @@ export interface SeriesState {
   // The latter two enable underdog protection. Undefined outside
   // tournaments.
   tournamentRound?: "early" | "quarterfinal" | "semifinal" | "final";
+  // Season-realism modifiers, populated from the season's per-team state
+  // when the matching feature is enabled (see lib/season). All optional —
+  // undefined leaves starRatingBias byte-identical to the classic model.
+  //   form   — signed hot/cold strength delta in [-1, 1] (regresses to 0)
+  //   clutch — stable elimination-round tilt in [-1, 1]; presence also
+  //            enables within-series momentum (the series leader gets a
+  //            small per-game-lead bump).
+  blueForm?: number;
+  redForm?: number;
+  blueClutch?: number;
+  redClutch?: number;
   // Per-team player rosters (5 players each, positional lane order). Carry
   // the player identities for the life of the series so the simulator and
   // AI can apply per-lane tier and champion-pool effects. Optional /
@@ -226,7 +237,18 @@ export interface SeriesState {
   // Undefined → 'balanced' (exact historical behavior).
   bluePersonalityId?: string;
   redPersonalityId?: string;
+  // Match-variance intensity from the season config (see VariancePreset).
+  // Drives deciding-game coin-flippiness, favorites choking under
+  // elimination, and chalky↔chaotic scaling of the star bias in
+  // starRatingBias. Undefined ⇒ classic model (no variance effects).
+  variancePreset?: VariancePreset;
 }
+
+// Match-variance intensity. A single dial over how often the better team
+// actually wins: "chalky" sharpens the favorite's edge, "chaotic" flattens
+// it (more upsets), "balanced" is the gentle middle. See SeasonConfig and
+// starRatingBias (lib/series.ts).
+export type VariancePreset = "chalky" | "balanced" | "chaotic";
 
 export interface SimulationSettings {
   format: SeriesFormat;

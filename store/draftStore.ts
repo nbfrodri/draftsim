@@ -746,6 +746,11 @@ function autoPlayMatch(
     blueWinStreak: tctx?.blueWinStreak,
     redWinStreak: tctx?.redWinStreak,
     tournamentRound: tctx?.roundDepth,
+    blueForm: tctx?.blueForm,
+    redForm: tctx?.redForm,
+    blueClutch: tctx?.blueClutch,
+    redClutch: tctx?.redClutch,
+    variancePreset: tctx?.variancePreset,
     bluePlayers: blueTeam.players,
     redPlayers: redTeam.players,
     // Personality ids follow teams.
@@ -1552,6 +1557,14 @@ export const useDraftStore = create<DraftStore>()(
       synergyOverride: state.synergyOverride,
       counterOverride: state.counterOverride,
     };
+    // Region Tides carry across years: seed the new season from the most
+    // recent completed season — the just-finished one still in memory if it
+    // wasn't archived yet, otherwise the latest Hall-of-Seasons entry (which
+    // survives reloads). Ignored unless the new season has Region Tides on.
+    const priorSeason: SeasonHistoryEntry | undefined =
+      state.season?.status === "complete"
+        ? buildSeasonHistoryEntry(state.season, Date.now())
+        : state.seasonHistory.find((e) => e.complete);
     const season = createSeason({
       config,
       teams: ensureTeamIdentities(teams),
@@ -1561,6 +1574,7 @@ export const useDraftStore = create<DraftStore>()(
         synergyOverride: state.synergyOverride,
         counterOverride: state.counterOverride,
       },
+      priorSeason,
     });
     set({
       season,
@@ -3026,6 +3040,7 @@ export const useDraftStore = create<DraftStore>()(
       blueWinStreak: tctx?.blueWinStreak,
       redWinStreak: tctx?.redWinStreak,
       tournamentRound: tctx?.roundDepth,
+      variancePreset: tctx?.variancePreset,
       // Persistent player identities for this match (same roster every match
       // in the tournament). Star already derives from these via teamStarRating.
       bluePlayers: blueTeam.players,

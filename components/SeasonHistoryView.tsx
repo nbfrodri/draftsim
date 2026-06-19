@@ -45,6 +45,7 @@ import {
 } from "@/lib/season/types";
 import TeamIcon from "./TeamIcon";
 import Modal from "./Modal";
+import SeasonStoryCard from "./SeasonStoryCard";
 import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
 
 // Season History — a full-screen Hall of Seasons. Left: the timeline of
@@ -395,6 +396,11 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Narrative story recap (archived seasons that carry one). */}
+      {entry.story && (
+        <SeasonStoryCard story={entry.story} title="Story of the Season" />
       )}
 
       {/* Meta story */}

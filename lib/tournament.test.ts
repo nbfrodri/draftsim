@@ -807,6 +807,66 @@ describe("stepladder bracket", () => {
   });
 });
 
+// ─── Groups + seed byes (Worlds region #1 seeds) ────────────────────────────
+
+describe("groups-playoffs seed byes", () => {
+  it("keeps bye teams out of the group stage and pre-seeds them into the DE bracket", () => {
+    // 10 teams: seeds 1-2 bye straight into the playoff bracket; seeds
+    // 3-10 play two groups of four (top 2 of each advance).
+    const byeIds = ["team-1", "team-2"];
+    let t = createTournament(
+      baseTournamentParams("groups-playoffs-de", 10, {
+        groupsConfigOverride: { groupCount: 2, advancingPerGroup: 2 },
+        groupsByeTeamIds: byeIds,
+      }),
+    );
+    // The bye list is materialized and the bye teams play no group matches.
+    expect(t.groupsByeTeamIds).toEqual(byeIds);
+    const groupMatches = t.matches.filter((m) => m.groupId != null);
+    expect(groupMatches.length).toBeGreaterThan(0);
+    for (const m of groupMatches) {
+      expect(byeIds).not.toContain(m.blueTeamId);
+      expect(byeIds).not.toContain(m.redTeamId);
+    }
+    // Exactly the eight non-bye teams populate the groups.
+    const grouped = new Set<string>();
+    for (const m of groupMatches) {
+      if (m.blueTeamId) grouped.add(m.blueTeamId);
+      if (m.redTeamId) grouped.add(m.redTeamId);
+    }
+    expect(grouped.size).toBe(8);
+    expect(grouped.has("team-1")).toBe(false);
+    expect(grouped.has("team-2")).toBe(false);
+
+    // Resolve the group stage, then open the playoff bracket.
+    t = simulateTournamentTo(t, 500);
+    expect(t.status).toBe("in-progress");
+    t = startGroupsPlayoffs(t);
+    // Bracket = 2 byes + 4 group qualifiers = a clean 6-team DE bracket;
+    // the bye teams are pre-seeded into it on the top seeds.
+    const bracketTeamIds = new Set(
+      t.matches
+        .filter((m) => m.bracket != null)
+        .flatMap((m) => [m.blueTeamId, m.redTeamId])
+        .filter((id): id is string => id != null),
+    );
+    for (const id of byeIds) expect(bracketTeamIds.has(id)).toBe(true);
+
+    t = simulateTournamentTo(t, 500);
+    expect(t.status).toBe("complete");
+    expect(tournamentChampion(t)).not.toBeNull();
+  });
+
+  it("leaves ordinary groups tournaments without a bye list", () => {
+    const t = createTournament(
+      baseTournamentParams("groups-playoffs-de", 8, {
+        groupsConfigOverride: { groupCount: 2, advancingPerGroup: 2 },
+      }),
+    );
+    expect(t.groupsByeTeamIds).toBeUndefined();
+  });
+});
+
 // ─── Semantic semis/final format keys ──────────────────────────────────────
 
 describe("semis/final format overrides", () => {

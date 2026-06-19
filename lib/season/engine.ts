@@ -15,7 +15,12 @@ import {
   type MetaOverride,
   type MetaTier,
 } from "../championMeta";
-import { deriveStar, type RNG } from "../players";
+import {
+  deriveStar,
+  PLAYER_TIER_VALUE,
+  valueToTier,
+  type RNG,
+} from "../players";
 import {
   createTournament,
   computeStandings,
@@ -49,6 +54,7 @@ import {
   type SeasonTeam,
   type SplitId,
 } from "./types";
+import type { SeasonHistoryEntry } from "./history";
 
 export function makeSeasonId(): string {
   return `season-${Date.now().toString(36)}-${Math.random()
@@ -551,6 +557,24 @@ export interface Qualifier {
  *  its league nothing changes; otherwise it's prepended as the top
  *  global seed (leagueSeed 0, via "champion"), entering Worlds directly
  *  (never through the play-in). */
+
+// Prestige gap between adjacent leagues in the fixed LCK>LPL>LEC>… ranking.
+// A region's tide must exceed this to climb one spot, so the canonical
+// order is the default and only sustained over/under-performance reshuffles
+// it. (Tides realistically sit in roughly [-1, 1].)
+const REGION_PRESTIGE_STEP = 0.6;
+
+// Inter-league seeding score: fixed prestige (LCK highest) plus the live
+// region tide. Used only when region tides are on.
+function leagueSeedScore(
+  league: LeagueId,
+  strength: Partial<Record<LeagueId, number>>,
+): number {
+  const prestige =
+    (LEAGUE_IDS.length - 1 - LEAGUE_IDS.indexOf(league)) * REGION_PRESTIGE_STEP;
+  return prestige + (strength[league] ?? 0);
+}
+
 export function qualifiedForInternational(
   season: SeasonState,
   event: InternationalId,
@@ -610,10 +634,23 @@ export function qualifiedForInternational(
       }
     }
   }
-  // Global seed order: every league's #1, then the #2s, etc.
+  // Global seed order: every league's #1, then the #2s, etc. The
+  // inter-league order ALWAYS starts from the fixed LCK>LPL>LEC>…
+  // prestige ranking. [F] With region tides on, the live league-strength
+  // score is ADDED to that prestige baseline rather than replacing it —
+  // so the canonical order holds by default, and a region only climbs past
+  // another when its tide advantage outweighs the prestige gap between
+  // them (REGION_PRESTIGE_STEP).
+  const strength = season.leagueStrength;
+  const leagueOrder =
+    season.config?.regionTides && strength
+      ? [...LEAGUE_IDS].sort(
+          (a, b) => leagueSeedScore(b, strength) - leagueSeedScore(a, strength),
+        )
+      : LEAGUE_IDS;
   const out: Qualifier[] = [];
   for (let seed = 1; seed <= count; seed++) {
-    for (const league of LEAGUE_IDS) {
+    for (const league of leagueOrder) {
       const q = perLeague.get(league)?.[seed - 1];
       if (q) out.push(q);
     }
@@ -685,8 +722,31 @@ export function seasonGoldenRoadTeamId(season: SeasonState): string | null {
 
 // ─── Tournament builders ───────────────────────────────────────────────────
 
-function tagSeason(t: TournamentState, seasonId: string): TournamentState {
-  return { ...t, seasonId };
+// Stamp the season id onto a freshly-created tournament and, when the
+// realism features are on, attach each team's current form / clutch trait
+// so they flow into the match sim (tournamentSeriesContext → starRatingBias).
+// With both features off this returns the classic `{ ...t, seasonId }`
+// shape unchanged, so default seasons serialize identically.
+function tagSeason(t: TournamentState, season: SeasonState): TournamentState {
+  const { config } = season;
+  const enrich = formEnabled(config) || config.clutchFactor === true;
+  const teams = enrich
+    ? t.teams.map((tt) => {
+        const extra: { form?: number; clutch?: number } = {};
+        if (formEnabled(config)) {
+          const f = season.teamForm?.[tt.id];
+          if (typeof f === "number" && f !== 0) extra.form = f;
+        }
+        if (config.clutchFactor) {
+          const c = season.teamClutch?.[tt.id];
+          // Set even when 0 so its presence marks "clutch feature on"
+          // (starRatingBias keys within-series momentum off that).
+          if (typeof c === "number") extra.clutch = c;
+        }
+        return Object.keys(extra).length > 0 ? { ...tt, ...extra } : tt;
+      })
+    : t.teams;
+  return { ...t, teams, seasonId: season.id };
 }
 
 function createSplitTournament(
@@ -736,11 +796,12 @@ function createSplitTournament(
           }
         : undefined,
     metaSnapshot: cloneMeta(season.currentMeta),
+    variancePreset: season.config.variancePreset,
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
     streakSeeds: streakSeedsFor(season, ordered),
   });
-  return tagSeason(t, season.id);
+  return tagSeason(t, season);
 }
 
 function createFirstStand(season: SeasonState): TournamentState {
@@ -755,6 +816,7 @@ function createFirstStand(season: SeasonState): TournamentState {
     ...intlFormatParams(cfg, "first-stand", qualified.length),
     trueGrandFinal: cfg.trueGrandFinal,
     metaSnapshot: cloneMeta(season.currentMeta),
+    variancePreset: season.config.variancePreset,
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
     streakSeeds: streakSeedsFor(
@@ -762,7 +824,112 @@ function createFirstStand(season: SeasonState): TournamentState {
       qualified.map((q) => q.team),
     ),
   });
-  return tagSeason(t, season.id);
+  return tagSeason(t, season);
+}
+
+/** Whether First Stand runs the seeds-bye structure — each region's #1
+ *  seed skips an opening qualifier and enters the main single-elim bracket
+ *  directly, while the #2 seeds play a play-in for the remaining slots.
+ *  Only the canonical single-elim format does this (other configured
+ *  formats run every qualified team through their stage); also requires at
+ *  least two #1 seeds and two #2 seeds so both halves are well-formed. */
+function firstStandUsesSeedByes(season: SeasonState): boolean {
+  const cfg = intlConfigFor(season.config, "first-stand");
+  if (cfg.format !== "single-elim") return false;
+  // The play-in IS the seeds-bye structure; turning it off reverts First
+  // Stand to a plain 12-team single-elim (only the top seeds bye, by
+  // bracket size).
+  if (cfg.playInEnabled === false) return false;
+  const qualified = qualifiedForInternational(season, "first-stand");
+  const byes = qualified.filter((q) => q.leagueSeed <= 1).length;
+  const field = qualified.length - byes;
+  return byes >= 2 && field >= 2;
+}
+
+// Largest power of two ≤ n (n ≥ 1) — sizes the First Stand main bracket to
+// a clean single-elim while fitting the bye teams plus the play-in
+// qualifiers.
+function largestPowerOfTwoAtMost(n: number): number {
+  return Math.max(1, 2 ** Math.floor(Math.log2(Math.max(1, n))));
+}
+
+function createFirstStandPlayIn(season: SeasonState): TournamentState {
+  // The region #2 seeds fight for the remaining main-bracket spots; the
+  // top finalists advance (createFirstStandMain decides how many). The #1
+  // seeds sit this round out and bye straight into the main event.
+  const qualified = qualifiedForInternational(season, "first-stand").filter(
+    (q) => q.leagueSeed >= 2,
+  );
+  const cfg = intlConfigFor(season.config, "first-stand");
+  const series = cfg.playInSeries ?? cfg.earlySeries;
+  // Double-elim needs ≥ 4 teams with limited byes; fall back to single-
+  // elim for short fields so a sparse season can't break the play-in.
+  const useDE = cfg.playInFormat === "double-elim" && qualified.length >= 4;
+  const t = createTournament({
+    name: "First Stand Play-In",
+    format: useDE ? "double-elim" : "single-elim",
+    teams: qualified.map((q, i) => toTournamentTeam(q.team, i + 1)),
+    defaults: defaultsFor(season.config, series),
+    formatOverrides: useDE
+      ? // Uniform play-in series across every W/L/GF round.
+        seriesOverrides(series, series, series, series)
+      : singleElimOverrides(qualified.length, series, cfg.finalsSeries),
+    ...(useDE ? { trueGrandFinal: cfg.trueGrandFinal } : {}),
+    metaSnapshot: cloneMeta(season.currentMeta),
+    variancePreset: season.config.variancePreset,
+    liveMeta: season.config.liveMeta,
+    fearlessConfig: { perSeries: season.config.fearless },
+    streakSeeds: streakSeedsFor(
+      season,
+      qualified.map((q) => q.team),
+    ),
+  });
+  return tagSeason(t, season);
+}
+
+function createFirstStandMain(
+  season: SeasonState,
+  playIn: TournamentState,
+): TournamentState {
+  const cfg = intlConfigFor(season.config, "first-stand");
+  // Region #1 seeds bye straight into the main bracket; the play-in
+  // finalists fill it up to the largest power-of-two it can hold (e.g. six
+  // #1 seeds + two qualifiers → an 8-team single-elim).
+  const byes = qualifiedForInternational(season, "first-stand").filter(
+    (q) => q.leagueSeed <= 1,
+  );
+  const playInTeams = playIn.teams.length;
+  const target = largestPowerOfTwoAtMost(byes.length + playInTeams);
+  const advancing = Math.max(1, Math.min(playInTeams, target - byes.length));
+  const finalists = tournamentPlacements(playIn)
+    .slice(0, advancing)
+    .map((id) => season.teams.find((t) => t.id === id))
+    .filter((t): t is SeasonTeam => t != null);
+  const teams = [
+    ...byes.map((q, i) => toTournamentTeam(q.team, i + 1)),
+    ...finalists.map((team, i) =>
+      toTournamentTeam(team, byes.length + i + 1),
+    ),
+  ];
+  const t = createTournament({
+    name: "First Stand",
+    format: cfg.format,
+    teams,
+    defaults: defaultsFor(season.config, cfg.earlySeries),
+    formatOverrides: intlOverridesFor(cfg, teams.length),
+    trueGrandFinal: cfg.trueGrandFinal,
+    metaSnapshot: cloneMeta(season.currentMeta),
+    variancePreset: season.config.variancePreset,
+    liveMeta: season.config.liveMeta,
+    fearlessConfig: { perSeries: season.config.fearless },
+    // Play-in finalists carry their play-in run (already complete and
+    // recorded by the time the main event is created).
+    streakSeeds: streakSeedsFor(season, [
+      ...byes.map((q) => q.team),
+      ...finalists,
+    ]),
+  });
+  return tagSeason(t, season);
 }
 
 // Formats where an ill-sized field is structurally unfair: a swiss
@@ -849,6 +1016,7 @@ function createMSIPlayIn(season: SeasonState): TournamentState {
       cfg.finalsSeries,
     ),
     metaSnapshot: cloneMeta(season.currentMeta),
+    variancePreset: season.config.variancePreset,
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
     streakSeeds: streakSeedsFor(
@@ -856,7 +1024,7 @@ function createMSIPlayIn(season: SeasonState): TournamentState {
       pair.map((q) => q.team),
     ),
   });
-  return tagSeason(t, season.id);
+  return tagSeason(t, season);
 }
 
 function createMSI(
@@ -888,6 +1056,7 @@ function createMSI(
       swissThreshold: cfg.swissThreshold,
       trueGrandFinal: cfg.trueGrandFinal,
       metaSnapshot: cloneMeta(season.currentMeta),
+      variancePreset: season.config.variancePreset,
       liveMeta: season.config.liveMeta,
       fearlessConfig: { perSeries: season.config.fearless },
       streakSeeds: streakSeedsFor(
@@ -895,7 +1064,7 @@ function createMSI(
         qualified.map((q) => q.team),
       ),
     });
-    return tagSeason(t, season.id);
+    return tagSeason(t, season);
   }
 
   // Any other configured format runs every qualified team through its
@@ -915,6 +1084,7 @@ function createMSI(
     ...intlFormatParams(cfg, "msi", qualified.length),
     trueGrandFinal: cfg.trueGrandFinal,
     metaSnapshot: cloneMeta(season.currentMeta),
+    variancePreset: season.config.variancePreset,
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
     streakSeeds: streakSeedsFor(
@@ -922,7 +1092,7 @@ function createMSI(
       qualified.map((q) => q.team),
     ),
   });
-  return tagSeason(t, season.id);
+  return tagSeason(t, season);
 }
 
 function createWorldsPlayIn(season: SeasonState): TournamentState {
@@ -949,6 +1119,7 @@ function createWorldsPlayIn(season: SeasonState): TournamentState {
       : singleElimOverrides(qualified.length, series, cfg.finalsSeries),
     ...(useDE ? { trueGrandFinal: cfg.trueGrandFinal } : {}),
     metaSnapshot: cloneMeta(season.currentMeta),
+    variancePreset: season.config.variancePreset,
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
     streakSeeds: streakSeedsFor(
@@ -956,7 +1127,7 @@ function createWorldsPlayIn(season: SeasonState): TournamentState {
       qualified.map((q) => q.team),
     ),
   });
-  return tagSeason(t, season.id);
+  return tagSeason(t, season);
 }
 
 function createWorldsMain(
@@ -968,23 +1139,25 @@ function createWorldsMain(
   let streakTeams: SeasonTeam[];
   if (!playIn) {
     // Play-in disabled: every qualified team — including the #4 seeds —
-    // enters the main event directly.
+    // enters the main event directly and plays the group stage.
     const all = qualifiedForInternational(season, "worlds");
     teams = all.map((q, i) => toTournamentTeam(q.team, i + 1));
     streakTeams = all.map((q) => q.team);
   } else {
     // Seeds 1–3 of every league enter directly (18 teams — 19 when the
     // MSI champion qualifies additively at leagueSeed 0); the play-in
-    // finalists take the last seeds. Canonical shape: 4 snake-seeded
-    // groups, top 2 per group into a single-elim bo5 knockout.
+    // finalists take the last seeds. EVERY team plays the group stage —
+    // no one byes into the bracket. Canonical shape: 4 equal groups
+    // (18 direct + 2 play-in = 20 = 4×5), top 2 per group into the
+    // knockout bracket.
     const direct = qualifiedForInternational(season, "worlds").filter(
       (q) => q.leagueSeed <= 3,
     );
     // How many play-in finalists advance. When the user EXPLICITLY sets a
     // count we honor it exactly (the group stage simply takes slightly
     // uneven groups — the user asked for that many teams). Only the
-    // DEFAULT (2) auto-reduces to keep swiss even / groups in four equal
-    // pots when the MSI champion's additive slot would otherwise break it.
+    // DEFAULT (2) auto-reduces to keep the four groups equal when the MSI
+    // champion's additive slot would otherwise break divisibility.
     const playInTeams = playIn.teams.length;
     const explicit = cfg.playInAdvancing != null;
     let advancing = Math.max(
@@ -1021,25 +1194,30 @@ function createWorldsMain(
     ...intlFormatParams(cfg, "worlds", teams.length),
     trueGrandFinal: cfg.trueGrandFinal,
     metaSnapshot: cloneMeta(season.currentMeta),
+    variancePreset: season.config.variancePreset,
     liveMeta: season.config.liveMeta,
     fearlessConfig: { perSeries: season.config.fearless },
     // Play-in finalists carry their play-in run (the play-in is already
     // complete and recorded by the time the main event is created).
     streakSeeds: streakSeedsFor(season, streakTeams),
   });
-  return tagSeason(t, season.id);
+  return tagSeason(t, season);
 }
 
 // ─── Patch shift ───────────────────────────────────────────────────────────
 // A "balance patch" between phases: materialize the full tier table
-// (current override over baseline), then nudge ~12% of (champion, lane)
-// entries one tier up or down. Returns a complete MetaOverride so the
-// shifted meta is authoritative from then on.
+// (current override over baseline), then nudge a `fraction` of (champion,
+// lane) entries one tier up or down. Returns a complete MetaOverride so the
+// shifted meta is authoritative from then on. The engine calls it with a
+// gentle fraction between phases (PATCH_SHIFT_FRACTION) — like real LoL
+// patches, the competitive meta moves a little each split, not wholesale.
+const PATCH_SHIFT_FRACTION = 0.08;
 
 export function applyPatchShift(
   meta: SeasonMetaSnapshot,
   champions: readonly Champion[],
   rng: RNG = Math.random,
+  fraction = 0.12,
 ): SeasonMetaSnapshot {
   const full: MetaOverride = {};
   for (const c of champions) {
@@ -1059,7 +1237,7 @@ export function applyPatchShift(
   for (const alias of Object.keys(full)) {
     const tiers = full[alias];
     for (const lane of Object.keys(tiers) as Lane[]) {
-      if (rng() >= 0.12) continue;
+      if (rng() >= fraction) continue;
       const cur = tiers[lane];
       if (!cur) continue;
       const idx = TIER_ORDER.indexOf(cur);
@@ -1071,12 +1249,222 @@ export function applyPatchShift(
   return { ...meta, metaOverride: full };
 }
 
+// ─── Season realism (form / development / adaptability / region tides) ──────
+// All opt-in via SeasonConfig flags; with every flag off these helpers are
+// no-ops and the season state carries none of the extra maps, so default
+// seasons behave and serialize exactly as before.
+
+// How strongly each lever moves. Kept gentle on purpose — the realism is
+// flavor on top of roster strength, never a replacement for it.
+const FORM_DECAY = 0.6; //        form regresses toward 0 each tournament played
+const FORM_LEARN = 0.5; //        weight of the latest finish-vs-seed result
+const FORM_MAX = 1.0; //          clamp (±1 ≈ ±0.3 of a star in the sim)
+const ADAPT_FORM_SWING = 0.25; // patch-shift form delta per adaptability unit
+const DEV_RATE = 0.16; //         per-player chance to drift a tier each split
+const DEV_REGRESS = 0.18; //      pull toward the mean (S/A fall, C/D rise)
+const DEV_FORM = 0.22; //         recent team form biases the drift direction
+const LEAGUE_STRENGTH_DECAY = 0.5; // region strength fades toward neutral
+
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+const clampForm = (n: number) =>
+  round3(Math.max(-FORM_MAX, Math.min(FORM_MAX, n)));
+
+// The form channel carries both hot/cold drift (A) AND meta-adaptability
+// swings (D), so it's live when either feature is on.
+function formEnabled(config: SeasonConfig): boolean {
+  return config.formDrift === true || config.metaAdaptability === true;
+}
+
+// Deterministic per-team trait in [-1, 1] from a string seed (FNV-1a). No
+// RNG so traits are stable across reloads without persisting a seed.
+function traitHash(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const u = (h >>> 0) / 0xffffffff;
+  return Math.round((u * 2 - 1) * 100) / 100;
+}
+
+// Seed the realism maps at season creation, only for the enabled features.
+function initRealismState(
+  config: SeasonConfig,
+  teams: SeasonTeam[],
+  priorLeagueStrength?: Partial<Record<LeagueId, number>>,
+): Partial<SeasonState> {
+  const out: Partial<SeasonState> = {};
+  if (formEnabled(config)) out.teamForm = {};
+  if (config.clutchFactor) {
+    const m: Record<string, number> = {};
+    for (const t of teams) m[t.id] = traitHash(`${t.id}:clutch`);
+    out.teamClutch = m;
+  }
+  if (config.metaAdaptability) {
+    const m: Record<string, number> = {};
+    for (const t of teams) m[t.id] = traitHash(`${t.id}:adapt`);
+    out.teamAdaptability = m;
+  }
+  if (config.regionTides) {
+    const m: Partial<Record<LeagueId, number>> = {};
+    for (const lg of LEAGUE_IDS) m[lg] = priorLeagueStrength?.[lg] ?? 0;
+    out.leagueStrength = m;
+  }
+  return out;
+}
+
+// [A] After a tournament completes, decay every participant's form toward
+// 0 and (when formDrift is on) nudge it by how the team finished relative
+// to its seed: outperforming the seed warms the team up, underperforming
+// cools it down. Decay alone (D-only seasons) keeps adaptability swings
+// from accumulating forever.
+function updateFormFromTournament(
+  season: SeasonState,
+  t: TournamentState,
+): SeasonState {
+  if (!formEnabled(season.config)) return season;
+  const placements = tournamentPlacements(t);
+  const n = placements.length;
+  if (n < 1) return season;
+  const form: Record<string, number> = { ...(season.teamForm ?? {}) };
+  placements.forEach((id, idx) => {
+    let next = FORM_DECAY * (form[id] ?? 0);
+    if (season.config.formDrift) {
+      const team = t.teams.find((x) => x.id === id);
+      const seed = team?.seed ?? (n + 1) / 2;
+      // >0 finished above seed, <0 below; normalized to roughly [-1, 1].
+      const perf = (seed - (idx + 1)) / Math.max(1, n - 1);
+      next += FORM_LEARN * perf;
+    }
+    form[id] = clampForm(next);
+  });
+  return { ...season, teamForm: form };
+}
+
+// [D] A balance patch rewards teams that adapt and punishes the rigid —
+// expressed as a one-off form swing scaled by each team's adaptability.
+function applyMetaAdaptability(season: SeasonState): SeasonState {
+  if (!season.config.metaAdaptability) return season;
+  const adapt = season.teamAdaptability ?? {};
+  const form: Record<string, number> = { ...(season.teamForm ?? {}) };
+  for (const team of season.teams) {
+    const a = adapt[team.id] ?? 0;
+    if (a === 0) continue;
+    form[team.id] = clampForm((form[team.id] ?? 0) + a * ADAPT_FORM_SWING);
+  }
+  return { ...season, teamForm: form };
+}
+
+// [B] Between splits, individual player tiers drift one step. Lower tiers
+// trend up and peaked ones regress down (regression to the mean), with
+// recent team form tilting the odds — so rosters visibly improve or decay
+// across the year. Star ratings follow automatically via deriveStar.
+export function applyPlayerDevelopment(
+  season: SeasonState,
+  rng: RNG = Math.random,
+): SeasonState {
+  if (!season.config.playerDevelopment) return season;
+  const form = season.teamForm ?? {};
+  const teams = season.teams.map((team) => {
+    const teamForm = form[team.id] ?? 0;
+    let changed = false;
+    const players = team.players.map((p) => {
+      if (rng() >= DEV_RATE) return p;
+      const val = PLAYER_TIER_VALUE[p.tier]; // -2 (D) .. +2 (S)
+      let pUp =
+        0.5 -
+        DEV_REGRESS * (val / 2) +
+        DEV_FORM * Math.sign(teamForm) * Math.min(1, Math.abs(teamForm));
+      pUp = Math.max(0.1, Math.min(0.9, pUp));
+      const dir = rng() < pUp ? 1 : -1;
+      const nextVal = Math.max(-2, Math.min(2, val + dir));
+      if (nextVal === val) return p;
+      changed = true;
+      return { ...p, tier: valueToTier(nextVal) };
+    });
+    return changed ? { ...team, players } : team;
+  });
+  return { ...season, teams };
+}
+
+// [F] After an international, raise the regions whose teams placed well and
+// lower those that flopped (decayed toward neutral). Feeds the inter-league
+// seed ordering in qualifiedForInternational.
+function updateLeagueStrength(
+  season: SeasonState,
+  t: TournamentState,
+): SeasonState {
+  if (!season.config.regionTides) return season;
+  const placements = tournamentPlacements(t);
+  const n = placements.length;
+  if (n < 2) return season;
+  const sum: Partial<Record<LeagueId, number>> = {};
+  const count: Partial<Record<LeagueId, number>> = {};
+  placements.forEach((id, idx) => {
+    const team = season.teams.find((x) => x.id === id);
+    if (!team) return;
+    const lg = team.leagueId;
+    const score = (n - 1 - idx) / (n - 1); // 1 = winner, 0 = last place
+    sum[lg] = (sum[lg] ?? 0) + score;
+    count[lg] = (count[lg] ?? 0) + 1;
+  });
+  const prev = season.leagueStrength ?? {};
+  const out: Partial<Record<LeagueId, number>> = { ...prev };
+  for (const lg of LEAGUE_IDS) {
+    const c = count[lg];
+    if (!c) continue; // region not represented this event → unchanged
+    const avg = sum[lg]! / c; // average normalized finish, [0, 1]
+    // (avg - 0.5): above-average lifts the region, below-average drops it.
+    out[lg] = round3(LEAGUE_STRENGTH_DECAY * (prev[lg] ?? 0) + (avg - 0.5));
+  }
+  return { ...season, leagueStrength: out };
+}
+
+// [F · cross-season] How much of last year's region tide carries into the
+// next season — half, so a region's reputation fades over a couple of
+// years rather than locking in.
+const CARRYOVER_DECAY = 0.5;
+// Weights for the champion-region fallback (when the prior season didn't
+// track tides): the region that won the bigger event enters stronger.
+const CHAMPION_REGION_WEIGHT: Partial<Record<InternationalId, number>> = {
+  worlds: 0.5,
+  msi: 0.3,
+  "first-stand": 0.15,
+};
+
+// Seed a new season's region tides from the previous season's archive:
+// prefer the evolved end-of-season strength (decayed toward neutral), and
+// fall back to a reputation derived from who won each international when an
+// older / imported entry didn't record the tide.
+export function regionStrengthSeed(
+  prior: SeasonHistoryEntry,
+): Partial<Record<LeagueId, number>> {
+  const out: Partial<Record<LeagueId, number>> = {};
+  if (prior.leagueStrength) {
+    for (const lg of LEAGUE_IDS) {
+      const v = prior.leagueStrength[lg];
+      if (typeof v === "number" && v !== 0) out[lg] = round3(v * CARRYOVER_DECAY);
+    }
+    return out;
+  }
+  for (const [event, w] of Object.entries(CHAMPION_REGION_WEIGHT) as Array<
+    [InternationalId, number]
+  >) {
+    const lg = prior.intlChampions[event]?.leagueId;
+    if (lg) out[lg] = round3((out[lg] ?? 0) + w);
+  }
+  return out;
+}
+
 // ─── Season lifecycle ──────────────────────────────────────────────────────
 
 export function createSeason(opts: {
   config: SeasonConfig;
   teams: SeasonTeam[];
   activeMeta: SeasonMetaSnapshot;
+  // Previous season's archive — seeds Region Tides so regions keep a
+  // reputation across years (ignored unless regionTides is on).
+  priorSeason?: SeasonHistoryEntry;
 }): SeasonState {
   const phases: SeasonPhase[] = [
     {
@@ -1141,6 +1529,16 @@ export function createSeason(opts: {
     initialMeta: opts.activeMeta,
     champion: null,
     status: "in-progress",
+    // Seed the realism maps for whichever features are enabled (no-op /
+    // absent when they're all off). Region tides may start from last
+    // season's reputation rather than neutral.
+    ...initRealismState(
+      opts.config,
+      opts.teams,
+      opts.config.regionTides && opts.priorSeason
+        ? regionStrengthSeed(opts.priorSeason)
+        : undefined,
+    ),
   };
   return startPhase(season, 0);
 }
@@ -1157,7 +1555,14 @@ function startPhase(season: SeasonState, index: number): SeasonState {
       created.push(createSplitTournament(season, league, phase.split));
     }
   } else if (phase.event === "first-stand") {
-    created.push(createFirstStand(season));
+    // Seeds-bye First Stand opens with a play-in for the #2 seeds; the
+    // main bracket (with the #1 seeds pre-placed) spawns when it completes
+    // (applyTournamentUpdate), same as the Worlds/MSI play-in flow.
+    created.push(
+      firstStandUsesSeedByes(season)
+        ? createFirstStandPlayIn(season)
+        : createFirstStand(season),
+    );
   } else if (phase.event === "msi") {
     // Ill-fitting field (odd swiss / unequal groups) → qualifier first;
     // the main event spawns when it completes (applyTournamentUpdate),
@@ -1267,6 +1672,17 @@ function recordTournamentResult(
       },
     };
   }
+  // [A] Hot/cold form drifts on every completed tournament's results.
+  next = updateFormFromTournament(next, t);
+  // [F] Region strength tides on the international RESULT (not the play-in
+  // qualifier) — the event that actually measures a region's showing.
+  if (
+    phase?.kind === "international" &&
+    phase.event &&
+    !t.name.includes("Play-In")
+  ) {
+    next = updateLeagueStrength(next, t);
+  }
   return next;
 }
 
@@ -1295,17 +1711,23 @@ export function applyTournamentUpdate(
 
   next = recordTournamentResult(next, t);
 
-  // Play-in done → create the main event inside the same phase
-  // (Worlds always opens with one; MSI only when an odd swiss field
-  // forced a qualifier).
+  // Play-in done → create the main event inside the same phase (Worlds
+  // always opens with one; MSI only when an odd swiss field forced a
+  // qualifier; First Stand when the seeds-bye structure is in effect).
   if (
     phase.tournamentIds.length === 1 &&
     phase.tournamentIds[0] === t.id &&
-    (phase.event === "worlds" || phase.event === "msi") &&
+    (phase.event === "worlds" ||
+      phase.event === "msi" ||
+      phase.event === "first-stand") &&
     t.name.includes("Play-In")
   ) {
     const main =
-      phase.event === "worlds" ? createWorldsMain(next, t) : createMSI(next, t);
+      phase.event === "worlds"
+        ? createWorldsMain(next, t)
+        : phase.event === "msi"
+          ? createMSI(next, t)
+          : createFirstStandMain(next, t);
     return {
       ...next,
       tournaments: { ...next.tournaments, [main.id]: main },
@@ -1339,12 +1761,26 @@ export function applyTournamentUpdate(
     };
   }
 
-  // Balance patch between phases, then build the next phase.
+  // Between-phase transitions, then build the next phase.
+  // [M] A gentle balance patch nudges the competitive meta each split —
+  // like real LoL patches, a little, not a teardown.
   if (next.config.patchShift) {
     next = {
       ...next,
-      currentMeta: applyPatchShift(next.currentMeta, champions),
+      currentMeta: applyPatchShift(
+        next.currentMeta,
+        champions,
+        Math.random,
+        PATCH_SHIFT_FRACTION,
+      ),
     };
+    // [D] The patch rewards adaptable teams and punishes rigid ones.
+    next = applyMetaAdaptability(next);
+  }
+  // [B] Players develop between splits — run it as each split wraps up so
+  // the next event sees the updated rosters.
+  if (phase.kind === "split") {
+    next = applyPlayerDevelopment(next);
   }
   return startPhase(next, next.phaseIndex + 1);
 }

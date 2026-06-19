@@ -22,6 +22,7 @@ import {
   type SplitId,
 } from "./types";
 import { computeSeasonStats, computeStageStats } from "./stats";
+import { buildSeasonStory, type SeasonStory } from "./seasonStory";
 
 /** Frozen team identity at archive time (teams are regenerated every
  *  season, so ids alone would dangle). */
@@ -85,6 +86,15 @@ export interface SeasonHistoryEntry {
    *  player boards. Optional — only on seasons archived after the stats
    *  expansion. */
   awardTally?: SeasonHistoryAwardTally[];
+  /** Per-league strength score at archive time (the evolved region tide).
+   *  Optional — only present on seasons that ran with Region Tides on.
+   *  Carried into the next season's starting tides (decayed toward
+   *  neutral) so regions keep a reputation across years. */
+  leagueStrength?: Partial<Record<LeagueId, number>>;
+  /** Templated per-season narrative recap (champion's path, biggest upset,
+   *  team of the year, region that rose, meta arc). Optional — only on
+   *  seasons archived after the story feature; older entries simply omit it. */
+  story?: SeasonStory;
 }
 
 /** One champion-lane tier movement between two meta snapshots. */
@@ -237,6 +247,10 @@ export function buildSeasonHistoryEntry(
     }
   }
   const awardTally = [...tallyMap.values()];
+  // Templated narrative recap (only attach when it found at least one
+  // headline, so empty/sparse archives serialize unchanged).
+  const story = buildSeasonStory(season);
+  const hasStory = Object.keys(story).length > 0;
   return {
     id: season.id,
     archivedAt,
@@ -246,6 +260,7 @@ export function buildSeasonHistoryEntry(
     runnerUp: teamRef(season, worlds[1]),
     intlChampions,
     splitChampions,
+    ...(hasStory ? { story } : {}),
     ...(Object.keys(leagueBestTeams).length > 0 ? { leagueBestTeams } : {}),
     ...(awardTally.length > 0 ? { awardTally } : {}),
     // Starting tier table (undefined when the season pre-dates
@@ -255,6 +270,12 @@ export function buildSeasonHistoryEntry(
       ? { initialMetaOverride: season.initialMeta.metaOverride ?? null }
       : {}),
     finalMetaOverride: season.currentMeta?.metaOverride ?? null,
+    // Carry the evolved region tide forward (only present when Region
+    // Tides ran). Conditional so non-tides seasons archive unchanged.
+    ...(season.leagueStrength &&
+    Object.keys(season.leagueStrength).length > 0
+      ? { leagueStrength: season.leagueStrength }
+      : {}),
   };
 }
 

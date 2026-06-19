@@ -10,6 +10,7 @@ import type { TournamentMatch, TournamentState } from "@/lib/tournament";
 import { MatchCard } from "./MatchCard";
 import { RoundColumn, LosersRoundColumn, PlayoffBracketSection } from "./BracketViews";
 import { StandingsTable, GroupStandingsTable, SwissStandingsTable } from "./StandingsTables";
+import { DirectQualifierBadge } from "@/components/QualifierBadge";
 
 // Standalone round-robin layout: standings + matchday-grouped match
 // cards. Each matchday gets its own header with a quick progress
@@ -223,6 +224,16 @@ export function GroupsPlayoffsView({
     }
     return [...ids].sort();
   }, [tournament.matches]);
+  // Teams that bypass the group stage entirely and are pre-seeded into the
+  // playoff bracket (Worlds region #1 seeds). Shown separately so they're
+  // not invisible while the groups play out.
+  const byeTeams = useMemo(() => {
+    const ids = tournament.groupsByeTeamIds ?? [];
+    return ids
+      .map((id) => tournament.teams.find((t) => t.id === id))
+      .filter((t): t is TournamentTeam => t != null)
+      .sort((a, b) => a.seed - b.seed);
+  }, [tournament.groupsByeTeamIds, tournament.teams]);
   const playoffMatches = tournament.matches.filter(
     (m) => m.bracket !== undefined,
   );
@@ -283,6 +294,34 @@ export function GroupsPlayoffsView({
           )}
         </div>
       </div>
+
+      {/* ─── Teams that bypassed the group stage (Worlds #1 seeds) ─── */}
+      {byeTeams.length > 0 && (
+        <div>
+          <div className="flex items-baseline justify-between mb-2 gap-2">
+            <span className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
+              Direct to Playoffs
+            </span>
+            <span className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/60">
+              Bye · seeded into the bracket
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {byeTeams.map((team, i) => (
+              <span
+                key={team.id}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 border border-rift-gold/30 bg-rift-gold/5 text-[11px] font-display tracking-wider text-rift-goldbright"
+              >
+                <span className="text-rift-mutedbright/50 tabular-nums">
+                  {i + 1}
+                </span>
+                <span className="truncate max-w-[12rem]">{team.name}</span>
+                <DirectQualifierBadge />
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ─── Per-group panels ───────────────────────────────── */}
       <div
@@ -587,6 +626,7 @@ export function SwissView({
                   {i + 1}
                 </span>
                 <span className="truncate max-w-[12rem]">{team.name}</span>
+                <DirectQualifierBadge />
               </span>
             ))}
           </div>

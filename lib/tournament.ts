@@ -11,6 +11,7 @@ import type {
   SeriesFormat,
   SeriesState,
   Side,
+  VariancePreset,
 } from "./types";
 import { deriveStar, normalizeRoster, rosterFromStar } from "./players";
 
@@ -208,6 +209,13 @@ export interface TournamentTeam {
   // Randomly assigned at tournament creation for AI teams that don't have
   // one pre-set, so every tournament has varied drafting styles.
   personalityId?: string;
+  // Season-realism modifiers, attached by the season engine (tagSeason)
+  // when the matching feature is on. `form` is a signed hot/cold strength
+  // delta in [-1, 1]; `clutch` is a stable elimination-round tilt in
+  // [-1, 1]. Both flow through tournamentSeriesContext → starRatingBias.
+  // Undefined for standalone tournaments (no bias change). See lib/season.
+  form?: number;
+  clutch?: number;
 }
 
 // Curated 64-color palette for team accents. Designed to be visually
@@ -555,6 +563,15 @@ export interface TournamentSeriesContext {
   blueWinStreak: number;
   redWinStreak: number;
   roundDepth: "early" | "quarterfinal" | "semifinal" | "final";
+  // Season-realism modifiers carried from the TournamentTeam (set by the
+  // season engine). Undefined when the feature is off / standalone play.
+  blueForm?: number;
+  redForm?: number;
+  blueClutch?: number;
+  redClutch?: number;
+  // Match-variance intensity, carried from the tournament (set by the season
+  // engine from SeasonConfig). Undefined ⇒ classic bias model.
+  variancePreset?: VariancePreset;
 }
 
 export function tournamentSeriesContext(
@@ -573,6 +590,11 @@ export function tournamentSeriesContext(
     blueWinStreak: teamStreak(tournament, match.blueTeamId, matchId),
     redWinStreak: teamStreak(tournament, match.redTeamId, matchId),
     roundDepth: tournamentRoundDepth(tournament, matchId),
+    blueForm: blueTeam?.form,
+    redForm: redTeam?.form,
+    blueClutch: blueTeam?.clutch,
+    redClutch: redTeam?.clutch,
+    variancePreset: tournament.variancePreset,
   };
 }
 
@@ -780,6 +802,19 @@ export interface TournamentState {
     // snapshots still load without losing the playoff size.
     advancingTeams?: number;
   };
+  // Groups-playoffs only: team ids that skip the group stage entirely and
+  // are pre-seeded into the playoff bracket (the Worlds region #1 seeds —
+  // see createWorldsMain). The exact mirror of swissByeTeamIds for the
+  // groups stage: these teams are present in `teams` so the bracket and UI
+  // can resolve them, but they play no group matches (partitioning and
+  // group standings exclude them), and startGroupsPlayoffs prepends them
+  // (by seed) above the group qualifiers. Undefined/absent = every team
+  // plays the group stage.
+  groupsByeTeamIds?: string[];
+  // Match-variance intensity for every series in this tournament (set by the
+  // season engine from SeasonConfig.variancePreset). Undefined ⇒ classic
+  // bias model. Flows into each series via tournamentSeriesContext.
+  variancePreset?: VariancePreset;
   // Per-match format overrides — see FormatOverrides docs for key
   // schema. When the playoff bracket is generated lazily (Swiss-/
   // groups-/round-robin-playoffs), the promotion functions read this
@@ -2409,6 +2444,15 @@ export interface CreateTournamentParams {
   // Override the auto-derived groups config (groupCount × advancing).
   // Ignored for non-groups-playoffs formats.
   groupsConfigOverride?: { groupCount: number; advancingPerGroup: number };
+  // Groups-playoffs only: team ids that bypass the group stage and are
+  // pre-seeded into the playoff bracket (Worlds region #1 seeds). The
+  // group stage runs over the remaining teams; startGroupsPlayoffs then
+  // prepends the bye teams above the group qualifiers (so the bracket size
+  // is byes + advancing, snapped to a supported DE size). See
+  // TournamentState.groupsByeTeamIds.
+  groupsByeTeamIds?: string[];
+  // Match-variance intensity for every series (see TournamentState).
+  variancePreset?: VariancePreset;
   // Snapshot of the live meta to bundle with the tournament. The store
   // captures it from useDraftStore at creation time and passes here.
   metaSnapshot?: {
@@ -2510,9 +2554,21 @@ export function createTournament(
   ) {
     // Groups+playoffs starts as a per-group round-robin stage; the
     // playoff bracket gets generated when the user freezes standings.
-    const inferred = inferGroupsConfig(teams.length);
+    // Bye teams (Worlds region #1 seeds) sit out the group stage — they're
+    // partitioned and scheduled only over the playing field, then prepended
+    // to the group qualifiers in startGroupsPlayoffs.
+    const groupsByeIds = new Set(params.groupsByeTeamIds ?? []);
+    const groupFieldTeams = groupsByeIds.size
+      ? teams.filter((t) => !groupsByeIds.has(t.id))
+      : teams;
+    const inferred = inferGroupsConfig(groupFieldTeams.length);
     const cfg = params.groupsConfigOverride ?? inferred;
-    matches = generateGroupStageMatches(teams, cfg, params.defaults, fo);
+    matches = generateGroupStageMatches(
+      groupFieldTeams,
+      cfg,
+      params.defaults,
+      fo,
+    );
     groupsPlayoffs = {
       groupCount: cfg.groupCount,
       advancingPerGroup: cfg.advancingPerGroup,
@@ -2592,6 +2648,20 @@ export function createTournament(
     ...(swissByeIds.size
       ? { swissByeTeamIds: (params.swissByeTeamIds ?? []).filter((id) => swissByeIds.has(id)) }
       : {}),
+    // Only materialize the group-bye list when teams actually bypass the
+    // group stage, so ordinary groups tournaments serialize unchanged.
+    ...((params.format === "groups-playoffs" ||
+      params.format === "groups-playoffs-de" ||
+      params.format === "groups-playoffs-te") &&
+    (params.groupsByeTeamIds?.length ?? 0) > 0
+      ? {
+          groupsByeTeamIds: (params.groupsByeTeamIds ?? []).filter((id) =>
+            teams.some((t) => t.id === id),
+          ),
+        }
+      : {}),
+    // Only carry the variance preset when opted in — absent ⇒ classic.
+    ...(params.variancePreset ? { variancePreset: params.variancePreset } : {}),
     rrPlayoffsAdvancing:
       params.format === "round-robin-playoffs"
         ? clampDEAdvancing(
@@ -3242,6 +3312,13 @@ export function startGroupsPlayoffs(
   const kind = playoffBracketKindFor(tournament.format);
   const groupCount = cfg.groupCount;
   const advancingPerGroup = cfg.advancingPerGroup;
+  // Bye teams (Worlds region #1 seeds) skip the group stage and are pre-
+  // seeded above the group qualifiers in the bracket, in their own seed
+  // order. The group field competes for the REMAINING bracket spots.
+  const byeTeams: TournamentTeam[] = (tournament.groupsByeTeamIds ?? [])
+    .map((id) => tournament.teams.find((t) => t.id === id))
+    .filter((t): t is TournamentTeam => t != null)
+    .sort((a, b) => a.seed - b.seed);
   // For each group, take top-K. Snake-seed across groups so #1 from
   // group A meets #2 from group B (etc.) — standard pro convention.
   const advancing: TournamentTeam[] = [];
@@ -3253,21 +3330,24 @@ export function startGroupsPlayoffs(
       if (team) advancing.push(team);
     }
   }
-  if (advancing.length < 2) return tournament;
+  // The bracket is byes (on top) + the group qualifiers below.
+  let bracketTeams = [...byeTeams, ...advancing];
+  if (bracketTeams.length < 2) return tournament;
   // For DE playoffs, trim to the largest supported bracket size — the
   // DE generator accepts powers of 2 plus the bye-friendly 6/12. Trims
-  // from the bottom (lowest-seeded promoted team gets bumped if
-  // needed). The setup UI restricts groupCount × advancingPerGroup so
-  // this rarely fires, but we belt-and-brace here because saved
-  // tournaments can have legacy configs.
-  let trimmed = advancing;
+  // from the bottom (lowest-seeded group qualifier gets bumped if
+  // needed; bye teams are never trimmed). The setup UI restricts
+  // groupCount × advancingPerGroup so this rarely fires, but we belt-and-
+  // brace here because saved tournaments can have legacy configs, and a
+  // byes + qualifier total may not be a clean DE size.
   if (kind === "double-elim") {
-    if (advancing.length < 4) return tournament;
-    trimmed = advancing.slice(0, clampDEAdvancing(advancing.length));
+    if (bracketTeams.length < 4) return tournament;
+    bracketTeams = bracketTeams.slice(0, clampDEAdvancing(bracketTeams.length));
   }
-  // Re-seed by promotion order. Snake order above gives reasonable
-  // pairings: top-of-group-A vs top-of-group-B in the final, etc.
-  const reseededTeams: TournamentTeam[] = trimmed.map((t, i) => ({
+  // Re-seed: bye teams first (by seed), then group qualifiers in snake
+  // order, which gives reasonable pairings: top-of-group-A vs top-of-
+  // group-B in the final, etc.
+  const reseededTeams: TournamentTeam[] = bracketTeams.map((t, i) => ({
     ...t,
     seed: i + 1,
   }));

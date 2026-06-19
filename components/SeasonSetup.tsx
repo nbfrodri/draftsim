@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import { deriveStar, randomizeTiersForStar } from "@/lib/players";
-import type { AIDifficulty, SeriesFormat } from "@/lib/types";
+import type { AIDifficulty, SeriesFormat, VariancePreset } from "@/lib/types";
 import type { TournamentFormat } from "@/lib/tournament";
 import {
   intlFormatOptionsFor,
@@ -185,6 +185,16 @@ export default function SeasonSetup({ onCancel }: Props) {
   const [liveMeta, setLiveMeta] = useState(true);
   const [patchShift, setPatchShift] = useState(true);
   const [fearless, setFearless] = useState(false);
+  // Season-realism toggles (default off — opt-in flavor).
+  const [formDrift, setFormDrift] = useState(false);
+  const [playerDevelopment, setPlayerDevelopment] = useState(false);
+  const [metaAdaptability, setMetaAdaptability] = useState(false);
+  const [clutchFactor, setClutchFactor] = useState(false);
+  const [regionTides, setRegionTides] = useState(false);
+  // Match-variance preset; "off" ⇒ classic bias model (field omitted).
+  const [variancePreset, setVariancePreset] = useState<VariancePreset | "off">(
+    "off",
+  );
   const [timerEnabled, setTimerEnabled] = useState(false);
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>("normal");
   // International formats: per-event by default (each event has its own
@@ -350,6 +360,14 @@ export default function SeasonSetup({ onCancel }: Props) {
       timerEnabled,
       aiDifficulty,
       controlledTeamId,
+      // Realism options — only materialize when ON so default seasons
+      // serialize byte-identically to pre-feature saves.
+      ...(formDrift ? { formDrift: true } : {}),
+      ...(playerDevelopment ? { playerDevelopment: true } : {}),
+      ...(metaAdaptability ? { metaAdaptability: true } : {}),
+      ...(clutchFactor ? { clutchFactor: true } : {}),
+      ...(regionTides ? { regionTides: true } : {}),
+      ...(variancePreset !== "off" ? { variancePreset } : {}),
     };
     startSeason(config, teams);
   };
@@ -432,14 +450,26 @@ export default function SeasonSetup({ onCancel }: Props) {
           title="Series length for the playoff bracket and the final"
         />
         {/* Play-in customization. Worlds runs a 6-team play-in (the #4
-            seeds); MSI runs one only on an ill-fitting field. Both can be
-            toggled off. First Stand has no play-in. */}
+            seeds); MSI runs one only on an ill-fitting field; the
+            single-elim First Stand runs a #2-seed play-in so the region #1
+            seeds bye into the main bracket. All can be toggled off. */}
         {(() => {
+          // First Stand's play-in IS its seeds-bye structure, available
+          // only on the single-elim format.
+          const isFirstStandSeedBye =
+            (event === "first-stand" || event === "shared") &&
+            cfg.format === "single-elim";
           const showPlayIn =
-            event === "worlds" || event === "msi" || event === "shared";
+            event === "worlds" ||
+            event === "msi" ||
+            event === "shared" ||
+            isFirstStandSeedBye;
           if (!showPlayIn) return null;
           const enabled = cfg.playInEnabled !== false;
           const showWorlds = event === "worlds" || event === "shared";
+          // Worlds and the First Stand seeds-bye structure both let the
+          // user choose the play-in bracket format.
+          const showFormat = showWorlds || isFirstStandSeedBye;
           return (
             <>
               <label className="flex flex-col gap-1">
@@ -454,13 +484,13 @@ export default function SeasonSetup({ onCancel }: Props) {
                     })
                   }
                   className={SELECT_CLS}
-                  title="Worlds OFF = all qualified teams (incl. #4 seeds) enter the main event directly. MSI OFF = never run the field-trimming play-in."
+                  title="Worlds OFF = all qualified teams (incl. #4 seeds) enter the main event directly. MSI OFF = never run the field-trimming play-in. First Stand OFF = plain 12-team single-elim (no #1-seed byes)."
                 >
                   <option value="on">On</option>
                   <option value="off">Off</option>
                 </select>
               </label>
-              {enabled && showWorlds && (
+              {enabled && showFormat && (
                 <label className="flex flex-col gap-1">
                   <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
                     Play-In Format
@@ -475,7 +505,7 @@ export default function SeasonSetup({ onCancel }: Props) {
                       })
                     }
                     className={SELECT_CLS}
-                    title="Bracket format for the 6-team Worlds play-in (double-elim gives eliminated teams a second life)"
+                    title="Bracket format for the play-in (double-elim gives eliminated teams a second life)"
                   >
                     <option value="single-elim">Single Elim</option>
                     <option value="double-elim">Double Elim</option>
@@ -848,10 +878,92 @@ export default function SeasonSetup({ onCancel }: Props) {
                 ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
                 : "border-rift-line text-rift-mutedbright"
             }`}
-            title="A balance patch between each split and international shifts ~12% of tiers"
+            title="A gentle balance patch between each split nudges a few champion tiers — like real LoL patches, a little, not a teardown"
           >
             Patch Shifts {patchShift ? "ON" : "OFF"}
           </button>
+          <button
+            type="button"
+            onClick={() => setFormDrift(!formDrift)}
+            className={`px-3 py-1.5 border text-[9px] uppercase tracking-[0.25em] transition-all ${
+              formDrift
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line text-rift-mutedbright"
+            }`}
+            title="Hot/cold form: results nudge a hidden team strength modifier (regressing to the roster baseline), shown as a trending tier badge"
+          >
+            Team Form {formDrift ? "ON" : "OFF"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPlayerDevelopment(!playerDevelopment)}
+            className={`px-3 py-1.5 border text-[9px] uppercase tracking-[0.25em] transition-all ${
+              playerDevelopment
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line text-rift-mutedbright"
+            }`}
+            title="Players develop between splits — weaker rosters trend up, peaked ones regress down — so team ratings move across the year"
+          >
+            Player Dev {playerDevelopment ? "ON" : "OFF"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMetaAdaptability(!metaAdaptability)}
+            className={`px-3 py-1.5 border text-[9px] uppercase tracking-[0.25em] transition-all ${
+              metaAdaptability
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line text-rift-mutedbright"
+            }`}
+            title="Adaptable teams gain form on a patch shift, rigid teams lose it (needs Patch Shifts on to matter)"
+          >
+            Meta Adapt {metaAdaptability ? "ON" : "OFF"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setClutchFactor(!clutchFactor)}
+            className={`px-3 py-1.5 border text-[9px] uppercase tracking-[0.25em] transition-all ${
+              clutchFactor
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line text-rift-mutedbright"
+            }`}
+            title="Teams carry a clutch trait that tilts elimination-round odds, plus within-series momentum for the game leader"
+          >
+            Clutch {clutchFactor ? "ON" : "OFF"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setRegionTides(!regionTides)}
+            className={`px-3 py-1.5 border text-[9px] uppercase tracking-[0.25em] transition-all ${
+              regionTides
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line text-rift-mutedbright"
+            }`}
+            title="International results raise or lower each region's strength, reordering inter-league seeding (instead of the fixed LCK>LPL>… ranking)"
+          >
+            Region Tides {regionTides ? "ON" : "OFF"}
+          </button>
+          {/* Match variance: a single Off/Chalky/Balanced/Chaotic dial over
+              upset likelihood (deciding-game coin-flips, favorites choking
+              under elimination, and chalky↔chaotic star-bias scaling). */}
+          <div
+            className="inline-flex border border-rift-line divide-x divide-rift-line"
+            title="How often the better team actually wins. Chalky: favorites dominate. Balanced: gentle upsets. Chaotic: ratings matter less, game 5s and reverse sweeps become real. Off: classic model."
+          >
+            {(["off", "chalky", "balanced", "chaotic"] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setVariancePreset(p)}
+                className={`px-2.5 py-1.5 text-[9px] uppercase tracking-[0.25em] transition-all ${
+                  variancePreset === p
+                    ? "bg-rift-gold/10 text-rift-goldbright"
+                    : "text-rift-mutedbright hover:text-rift-goldbright"
+                }`}
+              >
+                {p === "off" ? "Variance" : p}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => setFearless(!fearless)}

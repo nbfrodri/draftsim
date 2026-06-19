@@ -435,3 +435,137 @@ describe("starRatingBias — streaks", () => {
     expect(starRatingBias(seriesWithStreaks(0, 0))).toBeCloseTo(0);
   });
 });
+
+// ─── starRatingBias — season-realism modifiers (form / clutch / momentum) ────
+
+describe("starRatingBias — form & clutch", () => {
+  function s(overrides: Partial<Parameters<typeof createSeries>[0]>): SeriesState {
+    return createSeries({
+      format: "bo5",
+      fearless: false,
+      timerEnabled: false,
+      blueTeam: "Alpha",
+      redTeam: "Beta",
+      mode: "aivai",
+      aiSide: null,
+      aiDifficulty: "normal",
+      blueStarRating: 3,
+      redStarRating: 3,
+      ...overrides,
+    });
+  }
+
+  it("form adds a signed bias on top of stars (±1 ≈ ±3 points)", () => {
+    expect(starRatingBias(s({ blueForm: 1, redForm: 0 }))).toBeCloseTo(3.0);
+    expect(starRatingBias(s({ blueForm: 0, redForm: 1 }))).toBeCloseTo(-3.0);
+    // Cold blue vs hot red compounds both ways.
+    expect(starRatingBias(s({ blueForm: -0.5, redForm: 0.5 }))).toBeCloseTo(-3.0);
+  });
+
+  it("clutch only bites in elimination rounds", () => {
+    // Early rounds: clutch is dormant.
+    expect(
+      starRatingBias(s({ blueClutch: 1, redClutch: 0, tournamentRound: "early" })),
+    ).toBeCloseTo(0);
+    // Final: the clutch trait tilts the odds.
+    expect(
+      starRatingBias(s({ blueClutch: 1, redClutch: 0, tournamentRound: "final" })),
+    ).toBeCloseTo(3.0);
+    // Quarterfinal counts as elimination too.
+    expect(
+      starRatingBias(
+        s({ blueClutch: 0, redClutch: 1, tournamentRound: "quarterfinal" }),
+      ),
+    ).toBeCloseTo(-3.0);
+  });
+
+  it("within-series momentum rewards the series leader (gated on clutch)", () => {
+    // No clutch fields → no momentum, even mid-series.
+    const noClutch = recordWinner(s({}), "blue");
+    expect(starRatingBias(noClutch)).toBeCloseTo(0);
+    // Clutch present (even 0) enables momentum: a 1-0 lead nudges the leader.
+    const withClutch = recordWinner(
+      s({ blueClutch: 0, redClutch: 0, tournamentRound: "early" }),
+      "blue",
+    );
+    expect(starRatingBias(withClutch)).toBeCloseTo(1.2);
+  });
+});
+
+// ─── starRatingBias — match-variance preset (#6 / #9 / #15) ──────────────────
+
+describe("starRatingBias — variance preset", () => {
+  function s(overrides: Partial<Parameters<typeof createSeries>[0]>): SeriesState {
+    return createSeries({
+      format: "bo5",
+      fearless: false,
+      timerEnabled: false,
+      blueTeam: "Alpha",
+      redTeam: "Beta",
+      mode: "aivai",
+      aiSide: null,
+      aiDifficulty: "normal",
+      blueStarRating: 5,
+      redStarRating: 3,
+      ...overrides,
+    });
+  }
+
+  // Force a series score by cloning game 1 (which carries the team names
+  // winsByTeamName reads) and stamping winners. blue/red here are the
+  // current-side win counts.
+  function withScore(series: SeriesState, blue: number, red: number): SeriesState {
+    const g0 = series.games[0];
+    const games = [
+      ...Array.from({ length: blue }, () => ({ ...g0, winner: "blue" as const })),
+      ...Array.from({ length: red }, () => ({ ...g0, winner: "red" as const })),
+    ];
+    return { ...series, games };
+  }
+
+  it("absent preset is byte-identical to the classic model", () => {
+    // Plain star gap, no preset → unchanged (5★ vs 3★ = 18).
+    expect(starRatingBias(s({}))).toBeCloseTo(18);
+    // Even a 2-2 decider does nothing without a preset opting in.
+    expect(starRatingBias(withScore(s({}), 2, 2))).toBeCloseTo(18);
+  });
+
+  it("[#15] scales the star bias: chalky sharpens, chaotic flattens", () => {
+    expect(starRatingBias(s({ variancePreset: "chalky" }))).toBeCloseTo(22.5);
+    expect(starRatingBias(s({ variancePreset: "balanced" }))).toBeCloseTo(18);
+    expect(starRatingBias(s({ variancePreset: "chaotic" }))).toBeCloseTo(13.5);
+  });
+
+  it("[#6] dampens the whole bias toward a coinflip on a decider", () => {
+    // 1-0 is not a decider → full balanced bias (18).
+    expect(
+      starRatingBias(withScore(s({ variancePreset: "balanced" }), 1, 0)),
+    ).toBeCloseTo(18);
+    // 2-2 Bo5 IS a decider → ×0.8 (18 → 14.4).
+    expect(
+      starRatingBias(withScore(s({ variancePreset: "balanced" }), 2, 2)),
+    ).toBeCloseTo(14.4);
+  });
+
+  it("[#9] favorite choking only when facing elimination in an elim round", () => {
+    // Favorite (blue, 5★) down 1-2 in a semifinal → flat nudge to the
+    // underdog (18 − 1.5 = 16.5).
+    expect(
+      starRatingBias(
+        withScore(s({ variancePreset: "balanced", tournamentRound: "semifinal" }), 1, 2),
+      ),
+    ).toBeCloseTo(16.5);
+    // Same score in a non-elimination round → no choke (full 18).
+    expect(
+      starRatingBias(
+        withScore(s({ variancePreset: "balanced", tournamentRound: "early" }), 1, 2),
+      ),
+    ).toBeCloseTo(18);
+    // Favorite NOT facing elimination (leading 2-1) → no choke.
+    expect(
+      starRatingBias(
+        withScore(s({ variancePreset: "balanced", tournamentRound: "semifinal" }), 2, 1),
+      ),
+    ).toBeCloseTo(18);
+  });
+});

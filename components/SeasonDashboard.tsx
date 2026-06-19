@@ -20,6 +20,13 @@ import {
 } from "@/lib/season/engine";
 import { computeSeasonStats, computeStageStats } from "@/lib/season/stats";
 import {
+  computePowerRankings,
+  type PowerRankingRow,
+  type PowerTag,
+} from "@/lib/season/powerRankings";
+import { buildSeasonStory } from "@/lib/season/seasonStory";
+import SeasonStoryCard from "./SeasonStoryCard";
+import {
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
   SPLIT_FEEDS_EVENT,
@@ -33,6 +40,7 @@ import TeamIcon from "./TeamIcon";
 import {
   IntlChampionBadge,
   QualifierTagView,
+  TeamFormBadge,
   type QualifierTagInfo,
 } from "./QualifierBadge";
 import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
@@ -77,6 +85,7 @@ export default function SeasonDashboard() {
     for (const c of champions) map.set(c.id, c);
     return map;
   }, [champions]);
+  const seasonStory = useMemo(() => buildSeasonStory(season), [season]);
 
   const phase = season.phases[season.phaseIndex] ?? null;
   const controlled = seasonTeam(season, season.config.controlledTeamId);
@@ -348,10 +357,16 @@ export default function SeasonDashboard() {
           />
         )}
 
+        {/* The season's narrative recap, once it's over. */}
+        {season.status === "complete" && <SeasonStoryCard story={seasonStory} />}
+
         {/* Season-wide recap — the year in numbers, once it's over. */}
         {season.status === "complete" && (
           <SeasonRecapPanel season={season} championsById={championsById} />
         )}
+
+        {/* Narrative power rankings — form + results + light meta-fit. */}
+        <PowerRankingsPanel season={season} champions={champions} />
 
         {/* The season's evolving meta: view/edit tiers & pairings,
             export codes, save to the libraries. */}
@@ -667,6 +682,118 @@ function PhasePanel({
   );
 }
 
+// ─── Power rankings ────────────────────────────────────────────────────────
+// A derived, always-available readout blending roster strength, current
+// form, the most recent result, and a light meta-fit. Pure UI — no config
+// flag needed; the form terms simply read 0 when those systems are off.
+
+const POWER_TAG_LABEL: Record<PowerTag, string> = {
+  "team-of-split": "Team of the Split",
+  "biggest-riser": "Riser",
+  "biggest-faller": "Faller",
+};
+
+function PowerRankRow({
+  row,
+  spread,
+  min,
+}: {
+  row: PowerRankingRow;
+  spread: number;
+  min: number;
+}) {
+  // Bar fills relative to the visible field (best = full, worst ≈ empty).
+  const pct = spread > 0 ? 8 + 92 * ((row.score - min) / spread) : 100;
+  const glyph =
+    row.movement === "up" ? "▲" : row.movement === "down" ? "▼" : "·";
+  const glyphColor =
+    row.movement === "up"
+      ? "text-emerald-400"
+      : row.movement === "down"
+        ? "text-rift-redbright"
+        : "text-rift-muted/50";
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] text-rift-mutedbright">
+      <span className="w-4 text-rift-muted/70 tabular-nums">{row.rank}</span>
+      <span className={`w-2 text-center ${glyphColor}`} aria-hidden>
+        {glyph}
+      </span>
+      <TeamIcon
+        iconKey={row.team.iconKey}
+        logoUrl={row.team.logoUrl}
+        size={12}
+        color={row.team.color}
+      />
+      <span className="truncate w-24 flex-shrink-0">{row.team.name}</span>
+      {/* Score bar */}
+      <div className="flex-1 h-1.5 bg-rift-line/40 min-w-8">
+        <div
+          className="h-full bg-rift-gold/60"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {row.tags
+        .filter((t) => t !== "team-of-split" || row.rank === 1)
+        .map((t) => (
+          <span
+            key={t}
+            className={`px-1 py-px text-[8px] uppercase tracking-[0.15em] border flex-shrink-0 ${
+              t === "biggest-faller"
+                ? "border-rift-red/50 text-rift-redbright"
+                : "border-rift-gold/50 text-rift-goldbright"
+            }`}
+          >
+            {POWER_TAG_LABEL[t]}
+          </span>
+        ))}
+    </div>
+  );
+}
+
+function PowerRankingsPanel({
+  season,
+  champions,
+}: {
+  season: SeasonState;
+  champions: readonly Champion[];
+}) {
+  const [open, setOpen] = useState(true);
+  const rows = useMemo(
+    () => computePowerRankings(season, champions).slice(0, 10),
+    [season, champions],
+  );
+  if (rows.length === 0) return null;
+  const min = rows[rows.length - 1].score;
+  const spread = rows[0].score - min;
+  return (
+    <div className="mb-8">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2 hover:text-rift-goldbright transition-colors"
+      >
+        <span>Power Rankings · Top 10</span>
+        <span>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div className="space-y-1 border border-rift-line/40 bg-rift-bg/30 px-3 py-2">
+          {rows.map((row) => (
+            <PowerRankRow
+              key={row.team.id}
+              row={row}
+              spread={spread}
+              min={min}
+            />
+          ))}
+          <div className="text-[8px] text-rift-muted/60 italic pt-1">
+            Blends roster strength, recent form &amp; results, and meta fit.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TournamentCard({
   season,
   tournament,
@@ -833,6 +960,10 @@ function TournamentCard({
                 </span>
                 <TeamIcon iconKey={s.team.iconKey} logoUrl={s.team.logoUrl} size={12} color={s.team.color} />
                 <span className="truncate flex-1">{s.team.name}</span>
+                <TeamFormBadge
+                  form={s.team.form}
+                  baseStar={s.team.starRating}
+                />
                 <QualifierTagView tag={regionSeeds?.get(s.team.id)} />
                 <span className="tabular-nums text-rift-muted/70 flex-shrink-0">
                   {s.wins}-{s.losses}

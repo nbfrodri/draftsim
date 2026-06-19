@@ -78,6 +78,17 @@ describe("buildSeasonHistoryEntry", () => {
     expect(entry.finalMetaOverride).toEqual(final);
   });
 
+  it("carries the region tide forward when present, omits it otherwise", () => {
+    const tided = buildSeasonHistoryEntry(
+      fabricate({ leagueStrength: { LCK: 0.3, LPL: -0.1 } } as Partial<SeasonState>),
+      1,
+    );
+    expect(tided.leagueStrength).toEqual({ LCK: 0.3, LPL: -0.1 });
+    // A season that didn't run Region Tides archives without the field.
+    const plain = buildSeasonHistoryEntry(fabricate(), 1);
+    expect("leagueStrength" in plain).toBe(false);
+  });
+
   it("marks the starting meta unknown for seasons that pre-date initialMeta", () => {
     const entry = buildSeasonHistoryEntry(
       fabricate({
@@ -107,6 +118,39 @@ describe("buildSeasonHistoryEntry", () => {
     expect(entry.champion).toBeNull();
     expect(entry.runnerUp).toBeNull();
     expect(entry.intlChampions["first-stand"]?.name).toBe("T3");
+  });
+
+  it("attaches a narrative story, and it survives JSON persistence", () => {
+    const entry = buildSeasonHistoryEntry(fabricate(), 1);
+    expect(entry.story).toBeDefined();
+    expect(entry.story?.champion?.name).toBe("T1");
+    // t1 won Winter LCK + MSI + Worlds → 3 trophies.
+    expect(entry.story?.teamOfTheYear?.team.name).toBe("T1");
+    expect(entry.story?.teamOfTheYear?.titles).toBe(3);
+    expect(entry.story?.regionThatRose).toBe("LCK");
+    // History persists as JSON (localStorage / desktop file) — round-trip it.
+    const roundTripped = JSON.parse(JSON.stringify(entry));
+    expect(roundTripped.story).toEqual(entry.story);
+  });
+
+  it("omits the story for a season with no results to tell", () => {
+    const entry = buildSeasonHistoryEntry(
+      fabricate({
+        status: "in-progress",
+        champion: null,
+        splitResults: {},
+        intlResults: {},
+        tournaments: {},
+        currentMeta: {
+          metaOverride: null,
+          metaEnabled: true,
+          synergyOverride: null,
+          counterOverride: null,
+        },
+      } as Partial<SeasonState>),
+      1,
+    );
+    expect("story" in entry).toBe(false);
   });
 });
 

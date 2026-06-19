@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import type { Champion, Lane } from "../types";
-import { LANE_ORDER } from "../players";
+import { LANE_ORDER, PLAYER_TIERS } from "../players";
 import {
   computeBracketFinishOrder,
   computeStandings,
@@ -18,6 +18,7 @@ import {
 } from "../tournament";
 import {
   applyPatchShift,
+  applyPlayerDevelopment,
   applyTournamentUpdate,
   championshipPoints,
   createSeason,
@@ -27,9 +28,11 @@ import {
   LEAGUE_FORMAT_OPTIONS,
   nextPendingTournament,
   qualifiedForInternational,
+  regionStrengthSeed,
   seasonGoldenRoadTeamId,
   tournamentPlacements,
 } from "./engine";
+import type { SeasonHistoryEntry, SeasonHistoryTeamRef } from "./history";
 import { generateSeasonTeams } from "./teamGen";
 import {
   LEAGUE_IDS,
@@ -230,17 +233,26 @@ describe("season lifecycle", () => {
     }
 
     // ── First Stand: top 2 per league, seeded #1s before #2s ──
-    const fs = nextPendingTournament(s)!;
-    expect(fs.teams).toHaveLength(12);
+    // Seeds-bye structure: the six region #2 seeds play a play-in; the six
+    // #1 seeds bye straight into the main 8-team single-elim bracket.
     const fsQualified = qualifiedForInternational(s, "first-stand");
     expect(fsQualified.slice(0, 6).every((q) => q.leagueSeed === 1)).toBe(true);
     expect(fsQualified.slice(6).every((q) => q.leagueSeed === 2)).toBe(true);
-    for (const league of LEAGUE_IDS) {
-      const placements = s.splitResults.winter![league]!;
-      const sent = fs.teams.filter((t) =>
-        placements.slice(0, 2).includes(t.id),
-      );
-      expect(sent).toHaveLength(2);
+    const fsPlayIn = nextPendingTournament(s)!;
+    expect(fsPlayIn.name).toBe("First Stand Play-In");
+    expect(fsPlayIn.teams).toHaveLength(6); // the #2 seeds
+    for (const q of fsQualified.filter((x) => x.leagueSeed === 2)) {
+      expect(fsPlayIn.teams.some((t) => t.id === q.team.id)).toBe(true);
+    }
+    s = applyTournamentUpdate(s, resolveTournament(fsPlayIn, rng), champions);
+    // The play-in is a qualifier — it must not record the event result.
+    expect(s.intlResults["first-stand"]).toBeUndefined();
+    const fs = nextPendingTournament(s)!;
+    expect(fs.name).toBe("First Stand");
+    expect(fs.teams).toHaveLength(8); // six #1 seeds + two play-in finalists
+    // Every region #1 seed byes straight into the main bracket.
+    for (const q of fsQualified.filter((x) => x.leagueSeed === 1)) {
+      expect(fs.teams.some((t) => t.id === q.team.id)).toBe(true);
     }
     s = applyTournamentUpdate(s, resolveTournament(fs, rng), champions);
     expect(s.intlResults["first-stand"]).toBeDefined();
@@ -372,20 +384,41 @@ describe("season lifecycle", () => {
       winterTournaments.push(done);
       s = applyTournamentUpdate(s, done, champions);
     }
-    const fs = nextPendingTournament(s)!; // First Stand
-    expect(fs.streakSeeds).toBeDefined();
-    // Every qualifier's seed equals its signed streak at the end of its
-    // winter split. League champions always arrive on a win streak
-    // (they won their playoff run), so at least those seeds are > 0.
-    for (const team of fs.teams) {
+    // Seeds-bye First Stand opens with a play-in for the #2 seeds; both it
+    // and the main bracket carry each team's end-of-winter streak as a seed.
+    const playIn = nextPendingTournament(s)!; // First Stand Play-In (#2 seeds)
+    expect(playIn.name).toContain("Play-In");
+    expect(playIn.streakSeeds).toBeDefined();
+    for (const team of playIn.teams) {
       const winter = winterTournaments.find((t) =>
         t.teams.some((tt) => tt.id === team.id),
       )!;
-      const expected = teamStreak(winter, team.id);
-      expect(fs.streakSeeds![team.id] ?? 0).toBe(expected);
+      expect(playIn.streakSeeds![team.id] ?? 0).toBe(teamStreak(winter, team.id));
     }
+    s = applyTournamentUpdate(s, resolveTournament(playIn, rng), champions);
+    const fs = nextPendingTournament(s)!; // First Stand main (#1 seeds bye in)
+    expect(fs.name).toBe("First Stand");
+    expect(fs.streakSeeds).toBeDefined();
+    // The #1 seeds bye straight in carrying their winter streak; the play-in
+    // finalists instead carry their (just-completed) play-in run, so only
+    // check the bye teams against their winter split here.
+    const byeIds = new Set(
+      qualifiedForInternational(s, "first-stand")
+        .filter((q) => q.leagueSeed === 1)
+        .map((q) => q.team.id),
+    );
+    for (const team of fs.teams) {
+      if (!byeIds.has(team.id)) continue;
+      const winter = winterTournaments.find((t) =>
+        t.teams.some((tt) => tt.id === team.id),
+      )!;
+      expect(fs.streakSeeds![team.id] ?? 0).toBe(teamStreak(winter, team.id));
+    }
+    // League champions are #1 seeds → bye into the main on a win streak
+    // (they won their winter playoff run).
     const champions6 = winterTournaments.map((t) => tournamentPlacements(t)[0]);
     for (const id of champions6) {
+      expect(byeIds.has(id)).toBe(true);
       expect(fs.streakSeeds![id]).toBeGreaterThan(0);
     }
   });
@@ -431,6 +464,89 @@ describe("custom international formats", () => {
     // And the customized event still resolves to completion.
     const done = resolveTournament(fs, rng);
     expect(done.status).toBe("complete");
+  });
+
+  it("runs the First Stand seed-bye play-in as double-elim when configured", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(5));
+    const config = makeConfig();
+    config.intlConfigs = {
+      "first-stand": {
+        format: "single-elim",
+        earlySeries: "bo1",
+        finalsSeries: "bo3",
+        playoffTeams: 8,
+        playInFormat: "double-elim",
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    const rng = rngFrom(9);
+    for (let i = 0; i < 6; i++) {
+      s = applyTournamentUpdate(
+        s,
+        resolveTournament(nextPendingTournament(s)!, rng),
+        champions,
+      );
+    }
+    // The #2-seed play-in is a double-elim bracket.
+    const playIn = nextPendingTournament(s)!;
+    expect(playIn.name).toBe("First Stand Play-In");
+    expect(playIn.format).toBe("double-elim");
+    expect(playIn.matches.some((m) => m.bracket === "losers")).toBe(true);
+    s = applyTournamentUpdate(s, resolveTournament(playIn, rng), champions);
+    // The main bracket is still the single-elim event with the #1 seeds.
+    const fs = nextPendingTournament(s)!;
+    expect(fs.name).toBe("First Stand");
+    expect(fs.format).toBe("single-elim");
+    expect(fs.teams).toHaveLength(8);
+  });
+
+  it("reverts First Stand to a plain single-elim when the play-in is off", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(5));
+    const config = makeConfig();
+    config.intlConfigs = {
+      "first-stand": {
+        format: "single-elim",
+        earlySeries: "bo1",
+        finalsSeries: "bo3",
+        playoffTeams: 8,
+        playInEnabled: false,
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    const rng = rngFrom(9);
+    for (let i = 0; i < 6; i++) {
+      s = applyTournamentUpdate(
+        s,
+        resolveTournament(nextPendingTournament(s)!, rng),
+        champions,
+      );
+    }
+    // No play-in: First Stand is a single 12-team single-elim event.
+    const fs = nextPendingTournament(s)!;
+    expect(fs.name).toBe("First Stand");
+    expect(fs.format).toBe("single-elim");
+    expect(fs.teams).toHaveLength(12);
+    expect(fs.groupsByeTeamIds).toBeUndefined();
   });
 
   it("builds First Stand as a 12-team double-elimination bracket", () => {
@@ -653,6 +769,43 @@ describe("custom international formats", () => {
       (q) => q.leagueSeed <= 3,
     ).length;
     expect(main.teams).toHaveLength(directCount + 4);
+  });
+
+  it("Worlds Groups+DE runs every team through 4 equal groups (no seed byes)", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(46));
+    const config = makeConfig();
+    config.intlConfigs = {
+      worlds: {
+        format: "groups-playoffs-de",
+        earlySeries: "bo1",
+        finalsSeries: "bo5",
+        playoffTeams: 8,
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    s = runSeason(s, champions);
+    expect(s.status).toBe("complete");
+    const main = Object.values(s.tournaments).find(
+      (t) => t.name === "World Championship",
+    )!;
+    // No team bypasses the group stage — the #1 seeds play groups too.
+    expect(main.groupsByeTeamIds).toBeUndefined();
+    // 18 direct + 2 play-in (or 19 + auto-reduced 1) = 20 → 4 equal groups
+    // of 5, top 2 of each → 8-team DE bracket.
+    expect(main.teams).toHaveLength(20);
+    expect(main.teams.length % 4).toBe(0);
+    expect(main.groupsPlayoffs!.groupCount).toBe(4);
+    expect(main.groupsPlayoffs!.advancingPerGroup).toBe(2);
   });
 
   it("runs a configurable double-elim Worlds play-in to completion", () => {
@@ -1173,5 +1326,336 @@ describe("Top 6 playoffs with semifinal/final series", () => {
     s = runSeason(s, champions);
     expect(s.status).toBe("complete");
     expect(s.champion).not.toBeNull();
+  });
+});
+
+// ── Season realism: form / development / adaptability / region tides ────────
+
+describe("season realism features", () => {
+  const META = {
+    metaOverride: null,
+    metaEnabled: true,
+    synergyOverride: null,
+    counterOverride: null,
+  };
+
+  function makeSeason(overrides: Partial<SeasonConfig>): SeasonState {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(5));
+    const config = { ...makeConfig(), ...overrides };
+    return createSeason({ config, teams, activeMeta: META });
+  }
+
+  // Resolve every tournament of the winter split (and trigger the
+  // winter → First Stand boundary), returning the season at First Stand.
+  function playWinter(s: SeasonState, champions: Champion[]): SeasonState {
+    const rng = rngFrom(11);
+    while (currentPhase(s)?.split === "winter") {
+      s = applyTournamentUpdate(
+        s,
+        resolveTournament(nextPendingTournament(s)!, rng),
+        champions,
+      );
+    }
+    return s;
+  }
+
+  it("[default] carries no realism state when every flag is off", () => {
+    const champions = championPool();
+    let s = createSeason({
+      config: makeConfig(),
+      teams: generateSeasonTeams(champions, rngFrom(5)),
+      activeMeta: META,
+    });
+    s = playWinter(s, champions);
+    expect(s.teamForm).toBeUndefined();
+    expect(s.teamClutch).toBeUndefined();
+    expect(s.teamAdaptability).toBeUndefined();
+    expect(s.leagueStrength).toBeUndefined();
+    // And the next tournament's teams carry no form/clutch fields.
+    const fs = nextPendingTournament(s)!;
+    expect(fs.teams.every((t) => t.form === undefined)).toBe(true);
+    expect(fs.teams.every((t) => t.clutch === undefined)).toBe(true);
+  });
+
+  it("[A] form drifts within [-1,1] and reaches the next tournament's teams", () => {
+    const champions = championPool();
+    let s = createSeason({
+      config: { ...makeConfig(), formDrift: true },
+      teams: generateSeasonTeams(champions, rngFrom(5)),
+      activeMeta: META,
+    });
+    s = playWinter(s, champions);
+    expect(s.teamForm).toBeDefined();
+    const forms = Object.values(s.teamForm!);
+    expect(forms.length).toBeGreaterThan(0);
+    for (const f of forms) expect(Math.abs(f)).toBeLessThanOrEqual(1);
+    // Some team came out of winter hot or cold, and that form is attached
+    // to its TournamentTeam in the next event.
+    expect(forms.some((f) => f !== 0)).toBe(true);
+    const fs = nextPendingTournament(s)!;
+    expect(fs.teams.some((t) => typeof t.form === "number")).toBe(true);
+  });
+
+  it("[D] a patch shift swings form toward each team's adaptability", () => {
+    const champions = championPool();
+    // Adaptability on, form-from-results off → after the winter patch shift
+    // every team's form is purely its adaptability swing, so the signs line
+    // up exactly.
+    let s = createSeason({
+      config: {
+        ...makeConfig(),
+        patchShift: true,
+        metaAdaptability: true,
+      },
+      teams: generateSeasonTeams(champions, rngFrom(5)),
+      activeMeta: META,
+    });
+    s = playWinter(s, champions);
+    expect(s.teamAdaptability).toBeDefined();
+    expect(s.teamForm).toBeDefined();
+    for (const team of s.teams) {
+      const a = s.teamAdaptability![team.id] ?? 0;
+      if (Math.abs(a) < 0.01) continue;
+      const f = s.teamForm![team.id] ?? 0;
+      expect(Math.sign(f)).toBe(Math.sign(a));
+    }
+  });
+
+  it("[E] clutch traits are seeded for every team", () => {
+    const s = makeSeason({ clutchFactor: true });
+    expect(s.teamClutch).toBeDefined();
+    expect(Object.keys(s.teamClutch!).length).toBe(s.teams.length);
+    for (const v of Object.values(s.teamClutch!)) {
+      expect(Math.abs(v)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("[F] region tides reorder inter-league seeding by strength", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(5));
+    const base = createSeason({
+      config: { ...makeConfig(), regionTides: true },
+      teams,
+      activeMeta: META,
+    });
+    // Hand each league a full winter placement list and a strength score
+    // that makes the FIXED order's weakest region (LCP) the strongest.
+    const winter = Object.fromEntries(
+      LEAGUE_IDS.map((lg) => [
+        lg,
+        teams.filter((t) => t.leagueId === lg).map((t) => t.id),
+      ]),
+    );
+    const strength: Partial<Record<(typeof LEAGUE_IDS)[number], number>> = {};
+    LEAGUE_IDS.forEach((lg, i) => (strength[lg] = i)); // last (LCP) = highest
+    const tided: SeasonState = {
+      ...base,
+      splitResults: { winter },
+      leagueStrength: strength,
+    };
+    const q = qualifiedForInternational(tided, "first-stand");
+    const firstSeeds = q.filter((x) => x.leagueSeed === 1).map((x) => x.league);
+    expect(firstSeeds).toEqual([...LEAGUE_IDS].reverse());
+
+    // Without region tides, the fixed LCK>LPL>… order holds.
+    const fixed: SeasonState = {
+      ...base,
+      config: { ...base.config, regionTides: false },
+      splitResults: { winter },
+      leagueStrength: strength,
+    };
+    const qFixed = qualifiedForInternational(fixed, "first-stand");
+    expect(qFixed.filter((x) => x.leagueSeed === 1).map((x) => x.league)).toEqual([
+      ...LEAGUE_IDS,
+    ]);
+  });
+
+  it("[B] player development drifts tiers within bounds and regresses extremes", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(5)).map((t) => ({
+      ...t,
+      players: t.players.map((p) => ({ ...p, tier: "S" as const })),
+    }));
+    const s = createSeason({
+      config: { ...makeConfig(), playerDevelopment: true },
+      teams,
+      activeMeta: META,
+    });
+    const developed = applyPlayerDevelopment(s, rngFrom(3));
+    const tiers = developed.teams.flatMap((t) => t.players.map((p) => p.tier));
+    // Every tier stays valid…
+    for (const tier of tiers) expect(PLAYER_TIERS).toContain(tier);
+    // …and a peaked (all-S) field can only hold or regress — never exceed S,
+    // and at least one player steps down.
+    expect(tiers.some((tier) => tier !== "S")).toBe(true);
+
+    // The mirror case: an all-D field can only rise.
+    const dTeams = generateSeasonTeams(champions, rngFrom(6)).map((t) => ({
+      ...t,
+      players: t.players.map((p) => ({ ...p, tier: "D" as const })),
+    }));
+    const sD = createSeason({
+      config: { ...makeConfig(), playerDevelopment: true },
+      teams: dTeams,
+      activeMeta: META,
+    });
+    const developedD = applyPlayerDevelopment(sD, rngFrom(3));
+    const tiersD = developedD.teams.flatMap((t) => t.players.map((p) => p.tier));
+    expect(tiersD.some((tier) => tier !== "D")).toBe(true);
+  });
+
+  it("runs a full season with every realism feature enabled", () => {
+    const champions = championPool();
+    let s = createSeason({
+      config: {
+        ...makeConfig(),
+        patchShift: true,
+        formDrift: true,
+        playerDevelopment: true,
+        metaAdaptability: true,
+        clutchFactor: true,
+        regionTides: true,
+      },
+      teams: generateSeasonTeams(champions, rngFrom(5)),
+      activeMeta: META,
+    });
+    s = runSeason(s, champions);
+    expect(s.status).toBe("complete");
+    expect(s.champion).not.toBeNull();
+    // All player tiers remained valid through the year's development.
+    const tiers = s.teams.flatMap((t) => t.players.map((p) => p.tier));
+    for (const tier of tiers) expect(PLAYER_TIERS).toContain(tier);
+  });
+});
+
+// ── Region Tides: cross-season carryover ────────────────────────────────────
+
+describe("region tides cross-season carryover", () => {
+  const META = {
+    metaOverride: null,
+    metaEnabled: true,
+    synergyOverride: null,
+    counterOverride: null,
+  };
+
+  function ref(leagueId: (typeof LEAGUE_IDS)[number]): SeasonHistoryTeamRef {
+    return { name: `${leagueId} Team`, leagueId, color: "#fff", iconKey: "shield" };
+  }
+
+  function entry(over: Partial<SeasonHistoryEntry>): SeasonHistoryEntry {
+    return {
+      id: "prev",
+      archivedAt: 0,
+      name: "Prev",
+      complete: true,
+      champion: null,
+      runnerUp: null,
+      intlChampions: {},
+      splitChampions: {},
+      ...over,
+    };
+  }
+
+  it("prefers the evolved tide, decayed toward neutral", () => {
+    const seed = regionStrengthSeed(
+      entry({ leagueStrength: { LCK: 0.4, LPL: -0.2, LCP: 0 } }),
+    );
+    expect(seed.LCK).toBeCloseTo(0.2);
+    expect(seed.LPL).toBeCloseTo(-0.1);
+    // Zero entries are dropped, not carried as 0.
+    expect(seed.LCP).toBeUndefined();
+  });
+
+  it("falls back to champion regions when no tide was recorded", () => {
+    const seed = regionStrengthSeed(
+      entry({
+        intlChampions: {
+          worlds: ref("LPL"),
+          msi: ref("LCK"),
+          "first-stand": ref("LPL"),
+        },
+      }),
+    );
+    // Worlds (0.5) + First Stand (0.15) both went to LPL; MSI (0.3) to LCK.
+    expect(seed.LPL).toBeCloseTo(0.65);
+    expect(seed.LCK).toBeCloseTo(0.3);
+  });
+
+  it("seeds a new season's tides from the prior season (only when regionTides on)", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(5));
+    const prior = entry({ leagueStrength: { LCP: 0.6, LCK: -0.4 } });
+
+    const tided = createSeason({
+      config: { ...makeConfig(), regionTides: true },
+      teams,
+      activeMeta: META,
+      priorSeason: prior,
+    });
+    expect(tided.leagueStrength!.LCP).toBeCloseTo(0.3);
+    expect(tided.leagueStrength!.LCK).toBeCloseTo(-0.2);
+    // Regions the prior tide didn't touch start neutral.
+    expect(tided.leagueStrength!.LEC).toBe(0);
+
+    // Region Tides off → no carryover, no map at all.
+    const plain = createSeason({
+      config: makeConfig(),
+      teams,
+      activeMeta: META,
+      priorSeason: prior,
+    });
+    expect(plain.leagueStrength).toBeUndefined();
+  });
+});
+
+// ── Region Tides: anchored to the fixed LCK>LPL>… prestige ranking ──────────
+
+describe("region tides stay anchored to the prestige ranking", () => {
+  const META = {
+    metaOverride: null,
+    metaEnabled: true,
+    synergyOverride: null,
+    counterOverride: null,
+  };
+
+  function seasonWith(
+    strength: Partial<Record<(typeof LEAGUE_IDS)[number], number>>,
+  ): SeasonState {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(5));
+    const base = createSeason({
+      config: { ...makeConfig(), regionTides: true },
+      teams,
+      activeMeta: META,
+    });
+    const winter = Object.fromEntries(
+      LEAGUE_IDS.map((lg) => [
+        lg,
+        teams.filter((t) => t.leagueId === lg).map((t) => t.id),
+      ]),
+    );
+    return { ...base, splitResults: { winter }, leagueStrength: strength };
+  }
+
+  function firstSeedOrder(s: SeasonState) {
+    return qualifiedForInternational(s, "first-stand")
+      .filter((q) => q.leagueSeed === 1)
+      .map((q) => q.league);
+  }
+
+  it("keeps the canonical order when tides are small", () => {
+    // A tide smaller than the prestige gap can't move a region.
+    const s = seasonWith({ LCP: 0.3, LCK: -0.3 });
+    expect(firstSeedOrder(s)).toEqual([...LEAGUE_IDS]);
+  });
+
+  it("lets a region climb one spot once its tide outweighs the gap", () => {
+    // CBLOL (+0.7) overtakes the normally-stronger LCS, but the top of the
+    // ranking is untouched.
+    const s = seasonWith({ CBLOL: 0.7 });
+    const order = firstSeedOrder(s);
+    expect(order.indexOf("CBLOL")).toBeLessThan(order.indexOf("LCS"));
+    expect(order.slice(0, 3)).toEqual(["LCK", "LPL", "LEC"]);
   });
 });

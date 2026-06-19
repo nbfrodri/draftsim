@@ -5,7 +5,12 @@
 // TournamentState driven by the existing engine, so brackets, drafts,
 // recaps, replays, and meta evolution all come for free.
 
-import type { SeriesFormat, Roster, AIDifficulty } from "../types";
+import type {
+  SeriesFormat,
+  Roster,
+  AIDifficulty,
+  VariancePreset,
+} from "../types";
 import type { MetaOverride, Synergy, CounterPair } from "../championMeta";
 import type { TournamentFormat, TournamentState } from "../tournament";
 
@@ -205,6 +210,35 @@ export interface SeasonConfig {
   // Draft timer for matches the user plays. Optional (older saves);
   // defaults to off.
   timerEnabled?: boolean;
+  // ── Season-realism options (all optional; default off → classic
+  //    behavior and byte-identical serialization for old saves) ──
+  // Hot/cold form: each tournament's results nudge a hidden per-team
+  // strength modifier that regresses to the roster baseline; surfaced as a
+  // trending tier badge.
+  formDrift?: boolean;
+  // Player development: between splits, individual player tiers drift —
+  // lower-rated rosters trend up, peaked ones regress down, modulated by
+  // recent form — so team star ratings move across the year.
+  playerDevelopment?: boolean;
+  // Meta adaptability: teams carry a hidden adaptability trait; each
+  // between-phase patch shift nudges adaptable teams' form up and rigid
+  // teams' down (only meaningful alongside patchShift).
+  metaAdaptability?: boolean;
+  // Clutch factor: teams carry a hidden clutch trait that tilts win
+  // probability in elimination rounds, and within-series momentum gives the
+  // series leader a small per-game-lead edge.
+  clutchFactor?: boolean;
+  // Regional tides: international results feed a per-league strength score
+  // that reorders inter-league seeding (a hot region's #N seeds outrank a
+  // cold region's #N seeds), instead of the fixed LCK>LPL>… order.
+  regionTides?: boolean;
+  // Match variance preset: a single dial over upset likelihood. Bundles
+  // deciding-game coin-flippiness, favorites choking under elimination, and
+  // a chalky↔chaotic scaling of the star-rating bias. Absent ⇒ classic
+  // model (no variance effects, byte-identical serialization). "balanced"
+  // is the gentle middle; "chalky" favors the better team; "chaotic" makes
+  // ratings matter less and upsets more common.
+  variancePreset?: VariancePreset;
 }
 
 // ─── Teams ─────────────────────────────────────────────────────────────────
@@ -259,6 +293,20 @@ export interface SeasonState {
   // Worlds champion (set when the final phase completes).
   champion: string | null;
   status: "in-progress" | "complete";
+  // ── Season-realism state (present only when the matching config flag is
+  //    on; absent otherwise so default seasons serialize unchanged) ──
+  // Signed per-team form modifier in [-1, 1]; regresses toward 0 each
+  // tournament. Feeds the sim bias and the trending tier badge. [formDrift]
+  teamForm?: Record<string, number>;
+  // Stable per-team clutch trait in [-1, 1] (elimination-round tilt),
+  // seeded at season creation. [clutchFactor]
+  teamClutch?: Record<string, number>;
+  // Stable per-team meta-adaptability trait in [-1, 1], seeded at season
+  // creation; patch shifts convert it into a form swing. [metaAdaptability]
+  teamAdaptability?: Record<string, number>;
+  // Per-league strength score (higher = seeds above weaker regions),
+  // updated after each international. [regionTides]
+  leagueStrength?: Partial<Record<LeagueId, number>>;
 }
 
 export function seasonTeam(

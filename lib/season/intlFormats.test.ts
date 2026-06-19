@@ -184,8 +184,10 @@ describe("MSI with the First Stand champion's additive 19th team", () => {
         },
       });
       const rng = rngFrom(11);
-      // Winter splits (6) + First Stand.
-      for (let i = 0; i < 7; i++) {
+      // Winter splits + First Stand (the seeds-bye single-elim default
+      // runs a play-in for the #2 seeds, then the main bracket). Resolve
+      // everything up to the spring split.
+      while (currentPhase(s)?.split !== "spring") {
         const t = nextPendingTournament(s)!;
         s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
       }
