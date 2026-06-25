@@ -26,10 +26,13 @@ import {
   killsForSide,
   makeKDA,
   metaFor,
+  nameActualFragger,
   pickRandom,
   rollInt,
   singleLaneGold,
+  SKIRMISH_CARRY_ARCHETYPES,
   spreadLaneGold,
+  TEAMFIGHT_CARRY_ARCHETYPES,
   teamfightKDA,
 } from "../descriptions";
 import { BALANCE } from "./balance";
@@ -230,18 +233,23 @@ export function phaseMidPickOrSkirmish(tl: TimelineContext): void {
   } else {
     const wk = rollInt(1, 2, tl.rng);
     const lk = rollInt(0, 1, tl.rng);
+    // Build desc + kda in their original order/positions (the kda feeds lane
+    // gold → combat, so it must NOT be reseeded), then re-point the named
+    // carry to the actual top fragger — string-only, no rng/sim change.
+    const skirmishDesc = describeSkirmish(side, wp, wk, lk, tl.rng);
+    const skirmishKda = teamfightKDA(side, wk, lk, tl.rng);
     addEvent(
       tl,
       "skirmish",
       t,
       side,
-      describeSkirmish(side, wp, wk, lk, tl.rng),
+      nameActualFragger(skirmishDesc, wp, skirmishKda, side, SKIRMISH_CARRY_ARCHETYPES),
       {
         kills: killsForSide(side, wk, lk),
         // Kill bounty (300g) flows per-lane via kdaDelta. Small spread
         // models the "everyone is up" team gold from the broader fight.
         laneGoldDelta: spreadLaneGold((wk + lk) * 30, side),
-        kdaDelta: teamfightKDA(side, wk, lk, tl.rng),
+        kdaDelta: skirmishKda,
       },
       0.18,
     );
@@ -283,20 +291,26 @@ export function phaseMidTeamfight(tl: TimelineContext): void {
     tl.state.ruinousActive = false;
   }
   const winningScore = side === "blue" ? tl.ctx.blueScore : tl.ctx.redScore;
+  // Preserve the exact rng order (describe → tower roll → kda); the kda feeds
+  // lane gold → combat, so it can't be reseeded. Re-point the named carry to
+  // the actual top fragger afterwards — string-only, no rng/sim change.
+  const tfDesc = describeTeamfight(side, wp, winningScore.identityLabel, wk, lk, tl.rng);
+  const tfTowers = killsForSide(side, rollInt(1, 2, tl.rng), 0);
+  const tfKda = teamfightKDA(side, wk, lk, tl.rng);
   addEvent(
     tl,
     "teamfight",
     t,
     side,
-    describeTeamfight(side, wp, winningScore.identityLabel, wk, lk, tl.rng),
+    nameActualFragger(tfDesc, wp, tfKda, side, TEAMFIGHT_CARRY_ARCHETYPES),
     {
       kills: killsForSide(side, wk, lk),
-      towers: killsForSide(side, rollInt(1, 2, tl.rng), 0),
+      towers: tfTowers,
       // Kill bounty distributed per lane via kdaDelta. Spread here is
       // the post-fight tower/CS push gold (winner takes mid CS while
       // loser respawns) — not the fight kills themselves.
       laneGoldDelta: spreadLaneGold(wk * 60 * goldMult, side),
-      kdaDelta: teamfightKDA(side, wk, lk, tl.rng),
+      kdaDelta: tfKda,
     },
     0.32 + dom * 0.12,
   );
@@ -330,7 +344,8 @@ export function phaseShutdown(tl: TimelineContext): void {
     // Best heuristic: kill credit on jungle (frequent shutdown lane), fed
     // carry (mid/bottom on opp) takes the death.
     const sutdownKda = makeKDA();
-    addKill(sutdownKda, side, tl.rng() < 0.5 ? "jungle" : "middle");
+    const shutdownLane: Lane = tl.rng() < 0.5 ? "jungle" : "middle";
+    addKill(sutdownKda, side, shutdownLane);
     addAssist(sutdownKda, side, "support");
     addDeath(
       sutdownKda,
@@ -342,7 +357,7 @@ export function phaseShutdown(tl: TimelineContext): void {
       "shutdown",
       t,
       side,
-      describeShutdown(side, wp, lp, tl.rng),
+      describeShutdown(side, wp, lp, tl.rng, shutdownLane),
       {
         kills: killsForSide(side, 1, 0),
         // Shutdown bounty: 1000-1500g extra ON TOP of the kill bounty
@@ -397,7 +412,7 @@ export function phaseVisionPick(tl: TimelineContext): void {
       "vision",
       t,
       side,
-      describeVision(side, wp, lp, tl.ctx.blueName, tl.ctx.redName, tl.rng),
+      describeVision(side, wp, lp, tl.ctx.blueName, tl.ctx.redName, tl.rng, finisherLane),
       {
         kills: killsForSide(side, 1, 0),
         // Kill + assist gold via kdaDelta; small spread for vision setup +
@@ -450,7 +465,7 @@ export function phaseOutplay(tl: TimelineContext): void {
       "outplay",
       t,
       side,
-      describeOutplay(side, wp, lp, outnumber, tl.rng),
+      describeOutplay(side, wp, lp, outnumber, tl.rng, heroLane),
       {
         kills: killsForSide(side, wKills, 0),
         // The hero's kill bounties (300g each, all in heroLane) flow via

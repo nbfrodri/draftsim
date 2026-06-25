@@ -531,7 +531,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
     "minutes": 16.551338218851015,
     "time": "16:33",
     "side": "red",
-    "description": "Darius wins a 2v2 in the river (1-1)",
+    "description": "Elise wins a 2v2 in the river (1-1)",
     "kills": {
      "blue": 1,
      "red": 1
@@ -760,7 +760,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
     "minutes": 22.865669078659266,
     "time": "22:52",
     "side": "red",
-    "description": "INSANE! Darius wins a 1v2 in their own jungle",
+    "description": "INSANE! Elise wins a 1v2 in their own jungle",
     "kills": {
      "blue": 0,
      "red": 2
@@ -1092,7 +1092,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.03,
+    "winProbAfter": 0.01,
     "goldLeadAfter": -12504
    }
   ]
@@ -1109,16 +1109,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
 
 exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: result hashes across 10 seeds 1`] = `
 [
-  "11:484f83f6",
-  "42:923c588b",
-  "101:86cfe377",
-  "777:894c3169",
-  "1234:fdabfead",
-  "5150:7f27dc1d",
-  "9001:06ad9a9e",
-  "31337:78103fac",
-  "65535:b0e0e65c",
-  "999983:3532ddb1",
+  "11:b001e8d8",
+  "42:06e258d5",
+  "101:0689d1c9",
+  "777:01154b1f",
+  "1234:80293898",
+  "5150:f194d3c4",
+  "9001:b0790561",
+  "31337:4e52a23f",
+  "65535:bbfbe55e",
+  "999983:ad25135e",
 ]
 `;
 
@@ -1651,7 +1651,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
     "minutes": 16.551338218851015,
     "time": "16:33",
     "side": "blue",
-    "description": "Darius wins a 2v2 in the river (1-1)",
+    "description": "Elise wins a 2v2 in the river (1-1)",
     "kills": {
      "blue": 1,
      "red": 1
@@ -2145,7 +2145,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.97,
+    "winProbAfter": 0.99,
     "goldLeadAfter": 19962
    }
   ]
@@ -2162,16 +2162,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
 
 exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: result hashes across 10 seeds 1`] = `
 [
-  "11:33c71a94",
-  "42:04bdef5f",
-  "101:b3581d08",
-  "777:7b725d6c",
-  "1234:0f2672d1",
-  "5150:025d536a",
-  "9001:d56ef036",
-  "31337:8b12d786",
-  "65535:897e584c",
-  "999983:5661d31e",
+  "11:ef7149ba",
+  "42:1b4f29ec",
+  "101:1e30c1e5",
+  "777:b07f06a0",
+  "1234:ae6b94f7",
+  "5150:6ccf10b8",
+  "9001:056da48b",
+  "31337:cff120f2",
+  "65535:6691f41d",
+  "999983:04b1a985",
 ]
 `;
 
@@ -2704,7 +2704,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
     "minutes": 16.551338218851015,
     "time": "16:33",
     "side": "red",
-    "description": "Darius wins a 2v2 in the river (1-1)",
+    "description": "Elise wins a 2v2 in the river (1-1)",
     "kills": {
      "blue": 1,
      "red": 1
@@ -3257,7 +3257,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.03,
+    "winProbAfter": 0.01,
     "goldLeadAfter": -20091
    }
   ]
@@ -3274,16 +3274,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
 
 exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: result hashes across 10 seeds 1`] = `
 [
-  "11:1ba0ed3f",
-  "42:1d7146e5",
-  "101:ee43e1b7",
-  "777:b5501b0f",
-  "1234:9336ddf1",
-  "5150:96aaeec4",
-  "9001:a61c9820",
-  "31337:9ec38958",
-  "65535:53daf318",
-  "999983:b8cafa9a",
+  "11:4a3c7469",
+  "42:27140971",
+  "101:a80888c1",
+  "777:493e98ac",
+  "1234:a3262e30",
+  "5150:5e58ff3c",
+  "9001:4ef34a91",
+  "31337:714678d4",
+  "65535:f810b43d",
+  "999983:97faf314",
 ]
 `;
 
@@ -3792,7 +3792,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
     "minutes": 18.066920669400133,
     "time": "18:04",
     "side": "blue",
-    "description": "Malphite wins a 3v3 in top side jungle (2-0)",
+    "description": "Jhin wins a 3v3 in top side jungle (2-0)",
     "kills": {
      "blue": 2,
      "red": 0
@@ -3851,7 +3851,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
     "minutes": 21.05438114469871,
     "time": "21:03",
     "side": "red",
-    "description": "MASSIVE fight at Baron pit, Malphite pops off 4-0 — Hyper Engage hits",
+    "description": "MASSIVE fight at Baron pit, Vi pops off 4-0 — Hyper Engage hits",
     "kills": {
      "blue": 0,
      "red": 4
@@ -4158,7 +4158,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
     "minutes": 32.62208304964006,
     "time": "32:37",
     "side": "red",
-    "description": "MASSIVE fight at mid lane, Malphite pops off 5-0 — Hyper Engage hits",
+    "description": "MASSIVE fight at mid lane, Vi pops off 5-0 — Hyper Engage hits",
     "kills": {
      "blue": 0,
      "red": 5
@@ -4261,7 +4261,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.06369842531735473,
+    "winProbAfter": 0.01,
     "goldLeadAfter": -9414
    }
   ]
@@ -4278,16 +4278,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
 
 exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: result hashes across 10 seeds 1`] = `
 [
-  "11:42623563",
-  "42:d35198cf",
-  "101:7de259c3",
-  "777:9a1de674",
-  "1234:c6444f5e",
-  "5150:9a479bc6",
-  "9001:d76c1ec1",
-  "31337:f7395901",
-  "65535:b4ddf0e3",
-  "999983:70b293dd",
+  "11:b17b4d79",
+  "42:9707386c",
+  "101:c383cad6",
+  "777:10082ec4",
+  "1234:4f88aa47",
+  "5150:d80835cd",
+  "9001:fa4d2db6",
+  "31337:e0183b09",
+  "65535:d1792c06",
+  "999983:99bc02d4",
 ]
 `;
 
@@ -4592,7 +4592,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
     "minutes": 9.224934147670865,
     "time": "9:13",
     "side": "blue",
-    "description": "Elise roams to bot, picks up a kill",
+    "description": "Ahri roams to bot, picks up a kill",
     "kills": {
      "blue": 1,
      "red": 0
@@ -4822,7 +4822,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
     "minutes": 16.551338218851015,
     "time": "16:33",
     "side": "red",
-    "description": "Anivia wins a 2v2 in the river (1-1)",
+    "description": "AurelionSol wins a 2v2 in the river (1-1)",
     "kills": {
      "blue": 1,
      "red": 1
@@ -5019,7 +5019,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
     "minutes": 22.865669078659266,
     "time": "22:52",
     "side": "red",
-    "description": "INSANE! Anivia wins a 1v2 in their own jungle",
+    "description": "INSANE! AurelionSol wins a 1v2 in their own jungle",
     "kills": {
      "blue": 0,
      "red": 2
@@ -5238,7 +5238,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
     "minutes": 37.02208304964006,
     "time": "37:01",
     "side": "red",
-    "description": "5v5 at mid lane, Anivia pops off 4-2 — Protect The Carry hits",
+    "description": "5v5 at mid lane, Azir pops off 4-2 — Protect The Carry hits",
     "kills": {
      "blue": 2,
      "red": 4
@@ -5341,7 +5341,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.05232762340268178,
+    "winProbAfter": 0.01,
     "goldLeadAfter": 332
    }
   ]
@@ -5358,16 +5358,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
 
 exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategies: result hashes across 10 seeds 1`] = `
 [
-  "11:5805d779",
-  "42:e21ce42d",
-  "101:5a1387af",
-  "777:d9da37de",
-  "1234:91e8ee73",
-  "5150:47168a55",
-  "9001:3c41d92a",
-  "31337:cd97f50d",
-  "65535:5b1bc2a5",
-  "999983:2ab62278",
+  "11:09007390",
+  "42:d4789cd4",
+  "101:9e4822cf",
+  "777:d99a3397",
+  "1234:4e88a793",
+  "5150:67276af0",
+  "9001:294c5aa4",
+  "31337:6725f327",
+  "65535:e9ba1c35",
+  "999983:4401efe2",
 ]
 `;
 
@@ -5903,7 +5903,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
     "minutes": 16.551338218851015,
     "time": "16:33",
     "side": "red",
-    "description": "Malphite wins a 2v2 in the river (1-1)",
+    "description": "Ahri wins a 2v2 in the river (1-1)",
     "kills": {
      "blue": 1,
      "red": 1
@@ -6459,7 +6459,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.03,
+    "winProbAfter": 0.01,
     "goldLeadAfter": -14856
    }
   ]
@@ -6476,15 +6476,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
 
 exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strategies: result hashes across 10 seeds 1`] = `
 [
-  "11:e8098bb3",
-  "42:b9785163",
-  "101:419b53b1",
-  "777:22db4c8c",
-  "1234:62ccf970",
-  "5150:69336629",
-  "9001:187f2903",
-  "31337:9de711ca",
-  "65535:ecdfede3",
-  "999983:7914898d",
+  "11:cabf9f13",
+  "42:a410fd3a",
+  "101:b9568c90",
+  "777:0ceee91c",
+  "1234:a56241dc",
+  "5150:1157ea43",
+  "9001:dfe56e50",
+  "31337:e9e09d0b",
+  "65535:acae1eea",
+  "999983:63062f6d",
 ]
 `;

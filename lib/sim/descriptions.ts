@@ -282,6 +282,20 @@ export function sideLaneGoldSplit(
 
 // ─── Event description renderers ────────────────────────────────────────────
 
+// The lane describeFirstBlood credits the kill to — exported so the timeline
+// can attribute the KDA to the SAME champion the line names (instead of a
+// random lane that left the named killer on 0/0/0). Pure, no rng.
+export function firstBloodKillerLane(
+  winnerPicks: (Champion | null)[],
+): Lane | null {
+  const killer =
+    findByArchetype(winnerPicks, ["assassin", "skirmish", "pick", "dive"]) ??
+    winnerPicks.find((c) => c != null);
+  if (!killer) return null;
+  const idx = winnerPicks.indexOf(killer);
+  return idx >= 0 ? POSITIONAL_LANES[idx] : null;
+}
+
 export function describeFirstBlood(
   side: Side,
   winnerPicks: (Champion | null)[],
@@ -432,6 +446,16 @@ export function describePick(
   return `${teamName(side, "Blue", "Red")} picks off a stray`;
 }
 
+// Carry archetype priorities the teamfight/skirmish lines name their hero by.
+const TEAMFIGHT_CARRY: Archetype[] = ["wombo", "burst", "hyper-carry", "engage"];
+const SKIRMISH_CARRY: Archetype[] = [
+  "wombo",
+  "engage",
+  "burst",
+  "assassin",
+  "skirmish",
+];
+
 export function describeSkirmish(
   side: Side,
   winnerPicks: (Champion | null)[],
@@ -440,13 +464,8 @@ export function describeSkirmish(
   rng: RNG = Math.random,
 ): string {
   const carry =
-    findByArchetype(winnerPicks, [
-      "wombo",
-      "engage",
-      "burst",
-      "assassin",
-      "skirmish",
-    ]) ?? winnerPicks.find((c) => c != null);
+    findByArchetype(winnerPicks, SKIRMISH_CARRY) ??
+    winnerPicks.find((c) => c != null);
   const places = ["the river", "bot side jungle", "top side jungle", "mid lane"];
   const where = pickRandom(places, rng);
   const fightSize = pickRandom(["2v2", "3v3", "3v2"], rng);
@@ -468,12 +487,7 @@ export function describeTeamfight(
   const places = ["dragon pit", "Baron pit", "mid lane", "river", "tri-bush"];
   const place = pickRandom(places, rng);
   const tag = winnerLabel ? ` — ${winnerLabel} hits` : "";
-  const carry = findByArchetype(winnerPicks, [
-    "wombo",
-    "burst",
-    "hyper-carry",
-    "engage",
-  ]);
+  const carry = findByArchetype(winnerPicks, TEAMFIGHT_CARRY);
   const opener = winnerKills - loserKills >= 4 ? "MASSIVE fight at" : "5v5 at";
   if (carry && rng() < 0.6) {
     return `${opener} ${place}, ${carry.name} pops off ${score}${tag}`;
@@ -630,10 +644,12 @@ export function describeRoam(
   targetLane: Lane,
   blueName: string,
   redName: string,
+  roamerLane?: Lane,
 ): string {
   const midIdx = POSITIONAL_LANES.indexOf("middle");
   const supIdx = POSITIONAL_LANES.indexOf("support");
   const roamer =
+    (roamerLane != null ? laneOf(picks, roamerLane) : null) ??
     findByArchetype(picks, ["assassin", "pick", "burst"]) ??
     picks[midIdx] ??
     picks[supIdx];
@@ -669,8 +685,10 @@ export function describeShutdown(
   winnerPicks: (Champion | null)[],
   loserPicks: (Champion | null)[],
   rng: RNG = Math.random,
+  killerLane?: Lane,
 ): string {
   const killer =
+    (killerLane != null ? laneOf(winnerPicks, killerLane) : null) ??
     findByArchetype(winnerPicks, ["assassin", "pick", "burst", "skirmish"]) ??
     winnerPicks.find((c) => c != null);
   const victim =
@@ -707,8 +725,10 @@ export function describeVision(
   blueName: string,
   redName: string,
   rng: RNG = Math.random,
+  watcherLane?: Lane,
 ): string {
   const watcher =
+    (watcherLane != null ? laneOf(winnerPicks, watcherLane) : null) ??
     findByArchetype(winnerPicks, ["pick", "engage", "tank"]) ??
     laneOf(winnerPicks, "support") ??
     winnerPicks.find((c) => c != null);
@@ -735,8 +755,10 @@ export function describeOutplay(
   loserPicks: (Champion | null)[],
   outnumberedBy: number,
   rng: RNG = Math.random,
+  heroLane?: Lane,
 ): string {
   const star =
+    (heroLane != null ? laneOf(winnerPicks, heroLane) : null) ??
     findByArchetype(winnerPicks, ["assassin", "skirmish", "hyper-carry", "burst"]) ??
     winnerPicks.find((c) => c != null);
   const place = pickRandom(
@@ -1035,6 +1057,51 @@ export function objectiveKDA(
   }
   return k;
 }
+
+// Lane on `side` that earned the most kills in this event's KDA (ties broken
+// by assists). Null if nobody on that side scored.
+export function topFraggerLane(kda: EventKDA, side: Side): Lane | null {
+  let best: Lane | null = null;
+  let bestK = 0;
+  let bestA = -1;
+  for (const lane of LANE_LIST) {
+    const v = kda[side][lane];
+    if (!v || v.k <= 0) continue;
+    if (v.k > bestK || (v.k === bestK && v.a > bestA)) {
+      best = lane;
+      bestK = v.k;
+      bestA = v.a;
+    }
+  }
+  return best;
+}
+
+// Re-point a teamfight/skirmish line to the champion who ACTUALLY got the
+// kills. The line picks its hero by archetype BEFORE the kda is rolled, and
+// the random kda then credits kills by weight — so the named carry often sat
+// on 0/0/0. We can't reseed the kda (it also feeds lane gold → combat, so a
+// reseed shifts the simulation), so we fix the DISPLAY name post-hoc: a pure
+// string swap, zero rng / zero sim impact. No-op when the line named the team
+// (no champion) or the named carry already is the top fragger.
+export function nameActualFragger(
+  desc: string,
+  picks: (Champion | null)[],
+  kda: EventKDA,
+  side: Side,
+  carryArchetypes: readonly Archetype[],
+): string {
+  const carry =
+    findByArchetype(picks, carryArchetypes) ?? picks.find((c) => c != null);
+  if (!carry || !desc.includes(carry.name)) return desc;
+  const lane = topFraggerLane(kda, side);
+  const frag = lane != null ? laneOf(picks, lane) : null;
+  return frag && frag !== carry ? desc.replace(carry.name, frag.name) : desc;
+}
+
+// The archetype lists the teamfight / skirmish lines select their hero with —
+// exported so nameActualFragger callers re-point to the matching champion.
+export const TEAMFIGHT_CARRY_ARCHETYPES: readonly Archetype[] = TEAMFIGHT_CARRY;
+export const SKIRMISH_CARRY_ARCHETYPES: readonly Archetype[] = SKIRMISH_CARRY;
 
 // ─── Gold-from-KDA attribution ─────────────────────────────────────────────
 // In real LoL each kill is worth ~300g local + assist gold to participants.

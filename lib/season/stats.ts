@@ -10,6 +10,7 @@ import {
   type TournamentState,
   type TournamentSummary,
 } from "../tournament";
+import { computeGameRatings } from "../matchSimulator";
 import {
   computeTournamentAwards,
   type AllProPlayer,
@@ -238,4 +239,99 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
     leagueIntlTitles,
     leagueBestTeams,
   };
+}
+
+// ─── Per-player season grades ("notes") for one team ────────────────────────
+// Walks every completed game the team played this season (across all
+// tournaments, in phase order) and extracts that team's per-lane performance
+// rating (1-10 "note") from each game recap. Returns, per positional lane:
+//   • avg  — season average note (null until the player has a rated game)
+//   • last — the player's note in their MOST RECENT match (averaged over that
+//            match's games), so it reads as "last match grade", not last game.
+// Plus team-level headline numbers (overall season avg and last-match avg).
+
+export interface TeamGrades {
+  avg: (number | null)[]; // per positional lane, length 5
+  last: (number | null)[]; // per positional lane, most recent match
+  teamAvg: number | null; // season average across all rated player-games
+  lastMatchAvg: number | null; // team average in the most recent rated match
+}
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+export function teamSeasonGrades(
+  season: SeasonState,
+  teamId: string,
+): TeamGrades {
+  const sums = [0, 0, 0, 0, 0];
+  const counts = [0, 0, 0, 0, 0];
+  // Per-lane note totals for the most recent rated match (averaged at the end).
+  let lastMatchSums: number[] | null = null;
+  let lastMatchCounts: number[] | null = null;
+
+  const tids: string[] = [];
+  for (const phase of season.phases) for (const id of phase.tournamentIds) tids.push(id);
+
+  for (const tid of tids) {
+    const t = season.tournaments[tid];
+    if (!t) continue;
+    for (const match of t.matches) {
+      if (match.isBye || !match.series) continue;
+      if (match.blueTeamId !== teamId && match.redTeamId !== teamId) continue;
+      const side: "blue" | "red" =
+        match.blueTeamId === teamId ? "blue" : "red";
+      const matchSums = [0, 0, 0, 0, 0];
+      const matchCounts = [0, 0, 0, 0, 0];
+      let matchHadRatings = false;
+      for (const game of match.series.games) {
+        if (game.status !== "complete" || game.winner == null) continue;
+        const recap = game.recap;
+        if (!recap) continue;
+        let ratings = recap.ratings ?? null;
+        if (!ratings && recap.perPickKDA) {
+          ratings = computeGameRatings(recap, game.winner);
+        }
+        if (!ratings) continue;
+        const notes = side === "blue" ? ratings.blue : ratings.red;
+        for (let i = 0; i < 5; i++) {
+          const v = notes[i];
+          if (typeof v !== "number" || !Number.isFinite(v)) continue;
+          sums[i] += v;
+          counts[i] += 1;
+          matchSums[i] += v;
+          matchCounts[i] += 1;
+          matchHadRatings = true;
+        }
+      }
+      // Overwrite each match so the final value is the LAST rated match.
+      if (matchHadRatings) {
+        lastMatchSums = matchSums;
+        lastMatchCounts = matchCounts;
+      }
+    }
+  }
+
+  const avg = sums.map((s, i) => (counts[i] > 0 ? round1(s / counts[i]) : null));
+  const last: (number | null)[] = [null, null, null, null, null];
+  if (lastMatchSums && lastMatchCounts) {
+    for (let i = 0; i < 5; i++) {
+      last[i] =
+        lastMatchCounts[i] > 0
+          ? round1(lastMatchSums[i] / lastMatchCounts[i])
+          : null;
+    }
+  }
+  const totalSum = sums.reduce((a, b) => a + b, 0);
+  const totalCount = counts.reduce((a, b) => a + b, 0);
+  const teamAvg = totalCount > 0 ? round1(totalSum / totalCount) : null;
+  const lastMatchAvg =
+    lastMatchSums && lastMatchCounts
+      ? (() => {
+          const s = lastMatchSums.reduce((a, b) => a + b, 0);
+          const c = lastMatchCounts.reduce((a, b) => a + b, 0);
+          return c > 0 ? round1(s / c) : null;
+        })()
+      : null;
+
+  return { avg, last, teamAvg, lastMatchAvg };
 }

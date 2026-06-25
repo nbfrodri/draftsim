@@ -26,6 +26,7 @@ import {
 } from "@/lib/season/powerRankings";
 import { buildSeasonStory } from "@/lib/season/seasonStory";
 import SeasonStoryCard from "./SeasonStoryCard";
+import MyTeamPanel from "./MyTeamPanel";
 import {
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
@@ -167,6 +168,9 @@ export default function SeasonDashboard() {
             </div>
           )}
         </div>
+
+        {/* My team: roster (tiers + shifts) + next match (play / watch). */}
+        <MyTeamPanel />
 
         {/* Champion banner */}
         {season.status === "complete" && championTeam && (

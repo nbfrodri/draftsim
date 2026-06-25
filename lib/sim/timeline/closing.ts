@@ -25,10 +25,12 @@ import {
   jitter,
   killsForSide,
   lateScalingCount,
+  nameActualFragger,
   pickRandom,
   rollInt,
   singleLaneGold,
   spreadLaneGold,
+  TEAMFIGHT_CARRY_ARCHETYPES,
   teamfightKDA,
 } from "../descriptions";
 import { BALANCE } from "./balance";
@@ -268,24 +270,30 @@ export function phaseClosingFight(
     const lk = aligned
       ? combat.loserKills
       : Math.min(3, combat.loserKills + 1);
+    // Preserve rng order (describe → tower roll → kda); re-point the named
+    // carry to the actual top fragger afterwards (string-only, no rng/sim
+    // change — the kda also feeds lane gold and can't be reseeded).
+    const cfDesc = describeTeamfight(
+      finalWinner,
+      winnerPicks,
+      wScore.identityLabel,
+      wk,
+      lk,
+      tl.rng,
+    );
+    const cfTowers = killsForSide(finalWinner, rollInt(1, 2, tl.rng), 0);
+    const cfKda = teamfightKDA(finalWinner, wk, lk, tl.rng);
     addEvent(
       tl,
       "teamfight",
       t,
       finalWinner,
-      describeTeamfight(
-        finalWinner,
-        winnerPicks,
-        wScore.identityLabel,
-        wk,
-        lk,
-        tl.rng,
-      ),
+      nameActualFragger(cfDesc, winnerPicks, cfKda, finalWinner, TEAMFIGHT_CARRY_ARCHETYPES),
       {
         kills: killsForSide(finalWinner, wk, lk),
-        towers: killsForSide(finalWinner, rollInt(1, 2, tl.rng), 0),
+        towers: cfTowers,
         laneGoldDelta: spreadLaneGold(wk * 200, finalWinner),
-        kdaDelta: teamfightKDA(finalWinner, wk, lk, tl.rng),
+        kdaDelta: cfKda,
       },
       0.45,
     );
@@ -353,6 +361,34 @@ export function finalizeTimeline(tl: TimelineContext): number {
     e.goldLeadAfter = Math.round(
       laneAdvSum * lanePhaseTime + cumulativeEventGold,
     );
+  }
+
+  // ─── Converge the closing sequence's win-prob to the real outcome ──────
+  // winProbAfter comes from snapshotProb — a gold/momentum/objective model
+  // that never "knows" the game is decided. decideClosingWinner picks the
+  // winner from a SEPARATE roll, so on an upset/comeback the snapshot can
+  // still favour the LOSER at the very moment they lose: the chart header
+  // read "Blue favored 89%" as Red smashed the Nexus. The closing events
+  // (inhibitor cascade, deciding fight, nexus) all belong to the decided
+  // winner and land in the last few minutes, so pull their win-prob to the
+  // actual result — the nexus reads as certainty and the closing beats tip
+  // clearly to the winner, killing the last-second contradiction. Guarded
+  // to winner-side events so a loser-side late objective keeps its true
+  // (comeback) swing.
+  const nexusEvt = events.find((e) => e.type === "nexus");
+  if (nexusEvt) {
+    const winnerBlue = nexusEvt.side === "blue";
+    const certain = winnerBlue ? 0.99 : 0.01;
+    const tipped = winnerBlue ? 0.75 : 0.25;
+    const closingStart = tl.duration - 4.5;
+    for (const e of events) {
+      if (e.minutes < closingStart || e.side !== nexusEvt.side) continue;
+      if (e.type === "nexus") e.winProbAfter = certain;
+      else
+        e.winProbAfter = winnerBlue
+          ? Math.max(e.winProbAfter, tipped)
+          : Math.min(e.winProbAfter, tipped);
+    }
   }
 
   return laningEndMinute;

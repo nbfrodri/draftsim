@@ -25,6 +25,7 @@ import {
   describeScuttle,
   describeSoloKill,
   describeWaveCrash,
+  firstBloodKillerLane,
   gankKDA,
   gankLaneGold,
   jitter,
@@ -205,10 +206,17 @@ export function phaseFirstBlood(tl: TimelineContext): void {
           fbLane === "middle" ? "mid" : fbLane === "bottom" ? "bot" : fbLane
         }`
       : `Early kill in ${fbLane === "middle" ? "mid" : fbLane === "bottom" ? "bot" : fbLane}`;
-  // Kill goes to the lane where it happened, jungler often assists
-  // (~40% of FBs / early kills are gank-fueled).
-  const fbKda = laneKillKDA(side, fbLane);
-  if (tl.rng() < 0.4 && fbLane !== "jungle") {
+  // Credit the kill to the champion the line actually names: the flavored
+  // first-blood line names the archetype killer (firstBloodKillerLane), the
+  // plain early-kill line names winnerPicks[fbLane]. Without this the kill
+  // landed on a random lane, leaving the named killer on 0/0/0.
+  const creditLane =
+    (isFirstBlood ? firstBloodKillerLane(picksOf(tl.ctx, side)) : null) ??
+    fbLane;
+  // Kill goes to the crediting lane, jungler often assists (~40% of FBs /
+  // early kills are gank-fueled).
+  const fbKda = laneKillKDA(side, creditLane);
+  if (tl.rng() < 0.4 && creditLane !== "jungle") {
     addAssist(fbKda, side, "jungle");
   }
   tl.firstKillTaken = true;
@@ -223,7 +231,7 @@ export function phaseFirstBlood(tl: TimelineContext): void {
       // Kill bounty in kdaDelta. The +100g first-blood bonus is the only
       // gold remaining — kdaToLaneGold can't model the FB-specific bonus.
       // No bonus on follow-up early kills (it was already paid out).
-      laneGoldDelta: singleLaneGold(fbLane, isFirstBlood ? 100 : 0, side),
+      laneGoldDelta: singleLaneGold(creditLane, isFirstBlood ? 100 : 0, side),
       kdaDelta: fbKda,
     },
     0.2,
@@ -367,6 +375,7 @@ export function phaseMidRoam(tl: TimelineContext): void {
         targetLane,
         tl.ctx.blueName,
         tl.ctx.redName,
+        "middle",
       ),
       {
         kills: killsForSide(side, 1, 0),

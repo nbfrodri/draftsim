@@ -10,6 +10,7 @@ import type {
   Roster,
   AIDifficulty,
   VariancePreset,
+  PlayerTier,
 } from "../types";
 import type { MetaOverride, Synergy, CounterPair } from "../championMeta";
 import type { TournamentFormat, TournamentState } from "../tournament";
@@ -307,6 +308,10 @@ export interface SeasonState {
   // Per-league strength score (higher = seeds above weaker regions),
   // updated after each international. [regionTides]
   leagueStrength?: Partial<Record<LeagueId, number>>;
+  // Each team's player tiers (lane order) as they were BEFORE the most
+  // recent player-development pass — so the UI can show ▲/▼ shift arrows.
+  // [playerDevelopment]
+  prevPlayerTiers?: Record<string, PlayerTier[]>;
 }
 
 export function seasonTeam(

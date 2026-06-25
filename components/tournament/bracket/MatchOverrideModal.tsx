@@ -148,29 +148,36 @@ export function MatchOverrideModal({
             onChange={setMode}
           />
           {mode === "pvai" && (
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setAiSide("red")}
-                className={`py-1.5 border text-[10px] uppercase tracking-[0.3em] transition-all ${
-                  aiSide === "red"
-                    ? "border-rift-blue bg-rift-blue/10 text-rift-bluebright"
-                    : "border-rift-line text-rift-mutedbright hover:border-rift-blue/60"
-                }`}
-              >
-                You: Blue
-              </button>
-              <button
-                type="button"
-                onClick={() => setAiSide("blue")}
-                className={`py-1.5 border text-[10px] uppercase tracking-[0.3em] transition-all ${
-                  aiSide === "blue"
-                    ? "border-rift-red bg-rift-red/10 text-rift-redbright"
-                    : "border-rift-line text-rift-mutedbright hover:border-rift-red/60"
-                }`}
-              >
-                You: Red
-              </button>
+            <div>
+              <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/55 mb-1">
+                Play as
+              </div>
+              {/* Pick the TEAM to control, not a side — sides swap each game
+                  in a series, and aiSide follows the team (see startNextGame). */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAiSide("red")}
+                  className={`py-1.5 border text-[10px] uppercase tracking-[0.2em] truncate transition-all ${
+                    aiSide === "red"
+                      ? "border-rift-gold bg-rift-gold/10 text-rift-goldbright"
+                      : "border-rift-line text-rift-mutedbright hover:border-rift-gold/60"
+                  }`}
+                >
+                  {blueTeam?.name ?? "Blue"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAiSide("blue")}
+                  className={`py-1.5 border text-[10px] uppercase tracking-[0.2em] truncate transition-all ${
+                    aiSide === "blue"
+                      ? "border-rift-gold bg-rift-gold/10 text-rift-goldbright"
+                      : "border-rift-line text-rift-mutedbright hover:border-rift-gold/60"
+                  }`}
+                >
+                  {redTeam?.name ?? "Red"}
+                </button>
+              </div>
             </div>
           )}
           {(mode === "pvai" || mode === "aivai") && (

@@ -7,7 +7,7 @@
 // shifts). No store access — the store drives simulation and feeds
 // completed tournaments back through applyTournamentUpdate().
 
-import type { SeriesFormat } from "../types";
+import type { SeriesFormat, PlayerTier } from "../types";
 import type { Champion, Lane } from "../types";
 import {
   CHAMPION_META,
@@ -1365,6 +1365,11 @@ export function applyPlayerDevelopment(
 ): SeasonState {
   if (!season.config.playerDevelopment) return season;
   const form = season.teamForm ?? {};
+  // Snapshot tiers before drifting so the UI can show this split's ▲/▼.
+  const prevPlayerTiers: Record<string, PlayerTier[]> = {};
+  for (const team of season.teams) {
+    prevPlayerTiers[team.id] = team.players.map((p) => p.tier);
+  }
   const teams = season.teams.map((team) => {
     const teamForm = form[team.id] ?? 0;
     let changed = false;
@@ -1384,7 +1389,7 @@ export function applyPlayerDevelopment(
     });
     return changed ? { ...team, players } : team;
   });
-  return { ...season, teams };
+  return { ...season, teams, prevPlayerTiers };
 }
 
 // [F] After an international, raise the regions whose teams placed well and
