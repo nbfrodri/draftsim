@@ -32,11 +32,14 @@ import {
   SPLIT_FEEDS_EVENT,
   SPLIT_LABELS,
   seasonTeam,
+  type LeagueId,
+  type InternationalId,
   type SeasonPhase,
   type SeasonState,
 } from "@/lib/season/types";
 import type { Champion, Lane } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
+import LeagueIcon from "./LeagueIcon";
 import {
   IntlChampionBadge,
   QualifierTagView,
@@ -158,7 +161,9 @@ export default function SeasonDashboard() {
           {controlled && (
             <div className="mt-1 text-[10px] uppercase tracking-[0.3em] text-rift-bluebright inline-flex items-center gap-1.5">
               <TeamIcon iconKey={controlled.iconKey} logoUrl={controlled.logoUrl} size={12} color={controlled.color} />
-              Following {controlled.name} ({controlled.leagueId})
+              Following {controlled.name} (
+              <LeagueIcon league={controlled.leagueId} size={13} />
+              {controlled.leagueId})
             </div>
           )}
         </div>
@@ -172,7 +177,8 @@ export default function SeasonDashboard() {
             <div className="font-display text-2xl md:text-4xl tracking-[0.15em] text-rift-goldbright inline-flex items-center gap-3">
               <TeamIcon iconKey={championTeam.iconKey} logoUrl={championTeam.logoUrl} size={28} color={championTeam.color} />
               {championTeam.name}
-              <span className="text-rift-gold/60 text-base md:text-xl">
+              <span className="text-rift-gold/60 text-base md:text-xl inline-flex items-center gap-2">
+                <LeagueIcon league={championTeam.leagueId} size={24} />
                 {championTeam.leagueId}
               </span>
             </div>
@@ -827,6 +833,18 @@ function TournamentCard({
     tournament.rrPlayoffsAdvancing ?? tournament.swissPlayoffsAdvancing ?? 0;
   const done = tournament.matches.filter((m) => m.winner).length;
   const champion = tournamentChampion(tournament);
+  // The card's badge: an international event uses its own event logo
+  // (First Stand / MSI / Worlds); a split uses the league's region logo.
+  // leagueOfTournament falls back to the first team's region, which for an
+  // international would wrongly read as that team's league — so the event
+  // wins when this tournament sits in an international phase.
+  const cardPhase = season.phases.find((p) =>
+    p.tournamentIds.includes(tournament.id),
+  );
+  const cardBadge: LeagueId | InternationalId | null =
+    cardPhase?.kind === "international" && cardPhase.event
+      ? cardPhase.event
+      : leagueOfTournament(season, tournament);
   const controlledId = season.config.controlledTeamId;
   // International events: each team's home region and its seed inside
   // that region's qualifying split (e.g. "LCK #1"), or the defending-
@@ -905,8 +923,11 @@ function TournamentCard({
         />
       </div>
       <div className="flex items-center justify-between gap-2 px-3 pt-2.5">
-        <div className="font-display text-sm tracking-wider text-rift-goldbright truncate">
-          {tournament.name}
+        <div className="flex items-center gap-2 min-w-0">
+          {cardBadge && <LeagueIcon league={cardBadge} size={18} />}
+          <div className="font-display text-sm tracking-wider text-rift-goldbright truncate">
+            {tournament.name}
+          </div>
         </div>
         <span
           className={`text-[9px] uppercase tracking-[0.25em] flex-shrink-0 tabular-nums ${
@@ -1110,7 +1131,10 @@ function PastResults({
               className="border border-rift-line/40 bg-rift-bg/30 px-3 py-2"
             >
               <div className="flex items-center justify-between gap-2 mb-1">
-                <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60">
+                <div className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.3em] text-rift-gold/60">
+                  {p.kind === "international" && p.event && (
+                    <LeagueIcon league={p.event} size={16} />
+                  )}
                   {p.label}
                 </div>
                 <div className="flex items-center gap-3">
@@ -1253,7 +1277,8 @@ function PhasePlacements({
           if (!ids?.length) return null;
           return (
             <div key={league}>
-              <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1">
+              <div className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1">
+                <LeagueIcon league={league} size={14} />
                 {league}
               </div>
               <ol className="space-y-0.5">
@@ -1287,6 +1312,7 @@ function PhasePlacements({
               teamId={id}
               rank={idx + 1}
               tag={regionSeeds?.get(id)}
+              showRegion
             />
           ))}
         </ol>
@@ -1302,11 +1328,16 @@ function PlacementRow({
   teamId,
   rank,
   tag,
+  showRegion = false,
 }: {
   season: SeasonState;
   teamId: string;
   rank: number;
   tag?: QualifierTagInfo;
+  // Show each team's region logo before its name — used in international
+  // placements where teams come from mixed regions (a split's placements
+  // are single-region and already carry a region header).
+  showRegion?: boolean;
 }) {
   const team = seasonTeam(season, teamId);
   if (!team) return null;
@@ -1324,6 +1355,7 @@ function PlacementRow({
       <span className="w-4 text-rift-muted/70 tabular-nums flex-shrink-0">
         {rank}.
       </span>
+      {showRegion && <LeagueIcon league={team.leagueId} size={12} />}
       <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={12} color={team.color} />
       <span className="truncate">{team.name}</span>
       {rank === 1 && <span aria-hidden>🏆</span>}
@@ -1556,6 +1588,7 @@ function SeasonRecapPanel({
           <RecapChip
             label="Best Region"
             value={bestRegion[0]}
+            icon={<LeagueIcon league={bestRegion[0]} size={16} />}
             sub={`${bestRegion[1]} international title${(bestRegion[1] ?? 0) === 1 ? "" : "s"}`}
           />
         )}
@@ -1590,7 +1623,8 @@ function SeasonRecapPanel({
               key={league}
               className="border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2"
             >
-              <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-1">
+              <div className="flex items-center gap-1.5 text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-1">
+                <LeagueIcon league={league} size={13} />
                 {league}
               </div>
               <div className="flex items-center gap-1.5 mb-0.5">
@@ -1665,12 +1699,15 @@ function SeasonRecapPanel({
               if (!team) return null;
               return (
                 <div key={event} className="flex items-center gap-2 text-[11px]">
-                  <span className="text-rift-muted/80 w-24">
+                  <span className="inline-flex items-center gap-1.5 text-rift-muted/80 w-24">
+                    <LeagueIcon league={event} size={14} />
                     {INTERNATIONAL_LABELS[event]}
                   </span>
                   <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={13} color={team.color} />
                   <span className="text-rift-goldbright">{team.name}</span>
-                  <span className="text-rift-muted/60">({team.leagueId})</span>
+                  <span className="inline-flex items-center gap-1 text-rift-muted/60">
+                    <LeagueIcon league={team.leagueId} size={12} />({team.leagueId})
+                  </span>
                 </div>
               );
             })}
@@ -1693,9 +1730,9 @@ function SeasonRecapPanel({
                     const team = seasonTeam(season, byLeague[league]);
                     if (!team) return null;
                     return (
-                      <span key={league}>
+                      <span key={league} className="inline-flex items-center gap-1">
                         {i > 0 && <span className="text-rift-muted/40"> · </span>}
-                        <span className="text-rift-muted/60">{league} </span>
+                        <LeagueIcon league={league} size={12} />
                         <span className="text-rift-goldbright">{team.name}</span>
                       </span>
                     );
@@ -1714,17 +1751,20 @@ function RecapChip({
   label,
   value,
   sub,
+  icon,
 }: {
   label: string;
   value: string;
   sub?: string;
+  icon?: React.ReactNode;
 }) {
   return (
     <div className="border border-rift-line/40 bg-rift-bg/40 px-3 py-2">
       <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-0.5">
         {label}
       </div>
-      <div className="font-display text-sm tracking-wider text-rift-goldbright truncate">
+      <div className="flex items-center gap-1.5 font-display text-sm tracking-wider text-rift-goldbright truncate">
+        {icon}
         {value}
       </div>
       {sub && (

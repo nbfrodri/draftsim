@@ -44,6 +44,7 @@ import {
   type SplitId,
 } from "@/lib/season/types";
 import TeamIcon from "./TeamIcon";
+import LeagueIcon from "./LeagueIcon";
 import Modal from "./Modal";
 import SeasonStoryCard from "./SeasonStoryCard";
 import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
@@ -97,7 +98,8 @@ function TeamRef({
       >
         {team.name}
       </span>
-      <span className="text-[9px] uppercase tracking-[0.15em] text-rift-muted/70 flex-shrink-0">
+      <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.15em] text-rift-muted/70 flex-shrink-0">
+        <LeagueIcon league={team.leagueId} size={12} />
         {team.leagueId}
       </span>
     </span>
@@ -345,6 +347,7 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px]">
             {intls.map((event) => (
               <span key={event} className="inline-flex items-center gap-1.5">
+                <LeagueIcon league={event} size={14} />
                 <span className="text-rift-muted/80">
                   {INTERNATIONAL_LABELS[event]}:
                 </span>
@@ -620,7 +623,8 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
               key={event}
               className="border border-rift-line/40 bg-rift-bg/30"
             >
-              <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
+                <LeagueIcon league={event} size={15} />
                 {INTERNATIONAL_LABELS[event]}
               </div>
               {winners.length === 0 ? (
@@ -665,7 +669,8 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                 key={league}
                 className="border border-rift-line/40 bg-rift-bg/30 px-3 py-2"
               >
-                <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1">
+                <div className="flex items-center gap-1.5 text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1">
+                  <LeagueIcon league={league} size={14} />
                   {LEAGUE_NAMES[league]}
                 </div>
                 {best ? (
@@ -942,7 +947,8 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
             if (!winners) return null;
             return (
               <div key={league} className="border border-rift-line/40 bg-rift-bg/30">
-                <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
+                  <LeagueIcon league={league} size={15} />
                   {LEAGUE_NAMES[league]}
                 </div>
                 <div className="divide-y divide-rift-line/15">
@@ -1065,6 +1071,12 @@ function OverallTimeline({ entries }: { entries: SeasonHistoryEntry[] }) {
                       key={row.key}
                       className="flex items-center gap-1.5 border border-rift-line/30 bg-rift-bg/30 px-2 py-1 text-[10px] min-w-0"
                     >
+                      {filter === "intl" && (
+                        <LeagueIcon
+                          league={row.key as InternationalId}
+                          size={13}
+                        />
+                      )}
                       <span className="text-[7px] uppercase tracking-[0.2em] text-rift-gold/60 w-12 flex-shrink-0">
                         {row.label}
                       </span>
