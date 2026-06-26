@@ -3195,7 +3195,17 @@ export const useDraftStore = create<DraftStore>()(
     // the final). appendMatchPicks adds every pick from this series to
     // the per-team and global histories so future matches see the
     // updated cross-match fearless lockout.
-    const withPicks = appendMatchPicks(tournament, match.id, series);
+    // Fold the just-played live series back onto its match record — during
+    // play the series lives only in state.series, so without this the match
+    // keeps the empty series startMatch stashed and the played games (with
+    // their recaps/ratings) are lost. Mirrors the bulk auto-sim path.
+    const tournamentWithSeries: TournamentState = {
+      ...tournament,
+      matches: tournament.matches.map((m) =>
+        m.id === match.id ? { ...m, series } : m,
+      ),
+    };
+    const withPicks = appendMatchPicks(tournamentWithSeries, match.id, series);
     const advanced = recordMatchWinner(withPicks, match.id, {
       teamId: winningTeamId,
       blueWins,
