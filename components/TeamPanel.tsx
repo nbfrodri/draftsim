@@ -16,6 +16,7 @@ import { getSynergy } from "@/lib/championMeta";
 import { MAIN_POOL, playerForLane, poolBias } from "@/lib/players";
 import type { Champion, Lane, PlayerTier, Roster, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
+import TeamName from "./TeamName";
 
 // Per-tier styling for the small player-tier badge on a locked pick slot.
 const TIER_BADGE: Record<PlayerTier, string> = {
@@ -130,7 +131,7 @@ export default function TeamPanel({ champions, side }: Props) {
         <div
           className={`font-display text-sm md:text-base ${sideConfig.brightColor} tracking-[0.2em] uppercase truncate`}
         >
-          {teamName}
+          <TeamName name={teamName} size={18} />
         </div>
         <div
           className={`text-[9px] md:text-[10px] uppercase tracking-[0.35em] ${sideConfig.textColor}/70 mt-0.5`}

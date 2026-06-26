@@ -7,6 +7,7 @@ import { currentGame, maxGames, requiredWins, seriesScore } from "@/lib/series";
 import { currentAction } from "@/lib/draftEngine";
 import { phaseLabel, TOTAL_ACTIONS } from "@/lib/draftOrder";
 import Modal from "./Modal";
+import TeamName from "./TeamName";
 import TierListView from "./TierListView";
 import SynergyView from "./SynergyView";
 
@@ -163,7 +164,7 @@ export default function DraftHeader() {
                 {phaseLabel(game.actionIndex)}
               </div>
               <div className={`text-xs md:text-sm font-display tracking-wider ${sideColor}`}>
-                {sideName} · {action.kind.toUpperCase()}
+                <TeamName name={sideName} size={14} /> · {action.kind.toUpperCase()}
               </div>
             </div>
           )}
@@ -260,7 +261,7 @@ function TeamBadge({
       <div
         className={`hidden sm:block font-display text-xs md:text-base ${textColor} uppercase tracking-[0.2em] truncate max-w-[90px] md:max-w-[160px]`}
       >
-        {name}
+        <TeamName name={name} size={18} />
       </div>
       <div className="flex gap-1 shrink-0">
         {pips.map((on, i) => (

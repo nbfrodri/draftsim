@@ -12,6 +12,7 @@ import {
 } from "@/lib/matchSimulator";
 import type { Champion, Side } from "@/lib/types";
 import AIRationaleHistory from "./AIRationaleHistory";
+import TeamName from "./TeamName";
 import TierListView from "./TierListView";
 import SynergyView from "./SynergyView";
 import Modal from "./Modal";
@@ -219,7 +220,10 @@ export default function BetweenGamesView({ champions }: Props) {
                     game.winner === "blue" ? "text-rift-blue" : "text-rift-red"
                   }
                 >
-                  {game.winner === "blue" ? series.blueTeam : series.redTeam}
+                  <TeamName
+                    name={game.winner === "blue" ? series.blueTeam : series.redTeam}
+                    size={40}
+                  />
                 </span>
                 <span className="text-rift-gold/70 text-xl md:text-3xl mx-2">
                   wins Game {game.gameNumber}
@@ -427,11 +431,11 @@ export default function BetweenGamesView({ champions }: Props) {
                   </div>
                   <div className="text-xs md:text-sm text-rift-muted mt-1">
                     <span className="text-rift-blue">
-                      {swapSides ? series.redTeam : series.blueTeam}
+                      <TeamName name={swapSides ? series.redTeam : series.blueTeam} size={14} />
                     </span>
                     <span className="mx-2">→ Blue · Red ←</span>
                     <span className="text-rift-red">
-                      {swapSides ? series.blueTeam : series.redTeam}
+                      <TeamName name={swapSides ? series.blueTeam : series.redTeam} size={14} />
                     </span>
                   </div>
                 </button>
@@ -504,7 +508,9 @@ function SideChoicePanel({
         Loser Picks Side
       </div>
       <div className="font-display text-xl md:text-2xl text-rift-goldbright tracking-wider mb-1">
-        <span className="text-rift-gold">{chooserName}</span>
+        <span className="text-rift-gold">
+          <TeamName name={chooserName} size={20} />
+        </span>
         <span className="text-rift-goldbright/80">, choose your side for Game {nextGameNumber}</span>
       </div>
       <div className="text-[10px] uppercase tracking-[0.3em] text-rift-muted mb-5">

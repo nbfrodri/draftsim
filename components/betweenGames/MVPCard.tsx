@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { MatchTimeline } from "@/lib/matchSimulator";
 import type { Champion, Lane, Side } from "@/lib/types";
 import LaneIcon from "@/components/LaneIcon";
+import TeamName from "@/components/TeamName";
 import {
   LANE_ORDER,
   computeRunningStats,
@@ -177,7 +178,7 @@ export function MVPCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className={`text-[10px] md:text-[11px] font-display uppercase tracking-[0.35em] ${sideAccentText}`}>
-              {sideName}
+              <TeamName name={sideName} size={13} />
             </span>
             <span className="text-rift-mutedbright/40">·</span>
             <span className="flex items-center gap-1 text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright/70">

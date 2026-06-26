@@ -6,6 +6,7 @@ import { playEventBlip } from "@/lib/sounds";
 import type { Champion, Lane } from "@/lib/types";
 import WinProbChart from "@/components/charts/WinProbChart";
 import GoldLeadChart from "@/components/charts/GoldLeadChart";
+import TeamName from "@/components/TeamName";
 import {
   type PlayMode,
   type PlaySpeed,
@@ -245,7 +246,9 @@ export function SimulationPanel({
         <div className="mt-2 font-display text-xl md:text-2xl tracking-wider min-h-[2rem]">
           {isFinished ? (
             <>
-              <span className={winnerCls}>{winnerName}</span>
+              <span className={winnerCls}>
+                <TeamName name={winnerName} size={22} />
+              </span>
               <span className="text-rift-gold/70 mx-2">wins</span>
             </>
           ) : (

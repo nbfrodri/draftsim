@@ -18,6 +18,7 @@ import {
 } from "@/lib/sim/strategies";
 import type { Champion, Lane, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
+import TeamName from "./TeamName";
 import Modal from "./Modal";
 
 interface Props {
@@ -333,7 +334,7 @@ function TeamStrategyColumn({
         <div
           className={`font-display ${text} uppercase tracking-[0.25em] truncate text-sm md:text-base`}
         >
-          {name}
+          <TeamName name={name} size={18} />
         </div>
         {isAI ? (
           <span className="px-2 py-0.5 border border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright text-[8px] md:text-[9px] uppercase tracking-[0.3em]">

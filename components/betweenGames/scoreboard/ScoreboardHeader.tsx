@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import TeamName from "@/components/TeamName";
 import { formatClock } from "../shared";
 
 // Subtle "N in a row" label shown when a team has won 2+ consecutive games
@@ -52,7 +53,7 @@ export const ScoreboardHeader = memo(function ScoreboardHeader({
       <div className="flex flex-col items-end truncate min-w-0">
         <div className="flex items-center gap-2 truncate min-w-0">
           <span className="font-display text-rift-bluebright text-xs md:text-sm uppercase tracking-[0.2em] truncate">
-            {blueTeam}
+            <TeamName name={blueTeam} size={18} />
           </span>
           <span
             className="w-1.5 h-1.5 rounded-full bg-rift-blue shadow-glow-blue flex-shrink-0"
@@ -71,7 +72,7 @@ export const ScoreboardHeader = memo(function ScoreboardHeader({
             aria-hidden
           />
           <span className="font-display text-rift-redbright text-xs md:text-sm uppercase tracking-[0.2em] truncate">
-            {redTeam}
+            <TeamName name={redTeam} size={18} />
           </span>
         </div>
         <InARowBadge streak={redWinStreak} side="red" />

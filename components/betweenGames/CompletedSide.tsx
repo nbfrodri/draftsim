@@ -3,6 +3,7 @@
 import { strategySummary, type TeamStrategy } from "@/lib/sim/strategies";
 import type { Champion, Lane, Side } from "@/lib/types";
 import LaneIcon from "@/components/LaneIcon";
+import TeamName from "@/components/TeamName";
 
 // ─── StrategyRecap ────────────────────────────────────────────────────────────
 
@@ -23,7 +24,7 @@ export function StrategyRecap({
         <div
           className={`font-display ${text} uppercase tracking-[0.2em] text-xs truncate`}
         >
-          {name}
+          <TeamName name={name} size={14} />
         </div>
         <div className="text-[8px] uppercase tracking-[0.35em] text-rift-gold/60">
           Game Plan
@@ -85,7 +86,7 @@ export function CompletedSide({
       <div
         className={`font-display ${text} uppercase tracking-[0.25em] mb-3 truncate text-sm md:text-base`}
       >
-        {name}
+        <TeamName name={name} size={18} />
       </div>
 
       {/* Picks with role icons — clickable to swap */}
@@ -179,7 +180,7 @@ export function WinnerButton({
       <div className="text-[10px] tracking-[0.4em] text-rift-muted mb-1">
         Declare Winner
       </div>
-      {name}
+      <TeamName name={name} size={20} />
     </button>
   );
 }

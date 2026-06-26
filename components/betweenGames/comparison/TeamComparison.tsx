@@ -8,6 +8,7 @@ import {
   type IdentityProfile,
 } from "@/lib/sim/identities";
 import type { Side } from "@/lib/types";
+import TeamName from "@/components/TeamName";
 import { POSITIVE_MATCHUP_TAGS, buildComparisonRows, buildVerdict, type ComparisonRow } from "../shared";
 
 // ─── IdentityScoutingPanel ────────────────────────────────────────────────────
@@ -93,7 +94,7 @@ function ScoutingCard({
         <div
           className={`text-[10px] md:text-[11px] font-display uppercase tracking-[0.25em] ${sideAccent} mb-1 truncate`}
         >
-          {name}
+          <TeamName name={name} size={13} />
         </div>
         <div className="text-[10px] md:text-[11px] text-rift-mutedbright/60 italic">
           No clear identity — flex draft
@@ -107,7 +108,7 @@ function ScoutingCard({
         <span
           className={`text-[10px] md:text-[11px] font-display uppercase tracking-[0.25em] ${sideAccent} truncate`}
         >
-          {name}
+          <TeamName name={name} size={13} />
         </span>
         <span className="text-[8px] uppercase tracking-[0.3em] text-rift-mutedbright/55 flex-shrink-0">
           peaks {profile.peakMinutes.min}–{profile.peakMinutes.max}'
@@ -239,7 +240,7 @@ function SideTagColumn({
       <div
         className={`text-[9px] md:text-[10px] uppercase tracking-[0.3em] mb-1.5 truncate font-display ${headerCls}`}
       >
-        {name}
+        <TeamName name={name} size={12} />
       </div>
       <div className="flex flex-wrap gap-1">
         {matchupTags.map((tag) => {
@@ -336,7 +337,7 @@ export const TeamComparison = memo(function TeamComparison({
                 blueAhead ? "text-rift-bluebright" : "text-rift-mutedbright/85"
               }`}
             >
-              {blueName}
+              <TeamName name={blueName} size={18} />
             </div>
             <div className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/55">
               Blue Side
@@ -379,7 +380,7 @@ export const TeamComparison = memo(function TeamComparison({
                 redAhead ? "text-rift-redbright" : "text-rift-mutedbright/85"
               }`}
             >
-              {redName}
+              <TeamName name={redName} size={18} />
             </div>
             <div className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/55">
               Red Side

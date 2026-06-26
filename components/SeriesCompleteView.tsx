@@ -7,6 +7,7 @@ import { fearlessLocksBeforeGame, winsByTeamName } from "@/lib/series";
 import { computeGameRatings } from "@/lib/matchSimulator";
 import type { Champion, GameDraft, GameRecap, Lane, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
+import TeamName from "./TeamName";
 import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
 
 interface Props {
@@ -105,7 +106,7 @@ export default function SeriesCompleteView({ champions }: Props) {
             ref={titleRef}
             className={`mt-4 font-display text-5xl md:text-7xl tracking-[0.1em] ${winnerColor} ${winnerGlow}`}
           >
-            {winnerName}
+            <TeamName name={winnerName} size={56} />
           </div>
           <div className="sc-fade mt-3 flex items-center justify-center gap-3 md:gap-4 text-sm md:text-base font-display uppercase tracking-[0.25em]">
             <span
@@ -113,7 +114,7 @@ export default function SeriesCompleteView({ champions }: Props) {
                 leftWins > rightWins ? "text-rift-goldbright" : "text-rift-muted"
               }`}
             >
-              {leftTeam}
+              <TeamName name={leftTeam} size={18} />
             </span>
             <span className="text-rift-goldbright tnum text-base md:text-xl">
               {leftWins}
@@ -127,7 +128,7 @@ export default function SeriesCompleteView({ champions }: Props) {
                 rightWins > leftWins ? "text-rift-goldbright" : "text-rift-muted"
               }`}
             >
-              {rightTeam}
+              <TeamName name={rightTeam} size={18} />
             </span>
           </div>
         </div>
@@ -251,7 +252,7 @@ function SeriesPlayerRatings({
       <div className="grid grid-cols-2 gap-3 md:gap-4">
         <div>
           <div className="text-[9px] uppercase tracking-[0.3em] text-rift-bluebright mb-1.5 truncate">
-            {leftTeam}
+            <TeamName name={leftTeam} size={12} />
           </div>
           <div className="flex flex-wrap gap-1">
             {avgs.left.map((r, i) => (
@@ -261,7 +262,7 @@ function SeriesPlayerRatings({
         </div>
         <div>
           <div className="text-[9px] uppercase tracking-[0.3em] text-rift-redbright mb-1.5 truncate">
-            {rightTeam}
+            <TeamName name={rightTeam} size={12} />
           </div>
           <div className="flex flex-wrap gap-1">
             {avgs.right.map((r, i) => (
@@ -458,7 +459,7 @@ function GameCard({
                 winnerSide === "blue" ? "text-rift-blue" : "text-rift-red"
               }`}
             >
-              {winnerLabel}
+              <TeamName name={winnerLabel} size={16} />
             </span>
           </div>
         )}
@@ -574,7 +575,7 @@ function TeamLine({
       <div
         className={`text-xs md:text-sm ${textColor} uppercase tracking-[0.25em] font-display mb-2 truncate`}
       >
-        {label}
+        <TeamName name={label} size={16} />
       </div>
       <div className="grid grid-cols-5 gap-1 md:gap-1.5 mb-2">
         {picks.map((id, i) => {
