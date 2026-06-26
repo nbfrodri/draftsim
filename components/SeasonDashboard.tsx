@@ -49,6 +49,7 @@ import {
 } from "./QualifierBadge";
 import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
 import Modal from "./Modal";
+import { isDesktop, saveFileNative } from "@/lib/desktopStorage";
 import SeasonMetaPanel from "./SeasonMetaPanel";
 import { SimulatingOverlay } from "./tournament/bracket/DashboardModals";
 import { GroupStandingsTable } from "./tournament/bracket/StandingsTables";
@@ -69,6 +70,7 @@ export default function SeasonDashboard() {
   const exitSeasonView = useDraftStore((s) => s.exitSeasonView);
   const abandonSeason = useDraftStore((s) => s.abandonSeason);
   const saveCurrentSeason = useDraftStore((s) => s.saveCurrentSeason);
+  const exportCurrentSeason = useDraftStore((s) => s.exportCurrentSeason);
   const archiveSeasonToHistory = useDraftStore((s) => s.archiveSeasonToHistory);
   const inHistory = useDraftStore((s) =>
     s.seasonHistory.some((e) => e.id === s.season?.id),
@@ -83,6 +85,40 @@ export default function SeasonDashboard() {
     const t = setTimeout(() => setSaveFeedback(null), 2500);
     return () => clearTimeout(t);
   }, [saveFeedback]);
+
+  // Export the active season to a .json file (a portable backup of the
+  // same save slot saveCurrentSeason writes). Desktop → native Save
+  // dialog; web → browser download.
+  const handleExportSeason = async () => {
+    const entry = exportCurrentSeason();
+    if (!entry) {
+      setSaveFeedback("Export failed");
+      return;
+    }
+    const json = JSON.stringify(entry);
+    const safeName =
+      season.name.replace(/[/\\:*?"<>|]/g, "_").trim() || "season";
+    const filename = `${safeName}.draftsim-season.json`;
+    if (isDesktop()) {
+      const res = await saveFileNative({
+        defaultPath: filename,
+        filters: [{ name: "DraftSim Season", extensions: ["json"] }],
+        content: json,
+      });
+      if (res.ok) setSaveFeedback("Season exported");
+      else if (res.error !== "cancelled")
+        setSaveFeedback(res.error ? `Export failed: ${res.error}` : "Export failed");
+      return;
+    }
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    setSaveFeedback("Season exported");
+  };
 
   const championsById = useMemo(() => {
     const map = new Map<number, Champion>();
@@ -140,6 +176,18 @@ export default function SeasonDashboard() {
             <rect x="5" y="9" width="6" height="4" />
           </svg>
           Save
+        </button>
+        <button
+          type="button"
+          onClick={handleExportSeason}
+          className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
+          title="Export this season to a .json file you can re-import later (or on another device) from the main menu"
+        >
+          <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+            <path d="M8 3v8M5 8l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M3 13h10" strokeLinecap="round" />
+          </svg>
+          Export
         </button>
         <button
           type="button"

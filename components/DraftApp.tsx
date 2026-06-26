@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDraftStore, type SavedTournamentEntry } from "@/store/draftStore";
 import { tournamentChampion, type TournamentState } from "@/lib/tournament";
 import type { Champion } from "@/lib/types";
@@ -173,6 +173,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
   const duplicateSavedSeason = useDraftStore((s) => s.duplicateSavedSeason);
   const deleteSavedSeason = useDraftStore((s) => s.deleteSavedSeason);
   const clearSavedSeasons = useDraftStore((s) => s.clearSavedSeasons);
+  const importSeason = useDraftStore((s) => s.importSeason);
   const seasonHistory = useDraftStore((s) => s.seasonHistory);
   const archiveSavedSeasonToHistory = useDraftStore(
     (s) => s.archiveSavedSeasonToHistory,
@@ -219,6 +220,43 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
   const confirmSeasonLoadEntry = confirmSeasonLoad
     ? savedSeasons.find((e) => e.id === confirmSeasonLoad)
     : null;
+
+  // Import-season state: a hidden file input drives the web path; desktop
+  // uses the native open dialog. Either way the parsed entry lands in
+  // Saved Seasons, which we then open so the user can load it.
+  const seasonFileInputRef = useRef<HTMLInputElement>(null);
+  const [seasonImportError, setSeasonImportError] = useState<string | null>(
+    null,
+  );
+
+  const applyImportedSeason = (text: string) => {
+    const res = importSeason(text);
+    if (res.ok) {
+      setSeasonImportError(null);
+      setSavedSeasonsOpen(true);
+    } else {
+      setSeasonImportError(res.error ?? "Import failed");
+    }
+  };
+
+  const handleImportSeason = async () => {
+    setSeasonImportError(null);
+    if (isDesktop()) {
+      const res = await openFileNative({
+        filters: [{ name: "DraftSim Season", extensions: ["json"] }],
+      });
+      if (!res.ok || res.content == null) {
+        if (res.error && res.error !== "cancelled") {
+          setSeasonImportError(res.error);
+        }
+        return;
+      }
+      applyImportedSeason(res.content);
+      return;
+    }
+    // Web: open the OS file picker via the hidden input.
+    seasonFileInputRef.current?.click();
+  };
 
   const handleLoadSeason = (entryId: string) => {
     // Loading replaces the active season — confirm when one exists and
@@ -413,6 +451,31 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
             </svg>
             {isDesktop() ? "Import Tournament File" : "Import Tournament Code"}
           </button>
+          <button
+            type="button"
+            onClick={() => void handleImportSeason()}
+            className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright hover:text-rift-goldbright transition-colors"
+            title="Restore a season exported from the season dashboard (.json) into Saved Seasons"
+          >
+            <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M8 11V3M5 8l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M3 13h10" strokeLinecap="round" />
+            </svg>
+            Import Season
+          </button>
+          {/* Web file picker for Import Season (desktop uses the native dialog). */}
+          <input
+            ref={seasonFileInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              applyImportedSeason(await file.text());
+            }}
+          />
           {savedSeasons.length > 0 && (
             <button
               type="button"
@@ -470,6 +533,11 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
             </button>
           )}
         </div>
+        {seasonImportError && (
+          <div className="mt-3 text-[10px] uppercase tracking-[0.25em] text-rift-redbright">
+            Season import failed: {seasonImportError}
+          </div>
+        )}
       </div>
 
       {historyOpen && (

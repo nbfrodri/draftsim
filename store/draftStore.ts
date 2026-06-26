@@ -599,6 +599,12 @@ interface DraftStore {
   // Snapshot the active season (upsert by season id). Returns false
   // when no season is active.
   saveCurrentSeason: () => boolean;
+  // Build the active season's save entry (same payload saveCurrentSeason
+  // stores) without persisting it — for export-to-file. Null with no season.
+  exportCurrentSeason: () => SavedSeasonEntry | null;
+  // Add a season entry parsed from an exported .json file to Saved Seasons
+  // (upsert by id). Returns the entry id so the caller can load it.
+  importSeason: (json: string) => { ok: boolean; error?: string; id?: string };
   // Restore a saved season as the active one and open its dashboard.
   loadSavedSeason: (entryId: string) => void;
   // Clone a saved season under a fresh id + "(Copy)" name.
@@ -2017,10 +2023,22 @@ export const useDraftStore = create<DraftStore>()(
   // ─── Saved seasons ───────────────────────────────────────────────────
 
   saveCurrentSeason: () => {
+    const entry = get().exportCurrentSeason();
+    if (!entry) return false;
+    set((s) => ({
+      savedSeasons: [
+        entry,
+        ...s.savedSeasons.filter((e) => e.id !== entry.id),
+      ].slice(0, savedSeasonsCap()),
+    }));
+    return true;
+  },
+
+  exportCurrentSeason: () => {
     const state = get();
     const season = state.season;
-    if (!season) return false;
-    const entry: SavedSeasonEntry = {
+    if (!season) return null;
+    return {
       id: season.id,
       savedAt: Date.now(),
       season: {
@@ -2043,13 +2061,44 @@ export const useDraftStore = create<DraftStore>()(
       seasonViewOpen: state.seasonViewOpen,
       sideChoicePending: state.sideChoicePending,
     };
-    set((s) => ({
+  },
+
+  importSeason: (json) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(json);
+    } catch {
+      return { ok: false, error: "Not a valid season file (bad JSON)." };
+    }
+    // Light shape validation — we trust our own exporter for the deep
+    // tournament shape (same stance as importTournament). The compact
+    // tournaments are decoded later, in loadSavedSeason.
+    const entry = parsed as Partial<SavedSeasonEntry> | null;
+    const s = entry?.season as Partial<SeasonState> | undefined;
+    if (
+      !entry ||
+      typeof entry.id !== "string" ||
+      !s ||
+      typeof s.id !== "string" ||
+      typeof s.name !== "string" ||
+      s.tournaments == null ||
+      typeof s.tournaments !== "object"
+    ) {
+      return { ok: false, error: "Not a DraftSim season export." };
+    }
+    const safe: SavedSeasonEntry = {
+      ...(entry as SavedSeasonEntry),
+      savedAt:
+        typeof entry.savedAt === "number" ? entry.savedAt : Date.now(),
+      playerForms: entry.playerForms ?? {},
+    };
+    set((st) => ({
       savedSeasons: [
-        entry,
-        ...s.savedSeasons.filter((e) => e.id !== entry.id),
+        safe,
+        ...st.savedSeasons.filter((e) => e.id !== safe.id),
       ].slice(0, savedSeasonsCap()),
     }));
-    return true;
+    return { ok: true, id: safe.id };
   },
 
   loadSavedSeason: (entryId) => {
