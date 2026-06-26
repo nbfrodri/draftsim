@@ -942,6 +942,18 @@
       "middle": "A"
     }
   },
+  "Locke": {
+    "phase": "mid",
+    "archetypes": [
+      "burst",
+      "assassin"
+    ],
+    "cc": "soft",
+    "mobility": "high",
+    "metaTiers": {
+      "middle": "A"
+    }
+  },
   "Lucian": {
     "phase": "mid",
     "archetypes": [
