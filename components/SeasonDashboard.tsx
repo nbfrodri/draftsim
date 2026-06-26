@@ -814,6 +814,7 @@ function TournamentCard({
   onOpen: () => void;
 }) {
   const simSeason = useDraftStore((s) => s.simSeason);
+  const simSeasonMatchday = useDraftStore((s) => s.simSeasonMatchday);
   const simulating = useDraftStore((s) => s.simulating);
   const [expanded, setExpanded] = useState(false);
   const fullStandings = useMemo(
@@ -1080,15 +1081,26 @@ function TournamentCard({
       </div>
       <div className="border-t border-rift-line/30 flex">
         {tournament.status !== "complete" && (
-          <button
-            type="button"
-            disabled={!!simulating}
-            onClick={() => simSeason({ tournamentId: tournament.id })}
-            className="flex-1 px-3 py-1.5 text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/70 hover:text-rift-goldbright hover:bg-rift-gold/5 disabled:opacity-40 transition-colors text-left border-r border-rift-line/30"
-            title={`Simulate every remaining match of ${tournament.name}`}
-          >
-            ▸ Sim This
-          </button>
+          <>
+            <button
+              type="button"
+              disabled={!!simulating}
+              onClick={() => simSeasonMatchday(tournament.id)}
+              className="flex-1 px-3 py-1.5 text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/70 hover:text-rift-goldbright hover:bg-rift-gold/5 disabled:opacity-40 transition-colors text-left border-r border-rift-line/30"
+              title={`Play the next matchday of ${tournament.name}`}
+            >
+              ▸ Sim Matchday
+            </button>
+            <button
+              type="button"
+              disabled={!!simulating}
+              onClick={() => simSeason({ tournamentId: tournament.id })}
+              className="flex-1 px-3 py-1.5 text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/70 hover:text-rift-goldbright hover:bg-rift-gold/5 disabled:opacity-40 transition-colors text-left border-r border-rift-line/30"
+              title={`Simulate every remaining match of ${tournament.name}`}
+            >
+              ▸ Sim This
+            </button>
+          </>
         )}
         <button
           type="button"

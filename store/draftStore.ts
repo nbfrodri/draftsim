@@ -589,7 +589,8 @@ interface DraftStore {
   // results into `seasonMatchday` for the dashboard's Latest Matchday
   // panel. Works for the round-robin/Swiss/group regular stage AND for
   // playoff brackets (freezing standings into the bracket transparently).
-  simSeasonMatchday: () => void;
+  // Pass a tournamentId to advance just that one region's matchday.
+  simSeasonMatchday: (tournamentId?: string) => void;
   // Results of the most recently simulated matchday (ephemeral — not
   // persisted; resets on reload). null until the first matchday is run.
   seasonMatchday: SeasonMatchdayResult | null;
@@ -1830,7 +1831,7 @@ export const useDraftStore = create<DraftStore>()(
     })();
   },
 
-  simSeasonMatchday: () => {
+  simSeasonMatchday: (tournamentId) => {
     const { season, simulating } = get();
     if (!season || simulating || season.status === "complete") return;
     set({ simulating: "all", simProgress: null });
@@ -1892,12 +1893,13 @@ export const useDraftStore = create<DraftStore>()(
         const phase = cur0.phases[cur0.phaseIndex];
         if (!phase) return;
         const isSplit = phase.kind === "split";
-        const targetIds: string[] = isSplit
+        const targetIds: string[] = (isSplit
           ? phase.tournamentIds.slice()
           : (() => {
               const t = nextPendingSeasonTournament(cur0);
               return t ? [t.id] : [];
-            })();
+            })()
+        ).filter((id) => !tournamentId || id === tournamentId);
 
         const regions: SeasonMatchdayRegion[] = [];
         let mdRound = 0;
