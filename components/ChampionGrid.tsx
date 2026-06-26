@@ -7,10 +7,9 @@ import { effectiveLockedSet } from "@/lib/tournament";
 import {
   isChampionAvailable,
   currentAction,
-  POSITIONAL_LANES,
 } from "@/lib/draftEngine";
 import { isAITurn } from "@/lib/draftAI";
-import { playerForLane, poolTier, type PoolTier } from "@/lib/players";
+import { browsingPoolTier, type PoolTier } from "@/lib/players";
 import { LANES } from "@/lib/lanes";
 import { playSelectSound } from "@/lib/sounds";
 import {
@@ -57,14 +56,13 @@ export default function ChampionGrid({ champions }: Props) {
 
   const game = currentGame(series);
   const action = currentAction(game);
-  // The player on the clock for this PICK (bans aren't a player's pool), so
-  // each grid cell can flag whether it's one of their mains / flex / disliked
-  // champs while you draft.
-  const pickerPlayer = useMemo(() => {
+  // Roster on the clock for this PICK (bans aren't a player's pool). The pool
+  // dot flags each champ against the player for the lane you're BROWSING (the
+  // lane filter), not the pick slot — picks don't happen in positional order,
+  // so a slot→lane mapping flagged the wrong player.
+  const pickRoster = useMemo(() => {
     if (!action || action.kind !== "pick") return null;
-    const roster =
-      action.side === "blue" ? series.bluePlayers : series.redPlayers;
-    return playerForLane(roster, POSITIONAL_LANES[action.slot]);
+    return action.side === "blue" ? series.bluePlayers : series.redPlayers;
   }, [action, series.bluePlayers, series.redPlayers]);
   // Lockout for the pick grid — unions per-series fearless with any
   // cross-match fearless from the active tournament (no-op outside
@@ -268,7 +266,7 @@ export default function ChampionGrid({ champions }: Props) {
                 lockedByFearless={locked.has(c.id)}
                 isSelected={selectedId === c.id}
                 tier={bestTierFor(c, lane)}
-                poolTier={pickerPlayer ? poolTier(pickerPlayer, c.id) : null}
+                poolTier={browsingPoolTier(pickRoster, lane === "all" ? null : lane, c.id)}
                 onSelect={handleSelect}
                 onInfo={handleInfo}
               />

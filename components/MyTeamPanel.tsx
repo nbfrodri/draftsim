@@ -183,7 +183,9 @@ export default function MyTeamPanel() {
         <span className="text-[8px] uppercase tracking-[0.3em] text-rift-mutedbright/55">
           My Team
         </span>
-        {grades && (grades.teamAvg != null || grades.lastMatchAvg != null) && (
+        {/* Team grade average — always shown so it's visible from the start
+            and visibly fills in / updates each time the team plays. */}
+        {grades && (
           <div className="ml-auto flex items-center gap-3 text-[9px] uppercase tracking-[0.2em] text-rift-muted/60">
             <span title="Average player note across the season">
               Avg{" "}

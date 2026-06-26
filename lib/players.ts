@@ -54,6 +54,27 @@ export function poolTier(
   return null;
 }
 
+// Pool dot for champ select: which pool tier to flag for a champion given the
+// lane the user is BROWSING (the lane filter). With a concrete lane it's that
+// lane's player; in the "all" view (lane null) it's the strongest pool
+// relation anyone on the picking side has — pick order isn't positional, so
+// the dot can't be tied to a pick slot.
+const POOL_RANK: Record<PoolTier, number> = { main: 3, secondary: 2, disliked: 1 };
+export function browsingPoolTier(
+  roster: Roster | null | undefined,
+  lane: Lane | null,
+  championId: number | null | undefined,
+): PoolTier | null {
+  if (!roster) return null;
+  if (lane) return poolTier(playerForLane(roster, lane), championId);
+  let best: PoolTier | null = null;
+  for (const p of roster) {
+    const t = poolTier(p, championId);
+    if (t && (!best || POOL_RANK[t] > POOL_RANK[best])) best = t;
+  }
+  return best;
+}
+
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }

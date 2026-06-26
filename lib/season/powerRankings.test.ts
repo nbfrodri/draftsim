@@ -74,6 +74,37 @@ describe("computePowerRankings", () => {
     expect(rows.find((r) => r.team.id === "Cold")!.movement).toBe("flat");
   });
 
+  it("moves the board on in-progress results before a tournament completes", () => {
+    const s = {
+      teams: [team("Winner", "B"), team("Loser", "B")],
+      phases: [{ tournamentIds: ["t1"] }],
+      phaseIndex: 0,
+      tournaments: {
+        t1: {
+          status: "in-progress",
+          matches: [
+            {
+              blueTeamId: "Winner",
+              redTeamId: "Loser",
+              winner: { teamId: "Winner", blueWins: 2, redWins: 0 },
+            },
+          ],
+        },
+      },
+      currentMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    } as unknown as SeasonState;
+    const rows = computePowerRankings(s);
+    // Equal rosters — the live record alone breaks the tie and trends them.
+    expect(rows[0].team.id).toBe("Winner");
+    expect(rows.find((r) => r.team.id === "Winner")!.movement).toBe("up");
+    expect(rows.find((r) => r.team.id === "Loser")!.movement).toBe("down");
+  });
+
   it("flags the biggest faller", () => {
     const rows = computePowerRankings(
       season([team("Steady", "A"), team("Slumping", "A")], {

@@ -39,6 +39,9 @@ export interface PowerRankingRow {
 const FORM_WEIGHT = 0.5;
 const RECENT_WEIGHT = 0.5;
 const META_WEIGHT = 0.3;
+// In-progress record (this phase's unfinished events) — the term that makes
+// the board move every matchday, before any tournament completes.
+const LIVE_WEIGHT = 0.6;
 // Form magnitude past which the movement glyph reads as trending.
 const MOVEMENT_THRESHOLD = 0.05;
 
@@ -104,6 +107,30 @@ function recentFinish(season: SeasonState, teamId: string): number {
   return 0;
 }
 
+// The team's live win−loss balance across decided matches in the CURRENT
+// phase's not-yet-complete tournaments, normalized to [-1, 1]. recentFinish
+// only fires once a tournament COMPLETES, so without this the board sits
+// static through a whole split's matchdays. 0 when the team has no decided
+// matches in progress.
+function inProgressRecord(season: SeasonState, teamId: string): number {
+  const phase = season.phases[season.phaseIndex];
+  if (!phase) return 0;
+  let wins = 0;
+  let losses = 0;
+  for (const tid of phase.tournamentIds) {
+    const t = season.tournaments[tid];
+    if (!t || t.status === "complete") continue;
+    for (const m of t.matches) {
+      if (!m.winner) continue;
+      if (m.blueTeamId !== teamId && m.redTeamId !== teamId) continue;
+      if (m.winner.teamId === teamId) wins++;
+      else losses++;
+    }
+  }
+  const total = wins + losses;
+  return total > 0 ? (wins - losses) / total : 0;
+}
+
 /** Rank every team in the season by a blended power score, with trend
  *  glyphs and "team of the split / biggest riser / faller" tags. Pure —
  *  pass `champions` to enable the light meta-fit term (omit for none). */
@@ -119,11 +146,19 @@ export function computePowerRankings(
     const star = deriveStar(team.players);
     const f = form[team.id] ?? 0;
     const recent = recentFinish(season, team.id);
+    const live = inProgressRecord(season, team.id);
     const metaFit = metaFitScore(team, championsById, override);
     const score =
-      star + f * FORM_WEIGHT + recent * RECENT_WEIGHT + metaFit * META_WEIGHT;
+      star +
+      f * FORM_WEIGHT +
+      recent * RECENT_WEIGHT +
+      live * LIVE_WEIGHT +
+      metaFit * META_WEIGHT;
+    // Trend glyph reflects both hot/cold form and how the team is doing in
+    // the live event, so the arrow moves each matchday even with form off.
+    const trend = f + live * 0.5;
     const movement: PowerMovement =
-      f > MOVEMENT_THRESHOLD ? "up" : f < -MOVEMENT_THRESHOLD ? "down" : "flat";
+      trend > MOVEMENT_THRESHOLD ? "up" : trend < -MOVEMENT_THRESHOLD ? "down" : "flat";
     return {
       team,
       rank: 0,
