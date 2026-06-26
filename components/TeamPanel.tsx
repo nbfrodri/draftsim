@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -12,7 +13,7 @@ import { useDraftStore } from "@/store/draftStore";
 import { currentGame, fearlessLockedSet } from "@/lib/series";
 import { assignLanesToPicks, currentAction } from "@/lib/draftEngine";
 import { getSynergy } from "@/lib/championMeta";
-import { playerForLane, poolBias } from "@/lib/players";
+import { MAIN_POOL, playerForLane, poolBias } from "@/lib/players";
 import type { Champion, Lane, PlayerTier, Roster, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
 
@@ -274,14 +275,25 @@ function PoolChip({
   champ,
   tone,
   status,
+  subtle = false,
 }: {
   champ: Champion;
   tone: "good" | "bad";
   status: ChampStatus;
+  // A secondary ("flex") liked pick — same green family, dimmed so the
+  // first-three mains read as the signature pool at a glance.
+  subtle?: boolean;
 }) {
-  const ring = tone === "good" ? "ring-rift-support/70" : "ring-rift-red/60";
-  const toneLabel = tone === "good" ? "Good" : "Bad";
+  const ring =
+    tone === "good"
+      ? subtle
+        ? "ring-rift-support/40"
+        : "ring-rift-support/70"
+      : "ring-rift-red/60";
+  const toneLabel =
+    tone === "good" ? (subtle ? "Secondary" : "Main") : "Bad";
   const gone = status !== "available";
+  const dim = gone ? "grayscale opacity-40" : subtle ? "opacity-75" : "";
   const title = gone
     ? `${toneLabel}: ${champ.name} · ${STATUS_LABEL[status]}`
     : `${toneLabel}: ${champ.name}`;
@@ -291,9 +303,7 @@ function PoolChip({
         src={champ.iconUrl}
         alt={champ.name}
         draggable={false}
-        className={`w-5 h-5 rounded-sm ring-1 ${ring} ${
-          gone ? "grayscale opacity-40" : ""
-        }`}
+        className={`w-5 h-5 rounded-sm ring-1 ${ring} ${dim}`}
       />
       {gone && (
         <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -312,25 +322,46 @@ function PoolRow({
   tone,
   byId,
   champStatus,
+  tiered = false,
 }: {
   ids: number[];
   tone: "good" | "bad";
   byId: Map<number, Champion>;
   champStatus: (id: number) => ChampStatus;
+  // Per-player liked rows are ordered (mains first), so split the first
+  // MAIN_POOL as mains and dim the rest. The team-aggregate union has no
+  // meaningful order, so it leaves this off.
+  tiered?: boolean;
 }) {
   if (ids.length === 0) return null;
   const isGood = tone === "good";
   const bar = isGood ? "bg-rift-support" : "bg-rift-red";
   const tint = isGood ? "bg-rift-support/[0.06]" : "bg-rift-red/[0.06]";
+  const splitMains = tiered && isGood && ids.length > MAIN_POOL;
   return (
     <div className={`flex items-stretch gap-1.5 rounded-sm ${tint} pr-1`}>
       <span className={`shrink-0 w-[2px] rounded-full ${bar}`} aria-hidden />
       <div className="flex flex-wrap gap-0.5 py-0.5">
-        {ids.map((id) => {
+        {ids.map((id, idx) => {
           const c = byId.get(id);
           if (!c) return null;
+          const subtle = tiered && isGood && idx >= MAIN_POOL;
           return (
-            <PoolChip key={id} champ={c} tone={tone} status={champStatus(id)} />
+            <Fragment key={id}>
+              {/* Thin divider between mains and secondary picks. */}
+              {splitMains && idx === MAIN_POOL && (
+                <span
+                  className="self-stretch w-px bg-rift-support/30 mx-0.5"
+                  aria-hidden
+                />
+              )}
+              <PoolChip
+                champ={c}
+                tone={tone}
+                status={champStatus(id)}
+                subtle={subtle}
+              />
+            </Fragment>
           );
         })}
       </div>
@@ -393,6 +424,9 @@ function ChampPools({
         <span className="flex items-center gap-0.5">
           <span className="w-1.5 h-1.5 rounded-full bg-rift-red" /> Bad
         </span>
+        <span className="text-rift-muted/60">
+          bright = main · faded = flex
+        </span>
         <span className="text-rift-muted/50">dimmed = taken</span>
       </div>
 
@@ -424,7 +458,7 @@ function ChampPools({
                   </span>
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                  <PoolRow ids={p.goodChamps} tone="good" byId={byId} champStatus={champStatus} />
+                  <PoolRow ids={p.goodChamps} tone="good" byId={byId} champStatus={champStatus} tiered />
                   <PoolRow ids={p.badChamps} tone="bad" byId={byId} champStatus={champStatus} />
                 </div>
               </div>

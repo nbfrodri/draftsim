@@ -17,6 +17,35 @@ import { Scoreboard } from "./Scoreboard";
 import { LaneGoldStrip } from "./LaneGoldStrip";
 import { TimelineRow } from "../playback/TimelineRow";
 
+// ─── Causality linking ────────────────────────────────────────────────────
+// Surfaces the engine's pick → objective chain in the feed: an objective taken
+// shortly after a same-side setup play (pick / vision / won fight) reads as the
+// PAYOFF of that play, not an isolated dice roll. Heuristic but matches the
+// sim's pickAdvantage window.
+const SETUP_LABEL: Record<string, string> = {
+  pick: "the pick",
+  vision: "the vision pick",
+  teamfight: "the won fight",
+  outplay: "the outplay",
+  shutdown: "the shutdown",
+};
+const PAYOFF_EVENTS = new Set(["soul", "baron", "elder", "dragon"]);
+const CAUSAL_WINDOW_MIN = 3.5;
+
+// For each event, a short "off the …" label if it's an objective off the back
+// of a recent same-side setup play, else null. Events are chronological.
+function computeCausalLinks(events: MatchEvent[]): (string | null)[] {
+  return events.map((e, i) => {
+    if (!PAYOFF_EVENTS.has(e.type)) return null;
+    for (let j = i - 1; j >= 0; j--) {
+      const p = events[j];
+      if (e.minutes - p.minutes > CAUSAL_WINDOW_MIN) break;
+      if (p.side === e.side && SETUP_LABEL[p.type]) return SETUP_LABEL[p.type];
+    }
+    return null;
+  });
+}
+
 // Memoized: all props except currentMin / revealedCount / latestEventIdx /
 // isFinished are referentially stable across playback updates, so this
 // panel re-renders only when the throttled clock advances — not on every
@@ -52,6 +81,10 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
   const redWinStreak = useDraftStore((s) => s.series?.redWinStreak ?? 0);
 
   const visible = timeline.events.slice(0, revealedCount);
+  const causalLinks = useMemo(
+    () => computeCausalLinks(timeline.events),
+    [timeline.events],
+  );
   const placeholderCount = isFinished ? 0 : Math.max(0, timeline.events.length - revealedCount);
   const stats = useMemo(
     () => computeRunningStats(timeline.events, revealedCount),
@@ -172,6 +205,7 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
                   blueTeam={blueTeam}
                   redTeam={redTeam}
                   isNew={i === latestEventIdx}
+                  link={causalLinks[i]}
                 />
               ))}
               {placeholderCount > 0 && (

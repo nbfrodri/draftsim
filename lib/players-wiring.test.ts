@@ -92,7 +92,7 @@ describe("decodeTournament roster handling", () => {
       JSON.stringify(tournamentWith([dirty])),
     );
     const top = tournament!.teams[0].players!.find((p) => p.lane === "top")!;
-    expect(top.goodChamps.length).toBeLessThanOrEqual(3);
+    expect(top.goodChamps.length).toBeLessThanOrEqual(5); // MAX_POOL
     expect(top.badChamps.some((id) => top.goodChamps.includes(id))).toBe(false);
     // missing lanes were filled to a full 5-player roster
     expect(tournament!.teams[0].players).toHaveLength(5);

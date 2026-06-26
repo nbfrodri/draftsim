@@ -497,7 +497,13 @@ export function scorePick(
     }
   }
   if (oppInLane) {
-    const matchupMul = 1 + 0.5 * ctx.myPicksLocked;
+    // More locked picks = more enemy info to counter with. Blue's 5th pick
+    // (B5, myPicksLocked === 4) is the exception: red still has one unknown
+    // pick (R5) to answer it, so B5 does NOT have full information — cap its
+    // multiplier one step below red's true last-pick (R5) advantage.
+    const infoPicks =
+      ctx.side === "blue" ? Math.min(ctx.myPicksLocked, 3) : ctx.myPicksLocked;
+    const matchupMul = 1 + 0.5 * infoPicks;
     const matchup = laneMatchup(candidate, oppInLane);
     // Hard-counter amplifier: matchups |>=4| get a quadratic boost on top
     // of the linear value, so an extreme matchup is worth dramatically more

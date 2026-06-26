@@ -138,6 +138,85 @@ function FaceOffRow({
   );
 }
 
+// ─── Tempo bar ────────────────────────────────────────────────────────────────
+
+// Surfaces the "who has the initiative" state — momentum (−1..1, blue-positive)
+// as a center-out tug-of-war, with the net tower (map-control) edge labelled.
+// This is the running tempo, not a per-event count, so it ebbs and flows.
+function TempoBar({
+  momentum,
+  mapControl,
+}: {
+  momentum: number;
+  mapControl: number;
+}) {
+  const m = Math.max(-1, Math.min(1, momentum));
+  const side: Side | "even" = m > 0.05 ? "blue" : m < -0.05 ? "red" : "even";
+  const fillPct = Math.min(50, Math.abs(m) * 50);
+  return (
+    <div className="space-y-1">
+      <div className="relative h-1.5 bg-rift-bg/80 border border-rift-line/60 overflow-hidden">
+        {side === "blue" && (
+          <div
+            className="absolute top-0 bottom-0 right-1/2 bg-gradient-to-l from-rift-blue to-rift-bluedeep transition-[width] duration-300"
+            style={{ width: `${fillPct}%` }}
+          />
+        )}
+        {side === "red" && (
+          <div
+            className="absolute top-0 bottom-0 left-1/2 bg-gradient-to-r from-rift-red to-rift-reddeep transition-[width] duration-300"
+            style={{ width: `${fillPct}%` }}
+          />
+        )}
+        <div
+          className="absolute left-1/2 top-0 bottom-0 w-px bg-rift-goldbright/70 -translate-x-1/2"
+          aria-hidden
+        />
+      </div>
+      <div className="flex items-center justify-center gap-2 text-[8px] md:text-[9px] uppercase tracking-[0.25em] text-rift-muted">
+        <span>Tempo</span>
+        {mapControl !== 0 && (
+          <span
+            className={
+              mapControl > 0 ? "text-rift-bluebright" : "text-rift-redbright"
+            }
+          >
+            Map {mapControl > 0 ? "+" : ""}
+            {mapControl}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Objective badge ──────────────────────────────────────────────────────────
+
+// A side-coloured pill for a secured game-state objective (Soul element,
+// Elder, Atakhan variant) — surfaces ownership the count rows can't show.
+function ObjBadge({
+  side,
+  icon,
+  label,
+}: {
+  side: Side;
+  icon: EventType;
+  label: string;
+}) {
+  const sideCls =
+    side === "blue"
+      ? "border-rift-blue/50 text-rift-bluebright bg-rift-blue/10"
+      : "border-rift-red/50 text-rift-redbright bg-rift-red/10";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border text-[8px] md:text-[9px] uppercase tracking-[0.15em] ${sideCls}`}
+    >
+      <EventIcon type={icon} size={10} />
+      {label}
+    </span>
+  );
+}
+
 // ─── Scoreboard ───────────────────────────────────────────────────────────────
 
 // Memoized: `stats` only changes identity when an event reveals; `gold`
@@ -152,6 +231,7 @@ export const Scoreboard = memo(function Scoreboard({
   return (
     <div className="space-y-3">
       <GoldHUD blueGold={gold.blue} redGold={gold.red} />
+      <TempoBar momentum={stats.momentum} mapControl={stats.mapControl} />
       <div className="border-t border-rift-line/40 pt-2 space-y-1">
         <FaceOffRow
           icon="first-blood"
@@ -187,6 +267,29 @@ export const Scoreboard = memo(function Scoreboard({
           />
         )}
       </div>
+      {/* Game-state ownership the count rows can't convey: which side holds
+          Soul (and its element), Elder, and Atakhan (and its variant). */}
+      {(stats.hasSoul || stats.hasElder || stats.atakhan) && (
+        <div className="flex flex-wrap items-center justify-center gap-1.5 border-t border-rift-line/40 pt-2">
+          {stats.hasSoul && (
+            <ObjBadge
+              side={stats.hasSoul}
+              icon="soul"
+              label={`${stats.soulElement ?? ""} Soul`.trim()}
+            />
+          )}
+          {stats.hasElder && (
+            <ObjBadge side={stats.hasElder} icon="elder" label="Elder" />
+          )}
+          {stats.atakhan && (
+            <ObjBadge
+              side={stats.atakhan.side}
+              icon="atakhan"
+              label={`Atakhan · ${stats.atakhan.variant}`}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 });

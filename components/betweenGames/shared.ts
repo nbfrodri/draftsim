@@ -2,7 +2,12 @@
 // module. No React, no side-effects — safe to import from any sub-component.
 
 import type { EventBlipSeverity } from "@/lib/sounds";
-import type { EventType, LaneKDA, MatchEvent } from "@/lib/matchSimulator";
+import type {
+  AtakhanVariant,
+  EventType,
+  LaneKDA,
+  MatchEvent,
+} from "@/lib/matchSimulator";
 import type { TeamScore } from "@/lib/matchSimulator";
 import type { Lane, Side } from "@/lib/types";
 
@@ -38,6 +43,17 @@ export interface RunningStats {
   towers: { blue: number; red: number };
   inhibs: { blue: number; red: number };
   hasSoul: Side | null;
+  // Which Dragon Soul element was secured (set alongside hasSoul).
+  soulElement: string | null;
+  // Which side took Elder Dragon (its execute buff), if revealed yet.
+  hasElder: Side | null;
+  // Atakhan taker + variant, if revealed yet.
+  atakhan: { side: Side; variant: AtakhanVariant } | null;
+  // Current tempo (momentum, -1..1 blue-positive) and net map control (blue −
+  // red towers) as of the last revealed event — the "who has the initiative"
+  // state the count rows don't convey.
+  momentum: number;
+  mapControl: number;
   // Net per-lane gold contributed by revealed events (positive = blue ahead).
   // Lane phase passive gold is added separately in computeLiveLaneGold().
   laneGoldEvent: Record<Lane, number>;
@@ -223,11 +239,19 @@ export function computeRunningStats(events: MatchEvent[], upTo: number): Running
     towers: { blue: 0, red: 0 },
     inhibs: { blue: 0, red: 0 },
     hasSoul: null,
+    soulElement: null,
+    hasElder: null,
+    atakhan: null,
+    momentum: 0,
+    mapControl: 0,
     laneGoldEvent: { top: 0, jungle: 0, middle: 0, bottom: 0, support: 0 },
     laneKDA: { blue: emptySideKDA(), red: emptySideKDA() },
   };
   for (let i = 0; i < upTo; i++) {
     const e = events[i];
+    // These are snapshots, not sums — the latest revealed event's value wins.
+    stats.momentum = e.momentumAfter;
+    stats.mapControl = e.mapControlAfter;
     stats.kills.blue += e.kills.blue;
     stats.kills.red += e.kills.red;
     stats.towers.blue += e.towers.blue;
@@ -235,7 +259,14 @@ export function computeRunningStats(events: MatchEvent[], upTo: number): Running
     stats.inhibs.blue += e.inhibs.blue;
     stats.inhibs.red += e.inhibs.red;
     if (e.type === "dragon" || e.type === "soul") stats.drakes[e.side]++;
-    if (e.type === "soul") stats.hasSoul = e.side;
+    if (e.type === "soul") {
+      stats.hasSoul = e.side;
+      stats.soulElement = e.soulElement ?? null;
+    }
+    if (e.type === "elder") stats.hasElder = e.side;
+    if (e.type === "atakhan" && e.atakhanVariant) {
+      stats.atakhan = { side: e.side, variant: e.atakhanVariant };
+    }
     if (e.type === "baron") stats.barons[e.side]++;
     for (const lane of LANE_ORDER) {
       stats.laneGoldEvent[lane] += e.laneGoldDelta[lane] ?? 0;

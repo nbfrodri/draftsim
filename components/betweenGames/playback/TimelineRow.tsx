@@ -14,11 +14,14 @@ export const TimelineRow = memo(function TimelineRow({
   blueTeam,
   redTeam,
   isNew,
+  link,
 }: {
   event: MatchEvent;
   blueTeam: string;
   redTeam: string;
   isNew?: boolean;
+  // "off the …" causal tag when this objective came off a recent setup play.
+  link?: string | null;
 }) {
   const isBlue = event.side === "blue";
   const accentText = isBlue ? "text-rift-bluebright" : "text-rift-redbright";
@@ -96,6 +99,11 @@ export const TimelineRow = memo(function TimelineRow({
         >
           {event.description}
         </div>
+        {link && (
+          <div className="text-[9px] md:text-[10px] mt-0.5 italic text-rift-muted/70">
+            ↳ off {link}
+          </div>
+        )}
       </div>
 
       {/* Trailing team label */}

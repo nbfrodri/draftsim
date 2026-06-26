@@ -680,21 +680,39 @@ export function describeBuffSteal(
   return `${teamName(side, blueName, redName)} steals enemy ${buff}`;
 }
 
+// The fed enemy champ a shutdown cashes out on. Exported so the timeline can
+// attribute the DEATH (and name the victim) to the SAME champion — keeping the
+// KDA scoreboard consistent with the event line. Deterministic, no rng.
+export function shutdownVictim(
+  loserPicks: (Champion | null)[],
+): Champion | null {
+  return (
+    findByArchetype(loserPicks, ["hyper-carry", "burst", "assassin"]) ??
+    findSquishy(loserPicks)
+  );
+}
+
+export function shutdownVictimLane(
+  loserPicks: (Champion | null)[],
+): Lane | null {
+  const victim = shutdownVictim(loserPicks);
+  if (!victim) return null;
+  const idx = loserPicks.indexOf(victim);
+  return idx >= 0 ? POSITIONAL_LANES[idx] : null;
+}
+
 export function describeShutdown(
   side: Side,
   winnerPicks: (Champion | null)[],
   loserPicks: (Champion | null)[],
-  rng: RNG = Math.random,
+  bounty: number,
   killerLane?: Lane,
 ): string {
   const killer =
     (killerLane != null ? laneOf(winnerPicks, killerLane) : null) ??
     findByArchetype(winnerPicks, ["assassin", "pick", "burst", "skirmish"]) ??
     winnerPicks.find((c) => c != null);
-  const victim =
-    findByArchetype(loserPicks, ["hyper-carry", "burst", "assassin"]) ??
-    findSquishy(loserPicks);
-  const bounty = pickRandom([1000, 1000, 1500], rng);
+  const victim = shutdownVictim(loserPicks);
   if (killer && victim) {
     return `SHUTDOWN! ${killer.name} collects ${bounty}g bounty on ${victim.name}`;
   }

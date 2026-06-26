@@ -69,11 +69,33 @@ export interface MatchState {
   momentum: number;
   drakes: { blue: number; red: number };
   soulSide: Side | null;
+  // The Dragon Soul element a team secured — gives that team a small
+  // type-specific edge (Infernal fights hardest, Mountain defends, etc.).
+  soulType: string | null;
+  // Live per-lane advantage (blue-positive g/min-equivalent). Seeded from the
+  // static draft laneAdvantages, then snowballed by in-lane kills so a fed lane
+  // keeps producing kills and objective priority (see bumpLaneLead).
+  laneLead: Record<Lane, number>;
+  // The side that landed the most recent gank — lets the next counter-gank
+  // respond (more likely, biased back toward the team that got ganked).
+  lastGankSide: Side | null;
+  // Baron buff window: who holds it and when it lapses. The siege edge only
+  // tilts tower rolls while `time <= baronExpiresAt` (see rollTowerSide).
   baronExpiresAt: number | null;
+  baronSide: Side | null;
   elderSide: Side | null;
+  // Transient "we just caught someone" edge: a successful pick / vision-pick
+  // leaves the enemy a man down, so the NEXT neutral objective tilts toward
+  // this side until `expiresAt`. Read by rollEventSide; modest, decays on its
+  // own. Models the pick → free-objective causal chain real games show.
+  pickAdvantage: { side: Side; expiresAt: number } | null;
   // Pressure on enemy turrets accumulated from grubs/herald — biases the side
   // selection of subsequent tower events. Decays as towers fall.
   towerPressure: { blue: number; red: number };
+  // Map control = enemy towers each side has taken. Open map → more vision and
+  // more picks for the side that cracked them. Accumulated in applyState from
+  // every event's tower delta; read by the vision/pick rolls.
+  mapControl: { blue: number; red: number };
   // Voidgrubs taken per side. The 6-grub spike is the meaningful threshold;
   // each grub contributes a small tower-damage bonus that compounds.
   grubCount: { blue: number; red: number };
@@ -108,13 +130,17 @@ export interface TimelineContext {
   spikeBias: (time: number) => number;
   // Fight-strength helpers shared with the pregame model — injected by the
   // orchestrator (they live in matchSimulator) to avoid a circular import.
-  teamFightFactor: (picks: (Champion | null)[], time: number) => number;
+  // Blue's combat-strength ratio (rich model — items/EHP/comp identity/CC) at
+  // a game time + gold lead. Injected to avoid a circular import; the mid
+  // teamfight scales its kill spread by it, the SAME model the closing fight
+  // uses. >1 favours blue.
+  combatRatioBlue: (
+    bluePicks: (Champion | null)[],
+    redPicks: (Champion | null)[],
+    time: number,
+    goldLead: number,
+  ) => number;
   fightDominance: (myFactor: number, oppFactor: number) => number;
-  // Track whether a kill has already landed before the first-blood event
-  // window — used to label first-blood correctly. If invade or solo kills
-  // already drew first blood, the actual first-blood event becomes an
-  // "early kill" instead so the timeline doesn't claim two first bloods.
-  firstKillTaken: boolean;
   // Set by maybeMidgamePivot (./fights) when ctx.adaptiveMidgame is on and
   // one side committed to a mid-game pivot. Read by phaseClosingFight (a
   // splitpush pivot raises the winner's backdoor odds). Optional so the
@@ -124,12 +150,101 @@ export interface TimelineContext {
 
 export const clampChance = (p: number) => Math.max(0.1, Math.min(0.9, p));
 
-// Objective steal probability, modulated by the teams' risk dials.
-export function stealChance(tl: TimelineContext, base: number): number {
-  return Math.max(
-    0,
-    Math.min(BALANCE.STEAL_CHANCE_CAP, base + tl.mods.stealChanceDelta),
-  );
+// Dragon Soul element → a small, type-specific edge for the team that secured
+// it. `fight` adds to that team's teamfight dominance (Infernal hits hardest);
+// `stealResist` lowers the chance their objectives get stolen (Mountain's
+// fortified defense). Types not listed fall back to a modest baseline.
+const SOUL_FIGHT_EDGE: Record<string, number> = {
+  Infernal: 0.12,
+  Chemtech: 0.09,
+  Ocean: 0.07,
+  Hextech: 0.06,
+  Cloud: 0.05,
+  Mountain: 0.05,
+};
+const SOUL_STEAL_RESIST: Record<string, number> = {
+  Mountain: 0.08,
+};
+
+function soulFightEdge(soulType: string | null): number {
+  if (!soulType) return 0;
+  return SOUL_FIGHT_EDGE[soulType] ?? 0.06;
+}
+
+// Objective steal probability. Modulated by the teams' risk dials and, when the
+// contesting side is known, by vision/score causality: the contesting team's
+// map control protects the pit (they see the smiter coming), a Mountain-soul
+// holder defends it harder, and a side far behind on gold throws desperation
+// coin-flip smites at the OPPONENT's objective.
+export function stealChance(
+  tl: TimelineContext,
+  base: number,
+  contestSide?: Side,
+): number {
+  let v = base + tl.mods.stealChanceDelta;
+  if (contestSide) {
+    const { state } = tl;
+    const sign = contestSide === "blue" ? 1 : -1;
+    // Contesting side's net towers (map control) → vision over the pit.
+    const myMapControl = sign * (state.mapControl.blue - state.mapControl.red);
+    v -= Math.max(0, myMapControl) * BALANCE.STEAL_VISION_REDUCTION;
+    // Mountain soul: fortified, harder to steal from.
+    if (state.soulSide === contestSide) {
+      v -= SOUL_STEAL_RESIST[state.soulType ?? ""] ?? 0;
+    }
+    // The trailing OPPONENT (who would do the stealing) goes for coin flips.
+    const oppLead = -sign * state.goldLead; // opponent's gold lead, +ve = ahead
+    if (oppLead < -BALANCE.STEAL_DESPERATION_DEFICIT) {
+      v += BALANCE.STEAL_DESPERATION;
+    }
+  }
+  return Math.max(0, Math.min(BALANCE.STEAL_CHANCE_CAP, v));
+}
+
+// Objective → fight strength. A live Baron/Elder or a secured Soul makes the
+// holder win the actual teamfight harder — returned as a 0..~0.4 bonus added
+// to fight dominance. `time` gates Baron to its active buff window.
+export function objectiveFightEdge(
+  tl: TimelineContext,
+  side: Side,
+  time: number,
+): number {
+  const { state } = tl;
+  let edge = 0;
+  if (
+    state.baronSide === side &&
+    state.baronExpiresAt != null &&
+    time <= state.baronExpiresAt
+  ) {
+    edge += BALANCE.OBJ_FIGHT_EDGE_BARON;
+  }
+  if (state.elderSide === side) edge += BALANCE.OBJ_FIGHT_EDGE_ELDER;
+  if (state.soulSide === side) edge += soulFightEdge(state.soulType);
+  return edge;
+}
+
+// Net objective fight edge (this side's minus the opponent's), for adjusting a
+// fight's kill spread toward whoever holds the buffs.
+export function netObjectiveFightEdge(
+  tl: TimelineContext,
+  side: Side,
+  time: number,
+): number {
+  const opp: Side = side === "blue" ? "red" : "blue";
+  return objectiveFightEdge(tl, side, time) - objectiveFightEdge(tl, opp, time);
+}
+
+// Snowball a lane: a kill in `lane` for `side` feeds that lane's live
+// advantage, so a fed lane keeps producing kills + objective prio.
+export function bumpLaneLead(
+  tl: TimelineContext,
+  side: Side,
+  lane: Lane,
+  kills: number = 1,
+): void {
+  const delta =
+    (side === "blue" ? 1 : -1) * kills * BALANCE.LANE_SNOWBALL_PER_KILL;
+  tl.state.laneLead[lane] += delta;
 }
 
 // Objectives that meaningfully tilt the win odds beyond raw gold:
@@ -226,12 +341,103 @@ export function rollEventSide(
   return tl.rng() < clamped ? "blue" : "red";
 }
 
+// Transient man-advantage tilt from a fresh pick/vision-pick: the side that
+// just caught someone is favored on the next neutral objective until the
+// window lapses. Zero once expired (or never set), so default games are
+// unaffected. The tilt grows with game time — respawn timers lengthen, so a
+// late pick buys a far bigger "free objective" window than an early one.
+export function pickAdvantageBias(tl: TimelineContext, time: number): number {
+  const pa = tl.state.pickAdvantage;
+  if (!pa || time > pa.expiresAt) return 0;
+  const timeScale = Math.min(
+    BALANCE.PICK_ADVANTAGE_LATE_MULT,
+    1 + Math.max(0, time - 15) / 20,
+  );
+  return (
+    (pa.side === "blue" ? 1 : -1) * BALANCE.PICK_ADVANTAGE_BIAS * timeScale
+  );
+}
+
+// Lane-priority tilt for a neutral objective: only the lanes ADJACENT to it
+// lend their pressure — bot+support+jungle contest the dragon, top+mid+jungle
+// contest Herald/Rift. Blue-positive, normalized like laneBias. This is the
+// macro chain "won my lane → I have prio on the nearby objective".
+export function objectivePrioBias(
+  tl: TimelineContext,
+  kind: "drake" | "herald",
+): number {
+  // Read the LIVE lane lead (seeded from draft, snowballed by kills) so a lane
+  // that snowballed translates into prio on its neighbouring objective.
+  const la = tl.state.laneLead;
+  const lanes: Lane[] =
+    kind === "drake"
+      ? ["bottom", "support", "jungle"]
+      : ["top", "middle", "jungle"];
+  let sum = 0;
+  for (const lane of lanes) sum += la[lane];
+  return sum / 1000;
+}
+
+// Map-control tilt: net enemy towers taken favors the side with the open map
+// on the next vision/pick. Total towers down raises how OFTEN a vision-pick
+// fires (more uncontested map to ward and catch on).
+export function mapControlBias(tl: TimelineContext): number {
+  return (
+    (tl.state.mapControl.blue - tl.state.mapControl.red) *
+    BALANCE.MAP_CONTROL_BIAS
+  );
+}
+
+export function mapControlChance(tl: TimelineContext): number {
+  return (
+    (tl.state.mapControl.blue + tl.state.mapControl.red) *
+    BALANCE.MAP_CONTROL_VISION_CHANCE
+  );
+}
+
+// Composition win-condition pull: a comp's drafted macro biases the events it
+// wants. "splitpush" comps pull cross-map trades/backdoors; "group" comps pull
+// the teamfight. Blue-positive; cancels when both sides share the macro, so
+// default group-vs-group games (and the calibration mirror) are untouched.
+export function macroEventBias(
+  tl: TimelineContext,
+  kind: "trade" | "teamfight" | "tower" | "pick",
+): number {
+  const want =
+    kind === "trade"
+      ? "splitpush"
+      : kind === "teamfight"
+      ? "group"
+      : kind === "tower"
+      ? "siege"
+      : "pick";
+  let bias = 0;
+  if (tl.ctx.blueStrategy.macro === want) bias += BALANCE.MACRO_EVENT_BIAS;
+  if (tl.ctx.redStrategy.macro === want) bias -= BALANCE.MACRO_EVENT_BIAS;
+  return bias;
+}
+
 // Tower events use the standard side roll plus a tilt from accumulated
 // tower pressure. Sides that took grubs/herald are more likely to crack
-// turrets next; pressure is consumed when a tower falls.
+// turrets next; pressure is consumed when a tower falls. While a Baron buff
+// is live its taker gets an extra siege tilt — but only until the buff lapses
+// (baronExpiresAt), so a stale Nashor doesn't bias towers forever.
 export function rollTowerSide(tl: TimelineContext, time: number): Side {
-  const pressureDiff = tl.state.towerPressure.blue - tl.state.towerPressure.red;
-  return rollEventSide(tl, time, pressureDiff * BALANCE.TOWER_PRESSURE_BIAS);
+  let pressureDiff = tl.state.towerPressure.blue - tl.state.towerPressure.red;
+  if (
+    tl.state.baronExpiresAt != null &&
+    time <= tl.state.baronExpiresAt &&
+    tl.state.baronSide
+  ) {
+    pressureDiff +=
+      (tl.state.baronSide === "blue" ? 1 : -1) * BALANCE.BARON_TOWER_PRESSURE;
+  }
+  // A siege comp (poke + grouped tower pressure) cracks turrets more readily.
+  return rollEventSide(
+    tl,
+    time,
+    pressureDiff * BALANCE.TOWER_PRESSURE_BIAS + macroEventBias(tl, "tower"),
+  );
 }
 
 export function consumeTowerPressure(tl: TimelineContext, side: Side): void {
@@ -272,6 +478,9 @@ export function applyState(
     (kills.blue - kills.red) * BALANCE.KILL_GOLD +
     (towers.blue - towers.red) * BALANCE.TOWER_GOLD +
     (inhibs.blue - inhibs.red) * BALANCE.INHIB_GOLD;
+  // Every tower (and inhib) a side cracks opens that much more of the map.
+  state.mapControl.blue += towers.blue + inhibs.blue;
+  state.mapControl.red += towers.red + inhibs.red;
   state.momentum *= BALANCE.MOMENTUM_DECAY;
   state.momentum += side === "blue" ? momentumImpact : -momentumImpact;
   state.momentum = Math.max(-1, Math.min(1, state.momentum));
@@ -289,6 +498,10 @@ export function addEvent(
     inhibs?: EventKills;
     laneGoldDelta?: Partial<Record<Lane, number>>;
     kdaDelta?: EventKDA;
+    // Objective metadata surfaced to the UI badges (soul element, atakhan
+    // variant). Only the soul/atakhan events set these.
+    soulElement?: string;
+    atakhanVariant?: AtakhanVariant;
   } = {},
   momentumImpact: number = 0.15,
 ): void {
@@ -322,5 +535,9 @@ export function addEvent(
     // gold-over-time chart without re-walking laneGoldDelta. Captures
     // the same applyState() output that drives win-prob.
     goldLeadAfter: tl.state.goldLead,
+    momentumAfter: tl.state.momentum,
+    mapControlAfter: tl.state.mapControl.blue - tl.state.mapControl.red,
+    ...(deltas.soulElement ? { soulElement: deltas.soulElement } : {}),
+    ...(deltas.atakhanVariant ? { atakhanVariant: deltas.atakhanVariant } : {}),
   });
 }

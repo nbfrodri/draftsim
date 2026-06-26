@@ -212,8 +212,12 @@ export function seriesAIContextFrom(
   const need = requiredWins(series.format);
   // Elimination game = a loss here means the opponent reaches `need` wins.
   // Closeout game = a win here means we reach `need` wins.
-  const eliminationGame = oppWins === need - 1 && myWins < need;
-  const closeoutGame = myWins === need - 1 && oppWins < need;
+  // Bo1 (need === 1) is NOT a series — at 0-0 both conditions are trivially
+  // true, which would wrongly stamp every standalone game with elimination-
+  // game meta pressure. Gate on the format actually being a series.
+  const isSeries = maxGames(series.format) > 1;
+  const eliminationGame = isSeries && oppWins === need - 1 && myWins < need;
+  const closeoutGame = isSeries && myWins === need - 1 && oppWins < need;
 
   return {
     fearless: series.fearless,

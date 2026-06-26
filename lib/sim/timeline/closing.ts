@@ -37,6 +37,7 @@ import { BALANCE } from "./balance";
 import {
   addEvent,
   goldPhaseWeight,
+  netObjectiveFightEdge,
   objectiveLogit,
   picksOf,
   type TimelineContext,
@@ -264,12 +265,17 @@ export function phaseClosingFight(
     // macro logit pushed an upset (winner is the combat-loser), shrink
     // the spread — close fights, not stomps.
     const aligned = finalWinner === combat.winnerSide;
-    const wk = aligned
-      ? combat.winnerKills
-      : Math.max(2, combat.winnerKills - 2);
-    const lk = aligned
-      ? combat.loserKills
-      : Math.min(3, combat.loserKills + 1);
+    // Objective → fight strength: a live Baron/Elder (or Soul) makes the
+    // deciding fight more decisive for its holder. Elder ≈ +1 kill, Baron less.
+    const objEdge = Math.max(0, netObjectiveFightEdge(tl, finalWinner, t));
+    const wk =
+      (aligned ? combat.winnerKills : Math.max(2, combat.winnerKills - 2)) +
+      Math.round(objEdge * 3);
+    const lk = Math.max(
+      0,
+      (aligned ? combat.loserKills : Math.min(3, combat.loserKills + 1)) -
+        (objEdge >= 0.18 ? 1 : 0),
+    );
     // Preserve rng order (describe → tower roll → kda); re-point the named
     // carry to the actual top fragger afterwards (string-only, no rng/sim
     // change — the kda also feeds lane gold and can't be reseeded).
@@ -292,7 +298,10 @@ export function phaseClosingFight(
       {
         kills: killsForSide(finalWinner, wk, lk),
         towers: cfTowers,
-        laneGoldDelta: spreadLaneGold(wk * 200, finalWinner),
+        laneGoldDelta: spreadLaneGold(
+          wk * BALANCE.CLOSING_KILL_PUSH_GOLD,
+          finalWinner,
+        ),
         kdaDelta: cfKda,
       },
       0.45,

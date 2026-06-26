@@ -111,6 +111,19 @@ export interface MatchEvent {
   // running gold-lead tracker so the UI can render a gold-over-time chart
   // without recomputing the kill/tower/inhib economy on the client.
   goldLeadAfter: number;
+  // Momentum *after* this event (-1..1, blue-positive) — the "who has the
+  // initiative" swing the snapshot prob is built from. Charted as its own
+  // state-over-time strip so the viewer sees the tempo, not just gold.
+  momentumAfter: number;
+  // Net map control after this event (blue towers − red towers taken). A
+  // simple "who owns the map" signal for the state strip.
+  mapControlAfter: number;
+  // Set only on the `soul` event: which Dragon Soul element was secured
+  // (Infernal/Ocean/Mountain/Cloud/Hextech/Chemtech). Lets the scoreboard
+  // badge the element the moment the soul event is revealed.
+  soulElement?: string;
+  // Set only on the `atakhan` event: which variant was taken.
+  atakhanVariant?: AtakhanVariant;
 }
 
 export interface MatchTimeline {

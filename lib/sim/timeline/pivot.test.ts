@@ -105,9 +105,15 @@ function makeTl(opts: TlOptions = {}): TimelineContext {
     momentum: opts.momentum ?? 0,
     drakes: opts.drakes ?? { blue: 0, red: 0 },
     soulSide: null,
+    soulType: null,
+    laneLead: { ...ctx.laneAdvantages },
+    lastGankSide: null,
     baronExpiresAt: null,
+    baronSide: null,
     elderSide: null,
+    pickAdvantage: null,
     towerPressure: { blue: 0, red: 0 },
+    mapControl: { blue: 0, red: 0 },
     grubCount: { blue: 0, red: 0 },
     atakhanVariant: null,
     atakhanSide: null,
@@ -122,9 +128,8 @@ function makeTl(opts: TlOptions = {}): TimelineContext {
     laneBias: 0,
     mods: strategyTimelineModifiers(blueStrategy, redStrategy),
     spikeBias: () => 0,
-    teamFightFactor: () => 1,
+    combatRatioBlue: () => 1,
     fightDominance: () => 0,
-    firstKillTaken: false,
   };
 }
 

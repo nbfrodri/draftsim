@@ -32,6 +32,8 @@ import { BALANCE } from "./balance";
 import {
   addEvent,
   consumeTowerPressure,
+  objectivePrioBias,
+  pickAdvantageBias,
   picksOf,
   rollEventSide,
   rollTowerSide,
@@ -86,8 +88,8 @@ function contestDrake(
   momStolen: number,
   momPlain: number,
 ): void {
-  const contestSide = rollEventSide(tl, t, sideBias);
-  const stolen = tl.rng() < stealChance(tl, stealBase);
+  const contestSide = rollEventSide(tl, t, sideBias + pickAdvantageBias(tl, t));
+  const stolen = tl.rng() < stealChance(tl, stealBase, contestSide);
   const side: Side = stolen
     ? contestSide === "blue"
       ? "red"
@@ -97,6 +99,9 @@ function contestDrake(
   if (tl.state.drakes[side] === 4 && tl.state.soulSide == null) {
     tl.state.soulSide = side;
     const soulType = pickRandom(DRAGON_TYPES, tl.rng);
+    // Remember the element — it gives the soul team a small type-specific edge
+    // (Infernal fights hardest, Mountain defends objectives, etc.).
+    tl.state.soulType = soulType;
     const wK = rollInt(1, 3, tl.rng);
     const lK = rollInt(0, 2, tl.rng);
     addEvent(
@@ -110,6 +115,7 @@ function contestDrake(
         towers: killsForSide(side, rollInt(0, 1, tl.rng), 0),
         laneGoldDelta: spreadLaneGold(800, side),
         kdaDelta: teamfightKDA(side, wK, lK, tl.rng),
+        soulElement: soulType,
       },
       0.55,
     );
@@ -161,7 +167,7 @@ export function phaseFirstDrake(tl: TimelineContext): void {
   contestDrake(
     tl,
     t,
-    tl.laneBias * 0.6 + tl.mods.drakeBias,
+    objectivePrioBias(tl, "drake") * 0.6 + tl.mods.drakeBias,
     0.08,
     150,
     0.25,
@@ -177,7 +183,7 @@ export function phaseSecondDrake(tl: TimelineContext): void {
     contestDrake(
       tl,
       t,
-      tl.laneBias * 0.4 + tl.mods.drakeBias,
+      objectivePrioBias(tl, "drake") * 0.4 + tl.mods.drakeBias,
       0.08,
       200,
       0.28,
@@ -238,7 +244,11 @@ export function phaseFirstTower(tl: TimelineContext): void {
 // the next lost teamfight (loserKills -1).
 export function phaseAtakhanOrHerald(tl: TimelineContext): void {
   const t = jitter(14, 16, tl.rng);
-  const side = rollEventSide(tl, t, tl.laneBias * 0.4 + tl.mods.atakhanBias);
+  const side = rollEventSide(
+    tl,
+    t,
+    objectivePrioBias(tl, "herald") * 0.4 + tl.mods.atakhanBias,
+  );
   if (tl.rng() < 0.6) {
     const atakhanVariant: AtakhanVariant =
       tl.rng() < 0.5 ? "Voracious" : "Ruinous";
@@ -257,6 +267,7 @@ export function phaseAtakhanOrHerald(tl: TimelineContext): void {
         kills: killsForSide(side, wKills, lKills),
         laneGoldDelta: spreadLaneGold(250, side),
         kdaDelta: teamfightKDA(side, wKills, lKills, tl.rng),
+        atakhanVariant,
       },
       0.18,
     );
@@ -285,8 +296,12 @@ export function phaseFirstBaron(tl: TimelineContext): void {
   if (tl.duration >= 25) {
     const tMax = Math.min(tl.duration - 4, 30);
     const t = jitter(20, Math.max(21, tMax), tl.rng);
-    const contestSide = rollEventSide(tl, t, 0.05 + tl.mods.baronBias);
-    const stolen = tl.rng() < stealChance(tl, 0.15);
+    const contestSide = rollEventSide(
+      tl,
+      t,
+      0.05 + tl.mods.baronBias + pickAdvantageBias(tl, t),
+    );
+    const stolen = tl.rng() < stealChance(tl, 0.15, contestSide);
     const baronSide: Side = stolen
       ? contestSide === "blue"
         ? "red"
@@ -294,8 +309,10 @@ export function phaseFirstBaron(tl: TimelineContext): void {
       : contestSide;
     const wk = rollInt(1, 3, tl.rng);
     const lk = rollInt(0, 2, tl.rng);
-    tl.state.baronExpiresAt = t + 3;
-    tl.state.towerPressure[baronSide] += BALANCE.BARON_TOWER_PRESSURE;
+    // Baron's siege edge is a live buff, not a permanent stat: record the
+    // holder + expiry so rollTowerSide tilts towers only until it lapses.
+    tl.state.baronExpiresAt = t + BALANCE.BARON_DURATION;
+    tl.state.baronSide = baronSide;
     addEvent(
       tl,
       "baron",
@@ -353,14 +370,15 @@ export function phaseMidTower(tl: TimelineContext): void {
   }
 }
 
-// 17. Elder (long games). Soul is no longer required and the duration floor
-// is loosened — elder is a finishing buff that should appear in any 32+ min
-// game. Sets state.elderSide so closing-fight logic factors it in.
+// 17. Elder (long games). Elder Dragon only spawns once ONE team has secured
+// Dragon Soul — i.e. that team reached 4 drakes (tracked by state.soulSide).
+// It is never gated on the combined drake count across both teams. Sets
+// state.elderSide so closing-fight logic factors it in.
 export function phaseElder(tl: TimelineContext): void {
-  if (tl.duration >= 32 && tl.rng() < 0.65) {
+  if (tl.duration >= 32 && tl.state.soulSide != null && tl.rng() < 0.65) {
     const t = jitter(tl.duration - 7, tl.duration - 3, tl.rng);
     const contestSide = rollEventSide(tl, t);
-    const stolen = tl.rng() < stealChance(tl, 0.18);
+    const stolen = tl.rng() < stealChance(tl, 0.18, contestSide);
     const elderSide: Side = stolen
       ? contestSide === "blue"
         ? "red"

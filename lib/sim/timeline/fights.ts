@@ -29,6 +29,7 @@ import {
   nameActualFragger,
   pickRandom,
   rollInt,
+  shutdownVictimLane,
   singleLaneGold,
   SKIRMISH_CARRY_ARCHETYPES,
   spreadLaneGold,
@@ -39,6 +40,10 @@ import { BALANCE } from "./balance";
 import {
   addEvent,
   clampChance,
+  macroEventBias,
+  mapControlBias,
+  mapControlChance,
+  netObjectiveFightEdge,
   picksOf,
   rollEventSide,
   type PivotKind,
@@ -167,8 +172,19 @@ export function phasePowerSpikes(tl: TimelineContext): void {
       if (tl.rng() >= (idx === 0 ? 0.72 : 0.45)) return;
       const spikeInfo = getKeyPowerSpike(chosen.meta, chosen.champ.alias);
       if (!spikeInfo.isCarrySpike) return;
-      const lo = Math.max(5, spikeInfo.minute - 1);
-      const hi = Math.max(lo + 0.5, spikeInfo.minute + 1);
+      // Gold lead → earlier item spike: a fed side finishes its core sooner.
+      const sideLead =
+        spikeSide === "blue" ? tl.state.goldLead : -tl.state.goldLead;
+      const leadShift =
+        sideLead > 0
+          ? Math.min(
+              BALANCE.SPIKE_LEAD_SHIFT_MAX,
+              (sideLead / BALANCE.SPIKE_LEAD_NORM) *
+                BALANCE.SPIKE_LEAD_SHIFT_MAX,
+            )
+          : 0;
+      const lo = Math.max(5, spikeInfo.minute - 1 - leadShift);
+      const hi = Math.max(lo + 0.5, spikeInfo.minute + 1 - leadShift);
       const t = jitter(lo, hi, tl.rng);
       // Later spikes hit harder. Build minute spans [6, 14]; scale gold +
       // momentum between a 6' spike (flavor) and a 14' spike (real bomb). The
@@ -199,7 +215,13 @@ export function phasePowerSpikes(tl: TimelineContext): void {
 // carries online (power-spike window).
 export function phaseMidPickOrSkirmish(tl: TimelineContext): void {
   const t = jitter(15.5, 19, tl.rng);
-  const side = rollEventSide(tl, t, tl.spikeBias(t));
+  // Whoever spiked first, has the open map (towers down), AND drafted a pick
+  // comp lands the play.
+  const side = rollEventSide(
+    tl,
+    t,
+    tl.spikeBias(t) + mapControlBias(tl) + macroEventBias(tl, "pick"),
+  );
   const winnerScore = side === "blue" ? tl.ctx.blueScore : tl.ctx.redScore;
   const winnerHasPick = winnerScore.identityLabel === "Pick Comp";
   const wp = picksOf(tl.ctx, side);
@@ -230,6 +252,12 @@ export function phaseMidPickOrSkirmish(tl: TimelineContext): void {
       },
       0.15,
     );
+    // Caught one out → man advantage for the next objective (see
+    // pickAdvantageBias in the drake/baron rolls).
+    tl.state.pickAdvantage = {
+      side,
+      expiresAt: t + BALANCE.PICK_ADVANTAGE_WINDOW,
+    };
   } else {
     const wk = rollInt(1, 2, tl.rng);
     const lk = rollInt(0, 1, tl.rng);
@@ -247,12 +275,21 @@ export function phaseMidPickOrSkirmish(tl: TimelineContext): void {
       {
         kills: killsForSide(side, wk, lk),
         // Kill bounty (300g) flows per-lane via kdaDelta. Small spread
-        // models the "everyone is up" team gold from the broader fight.
-        laneGoldDelta: spreadLaneGold((wk + lk) * 30, side),
+        // models the "everyone is up" team gold from the broader fight —
+        // winner-only: the loser's `lk` kills are the loser's gold, not the
+        // winner's, so they must not inflate the winner side's lane strip.
+        laneGoldDelta: spreadLaneGold(wk * 30, side),
         kdaDelta: skirmishKda,
       },
       0.18,
     );
+    // A won skirmish also leaves the enemy down a body for the next objective.
+    if (wk > lk) {
+      tl.state.pickAdvantage = {
+        side,
+        expiresAt: t + BALANCE.PICK_ADVANTAGE_WINDOW,
+      };
+    }
   }
 }
 
@@ -262,29 +299,46 @@ export function phaseMidTeamfight(tl: TimelineContext): void {
   // duration-4=18 would collapse the [19, 24] range below the lower
   // bound and jitter would produce times before minute 19.
   const t = jitter(19, Math.max(20, Math.min(24, tl.duration - 4)), tl.rng);
-  const side = rollEventSide(tl, t);
-  const wp = picksOf(tl.ctx, side);
-  // Scale kill spread by relative fight strength at this game time.
-  // Dominant team (e.g. late comp at min 24 vs early comp) converts 3-2
-  // fights into 5-1 stomps; balanced fights stay near base.
-  const myCap = tl.teamFightFactor(picksOf(tl.ctx, side), t);
-  const oppCap = tl.teamFightFactor(
-    picksOf(tl.ctx, side === "blue" ? "red" : "blue"),
+  // A grouping ("group" macro) comp forces and tends to win the 5v5; map
+  // control (towers down) helps set it up on the favored side.
+  const side = rollEventSide(
+    tl,
     t,
+    macroEventBias(tl, "teamfight") + mapControlBias(tl),
   );
-  const dom = tl.fightDominance(myCap, oppCap);
+  const wp = picksOf(tl.ctx, side);
+  // Scale kill spread by relative fight strength at this game time, using the
+  // SAME rich combat model the closing fight uses (per-champion stats, items
+  // from the gold lead, EHP, comp identity, CC) — so a fed/stronger comp
+  // stomps the mid fight too, not just by phase-counting. A dominant team
+  // converts 3-2 fights into 5-1 stomps; balanced fights stay near base.
+  const ratioBlue = tl.combatRatioBlue(
+    picksOf(tl.ctx, "blue"),
+    picksOf(tl.ctx, "red"),
+    t,
+    tl.state.goldLead,
+  );
+  const myRatio = side === "blue" ? ratioBlue : 1 / ratioBlue;
+  // Objective → fight strength: a live Soul/Baron/Elder holder wins the fight
+  // more decisively, not just more often (clamped back into 0..0.6).
+  const dom = Math.max(
+    0,
+    Math.min(
+      0.6,
+      tl.fightDominance(myRatio, 1) + netObjectiveFightEdge(tl, side, t),
+    ),
+  );
   let wk = rollInt(3, 5, tl.rng) + Math.floor(dom * 3);
   let lk = Math.max(0, rollInt(0, 2, tl.rng) - Math.floor(dom * 2));
-  // Atakhan effects: Voracious side gets +20% gold from this fight (+1
-  // bonus kill in gold terms via inflated laneGoldDelta). Ruinous side
-  // burns its one-shot revive when it loses — loserKills -1.
-  let goldMult = 1.0;
-  if (
-    tl.state.atakhanVariant === "Voracious" &&
-    tl.state.atakhanSide === side
-  ) {
-    goldMult = 1.2; // Voracious wins → bonus gold from kills
-  }
+  // Atakhan effects: Voracious side banks +20% on the value of THIS fight's
+  // kills (each kill is 300g via kdaDelta). The bonus is added explicitly
+  // below — the old code multiplied the trivial CS-push spread instead, so
+  // the objective barely paid out. Ruinous side burns its one-shot revive
+  // when it loses — loserKills -1.
+  const voraciousBonus =
+    tl.state.atakhanVariant === "Voracious" && tl.state.atakhanSide === side
+      ? Math.round(wk * BALANCE.KILL_GOLD * BALANCE.VORACIOUS_KILL_BONUS)
+      : 0;
   const losingSide: Side = side === "blue" ? "red" : "blue";
   if (tl.state.ruinousActive && tl.state.atakhanSide === losingSide && lk > 0) {
     lk -= 1; // Blood Roses revives one — softens the loss
@@ -308,12 +362,22 @@ export function phaseMidTeamfight(tl: TimelineContext): void {
       towers: tfTowers,
       // Kill bounty distributed per lane via kdaDelta. Spread here is
       // the post-fight tower/CS push gold (winner takes mid CS while
-      // loser respawns) — not the fight kills themselves.
-      laneGoldDelta: spreadLaneGold(wk * 60 * goldMult, side),
+      // loser respawns) — not the fight kills themselves — plus any
+      // Voracious kill-gold bonus.
+      laneGoldDelta: spreadLaneGold(
+        wk * BALANCE.MIDFIGHT_KILL_PUSH_GOLD + voraciousBonus,
+        side,
+      ),
       kdaDelta: tfKda,
     },
     0.32 + dom * 0.12,
   );
+  // Won the 5v5 → enemies are dead → the winner gets a free run at the next
+  // neutral objective (Baron/Soul). Same advantage window picks/vision set.
+  tl.state.pickAdvantage = {
+    side,
+    expiresAt: t + BALANCE.PICK_ADVANTAGE_WINDOW,
+  };
   // Adaptive mid-game checkpoint (opt-in, no-op + zero rng by default): the
   // losing coach reads the board right after the mid teamfight (~min 19-24)
   // and may pivot the plan for the remainder.
@@ -338,31 +402,38 @@ export function phaseShutdown(tl: TimelineContext): void {
     const t = jitter(21, Math.max(22, Math.min(26, tl.duration - 5)), tl.rng);
     // Side that was BEHIND lands the shutdown — bounty flows to underdog.
     const side: Side = tl.state.goldLead > 0 ? "red" : "blue";
+    const oppSide: Side = side === "blue" ? "red" : "blue";
     const wp = picksOf(tl.ctx, side);
-    const lp = picksOf(tl.ctx, side === "blue" ? "red" : "blue");
-    // Shutdown: an assassin/pick lands the play on the fed enemy carry.
-    // Best heuristic: kill credit on jungle (frequent shutdown lane), fed
-    // carry (mid/bottom on opp) takes the death.
+    const lp = picksOf(tl.ctx, oppSide);
+    // Shutdown: an assassin/pick lands the play (jungle or mid roam) on the
+    // fed enemy carry. KDA must match the event line, so:
+    //   • the kill + bounty gold go to the lane that got the shutdown
+    //   • the death lands on the SAME fed carry the description names
     const sutdownKda = makeKDA();
     const shutdownLane: Lane = tl.rng() < 0.5 ? "jungle" : "middle";
+    // The bounty is the actual gold awarded (this sim's economy is compressed
+    // — a kill is 300g), routed to the killer's lane below. Keeping the
+    // displayed number equal to the awarded gold is the whole point of the
+    // fix; inflating it to 1000-1500 (old flavor text) both lied to the
+    // scoreboard and over-fed the comeback carry-gold bonus.
+    const bounty = pickRandom([400, 500, 600], tl.rng);
+    const victimLane: Lane =
+      shutdownVictimLane(lp) ?? (tl.rng() < 0.5 ? "bottom" : "middle");
     addKill(sutdownKda, side, shutdownLane);
     addAssist(sutdownKda, side, "support");
-    addDeath(
-      sutdownKda,
-      side === "blue" ? "red" : "blue",
-      tl.rng() < 0.5 ? "bottom" : "middle",
-    );
+    addDeath(sutdownKda, oppSide, victimLane);
     addEvent(
       tl,
       "shutdown",
       t,
       side,
-      describeShutdown(side, wp, lp, tl.rng, shutdownLane),
+      describeShutdown(side, wp, lp, bounty, shutdownLane),
       {
         kills: killsForSide(side, 1, 0),
-        // Shutdown bounty: 1000-1500g extra ON TOP of the kill bounty
-        // (handled by kdaDelta). The +500 spread models that surplus.
-        laneGoldDelta: spreadLaneGold(500, side),
+        // The shutdown bounty is the killer's gold — it goes to the lane that
+        // landed the play (the kill's 300g bounty flows separately via
+        // kdaDelta), so the scoreboard matches "X collects {bounty}g".
+        laneGoldDelta: singleLaneGold(shutdownLane, bounty, side),
         kdaDelta: sutdownKda,
       },
       0.28,
@@ -377,10 +448,20 @@ export function phaseShutdown(tl: TimelineContext): void {
 export function phaseVisionPick(tl: TimelineContext): void {
   if (
     tl.duration >= 22 &&
-    tl.rng() < clampChance(0.28 + tl.mods.visionChanceDelta)
+    tl.rng() <
+      clampChance(0.28 + tl.mods.visionChanceDelta + mapControlChance(tl))
   ) {
     const t = jitter(16, Math.min(22, tl.duration - 5), tl.rng);
-    const side = rollEventSide(tl, t, tl.laneBias * 0.3 + tl.mods.visionBias);
+    // Open map (towers down) means deeper wards and easier catches; a pick
+    // comp manufactures these catches more often.
+    const side = rollEventSide(
+      tl,
+      t,
+      tl.laneBias * 0.3 +
+        tl.mods.visionBias +
+        mapControlBias(tl) +
+        macroEventBias(tl, "pick"),
+    );
     const wp = picksOf(tl.ctx, side);
     const lp = picksOf(tl.ctx, side === "blue" ? "red" : "blue");
     // Vision-pick: support places the ward/sees the catch, team collapses.
@@ -422,6 +503,11 @@ export function phaseVisionPick(tl: TimelineContext): void {
       },
       0.18,
     );
+    // Vision catch leaves the enemy a man down — tilt the next objective.
+    tl.state.pickAdvantage = {
+      side,
+      expiresAt: t + BALANCE.PICK_ADVANTAGE_WINDOW,
+    };
   }
 }
 
@@ -483,9 +569,18 @@ export function phaseOutplay(tl: TimelineContext): void {
 // the map (drake-for-tower, herald-for-drake). Net-neutral fight, real
 // macro currency. No kills.
 export function phaseObjectiveTrade(tl: TimelineContext): void {
-  if (tl.duration >= 24 && tl.rng() < 0.25) {
+  // A drafted splitpush comp lives on cross-map trades — it makes this play
+  // more frequent, and macroEventBias points it at the splitpushing side.
+  const splitpushPresent =
+    tl.ctx.blueStrategy.macro === "splitpush" ||
+    tl.ctx.redStrategy.macro === "splitpush";
+  if (tl.duration >= 24 && tl.rng() < (splitpushPresent ? 0.4 : 0.25)) {
     const t = jitter(18, Math.min(25, tl.duration - 4), tl.rng);
-    const side = rollEventSide(tl, t, tl.laneBias * 0.3);
+    const side = rollEventSide(
+      tl,
+      t,
+      tl.laneBias * 0.3 + macroEventBias(tl, "trade"),
+    );
     const otherSide: Side = side === "blue" ? "red" : "blue";
     const giveUp: "drake" | "herald" | "tower" = pickRandom(
       ["drake", "tower"],

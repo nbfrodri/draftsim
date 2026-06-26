@@ -754,42 +754,6 @@ export function pregameBlueWinProb(
 
 
 // ─── Combat sim helpers ────────────────────────────────────────────────────
-//
-// Fight capacity is a time-aware "how strong is this team in a fight RIGHT
-// NOW" score. Each champion contributes weighted by their phase intersected
-// with the current game time:
-//
-//   early-phase champ (e.g. Lee Sin) at min 8  → +1.2  (peak)
-//   early-phase champ at min 30                → +0.5  (fallen off)
-//   late-phase champ (e.g. Kog'Maw) at min 8   → +0.5  (still building)
-//   late-phase champ at min 35                 → +1.4  (online, item-spiked)
-//
-// Used by teamfight and closing-fight events to scale kill spreads — a
-// dominant team converts skirmishes into 5-1 fights, not 4-2.
-function teamFightFactor(
-  picks: (Champion | null)[],
-  gameTime: number,
-): number {
-  let factor = 0;
-  for (const c of picks) {
-    if (!c) continue;
-    const phase = metaFor(c).phase;
-    if (phase === "early") {
-      // Early champs fall off harder the longer the game runs (no items, no
-      // scaling) — by the 35-min mark they're dead weight in a fight.
-      factor += gameTime < 18 ? 1.2 : gameTime < 25 ? 0.85 : gameTime < 35 ? 0.5 : 0.35;
-    } else if (phase === "mid") {
-      factor += gameTime < 12 ? 0.7 : 1.0;
-    } else if (phase === "mid-late") {
-      factor += gameTime < 22 ? 0.7 : gameTime < 38 ? 1.1 : 1.3;
-    } else {
-      // late — keeps scaling past 32 min instead of plateauing, so a comp
-      // that drags the game to 40+ genuinely out-classes the enemy in fights.
-      factor += gameTime < 22 ? 0.5 : gameTime < 32 ? 1.0 : gameTime < 40 ? 1.4 : 1.75;
-    }
-  }
-  return Math.max(0.5, factor);
-}
 
 // ─── Power-spike timing ─────────────────────────────────────────────────────
 //
@@ -814,20 +778,6 @@ function onlineSpikeCount(spikes: number[], time: number): number {
   let n = 0;
   for (const m of spikes) if (time >= m) n++;
   return n;
-}
-
-// Ratio of blue's fight strength to red's at this point in the game.
-// Values >1 favour blue, <1 favour red. Used in closing-fight winrate
-// formula and to scale teamfight kill spreads.
-function fightAdvantageBlue(
-  bluePicks: (Champion | null)[],
-  redPicks: (Champion | null)[],
-  gameTime: number,
-): number {
-  return (
-    teamFightFactor(bluePicks, gameTime) /
-    Math.max(0.5, teamFightFactor(redPicks, gameTime))
-  );
 }
 
 // Convert a side's fight advantage into a kill-spread multiplier in [0..0.6].
@@ -1283,7 +1233,14 @@ function carryGoldLeadBonus(
   };
 }
 
-function resolveCombat(
+// Blue's combat-strength ratio at this game time (redTtk / blueTtk; >1 favours
+// blue). The shared core of every fight — per-champion stat profiles, gold→item
+// boost, fed-carry bonus, comp-identity multipliers, mitigation, anti-heal,
+// EHP, burst windows and CC lockdown. resolveCombat turns it into a winner +
+// kill spread; the mid-game teamfight scales its spread by it, so both fights
+// read combat through the SAME model instead of the closing fight using rich
+// stats and the mid fight using phase-counting alone.
+function combatRatioBlue(
   bluePicks: (Champion | null)[],
   blueRoles: (Lane | null)[],
   redPicks: (Champion | null)[],
@@ -1291,8 +1248,7 @@ function resolveCombat(
   gameTime: number,
   goldLead: number,
   laneGold: Record<Lane, number> | null,
-  rng: RNG = Math.random,
-): { winnerSide: Side; winnerKills: number; loserKills: number; ratio: number } {
+): number {
   const blue = teamCombatProfile(bluePicks, blueRoles, gameTime);
   const red = teamCombatProfile(redPicks, redRoles, gameTime);
   // Gold lead translates into items, items translate into stats.
@@ -1399,7 +1355,29 @@ function resolveCombat(
   // Time-to-kill ratio.
   const blueTtk = redEhp / Math.max(0.1, blueDmg);
   const redTtk = blueEhp / Math.max(0.1, redDmg);
-  const ratio = redTtk / blueTtk;
+  return redTtk / blueTtk;
+}
+
+// Closing-fight resolution: the shared combat ratio → a winner + kill spread.
+function resolveCombat(
+  bluePicks: (Champion | null)[],
+  blueRoles: (Lane | null)[],
+  redPicks: (Champion | null)[],
+  redRoles: (Lane | null)[],
+  gameTime: number,
+  goldLead: number,
+  laneGold: Record<Lane, number> | null,
+  rng: RNG = Math.random,
+): { winnerSide: Side; winnerKills: number; loserKills: number; ratio: number } {
+  const ratio = combatRatioBlue(
+    bluePicks,
+    blueRoles,
+    redPicks,
+    redRoles,
+    gameTime,
+    goldLead,
+    laneGold,
+  );
   const winnerSide: Side = ratio >= 1 ? "blue" : "red";
   const dom =
     ratio >= 1
@@ -1834,9 +1812,15 @@ function generateTimeline(
     momentum: 0,
     drakes: { blue: 0, red: 0 },
     soulSide: null,
+    soulType: null,
+    laneLead: { ...ctx.laneAdvantages },
+    lastGankSide: null,
     baronExpiresAt: null,
+    baronSide: null,
     elderSide: null,
+    pickAdvantage: null,
     towerPressure: { blue: 0, red: 0 },
+    mapControl: { blue: 0, red: 0 },
     grubCount: { blue: 0, red: 0 },
     atakhanVariant: null,
     atakhanSide: null,
@@ -1888,9 +1872,11 @@ function generateTimeline(
     );
 
   // Bundle the shared mutable state + pre-computed biases into the context
-  // the phase functions consume. teamFightFactor/fightDominance are injected
-  // (they live here, shared with the pregame model) to avoid a circular
-  // import between matchSimulator and the timeline modules.
+  // the phase functions consume. combatRatioBlue/fightDominance are injected
+  // (they live here) to avoid a circular import between matchSimulator and the
+  // timeline modules. Picks are positional, so roles = POSITIONAL_LANES; the
+  // mid-fight passes null laneGold (the per-lane fed-carry bonus is a closing
+  // refinement) and the live gold lead.
   const tl: TimelineContext = {
     ctx,
     duration,
@@ -1900,9 +1886,17 @@ function generateTimeline(
     laneBias,
     mods,
     spikeBias,
-    teamFightFactor,
+    combatRatioBlue: (bp, rp, time, goldLead) =>
+      combatRatioBlue(
+        bp,
+        [...POSITIONAL_LANES],
+        rp,
+        [...POSITIONAL_LANES],
+        time,
+        goldLead,
+        null,
+      ),
     fightDominance,
-    firstKillTaken: false,
   };
 
   // Laning phases 0a-2: level-1 invade, first scuttle, solo kills,
@@ -2023,6 +2017,14 @@ export interface SimulateOptions {
   // absent; intentionally off by default so golden/calibration tests are
   // unaffected.
   adaptiveMidgame?: boolean;
+  // Monte-Carlo pregame forecast: when > 0, `blueProb` is estimated by running
+  // this many extra full simulations and counting blue wins, instead of the
+  // analytic `pregameBlueWinProb` model. This makes the displayed win
+  // probability reflect the ACTUAL causal sim (snowball, objective fight edge,
+  // comp pursuit) rather than a closed-form approximation. Default 0 (analytic)
+  // so tests, the golden lock, and bulk season/tournament auto-resolve are
+  // untouched and fast — only the interactive single-match view opts in.
+  forecastSamples?: number;
 }
 
 export function simulateMatch(
@@ -2071,15 +2073,16 @@ export function simulateMatch(
     blueLatePre - redLatePre + (redEarlyPre - blueEarlyPre) * 0.5;
   const expectedDuration =
     34 + (blueLatePre + redLatePre) * 1.3 - (blueEarlyPre + redEarlyPre) * 0.6;
-  const blueProb = pregameBlueWinProb(diff, scalingEdgePre, expectedDuration);
-  const redProb = 1 - blueProb;
 
   // Strategy plans redistribute per-lane gold before the timeline reads it,
   // in order: weakside starves a lane, win-condition funnels into one,
   // pick-target denies the hunted enemy lane, lane-swap dodges a bad top.
   // computeLaneAdvantages is deterministic; the per-game lane variance is
   // injected separately so it draws from the seeded rng.
-  let laneAdvantages = computeLaneAdvantages(
+  // Deterministic per-lane base (no rng) — the per-game lane noise + strategy
+  // redistribution + duration + timeline are all redrawn per run so each
+  // Monte-Carlo sample is an independent game.
+  const baseLaneAdvantages = computeLaneAdvantages(
     bluePicks,
     redPicks,
     options?.bluePlayers,
@@ -2087,44 +2090,71 @@ export function simulateMatch(
     options?.playerForms?.blue,
     options?.playerForms?.red,
   );
-  laneAdvantages = applyLaneNoise(laneAdvantages, bluePicks, redPicks, rng);
-  laneAdvantages = applyWeaksideToLaneAdv(laneAdvantages, blueStrategy, redStrategy);
-  laneAdvantages = applyCarryFocusToLaneAdv(laneAdvantages, blueStrategy, redStrategy);
-  laneAdvantages = applyPickTargetToLaneAdv(laneAdvantages, blueStrategy, redStrategy);
-  laneAdvantages = applyLaneSwapToLaneAdv(laneAdvantages, blueStrategy, redStrategy);
 
-  const ctx: TimelineCtx = {
-    diff,
-    blueScore,
-    redScore,
-    bluePicks,
-    redPicks,
-    blueName: game.blueTeam,
-    redName: game.redTeam,
-    laneAdvantages,
-    blueStrategy,
-    redStrategy,
-    adaptiveMidgame: options?.adaptiveMidgame,
-  };
+  // One full stochastic game from an rng. The MAIN call consumes the rng in
+  // exactly the original order (lane noise → strategy adj → duration →
+  // timeline), so default-path output is byte-identical; the Monte-Carlo
+  // forecast just calls this again for extra samples.
+  function runOutcome(r: RNG) {
+    let la = applyLaneNoise(baseLaneAdvantages, bluePicks, redPicks, r);
+    la = applyWeaksideToLaneAdv(la, blueStrategy, redStrategy);
+    la = applyCarryFocusToLaneAdv(la, blueStrategy, redStrategy);
+    la = applyPickTargetToLaneAdv(la, blueStrategy, redStrategy);
+    la = applyLaneSwapToLaneAdv(la, blueStrategy, redStrategy);
+    const ctx: TimelineCtx = {
+      diff,
+      blueScore,
+      redScore,
+      bluePicks,
+      redPicks,
+      blueName: game.blueTeam,
+      redName: game.redTeam,
+      laneAdvantages: la,
+      blueStrategy,
+      redStrategy,
+      adaptiveMidgame: options?.adaptiveMidgame,
+    };
+    const duration = computeDuration(ctx, r);
+    const out = generateTimeline(ctx, duration, r);
+    return { ...out, laneAdvantages: la, duration };
+  }
 
-  const duration = computeDuration(ctx, rng);
-  const { events, finalWinner, laningEndMinute } = generateTimeline(ctx, duration, rng);
+  const main = runOutcome(rng);
+
+  // Pregame win probability. Monte-Carlo (honest, reflects the causal sim)
+  // when opted in; otherwise the fast analytic model. The extra samples run
+  // AFTER the main game, so they never perturb the displayed timeline.
+  const samples = options?.forecastSamples ?? 0;
+  let blueProb: number;
+  if (samples > 0) {
+    let blueWins = 0;
+    for (let i = 0; i < samples; i++) {
+      if (runOutcome(rng).finalWinner === "blue") blueWins++;
+    }
+    blueProb = Math.min(
+      PROB_CLAMP_MAX,
+      Math.max(PROB_CLAMP_MIN, blueWins / samples),
+    );
+  } else {
+    blueProb = pregameBlueWinProb(diff, scalingEdgePre, expectedDuration);
+  }
+  const redProb = 1 - blueProb;
 
   const timeline: MatchTimeline = {
-    durationMinutes: duration,
-    laningEndMinute,
-    durationLabel: formatTime(duration),
-    events,
+    durationMinutes: main.duration,
+    laningEndMinute: main.laningEndMinute,
+    durationLabel: formatTime(main.duration),
+    events: main.events,
   };
 
   return {
     blueProb,
     redProb,
-    winner: finalWinner,
+    winner: main.finalWinner,
     blueScore,
     redScore,
     timeline,
-    laneAdvantages,
+    laneAdvantages: main.laneAdvantages,
   };
 }
 

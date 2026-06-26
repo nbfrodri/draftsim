@@ -94,6 +94,11 @@ export default function BetweenGamesView({ champions }: Props) {
         red: sideFormsFor(redKey) as import("@/lib/playerForm").SideForms,
       },
       adaptiveMidgame: true,
+      // Interactive single-match view: estimate the pregame win % by Monte-
+      // Carlo over the ACTUAL causal sim (snowball, objective fight edge, comp
+      // pursuit) rather than the analytic approximation. Cheap for one game;
+      // bulk/season auto-resolve never sets this so it stays fast.
+      forecastSamples: 160,
     };
   }, [series, tournament, playerForms]);
 

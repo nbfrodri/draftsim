@@ -4,8 +4,13 @@ import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { currentGame, fearlessLockedSet } from "@/lib/series";
 import { effectiveLockedSet } from "@/lib/tournament";
-import { isChampionAvailable, currentAction } from "@/lib/draftEngine";
+import {
+  isChampionAvailable,
+  currentAction,
+  POSITIONAL_LANES,
+} from "@/lib/draftEngine";
 import { isAITurn } from "@/lib/draftAI";
+import { playerForLane, poolTier, type PoolTier } from "@/lib/players";
 import { LANES } from "@/lib/lanes";
 import { playSelectSound } from "@/lib/sounds";
 import {
@@ -52,6 +57,15 @@ export default function ChampionGrid({ champions }: Props) {
 
   const game = currentGame(series);
   const action = currentAction(game);
+  // The player on the clock for this PICK (bans aren't a player's pool), so
+  // each grid cell can flag whether it's one of their mains / flex / disliked
+  // champs while you draft.
+  const pickerPlayer = useMemo(() => {
+    if (!action || action.kind !== "pick") return null;
+    const roster =
+      action.side === "blue" ? series.bluePlayers : series.redPlayers;
+    return playerForLane(roster, POSITIONAL_LANES[action.slot]);
+  }, [action, series.bluePlayers, series.redPlayers]);
   // Lockout for the pick grid — unions per-series fearless with any
   // cross-match fearless from the active tournament (no-op outside
   // tournament mode).
@@ -254,6 +268,7 @@ export default function ChampionGrid({ champions }: Props) {
                 lockedByFearless={locked.has(c.id)}
                 isSelected={selectedId === c.id}
                 tier={bestTierFor(c, lane)}
+                poolTier={pickerPlayer ? poolTier(pickerPlayer, c.id) : null}
                 onSelect={handleSelect}
                 onInfo={handleInfo}
               />
@@ -496,6 +511,25 @@ function TierBadge({ tier }: { tier: MetaTier }) {
   );
 }
 
+// Small corner dot flagging the picking player's pool tier for a champion:
+//   main      → bright green (signature pick)
+//   secondary → faded green  (also plays it, not signature)
+//   disliked  → red          (off-pool)
+function PoolDot({ tier }: { tier: PoolTier }) {
+  const cfg =
+    tier === "main"
+      ? { cls: "bg-rift-support border-rift-support", label: "Player main — signature pick" }
+      : tier === "secondary"
+      ? { cls: "bg-rift-support/40 border-rift-support/80", label: "Player secondary (flex) pick" }
+      : { cls: "bg-rift-red border-rift-red", label: "Player dislikes this pick" };
+  return (
+    <span
+      title={cfg.label}
+      className={`absolute bottom-0.5 right-0.5 w-2 h-2 rounded-full border ${cfg.cls} shadow-[0_0_4px_rgba(0,0,0,0.7)] z-[1]`}
+    />
+  );
+}
+
 // ChampionCell is memoized so unchanged cells skip re-render on search
 // keystrokes. All props are primitives or stable function references so
 // the memo equality check is cheap and reliable.
@@ -507,6 +541,7 @@ const ChampionCell = memo(function ChampionCell({
   lockedByFearless,
   isSelected,
   tier,
+  poolTier,
   onSelect,
   onInfo,
 }: {
@@ -517,6 +552,9 @@ const ChampionCell = memo(function ChampionCell({
   lockedByFearless: boolean;
   isSelected: boolean;
   tier: MetaTier | null;
+  // The picking player's pool tier for this champ: main / secondary / disliked
+  // (null = not in their pool, or it's a ban). Drives the corner pool dot.
+  poolTier: PoolTier | null;
   onSelect: (id: number) => void;
   onInfo: (id: number) => void;
 }) {
@@ -551,6 +589,9 @@ const ChampionCell = memo(function ChampionCell({
             whenever we have meta data. Hidden on greyed-out unavailable
             champions to reduce visual noise. */}
         {showTier && available && tier && <TierBadge tier={tier} />}
+        {/* Pool dot — bottom-right. Flags the picking player's comfort on this
+            champ: bright green main, faded green flex, red disliked. */}
+        {available && poolTier && <PoolDot tier={poolTier} />}
         {lockedByFearless && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60 pointer-events-none">
             <div className="text-[8px] uppercase tracking-widest text-rift-gold font-display">

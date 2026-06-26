@@ -71,6 +71,74 @@ export const BALANCE = {
   STOMP_LEAD: 8000,
   MAJOR_LEAD: 5000,
 
+  // Per-kill post-fight push gold for the deciding fight. Higher than the
+  // mid-game teamfight's KILL_PUSH (super minions from open inhibs + uncontested
+  // map make closing kills convert to more objective gold), but grounded in a
+  // constant instead of a bare ×200 so the end-game gold chart stays sane.
+  CLOSING_KILL_PUSH_GOLD: 120,
+  MIDFIGHT_KILL_PUSH_GOLD: 60,
+
+  // Voracious Atakhan: its taker banks +20% on the value of a won teamfight's
+  // kills (kill gold, NOT the trivial CS spread the bonus used to land on).
+  VORACIOUS_KILL_BONUS: 0.2,
+
+  // Baron empowered-recall / siege window after it is taken (minutes). Its
+  // tower-pressure edge only applies while the buff is live.
+  BARON_DURATION: 3,
+
+  // Pick → objective causal chain: how hard a fresh pick/vision-pick tilts the
+  // next neutral objective toward the side that got the kill (logit units), and
+  // for how long the man-advantage lasts (minutes). Modest — it nudges, momentum
+  // still does the heavy lifting. The bias scales up with game time (death
+  // timers grow), capped at PICK_ADVANTAGE_LATE_MULT.
+  PICK_ADVANTAGE_BIAS: 0.5,
+  PICK_ADVANTAGE_WINDOW: 3,
+  PICK_ADVANTAGE_LATE_MULT: 2,
+
+  // Map state: each enemy tower a side cracks opens the map for them — more
+  // vision and more picks. Tower-take advantage (net towers) tilts the next
+  // vision/pick roll by this per-tower logit, and total towers down raises the
+  // vision-pick CHANCE by this per-tower amount.
+  MAP_CONTROL_BIAS: 0.08,
+  MAP_CONTROL_VISION_CHANCE: 0.03,
+
+  // Composition win-condition pursuit: how hard a comp's drafted macro pulls
+  // events toward its preferred play — a splitpush comp generates cross-map
+  // trades / backdoors, a grouping comp forces the teamfight. Blue-positive,
+  // cancels when both sides share a macro (e.g. default group-vs-group).
+  MACRO_EVENT_BIAS: 0.3,
+
+  // Lane snowball: each lane kill (gank/solo/roam) feeds that lane's LIVE
+  // advantage (g/min-equivalent), so a fed lane keeps producing kills and
+  // objective prio. Symmetric — either side can snowball.
+  LANE_SNOWBALL_PER_KILL: 30,
+
+  // Objective → fight strength: a live Baron/Elder/Soul makes its holder win
+  // the actual teamfight harder (added to fight dominance 0..0.6), not just
+  // shift win-prob. Soul's value is type-specific (see SOUL_FIGHT_EDGE).
+  OBJ_FIGHT_EDGE_BARON: 0.12,
+  OBJ_FIGHT_EDGE_ELDER: 0.2,
+
+  // Vision/score → steals: the contesting side's map control protects the pit
+  // (per net tower), and a side far behind on gold throws desperation smites.
+  STEAL_VISION_REDUCTION: 0.02,
+  STEAL_DESPERATION: 0.06,
+  STEAL_DESPERATION_DEFICIT: 3000,
+
+  // Gold lead → earlier power spike: a fed carry itemizes faster. Max minutes a
+  // spike is pulled forward when that side is well ahead.
+  SPIKE_LEAD_SHIFT_MAX: 1.2,
+  SPIKE_LEAD_NORM: 4000,
+
+  // Gank → counter-gank: a gank makes the enemy jungler's counter-gank both
+  // more likely and biased back toward the team that just got ganked.
+  COUNTERGANK_AFTER_GANK_CHANCE: 0.18,
+  COUNTERGANK_RESPONSE_BIAS: 0.5,
+
+  // Wave-crash → tower: crashing the wave into the tower builds plate/turret
+  // pressure for the crashing side (and a touch of lane snowball).
+  WAVECRASH_TOWER_PRESSURE: 0.18,
+
   // ─── Closing-fight logit ──────────────────────────────────────────────────
   CLOSING_DIFF_WEIGHT: 0.028,
   CLOSING_GOLD_NORM: 5000,

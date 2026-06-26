@@ -1,5 +1,5 @@
 import type { Champion, Lane, Player, PlayerTier, Roster } from "./types";
-import { getMetaTiers } from "./championMeta";
+import { getMetaTiers, type MetaTier } from "./championMeta";
 
 // Pure player-identity utilities: deriving a team's star rating from its
 // roster, generating coherent random rosters (so a 5★ team never ends up with
@@ -31,8 +31,28 @@ export const PLAYER_TIER_VALUE: Record<PlayerTier, number> = {
   D: -2,
 };
 
-// Max champions in each of a player's pools (liked / disliked).
-export const MAX_POOL = 3;
+// A player's liked pool is TIERED: the first MAIN_POOL champions are "mains"
+// (full-comfort signature picks), the rest up to MAX_POOL are secondary picks
+// they also play well but aren't known for. The disliked pool is flat.
+export const MAIN_POOL = 3;
+export const MAX_POOL = 5;
+// Comfort weight of a secondary (non-main) liked pick, relative to a main (1).
+export const SECONDARY_COMFORT = 0.5;
+
+export type PoolTier = "main" | "secondary" | "disliked";
+
+// Which pool tier a champion sits in for a player (null = not in any pool).
+// Drives both the graded comfort math and the draft UI's tier badges.
+export function poolTier(
+  player: Player | null | undefined,
+  championId: number | null | undefined,
+): PoolTier | null {
+  if (!player || championId == null) return null;
+  const gi = player.goodChamps.indexOf(championId);
+  if (gi >= 0) return gi < MAIN_POOL ? "main" : "secondary";
+  if (player.badChamps.includes(championId)) return "disliked";
+  return null;
+}
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
@@ -93,7 +113,9 @@ export function poolBias(
   championId: number | null | undefined,
 ): number {
   if (!player || championId == null) return 0;
-  if (player.goodChamps.includes(championId)) return 1;
+  const gi = player.goodChamps.indexOf(championId);
+  // Mains pull full comfort; secondary picks pull a fraction of it.
+  if (gi >= 0) return gi < MAIN_POOL ? 1 : SECONDARY_COMFORT;
   if (player.badChamps.includes(championId)) return -1;
   return 0;
 }
@@ -121,8 +143,12 @@ export function rosterComfortWeight(
   if (!roster || championId == null) return 0;
   let best = 0;
   for (const p of roster) {
-    if (p.goodChamps.includes(championId)) {
-      const w = PLAYER_SKILL_WEIGHT[p.tier];
+    const gi = p.goodChamps.indexOf(championId);
+    if (gi >= 0) {
+      // A secondary pick is a less scary signature than a main, so the AI
+      // weights it lower when deciding whether to target-ban / deny it.
+      const tierFactor = gi < MAIN_POOL ? 1 : SECONDARY_COMFORT;
+      const w = PLAYER_SKILL_WEIGHT[p.tier] * tierFactor;
       if (w > best) best = w;
     }
   }
@@ -192,24 +218,64 @@ export function randomizeTiersForStar(
   return values.map(valueToTier);
 }
 
+// Meta-tier → base draft weight for the liked pool. Higher tier = more likely
+// to be one of a player's mains.
+const MAIN_TIER_WEIGHT: Record<MetaTier, number> = {
+  "S+": 6,
+  S: 5,
+  A: 4,
+  B: 3,
+  C: 2,
+  D: 1,
+};
+
+// How hard a player's skill skews their liked pool toward meta. Strong players
+// main strong/meta champs; weaker players draft noisier, flatter pools. Applied
+// as an exponent so S concentrates on top tiers and D nearly flattens out.
+const POOL_SKILL_SKEW: Record<PlayerTier, number> = {
+  S: 2,
+  A: 1.5,
+  B: 1,
+  C: 0.7,
+  D: 0.45,
+};
+
 // Pick up to MAX_POOL liked + MAX_POOL disliked champion ids for a lane, drawn
-// from champions playable in that lane. Pools are disjoint. Counts default to
-// MAX_POOL each, shrinking gracefully when few champions are eligible.
+// from champions playable in that lane. Pools are disjoint. The LIKED pool is
+// weighted toward higher meta tier (skewed by player skill), and ordered so the
+// first MAIN_POOL are the strongest draws — the player's "mains" — matching the
+// tiering poolBias reads. Randomness is retained so off-meta pocket mains still
+// happen. The DISLIKED pool stays uniform-random.
 export function randomizeChampPools(
   lane: Lane,
   champions: readonly Champion[],
   rng: RNG = Math.random,
+  playerTier: PlayerTier = "B",
 ): { goodChamps: number[]; badChamps: number[] } {
-  const eligible = shuffle(
-    champions.filter((c) => playableInLane(c, lane)),
-    rng,
-  );
+  const eligible = champions.filter((c) => playableInLane(c, lane));
   const goodCount = Math.min(MAX_POOL, eligible.length);
   const badCount = Math.min(MAX_POOL, eligible.length - goodCount);
-  return {
-    goodChamps: eligible.slice(0, goodCount).map((c) => c.id),
-    badChamps: eligible.slice(goodCount, goodCount + badCount).map((c) => c.id),
-  };
+  // Efraimidis–Spirakis weighted sampling: key = u^(1/weight), take the
+  // highest keys. weight = (meta tier weight) ^ skill-skew, so a stronger
+  // player's good pool concentrates on high-tier champs while still varying.
+  const skew = POOL_SKILL_SKEW[playerTier];
+  const ranked = eligible
+    .map((c) => {
+      const tier = getMetaTiers(c.alias)[lane];
+      const weight = Math.pow(tier ? MAIN_TIER_WEIGHT[tier] : 2, skew);
+      const key = Math.pow(rng() || 1e-9, 1 / weight);
+      return { id: c.id, key };
+    })
+    .sort((a, b) => b.key - a.key);
+  const good = ranked.slice(0, goodCount).map((r) => r.id);
+  const goodSet = new Set(good);
+  const bad = shuffle(
+    eligible.filter((c) => !goodSet.has(c.id)),
+    rng,
+  )
+    .slice(0, badCount)
+    .map((c) => c.id);
+  return { goodChamps: good, badChamps: bad };
 }
 
 // Build a full 5-lane roster. When `star` is given, tiers are generated to
@@ -232,7 +298,7 @@ export function randomizeRoster(opts: {
     const pools =
       opts.pools === false
         ? { goodChamps: [], badChamps: [] }
-        : randomizeChampPools(lane, opts.champions, rng);
+        : randomizeChampPools(lane, opts.champions, rng, tiers[i]);
     return {
       lane,
       tier: tiers[i],

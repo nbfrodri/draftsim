@@ -38,8 +38,10 @@ import {
   singleLaneGold,
   spreadLaneGold,
 } from "../descriptions";
+import { BALANCE } from "./balance";
 import {
   addEvent,
+  bumpLaneLead,
   clampChance,
   picksOf,
   rollEventSide,
@@ -80,7 +82,6 @@ export function phaseLevelOneInvade(tl: TimelineContext): void {
     const wp = picksOf(tl.ctx, side);
     const lp = picksOf(tl.ctx, side === "blue" ? "red" : "blue");
     const killHappened = tl.rng() < 0.55;
-    if (killHappened) tl.firstKillTaken = true;
     // Level-1 invade is a 5-man play; if a kill lands, jungler gets credit
     // (most likely to leash-kill the enemy jungler), supports assist.
     const kda = makeKDA();
@@ -134,31 +135,34 @@ export function phaseFirstScuttle(tl: TimelineContext): void {
 // a strong matchup (>= 65) produces 1-2, a normal bully matchup (>= 50) is
 // a single kill. Each kill costs the rival ~200g (death + lost CS).
 export function phaseSoloKills(tl: TimelineContext): void {
-  const blueBully = pickBullyLane(tl.ctx.laneAdvantages, "blue");
-  const redBully = pickBullyLane(tl.ctx.laneAdvantages, "red");
+  const blueBully = pickBullyLane(tl.state.laneLead, "blue");
+  const redBully = pickBullyLane(tl.state.laneLead, "red");
   let bullySide: Side | null = null;
   if (blueBully && !redBully) bullySide = "blue";
   else if (redBully && !blueBully) bullySide = "red";
   else if (blueBully && redBully) {
-    const blueAdv = Math.abs(tl.ctx.laneAdvantages[blueBully]);
-    const redAdv = Math.abs(tl.ctx.laneAdvantages[redBully]);
+    const blueAdv = Math.abs(tl.state.laneLead[blueBully]);
+    const redAdv = Math.abs(tl.state.laneLead[redBully]);
     bullySide = blueAdv > redAdv ? "blue" : "red";
   }
   if (bullySide) {
-    const lane = pickBullyLane(tl.ctx.laneAdvantages, bullySide)!;
-    const advMag = Math.abs(tl.ctx.laneAdvantages[lane]);
+    const lane = pickBullyLane(tl.state.laneLead, bullySide)!;
+    const advMag = Math.abs(tl.state.laneLead[lane]);
     const numKills =
       advMag >= 100
         ? rollInt(2, 3, tl.rng)
         : advMag >= 65
         ? rollInt(1, 2, tl.rng)
         : 1;
-    tl.firstKillTaken = true;
     const t = jitter(4, 7, tl.rng);
     const winnerChamp =
       picksOf(tl.ctx, bullySide)[POSITIONAL_LANES.indexOf(lane)];
     const laneShort =
       lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
+    // NOTE: the solo kill never claims "first blood" itself. phaseFirstBlood
+    // always emits the dedicated first-blood event (and downgrades itself to
+    // "early kill" when an earlier kill exists), so it is the single source of
+    // truth — labelling the solo kill too produced a duplicate "FIRST BLOOD".
     const desc =
       numKills > 1 && winnerChamp
         ? `${winnerChamp.name} dominates ${laneShort} (${numKills} solo kills)`
@@ -178,6 +182,8 @@ export function phaseSoloKills(tl: TimelineContext): void {
       },
       0.15 + numKills * 0.05,
     );
+    // The fed laner snowballs — feed the live lane lead.
+    bumpLaneLead(tl, bullySide, lane, numKills);
   }
 }
 
@@ -188,7 +194,14 @@ export function phaseSoloKills(tl: TimelineContext): void {
 export function phaseFirstBlood(tl: TimelineContext): void {
   const t = jitter(3, 5.5, tl.rng);
   const side = rollEventSide(tl, t, 0.1 + tl.mods.earlyAggroBias);
-  const isFirstBlood = !tl.firstKillTaken;
+  // First blood = no kill has happened EARLIER in the game. The solo-kill
+  // phase runs before this in code order but its event can land later in
+  // game-time (jitter 4-7 vs this 3-5.5), so we must compare actual event
+  // timestamps, not a pre-claimed flag — otherwise an earlier first-blood
+  // gets mislabeled "early kill" and the timeline reads out of order.
+  const isFirstBlood = !tl.events.some(
+    (e) => (e.kills.blue > 0 || e.kills.red > 0) && e.minutes <= t,
+  );
   const fbLanes: Lane[] = ["top", "jungle", "middle", "bottom"];
   const fbLane = pickRandom(fbLanes, tl.rng);
   const winnerChamp =
@@ -219,10 +232,12 @@ export function phaseFirstBlood(tl: TimelineContext): void {
   if (tl.rng() < 0.4 && creditLane !== "jungle") {
     addAssist(fbKda, side, "jungle");
   }
-  tl.firstKillTaken = true;
   addEvent(
     tl,
-    "first-blood",
+    // Only TYPE it first-blood when it actually IS first blood — otherwise the
+    // UI would stamp a "First Blood" badge on an "early kill" that something
+    // already preceded. A follow-up early kill is just a solo kill.
+    isFirstBlood ? "first-blood" : "solo-kill",
     t,
     side,
     desc,
@@ -236,6 +251,7 @@ export function phaseFirstBlood(tl: TimelineContext): void {
     },
     0.2,
   );
+  bumpLaneLead(tl, side, creditLane);
 }
 
 // 5. Gank (3.5-9.5) — 55% chance, biased to gankable lane. Lane prio
@@ -245,7 +261,7 @@ export function phaseGank(tl: TimelineContext): void {
   if (tl.rng() < clampChance(0.55 + tl.mods.gankChanceDelta)) {
     const t = jitter(3.5, 9.5, tl.rng);
     const side = rollEventSide(tl, t, tl.laneBias * 0.5 + tl.mods.gankBias);
-    const lane = pickGankableLane(tl.ctx.laneAdvantages, side);
+    const lane = pickGankableLane(tl.state.laneLead, side);
     addEvent(
       tl,
       "gank",
@@ -267,14 +283,25 @@ export function phaseGank(tl: TimelineContext): void {
       },
       0.16,
     );
+    // Snowball the ganked lane; flag the gank so the counter-gank can respond.
+    bumpLaneLead(tl, side, lane);
+    tl.state.lastGankSide = side;
   }
 }
 
-// 6. Counter-gank (5.5-9.5) — 30% chance.
+// 6. Counter-gank (5.5-9.5) — 30% chance, MORE likely right after a gank and
+// biased back toward the team that just got ganked (the enemy jungler shows up
+// to flip it). Models the gank → counter-gank causal pairing.
 export function phaseCounterGank(tl: TimelineContext): void {
-  if (tl.rng() < 0.3) {
+  const ganked = tl.state.lastGankSide;
+  const chance = 0.3 + (ganked ? BALANCE.COUNTERGANK_AFTER_GANK_CHANCE : 0);
+  if (tl.rng() < chance) {
     const t = jitter(5.5, 9.5, tl.rng);
-    const side = rollEventSide(tl, t);
+    // Respond toward the side that got ganked (opposite of the ganker).
+    const responseBias = ganked
+      ? (ganked === "blue" ? -1 : 1) * BALANCE.COUNTERGANK_RESPONSE_BIAS
+      : 0;
+    const side = rollEventSide(tl, t, responseBias);
     const flippedLane = pickRandom(["top", "middle", "bottom"] as Lane[], tl.rng);
     // Counter-gank: jungler arrived and turned the gank — kill credit goes
     // to the jungler, laner provides the assist, opp jungler/laner dies.
@@ -296,6 +323,8 @@ export function phaseCounterGank(tl: TimelineContext): void {
       },
       0.18,
     );
+    bumpLaneLead(tl, side, flippedLane);
+    tl.state.lastGankSide = null; // response resolved
   }
 }
 
@@ -387,13 +416,15 @@ export function phaseMidRoam(tl: TimelineContext): void {
       },
       0.13,
     );
+    bumpLaneLead(tl, side, targetLane);
   }
 }
 
-// 7c. Wave-crash (8-13) — 35% chance. A laner crashes the wave and
-// either freezes the bounce (denying CS) or cracks a plate. Pure macro
-// gold without a kill — just well-timed wave management. Biased by lane
-// prio (a team with prio crashes harder).
+// 7c. Wave-crash (8-13) — 35% chance. A laner crashes the wave into the tower
+// and either freezes the bounce (denying CS) or cracks a plate. No kill — just
+// well-timed wave management. Biased by lane prio (a team with prio crashes
+// harder). Causally it builds plate/turret pressure for the crashing side and
+// nudges that lane's lead (the crash → tower → dive setup chain).
 export function phaseWaveCrash(tl: TimelineContext): void {
   if (tl.rng() < 0.35) {
     const t = jitter(8, 13, tl.rng);
@@ -414,5 +445,7 @@ export function phaseWaveCrash(tl: TimelineContext): void {
       { laneGoldDelta: singleLaneGold(lane, 220, side) },
       0.06,
     );
+    tl.state.towerPressure[side] += BALANCE.WAVECRASH_TOWER_PRESSURE;
+    bumpLaneLead(tl, side, lane);
   }
 }
