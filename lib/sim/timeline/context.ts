@@ -13,6 +13,7 @@
 
 import type { Champion, Lane, Side } from "../../types";
 import type { RNG } from "../../rng";
+import type { SideForms } from "../../playerForm";
 import type {
   AtakhanVariant,
   EventKDA,
@@ -49,6 +50,11 @@ export interface TimelineCtx {
   // maybeMidgamePivot in ./fights). undefined/false → the timeline code path
   // is completely unchanged (golden-locked behavior).
   adaptiveMidgame?: boolean;
+  // Per-lane player form (-1..+1, 0 = neutral), blue and red. A hot-streak
+  // carry is more likely to make the highlight play (outplay / pentakill).
+  // Optional: undefined on the default path (no form feature) → zero effect.
+  blueForms?: SideForms;
+  redForms?: SideForms;
 }
 
 // How a losing team pivots at the ~min-20 checkpoint (adaptiveMidgame):
@@ -79,6 +85,9 @@ export interface MatchState {
   // The side that landed the most recent gank — lets the next counter-gank
   // respond (more likely, biased back toward the team that got ganked).
   lastGankSide: Side | null;
+  // The side whose JUNGLER got counter-jungled / fell behind — that jungler
+  // ganks less for a window (see phaseGank). null = neither behind.
+  jungleBehind: Side | null;
   // Baron buff window: who holds it and when it lapses. The siege edge only
   // tilts tower rolls while `time <= baronExpiresAt` (see rollTowerSide).
   baronExpiresAt: number | null;
@@ -105,6 +114,11 @@ export interface MatchState {
   atakhanVariant: AtakhanVariant | null;
   atakhanSide: Side | null;
   ruinousActive: boolean;
+  // The side of each recent event, oldest→newest (capped). Drives anti-streak
+  // mean-reversion: a long run of same-side events nudges the next roll toward
+  // the other team, so the feed doesn't read as one team's uninterrupted
+  // highlight reel even while they snowball.
+  recentSides: Side[];
 }
 
 export function picksOf(ctx: TimelineCtx, side: Side): (Champion | null)[] {
@@ -120,6 +134,15 @@ export interface TimelineContext {
   rng: RNG;
   state: MatchState;
   events: MatchEvent[];
+  // ─── Time-ordered scheduler ─────────────────────────────────────────────
+  // A phase rolls only its event TIME(s) up front (deterministic-range jitter),
+  // then registers the rest of its work — chance gates, outcome rolls, state
+  // reads, addEvent — as a `resolve` closure here. The orchestrator runs every
+  // resolve in GAME-TIME order, so a phase reading goldLead/laneLead/mapControl
+  // sees the state as of its own minute, regardless of code order. This is what
+  // makes causality (snowball, pick→objective, gank→counter-gank, first blood)
+  // correct by construction instead of by careful phase ordering.
+  schedule: (time: number, resolve: () => void) => void;
   // Lane priority bias: summed per-lane g/min advantages / 1000. Blue-
   // positive; feeds typeBias on early/mid objective rolls.
   laneBias: number;
@@ -316,10 +339,94 @@ export function snapshotProb(tl: TimelineContext, time: number): number {
   );
 }
 
+// Negative feedback for the event FEED. Every causal link is positive feedback
+// (snowball), so a lead saturates rollEventSide's clamp and the whole feed goes
+// one-sided. This returns a blue-positive bias that OPPOSES the current leader,
+// scaled by their gold+momentum lead and capped — added ONLY to scrappy mid-
+// game plays (picks/vision/skirmishes/trades) so the trailing team still
+// appears on the feed scrapping for them. Objectives and the deciding fight do
+// NOT use it (the strong team should still take those). Symmetric: ~0 when the
+// game is even, so it never disturbs the mirror calibration.
+export function comebackBias(tl: TimelineContext, time: number): number {
+  const lead =
+    (tl.state.goldLead / BALANCE.GOLD_LEAD_NORM) * goldPhaseWeight(time) +
+    tl.state.momentum * BALANCE.MOMENTUM_WEIGHT;
+  const capped = Math.max(
+    -BALANCE.COMEBACK_BIAS_CAP,
+    Math.min(BALANCE.COMEBACK_BIAS_CAP, lead),
+  );
+  return -capped * BALANCE.COMEBACK_BIAS_FACTOR;
+}
+
+// Anti-streak mean-reversion. Counts the trailing run of same-side events and,
+// once it exceeds a floor, returns a bias AWAY from the streaking side that
+// grows with the run length (capped). Pure function of recent history — NOT of
+// which team is stronger — so it's symmetric: over many games it cancels and
+// never shifts the mirror calibration. It only breaks up CLUSTERS, scattering
+// the trailing team's plays through the feed instead of letting one team get an
+// uninterrupted run.
+export function antiStreakBias(tl: TimelineContext): number {
+  const r = tl.state.recentSides;
+  if (r.length <= BALANCE.ANTI_STREAK_DEADZONE) return 0;
+  // Blue-positive imbalance over the recent window.
+  let imb = 0;
+  for (const s of r) imb += s === "blue" ? 1 : -1;
+  const dead = BALANCE.ANTI_STREAK_DEADZONE;
+  if (Math.abs(imb) <= dead) return 0;
+  const eff = imb - Math.sign(imb) * dead; // skew beyond the deadzone
+  const mag = Math.min(
+    BALANCE.ANTI_STREAK_CAP,
+    Math.abs(eff) * BALANCE.ANTI_STREAK_PER_EVENT,
+  );
+  return -Math.sign(imb) * mag; // push AWAY from the over-represented side
+}
+
+// Player-form edge: net "who's hotter" across the carry lanes, blue-positive.
+// Symmetric (0 when forms match or are absent), so it never disturbs the mirror
+// calibration. Scaled to a small logit so form nudges the highlight play
+// without deciding the game.
+export function formEdge(tl: TimelineContext): number {
+  const b = tl.ctx.blueForms;
+  const r = tl.ctx.redForms;
+  if (!b && !r) return 0;
+  const CARRY: Lane[] = ["top", "jungle", "middle", "bottom"];
+  let sum = 0;
+  for (const l of CARRY) sum += (b?.[l] ?? 0) - (r?.[l] ?? 0);
+  return sum * BALANCE.FORM_OUTPLAY_BIAS;
+}
+
+// Pick a highlight lane among carry candidates, weighted by base odds AND the
+// acting side's player form (a hot carry is likelier to be the hero). Consumes
+// exactly ONE rng call. With forms absent the base weights are reproduced.
+export function formWeightedLane(
+  candidates: Lane[],
+  baseWeights: number[],
+  forms: SideForms | undefined,
+  rng: RNG,
+): Lane {
+  const weights = candidates.map((l, i) =>
+    Math.max(0.02, baseWeights[i] * (1 + (forms?.[l] ?? 0) * BALANCE.FORM_LANE_WEIGHT)),
+  );
+  const total = weights.reduce((a, b) => a + b, 0);
+  let x = rng() * total;
+  for (let i = 0; i < candidates.length; i++) {
+    x -= weights[i];
+    if (x <= 0) return candidates[i];
+  }
+  return candidates[candidates.length - 1];
+}
+
+// Anti-streak is applied to the LOW-stakes scrappy bulk (skirmishes, picks,
+// towers, laning plays) — where it de-clusters the visible feed cheaply — but
+// NOT to the high-stakes objective/teamfight rolls (drake/baron/elder/soul/the
+// mid teamfight), which decide the game and must stay macro-pure so the trailing
+// team's extra feed time doesn't translate into a gold swing that distorts
+// outcomes. High-stakes callers pass antiStreak=false.
 export function rollEventSide(
   tl: TimelineContext,
   time: number,
   typeBias: number = 0,
+  antiStreak: boolean = true,
 ): Side {
   const compFactor = tl.ctx.diff * BALANCE.COMP_DIFF_WEIGHT;
   const goldFactor =
@@ -332,6 +439,7 @@ export function rollEventSide(
     momFactor +
     objectiveLogit(tl) +
     typeBias +
+    (antiStreak ? antiStreakBias(tl) : 0) +
     blueBonus;
   const probBlue = 1 / (1 + Math.exp(-logit));
   const clamped = Math.max(
@@ -502,6 +610,8 @@ export function addEvent(
     // variant). Only the soul/atakhan events set these.
     soulElement?: string;
     atakhanVariant?: AtakhanVariant;
+    // Set on a teamfight/ace that was a single-champion pentakill.
+    pentakill?: { lane: Lane; championName: string };
   } = {},
   momentumImpact: number = 0.15,
 ): void {
@@ -517,6 +627,11 @@ export function addEvent(
   // teamfights, skirmishes, and other multi-kill events.
   const laneGoldDelta = mergeLaneGold(baseLaneGold, kdaToLaneGold(kdaDelta));
   const flair = detectComeback(tl, side, momentumImpact);
+  // Record the side for anti-streak mean-reversion (capped recent history).
+  tl.state.recentSides.push(side);
+  if (tl.state.recentSides.length > BALANCE.ANTI_STREAK_WINDOW) {
+    tl.state.recentSides.shift();
+  }
   applyState(tl, side, kills, towers, inhibs, momentumImpact);
   const winProbAfter = snapshotProb(tl, minutes);
   tl.events.push({
@@ -539,5 +654,6 @@ export function addEvent(
     mapControlAfter: tl.state.mapControl.blue - tl.state.mapControl.red,
     ...(deltas.soulElement ? { soulElement: deltas.soulElement } : {}),
     ...(deltas.atakhanVariant ? { atakhanVariant: deltas.atakhanVariant } : {}),
+    ...(deltas.pentakill ? { pentakill: deltas.pentakill } : {}),
   });
 }

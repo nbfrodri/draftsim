@@ -16,9 +16,12 @@ import {
   aceKDA,
   describeAce,
   describeBackdoor,
+  describeBaseRace,
   describeInhibitor,
+  describeLastStand,
   describeNexus,
   describeTeamfight,
+  laneKillKDA,
   earlyCount,
   findByArchetype,
   formatTime,
@@ -26,6 +29,8 @@ import {
   killsForSide,
   lateScalingCount,
   nameActualFragger,
+  pentakiller,
+  pentakillKDA,
   pickRandom,
   rollInt,
   singleLaneGold,
@@ -156,11 +161,16 @@ export function phaseInhibitorCascade(
 ): void {
   const isStomp = Math.abs(tl.state.goldLead) >= BALANCE.STOMP_LEAD;
   const isMajor = Math.abs(tl.state.goldLead) >= BALANCE.MAJOR_LEAD;
-  const inhibCount = isStomp
-    ? rollInt(2, 3, tl.rng)
-    : isMajor
-    ? rollInt(1, 2, tl.rng)
-    : 1;
+  // #7/#8: a live Baron/Elder held by the winner accelerates the siege — an
+  // extra inhibitor (the super-minion pressure it generates is already encoded
+  // in how towers + gold scale with inhibCount below).
+  const buffSiege =
+    tl.state.elderSide === finalWinner || tl.state.baronSide === finalWinner
+      ? BALANCE.BUFF_SIEGE_INHIB_BONUS
+      : 0;
+  const inhibCount =
+    (isStomp ? rollInt(2, 3, tl.rng) : isMajor ? rollInt(1, 2, tl.rng) : 1) +
+    buffSiege;
   const t = jitter(tl.duration - 4, tl.duration - 2, tl.rng);
   addEvent(
     tl,
@@ -188,6 +198,30 @@ export function phaseInhibitorCascade(
       ),
     },
     0.25 + (inhibCount - 1) * 0.08,
+  );
+}
+
+// 18b. Last stand — NEGATIVE-feedback flavor. In a decided stomp the losing
+// team repels the final push ONCE (a single defensive kill, a breath) before
+// they still lose. Gives the loser a feed moment in a blowout without changing
+// the outcome — the winner's closing fight + nexus follow.
+export function phaseLastStand(tl: TimelineContext, finalWinner: Side): void {
+  if (Math.abs(tl.state.goldLead) < BALANCE.MAJOR_LEAD) return;
+  if (tl.rng() >= BALANCE.LAST_STAND_CHANCE) return;
+  const loser: Side = finalWinner === "blue" ? "red" : "blue";
+  const t = jitter(tl.duration - 2.6, tl.duration - 2, tl.rng);
+  addEvent(
+    tl,
+    "comeback",
+    t,
+    loser,
+    describeLastStand(loser, tl.ctx.blueName, tl.ctx.redName),
+    {
+      kills: killsForSide(loser, 1, 0),
+      laneGoldDelta: spreadLaneGold(60, loser),
+      kdaDelta: laneKillKDA(loser, "middle"),
+    },
+    0.1,
   );
 }
 
@@ -244,17 +278,34 @@ export function phaseClosingFight(
       0.5,
     );
   } else if (tl.rng() < 0.5) {
+    // A closing ace can be a single-carry PENTAKILL (rare, attributed) — any
+    // role, weighted toward carries.
+    const penta =
+      tl.rng() < BALANCE.PENTAKILL_CHANCE
+        ? pentakiller(
+            picksOf(tl.ctx, finalWinner),
+            tl.rng,
+            finalWinner === "blue" ? tl.ctx.blueForms : tl.ctx.redForms,
+          )
+        : null;
     addEvent(
       tl,
       "ace",
       t,
       finalWinner,
-      describeAce(finalWinner, tl.ctx.blueName, tl.ctx.redName),
+      penta
+        ? `PENTAKILL!! ${penta.champ.name} solo-aces to end it`
+        : describeAce(finalWinner, tl.ctx.blueName, tl.ctx.redName),
       {
         kills: killsForSide(finalWinner, 5, 0),
         towers: killsForSide(finalWinner, rollInt(1, 2, tl.rng), 0),
         laneGoldDelta: spreadLaneGold(800, finalWinner),
-        kdaDelta: aceKDA(finalWinner),
+        kdaDelta: penta
+          ? pentakillKDA(finalWinner, penta.lane)
+          : aceKDA(finalWinner),
+        pentakill: penta
+          ? { lane: penta.lane, championName: penta.champ.name }
+          : undefined,
       },
       0.5,
     );
@@ -309,19 +360,22 @@ export function phaseClosingFight(
   }
 }
 
-// 20. Nexus
+// 20. Nexus — occasionally a tense base race (#4) instead of a clean finish.
 export function phaseNexus(tl: TimelineContext, finalWinner: Side): void {
+  const baseRace = tl.rng() < BALANCE.BASE_RACE_CHANCE;
   addEvent(
     tl,
     "nexus",
     tl.duration,
     finalWinner,
-    describeNexus(
-      finalWinner,
-      tl.ctx.blueName,
-      tl.ctx.redName,
-      formatTime(tl.duration),
-    ),
+    baseRace
+      ? describeBaseRace(finalWinner, tl.ctx.blueName, tl.ctx.redName)
+      : describeNexus(
+          finalWinner,
+          tl.ctx.blueName,
+          tl.ctx.redName,
+          formatTime(tl.duration),
+        ),
     {
       towers: killsForSide(finalWinner, 2, 0),
       laneGoldDelta: spreadLaneGold(500, finalWinner),

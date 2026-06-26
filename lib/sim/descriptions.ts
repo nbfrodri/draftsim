@@ -807,6 +807,85 @@ export function describeObjectiveTrade(
   return `Cross-map: ${teamName(side, blueName, redName)} trades ${labels[giveUp]} for ${labels[takeFor]}`;
 }
 
+export function describeComebackStand(
+  side: Side,
+  winnerPicks: (Champion | null)[],
+  loserPicks: (Champion | null)[],
+  rng: RNG = Math.random,
+): string {
+  const hero =
+    findByArchetype(winnerPicks, [
+      "hyper-carry",
+      "skirmish",
+      "tank",
+      "engage",
+    ]) ?? winnerPicks.find((c) => c != null);
+  const victim = findSquishy(loserPicks);
+  const flair = pickRandom(
+    ["THE STAND!", "NOT TODAY!", "DEFIANCE!", "HELD THE LINE!"],
+    rng,
+  );
+  if (hero && victim) {
+    return `${flair} ${hero.name} anchors a desperation hold, blows up ${victim.name} — the deficit shrinks`;
+  }
+  if (hero) {
+    return `${flair} ${hero.name} anchors a desperation hold — the deficit shrinks`;
+  }
+  return `${flair} the trailing team refuses to die`;
+}
+
+// A far-ahead team throws a lead — `side` is the team that BENEFITS (the one
+// that was behind); the THROWER is the opposite side.
+export function describeThrow(
+  side: Side,
+  blueName: string,
+  redName: string,
+  what: string,
+  rng: RNG = Math.random,
+): string {
+  const thrower = teamName(side === "blue" ? "red" : "blue", blueName, redName);
+  const flair = pickRandom(["THROWN!", "GREED PUNISHED!", "WHAT A THROW!"], rng);
+  return `${flair} ${thrower} over-extends on ${what} — ${teamName(side, blueName, redName)} punishes and swings it back`;
+}
+
+export function describeCounterJungle(
+  side: Side,
+  picks: (Champion | null)[],
+  blueName: string,
+  redName: string,
+): string {
+  const jg = picks[POSITIONAL_LANES.indexOf("jungle")];
+  if (jg) {
+    return `${jg.name} invades and clears the enemy jungle — their jungler falls behind`;
+  }
+  return `${teamName(side, blueName, redName)} counter-jungles, denying camps`;
+}
+
+// A backdoor attempt that gets sniffed out — `splitterPicks` is the SPLITTING
+// team's roster (they got caught); `side` is the DEFENDER (who collapsed).
+export function describeBackdoorCaught(
+  side: Side,
+  splitterPicks: (Champion | null)[],
+  blueName: string,
+  redName: string,
+): string {
+  const splitter =
+    findByArchetype(splitterPicks, ["splitpush", "skirmish"]) ??
+    splitterPicks.find((c) => c != null);
+  if (splitter) {
+    return `CAUGHT! ${splitter.name}'s backdoor gets sniffed out — collapsed on at the base`;
+  }
+  return `${teamName(side, blueName, redName)} sniffs out the backdoor and denies it`;
+}
+
+export function describeBaseRace(
+  side: Side,
+  blueName: string,
+  redName: string,
+): string {
+  return `BASE RACE! both Nexuses crumbling — ${teamName(side, blueName, redName)} hits home first`;
+}
+
 export function describeWaveCrash(
   side: Side,
   picks: (Champion | null)[],
@@ -821,6 +900,165 @@ export function describeWaveCrash(
     return `${laner.name} crashes the wave ${laneShort}, freezes the bounce`;
   }
   return `${teamName(side, blueName, redName)} wins the wave-crash ${laneShort}`;
+}
+
+// Tower dive — a mid/jungle collapse onto a side lane that dives the turret.
+// `traded` = the divers gave up a body to tower aggro (still came out ahead).
+export function describeTowerDive(
+  side: Side,
+  picks: (Champion | null)[],
+  lane: Lane,
+  blueName: string,
+  redName: string,
+  traded: boolean,
+): string {
+  const laneShort = lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
+  const diver = picks[POSITIONAL_LANES.indexOf(lane === "jungle" ? "middle" : "jungle")];
+  const team = teamName(side, blueName, redName);
+  if (traded) {
+    return `${team} dives ${laneShort} under tower — trades a body but takes the kill`;
+  }
+  return diver
+    ? `${diver.name} collapses ${laneShort} — clean tower dive`
+    : `${team} dives ${laneShort} under the turret`;
+}
+
+// Poke/siege — a poke comp chips the turret from range; no fight, just attrition.
+export function describePokeSiege(
+  side: Side,
+  blueName: string,
+  redName: string,
+  rng: RNG = Math.random,
+): string {
+  const team = teamName(side, blueName, redName);
+  return pickRandom(
+    [
+      `${team} pokes the turret down — no engage, no escape`,
+      `${team} sieges from range, chunks the tower to nothing`,
+      `${team} grinds the turret with poke — the war of attrition`,
+    ],
+    rng,
+  );
+}
+
+// Teleport flank — a top-laner TPs cross-map and turns a contested skirmish.
+export function describeTeleportFlank(
+  side: Side,
+  picks: (Champion | null)[],
+  blueName: string,
+  redName: string,
+): string {
+  const top = picks[POSITIONAL_LANES.indexOf("top")];
+  const team = teamName(side, blueName, redName);
+  return top
+    ? `${top.name} Teleports behind — the flank turns the fight`
+    : `${team} flanks with a cross-map Teleport and flips it`;
+}
+
+// Early cheese — proxy / level-2 all-in gamble. `success` = it paid off.
+export function describeCheese(
+  side: Side,
+  picks: (Champion | null)[],
+  blueName: string,
+  redName: string,
+  success: boolean,
+  rng: RNG = Math.random,
+): string {
+  const team = teamName(side, blueName, redName);
+  const c = picks[POSITIONAL_LANES.indexOf(pickRandom(["top", "middle"] as Lane[], rng))];
+  if (success) {
+    return c
+      ? `${c.name} cheeses the early all-in — first blood off the gamble`
+      : `${team} cheeses the level-2 all-in and it lands`;
+  }
+  return `${team}'s early cheese gets read — the gamble whiffs`;
+}
+
+// Disengage / peel — a behind team gets dived but PEELS and everyone lives.
+// Defensive negative-feedback beat: no deaths for them, the dive is denied.
+export function describeDisengage(
+  side: Side,
+  picks: (Champion | null)[],
+  blueName: string,
+  redName: string,
+  rng: RNG = Math.random,
+): string {
+  const team = teamName(side, blueName, redName);
+  const sup = picks[POSITIONAL_LANES.indexOf("support")];
+  return pickRandom(
+    [
+      sup
+        ? `${sup.name} peels it back — the dive is denied, everyone lives`
+        : `${team} peels the dive — nobody dies, the lead holds at bay`,
+      `${team} disengages cleanly — the enemy commit finds nothing`,
+    ],
+    rng,
+  );
+}
+
+// Champion-signature plays. A known champion's identity gives the highlight a
+// flavored, recognizable line ("Thresh lands the hook — death sentence") instead
+// of a generic outplay. Keyed by alias; `{n}` is the champion name. Covers the
+// iconic playmakers; anything not listed falls back to the generic copy.
+const CHAMPION_SIGNATURE: Record<string, string> = {
+  Thresh: "{n} lands the hook — Death Sentence into the kill",
+  Blitzcrank: "{n} hooks them clean out of position",
+  Pyke: "{n} hooks, then executes for the reset",
+  Nautilus: "{n} chains the engage and locks them down",
+  LeeSin: "{n} insec-kicks the carry into the whole team",
+  Yasuo: "{n} rides the knock-up and ults the squad",
+  Yone: "{n} ults through the backline and resets",
+  Malphite: "{n} flanks and Unstoppable Force into all five",
+  Amumu: "{n} curses the entire team with the bandage toss",
+  Orianna: "{n} lands the perfect Shockwave",
+  Katarina: "{n} resets across the fight — Death Lotus pops off",
+  Zed: "{n} marks the carry and executes from the shadows",
+  Akali: "{n} vanishes in the shroud and bursts the carry",
+  Riven: "{n} animation-cancels through the squad",
+  Kennen: "{n} flashes in for the triple stun",
+  Sett: "{n} suplexes the carry into the team",
+  Wukong: "{n} clones in and knocks the whole team up",
+  Diana: "{n} pulls them in and detonates",
+  Galio: "{n} ults across the map — the flank lands",
+  Jarvan: "{n} cataclysms the carry into a cage",
+  Ashe: "{n} lands the cross-map arrow to start it",
+  Ahri: "{n} charms the carry and bursts it down",
+  Vi: "{n} flies in and locks the carry out of the fight",
+  Camille: "{n} ults the carry into a 1v1 and deletes it",
+  Rell: "{n} crashes the engage and pins them down",
+};
+export function championSignature(champ: Champion): string | null {
+  const line = CHAMPION_SIGNATURE[champ.alias];
+  return line ? line.replace("{n}", champ.name) : null;
+}
+
+// Does this side have a signature ENGAGER (the champion that starts the fight)?
+// Returns its signature line (first match — deterministic, no rng), or null.
+// Used to flavor a won teamfight's engage.
+const SIGNATURE_ENGAGERS = new Set([
+  "Malphite",
+  "Amumu",
+  "Orianna",
+  "Nautilus",
+  "Wukong",
+  "Jarvan",
+  "Galio",
+  "Rell",
+  "Sett",
+  "Diana",
+]);
+export function signatureEngage(picks: (Champion | null)[]): string | null {
+  const found = picks.find((c) => c && SIGNATURE_ENGAGERS.has(c.alias));
+  return found ? championSignature(found) : null;
+}
+
+// Last stand — the losing team repels the final push once before the end.
+export function describeLastStand(
+  side: Side,
+  blueName: string,
+  redName: string,
+): string {
+  return `${teamName(side, blueName, redName)} repels the push at the Nexus — one more breath`;
 }
 
 // Mid-game strategic pivot (adaptiveMidgame). The losing side tears up its
@@ -992,6 +1230,74 @@ export function gankKDA(
   addKill(k, winnerSide, killerLane);
   addAssist(k, winnerSide, assistLane);
   addDeath(k, loserSide, victimLane);
+  return k;
+}
+
+// Who solo-aced. ANY role can get a pentakill, but it skews hard toward carries
+// — ADCs and assassins/bursts most, skirmishers/bruisers (top/jungle) less,
+// supports rarely. Weighted random over the winning team, so junglers, top and
+// mid laners (not just the ADC) all show up on the board.
+const PENTA_ARCHETYPE_WEIGHT: Record<string, number> = {
+  "hyper-carry": 5,
+  burst: 4,
+  assassin: 4,
+  skirmish: 3,
+  poke: 3,
+  dive: 2,
+};
+// How hard player form pulls who lands the pentakill (a hot carry pentas more).
+// Local to keep this lower layer independent of the timeline balance module.
+const FORM_PENTA_WEIGHT = 1.2;
+export function pentakiller(
+  winnerPicks: (Champion | null)[],
+  rng: RNG = Math.random,
+  forms?: Partial<Record<Lane, number>>,
+): { lane: Lane; champ: Champion } | null {
+  const weights: number[] = [];
+  let total = 0;
+  for (let i = 0; i < POSITIONAL_LANES.length; i++) {
+    const c = winnerPicks[i];
+    if (!c) {
+      weights.push(0);
+      continue;
+    }
+    let w = 1; // baseline — even a tank CAN snag one
+    for (const a of metaFor(c).archetypes) {
+      w = Math.max(w, PENTA_ARCHETYPE_WEIGHT[a] ?? 1);
+    }
+    if (c.roles.some((r) => r.toLowerCase() === "marksman")) w = Math.max(w, 5);
+    if (POSITIONAL_LANES[i] === "support") w *= 0.3; // support pentas are rare
+    // A hot-streak carry is likelier to be the one who pops off.
+    const form = forms?.[POSITIONAL_LANES[i]] ?? 0;
+    w = Math.max(0.05, w * (1 + form * FORM_PENTA_WEIGHT));
+    weights.push(w);
+    total += w;
+  }
+  if (total <= 0) return null;
+  let r = rng() * total;
+  for (let i = 0; i < POSITIONAL_LANES.length; i++) {
+    r -= weights[i];
+    if (r <= 0 && winnerPicks[i]) {
+      return { lane: POSITIONAL_LANES[i], champ: winnerPicks[i]! };
+    }
+  }
+  for (let i = POSITIONAL_LANES.length - 1; i >= 0; i--) {
+    if (winnerPicks[i]) return { lane: POSITIONAL_LANES[i], champ: winnerPicks[i]! };
+  }
+  return null;
+}
+
+// Pentakill: ONE champion (lane) takes all 5 kills; the enemy team is wiped
+// (5 deaths, one per loser lane). The four teammates get the assists. Sum of
+// the winner's kills is exactly 5 so it reconciles with the event's kill count.
+export function pentakillKDA(winnerSide: Side, lane: Lane): EventKDA {
+  const k = makeKDA();
+  const loserSide: Side = winnerSide === "blue" ? "red" : "blue";
+  addKill(k, winnerSide, lane, 5);
+  for (const l of LANE_LIST) {
+    addDeath(k, loserSide, l);
+    if (l !== lane) addAssist(k, winnerSide, l, 2);
+  }
   return k;
 }
 

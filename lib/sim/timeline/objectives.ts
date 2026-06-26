@@ -31,6 +31,7 @@ import {
 import { BALANCE } from "./balance";
 import {
   addEvent,
+  bumpLaneLead,
   consumeTowerPressure,
   objectivePrioBias,
   pickAdvantageBias,
@@ -50,25 +51,32 @@ import {
 // explicitly and feeds tower pressure proportionally + lane gold scales.
 export function phaseGrubs(tl: TimelineContext): void {
   const t = jitter(6, 7.5, tl.rng);
-  const side = rollEventSide(tl, t, tl.laneBias * 0.7);
-  // Count distribution: 6 grubs is most common when one team contests
-  // hard (~50%); 3 grubs for split, 4-5 for partial fights.
-  const grubsTaken =
-    tl.rng() < 0.5 ? 6 : tl.rng() < 0.7 ? 3 : rollInt(4, 5, tl.rng);
-  tl.state.grubCount[side] += grubsTaken;
-  // Each grub = +0.12 tower pressure (6 grubs = +0.72, the meaningful
-  // tower-shred spike). Plus a small per-grub gold bonus.
-  tl.state.towerPressure[side] += grubsTaken * BALANCE.GRUB_TOWER_PRESSURE;
-  const grubGold = 60 + grubsTaken * 25; // 6 grubs ≈ 210g spread
-  addEvent(
-    tl,
-    "grubs",
-    t,
-    side,
-    describeGrubs(side, tl.ctx.blueName, tl.ctx.redName, grubsTaken),
-    { laneGoldDelta: spreadLaneGold(grubGold, side) },
-    0.06 + grubsTaken * 0.01,
-  );
+  tl.schedule(t, () => {
+    const side = rollEventSide(tl, t, tl.laneBias * 0.7);
+    // Count distribution: 6 grubs is most common when one team contests
+    // hard (~50%); 3 grubs for split, 4-5 for partial fights.
+    const grubsTaken =
+      tl.rng() < 0.5 ? 6 : tl.rng() < 0.7 ? 3 : rollInt(4, 5, tl.rng);
+    tl.state.grubCount[side] += grubsTaken;
+    // Each grub = +0.12 tower pressure (6 grubs = +0.72, the meaningful
+    // tower-shred spike). Plus a small per-grub gold bonus.
+    tl.state.towerPressure[side] += grubsTaken * BALANCE.GRUB_TOWER_PRESSURE;
+    const grubGold = 60 + grubsTaken * 25; // 6 grubs ≈ 210g spread
+    addEvent(
+      tl,
+      "grubs",
+      t,
+      side,
+      describeGrubs(side, tl.ctx.blueName, tl.ctx.redName, grubsTaken),
+      { laneGoldDelta: spreadLaneGold(grubGold, side) },
+      0.06 + grubsTaken * 0.01,
+    );
+    // Touch of the Void helps the laners shove/dive — a small side-lane
+    // snowball scaled by how many grubs were taken (6 grubs ≈ a full nudge).
+    const laneBump = (grubsTaken / 6) * BALANCE.GRUB_LANE_SNOWBALL;
+    bumpLaneLead(tl, side, "top", laneBump);
+    bumpLaneLead(tl, side, "middle", laneBump);
+  });
 }
 
 // Shared dragon-contest resolution. All four drake phases roll a contest
@@ -88,7 +96,14 @@ function contestDrake(
   momStolen: number,
   momPlain: number,
 ): void {
-  const contestSide = rollEventSide(tl, t, sideBias + pickAdvantageBias(tl, t));
+  // High-stakes objective → macro-pure (no anti-streak), so the trailing team's
+  // extra scrappy feed time never buys them a drake/soul it shouldn't.
+  const contestSide = rollEventSide(
+    tl,
+    t,
+    sideBias + pickAdvantageBias(tl, t),
+    false,
+  );
   const stolen = tl.rng() < stealChance(tl, stealBase, contestSide);
   const side: Side = stolen
     ? contestSide === "blue"
@@ -164,22 +179,25 @@ function contestDrake(
 // who can fight over drake without losing a tower.
 export function phaseFirstDrake(tl: TimelineContext): void {
   const t = jitter(6.5, 8.3, tl.rng);
-  contestDrake(
-    tl,
-    t,
-    objectivePrioBias(tl, "drake") * 0.6 + tl.mods.drakeBias,
-    0.08,
-    150,
-    0.25,
-    0.12,
-  );
+  tl.schedule(t, () => {
+    contestDrake(
+      tl,
+      t,
+      objectivePrioBias(tl, "drake") * 0.6 + tl.mods.drakeBias,
+      0.08,
+      150,
+      0.25,
+      0.12,
+    );
+  });
 }
 
 // 10. Second Drake (11.5-14.3) — 8% chance of a smite steal. Lane prio
 // still relevant for early-mid drakes.
 export function phaseSecondDrake(tl: TimelineContext): void {
-  if (tl.duration >= 18) {
-    const t = jitter(11.5, 14.3, tl.rng);
+  if (tl.duration < 18) return;
+  const t = jitter(11.5, 14.3, tl.rng);
+  tl.schedule(t, () => {
     contestDrake(
       tl,
       t,
@@ -189,51 +207,64 @@ export function phaseSecondDrake(tl: TimelineContext): void {
       0.28,
       0.14,
     );
-  }
+  });
 }
 
 // 12. Third Drake (16.5-20) — 10% steal as games heat up.
 export function phaseThirdDrake(tl: TimelineContext): void {
-  if (tl.duration >= 22) {
-    const t = jitter(16.5, 20, tl.rng);
+  if (tl.duration < 22) return;
+  const t = jitter(16.5, 20, tl.rng);
+  tl.schedule(t, () => {
     contestDrake(tl, t, tl.mods.drakeBias, 0.1, 220, 0.3, 0.15);
-  }
+  });
 }
 
 // 14. Fourth Drake / Soul (21-25)
 export function phaseFourthDrakeSoul(tl: TimelineContext): void {
-  if (tl.duration >= 26 && tl.state.soulSide == null) {
-    const t = jitter(21, Math.min(25, tl.duration - 3), tl.rng);
+  if (tl.duration < 26) return;
+  const t = jitter(21, Math.min(25, tl.duration - 3), tl.rng);
+  tl.schedule(t, () => {
+    // soulSide is checked at resolve time — an earlier drake may have already
+    // granted soul by the time this 4th-drake contest plays out.
+    if (tl.state.soulSide != null) return;
     contestDrake(tl, t, tl.mods.drakeBias, 0.1, 240, 0.3, 0.18);
-  }
+  });
 }
 
 // 8. First Tower (10-13). Tower-pressure side bias: side that took
 // grubs is meaningfully more likely to crack first turret.
 export function phaseFirstTower(tl: TimelineContext): void {
   const t = jitter(10, 13, tl.rng);
-  const side = rollTowerSide(tl, t);
-  consumeTowerPressure(tl, side);
-  const towerLane = pickRandom(["top", "middle", "bottom"] as Lane[], tl.rng);
-  addEvent(
-    tl,
-    "tower",
-    t,
-    side,
-    describeTower(
+  tl.schedule(t, () => {
+    const side = rollTowerSide(tl, t);
+    consumeTowerPressure(tl, side);
+    const towerLane = pickRandom(["top", "middle", "bottom"] as Lane[], tl.rng);
+    addEvent(
+      tl,
+      "tower",
+      t,
       side,
-      picksOf(tl.ctx, side),
-      tl.ctx.blueName,
-      tl.ctx.redName,
-      true,
-      tl.rng,
-    ),
-    {
-      towers: killsForSide(side, 1, 0),
-      laneGoldDelta: singleLaneGold(towerLane, 350, side),
-    },
-    0.15,
-  );
+      describeTower(
+        side,
+        picksOf(tl.ctx, side),
+        tl.ctx.blueName,
+        tl.ctx.redName,
+        true,
+        tl.rng,
+      ),
+      {
+        towers: killsForSide(side, 1, 0),
+        // First turret of the game pays the real-LoL first-tower bonus on top
+        // of the structure bounty.
+        laneGoldDelta: singleLaneGold(
+          towerLane,
+          350 + BALANCE.FIRST_TOWER_BONUS,
+          side,
+        ),
+      },
+      0.15,
+    );
+  });
 }
 
 // 9. Atakhan or second Herald (14-16). Herald grants the tower break + a
@@ -244,6 +275,7 @@ export function phaseFirstTower(tl: TimelineContext): void {
 // the next lost teamfight (loserKills -1).
 export function phaseAtakhanOrHerald(tl: TimelineContext): void {
   const t = jitter(14, 16, tl.rng);
+  tl.schedule(t, () => {
   const side = rollEventSide(
     tl,
     t,
@@ -287,19 +319,22 @@ export function phaseAtakhanOrHerald(tl: TimelineContext): void {
       0.13,
     );
   }
+  });
 }
 
 // 15. First Baron (20-30). 15% steal chance — a stolen Nashor swings the
 // momentum hard (0.65 vs 0.5) since the trailing team flips into a 3-tower
 // siege threat. Towers + ~900g spread = a real winprob jolt.
 export function phaseFirstBaron(tl: TimelineContext): void {
-  if (tl.duration >= 25) {
-    const tMax = Math.min(tl.duration - 4, 30);
-    const t = jitter(20, Math.max(21, tMax), tl.rng);
+  if (tl.duration < 25) return;
+  const tMax = Math.min(tl.duration - 4, 30);
+  const t = jitter(20, Math.max(21, tMax), tl.rng);
+  tl.schedule(t, () => {
     const contestSide = rollEventSide(
       tl,
       t,
       0.05 + tl.mods.baronBias + pickAdvantageBias(tl, t),
+      false, // Baron is game-deciding — macro-pure, no anti-streak
     );
     const stolen = tl.rng() < stealChance(tl, 0.15, contestSide);
     const baronSide: Side = stolen
@@ -335,13 +370,14 @@ export function phaseFirstBaron(tl: TimelineContext): void {
       },
       stolen ? 0.65 : 0.5,
     );
-  }
+  });
 }
 
 // 16. Mid tower (23 to duration-3). Reuses tower-pressure bias.
 export function phaseMidTower(tl: TimelineContext): void {
-  if (tl.duration >= 27) {
-    const t = jitter(23, Math.max(24, tl.duration - 3), tl.rng);
+  if (tl.duration < 27) return;
+  const t = jitter(23, Math.max(24, tl.duration - 3), tl.rng);
+  tl.schedule(t, () => {
     const side = rollTowerSide(tl, t);
     consumeTowerPressure(tl, side);
     addEvent(
@@ -367,7 +403,7 @@ export function phaseMidTower(tl: TimelineContext): void {
       },
       0.15,
     );
-  }
+  });
 }
 
 // 17. Elder (long games). Elder Dragon only spawns once ONE team has secured
@@ -375,9 +411,15 @@ export function phaseMidTower(tl: TimelineContext): void {
 // It is never gated on the combined drake count across both teams. Sets
 // state.elderSide so closing-fight logic factors it in.
 export function phaseElder(tl: TimelineContext): void {
-  if (tl.duration >= 32 && tl.state.soulSide != null && tl.rng() < 0.65) {
-    const t = jitter(tl.duration - 7, tl.duration - 3, tl.rng);
-    const contestSide = rollEventSide(tl, t);
+  if (tl.duration < 32) return;
+  const t = jitter(tl.duration - 7, tl.duration - 3, tl.rng);
+  tl.schedule(t, () => {
+    // Soul must already be secured (a team reached 4 drakes) AND the spawn
+    // roll passes — both checked at resolve so soulSide reflects the drakes
+    // that played out before this minute. Short-circuits without rolling when
+    // there's no soul, matching the original gate.
+    if (tl.state.soulSide == null || tl.rng() >= 0.65) return;
+    const contestSide = rollEventSide(tl, t, 0, false); // Elder is game-deciding
     const stolen = tl.rng() < stealChance(tl, 0.18, contestSide);
     const elderSide: Side = stolen
       ? contestSide === "blue"
@@ -401,5 +443,5 @@ export function phaseElder(tl: TimelineContext): void {
       },
       stolen ? 0.75 : 0.65,
     );
-  }
+  });
 }

@@ -58,6 +58,116 @@ export const BALANCE = {
   COMEBACK_GOLD_DEFICIT: 2500,
   COMEBACK_MOMENTUM_DEFICIT: 0.4,
 
+  // ─── Comeback bias (NEGATIVE feedback for the event feed) ─────────────────
+  // The causal links are all positive feedback (snowball), so a lead saturates
+  // the event-side roll and the feed reads one-sided. This opposes the current
+  // leader on SCRAPPY plays only (picks/vision/skirmishes/trades) — the losing
+  // team still scraps for those — while objectives + the deciding fight keep
+  // the leader's full edge. FACTOR = how much of the gold+momentum lead is
+  // cancelled for those plays; CAP bounds it so the underdog never dominates.
+  COMEBACK_BIAS_FACTOR: 0.6,
+  COMEBACK_BIAS_CAP: 2.0,
+  // A side far behind on gold mounts a desperation defensive STAND — wins a
+  // fight it shouldn't, clawing back. Deficit to trigger + per-check chance.
+  STAND_GOLD_DEFICIT: 4000,
+  STAND_CHANCE: 0.33,
+  // A far-AHEAD team gets greedy and throws (face-checks an objective). Deficit
+  // to qualify + per-check chance. The trailing team gets the swing.
+  THROW_GOLD_DEFICIT: 4500,
+  THROW_CHANCE: 0.3,
+  // Counter-jungle invade: chance + how far behind it puts the enemy jungler
+  // (fewer ganks). GANK_DAMP = chance subtracted from a behind-jungler's gank.
+  COUNTER_JUNGLE_CHANCE: 0.22,
+  JUNGLE_BEHIND_GANK_DAMP: 0.18,
+  // Mid-game backdoor attempt by a splitpush comp: chance, and odds it's caught
+  // (vs cracks a tower).
+  BACKDOOR_ATTEMPT_CHANCE: 0.3,
+  BACKDOOR_CAUGHT_ODDS: 0.45,
+  // Base-race finish chance in the closing sequence (both nexuses low).
+  BASE_RACE_CHANCE: 0.12,
+  // A live Baron/Elder accelerates the inhibitor siege (extra inhib in the
+  // cascade) and the super-minion tower pressure it generates.
+  BUFF_SIEGE_INHIB_BONUS: 1,
+
+  // ─── Polish: thin early events now feed the causal state ──────────────────
+  // Plates / scuttle convert into lane-lead snowball (kills-equivalent units,
+  // ×LANE_SNOWBALL_PER_KILL). Small — a plate edge is real but not a kill.
+  PLATE_LANE_SNOWBALL: 0.6,
+  SCUTTLE_JUNGLE_SNOWBALL: 0.5,
+  // A near-ace mid teamfight (winner − loser kills ≥ this) buys a longer free-
+  // objective window (ace → free Baron) and may flash a multikill flair.
+  ACE_KILL_MARGIN: 4,
+  ACE_PICKADV_MULT: 1.7,
+  // New early/late flavor beats.
+  LEVEL_SPIKE_GANK_CHANCE: 0.25,
+  VISION_SWEEP_CHANCE: 0.25,
+  BARON_DANCE_CHANCE: 0.3,
+  // Chance a clean 5-0 ace (mid teamfight or closing) is a single-champion
+  // PENTAKILL rather than a spread team ace. Rare — kept special.
+  PENTAKILL_CHANCE: 0.1,
+
+  // ─── New event beats (richer/varied feed) ─────────────────────────────────
+  // Kept modest so calibration holds; every POSITIVE beat carries comebackBias
+  // so a lead doesn't saturate the feed. Balanced by the negative beats below.
+  // Tower dive: a collapse onto a side lane that dives the turret (1-2 kills,
+  // may trade 1 to tower aggro). Fed by wave-crash/tower pressure (wave→dive).
+  TOWER_DIVE_CHANCE: 0.24,
+  TOWER_DIVE_TRADE_ODDS: 0.35, // odds the divers trade a death to the tower
+  // Poke/siege comp chips a tower over a window — pressure + gold, no kills.
+  POKE_SIEGE_CHANCE: 0.42,
+  POKE_SIEGE_TOWER_PRESSURE: 0.3,
+  // Teleport flank: a top-laner TPs cross-map and flips a contested skirmish.
+  TP_FLANK_CHANCE: 0.26,
+  // Early cheese (proxy / lvl-2 all-in): high-variance early gamble.
+  CHEESE_CHANCE: 0.12,
+  CHEESE_SUCCESS_ODDS: 0.55,
+  // Disengage / peel: a trailing team gets dived but PEELS and survives — a
+  // defensive NEGATIVE-feedback beat (no deaths for them, small momentum back).
+  DISENGAGE_CHANCE: 0.38,
+  DISENGAGE_GOLD_DEFICIT: 2500,
+  // Last-stand: the losing team repels the final push ONCE before losing.
+  LAST_STAND_CHANCE: 0.25,
+  // Splitpush comp is down a body in the 5v5 → its mid teamfight is slightly
+  // harder to win (negative feedback against the splitpush side).
+  SPLITPUSH_TEAMFIGHT_DAMP: 0.22,
+  // A high-CC ("wombo") teamfight comp converts a won 5v5 harder (+kill spread).
+  WOMBO_KILL_BONUS: 1,
+  // Grubs → lane: Touch of the Void helps the laners shove/dive (small lane
+  // snowball on the side lanes, on top of the tower pressure).
+  GRUB_LANE_SNOWBALL: 0.4,
+  // Roam → tower: a successful roam opens the side lane → a touch of tower
+  // pressure for the roaming side (the roam → collapse → tower chain).
+  ROAM_TOWER_PRESSURE: 0.12,
+  // First-tower gold bonus (real LoL ≈ 150g shared) — the first turret of the
+  // game pays a little extra on top of the structure bounty.
+  FIRST_TOWER_BONUS: 150,
+  // Player form → highlight plays. A hot-streak carry (form in [-1,+1]) is more
+  // likely to BE the outplaying side and to be the one who pops off. Symmetric
+  // (nets to 0 when both teams are equally hot / forms absent), so it never
+  // disturbs the mirror calibration. Magnitudes small — form nudges, it doesn't
+  // decide the game.
+  FORM_OUTPLAY_BIAS: 0.4, // per net-form-point on the outplay side roll (logit)
+  FORM_LANE_WEIGHT: 1.5, // how hard form skews WHICH lane gets the highlight
+
+  // ─── Anti-streak mean-reversion (event-feed clustering) ───────────────────
+  // The event-side roll reads the snowballing gold/momentum on every event, so
+  // a leader gets long uninterrupted RUNS of plays even though the clamp caps
+  // their per-roll probability — the feed reads as one team's highlight reel.
+  // This nudges the next roll AWAY from the side that just had a run, scaling
+  // with run length (capped). Symmetric (history-based, not strength-based) so
+  // it scatters the trailing team's plays through the feed without changing who
+  // wins (Monte-Carlo calibration tracks any residual; the mirror cancels).
+  // Modelled as recent-IMBALANCE pushback (not a hard run-counter): whenever
+  // the last WINDOW events skew to one side past a deadzone, bias the next roll
+  // back toward the other team, scaled by the skew (capped). Pre-empts runs from
+  // forming AND catches near-streaks ("6 of the last 8"). The redistributed
+  // plays are the low-stakes scrappy bulk; the closing fight is decided
+  // separately (decideClosingWinner), so outcomes are preserved.
+  ANTI_STREAK_WINDOW: 8, // how many recent event sides to weigh
+  ANTI_STREAK_DEADZONE: 1, // ignore natural skews up to this imbalance
+  ANTI_STREAK_PER_EVENT: 0.5, // logit per imbalance point beyond the deadzone
+  ANTI_STREAK_CAP: 2.6, // max anti-streak logit
+
   // ─── Objective steal ──────────────────────────────────────────────────────
   STEAL_CHANCE_CAP: 0.45,
 
@@ -125,9 +235,9 @@ export const BALANCE = {
   STEAL_DESPERATION: 0.06,
   STEAL_DESPERATION_DEFICIT: 3000,
 
-  // Gold lead → earlier power spike: a fed carry itemizes faster. Max minutes a
-  // spike is pulled forward when that side is well ahead.
-  SPIKE_LEAD_SHIFT_MAX: 1.2,
+  // Gold lead → bigger power spike: a fed carry's core item swings harder.
+  // (In the time-ordered engine a spike's minute is fixed at schedule time, so
+  // the lead is recast as extra impact rather than an earlier spike.)
   SPIKE_LEAD_NORM: 4000,
 
   // Gank → counter-gank: a gank makes the enemy jungler's counter-gank both

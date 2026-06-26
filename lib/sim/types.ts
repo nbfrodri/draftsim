@@ -65,7 +65,22 @@ export type EventType =
   | "outplay"
   | "objective-trade"
   | "wave-crash"
-  | "power-spike";
+  | "power-spike"
+  // comeback — a far-behind team mounts a desperation defensive stand and wins
+  // a fight it shouldn't, clawing gold + momentum back (negative feedback).
+  | "comeback"
+  // throw — a far-AHEAD team gets greedy (face-checks / over-extends on an
+  // objective) and gives the trailing team a swing (negative feedback).
+  | "throw"
+  // counter-jungle — a jungler invades and denies the enemy jungle camps,
+  // putting that jungler behind (fewer ganks from them for a window).
+  | "counter-jungle"
+  // dive — a multi-man collapse that dives the enemy under their turret
+  // (mid/jungle roam onto a side lane), 1-2 kills, may trade to tower aggro.
+  | "dive"
+  // siege — a poke/siege comp chips a turret over a window (tower pressure +
+  // gold, no kills); the "they can't engage, they can't disengage" beat.
+  | "siege";
 
 export interface EventKills {
   blue: number;
@@ -124,6 +139,10 @@ export interface MatchEvent {
   soulElement?: string;
   // Set only on the `atakhan` event: which variant was taken.
   atakhanVariant?: AtakhanVariant;
+  // Set when a single champion solo-aced the enemy team in this fight — the
+  // pentakilling champion + their lane. `side` (above) is the pentakiller's
+  // team. Surfaced in the log and aggregated into a season pentakill board.
+  pentakill?: { lane: Lane; championName: string };
 }
 
 export interface MatchTimeline {

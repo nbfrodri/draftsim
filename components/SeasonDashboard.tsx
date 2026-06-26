@@ -1659,6 +1659,340 @@ function SeasonRecapPanel({
         })}
       </div>
 
+      {/* Season records — milestones drawn from recap fields that survive a
+          save/load (game length, best MVP, biggest swing/stomp/penta). */}
+      {(stats.records.longestGame ||
+        stats.records.bestMvp ||
+        stats.records.biggestSwing ||
+        stats.records.biggestStomp ||
+        stats.records.fastestPentakill) && (
+        <div className="mb-4">
+          <div className="flex items-baseline justify-between mb-1.5">
+            <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60">
+              Records of the Year
+            </div>
+            <div className="text-[9px] text-rift-mutedbright/60 tabular-nums">
+              {stats.totalGames} games · {stats.totalMatches} matches
+            </div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+            {stats.records.longestGame && (
+              <div className="border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2">
+                <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-1">
+                  Longest Game
+                </div>
+                <div className="font-display text-sm text-rift-goldbright tabular-nums">
+                  {Math.round(stats.records.longestGame.minutes)}′
+                </div>
+                <div className="text-[9px] text-rift-mutedbright/70 truncate">
+                  {stats.records.longestGame.blueTeam} vs{" "}
+                  {stats.records.longestGame.redTeam}
+                </div>
+              </div>
+            )}
+            {stats.records.shortestGame && (
+              <div className="border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2">
+                <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-1">
+                  Fastest Game
+                </div>
+                <div className="font-display text-sm text-rift-goldbright tabular-nums">
+                  {Math.round(stats.records.shortestGame.minutes)}′
+                </div>
+                <div className="text-[9px] text-rift-mutedbright/70 truncate">
+                  {stats.records.shortestGame.blueTeam} vs{" "}
+                  {stats.records.shortestGame.redTeam}
+                </div>
+              </div>
+            )}
+            {stats.records.biggestStomp && (
+              <div className="border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2">
+                <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-1">
+                  Biggest Stomp
+                </div>
+                <div className="font-display text-sm text-rift-goldbright tabular-nums">
+                  +{(stats.records.biggestStomp.goldLead / 1000).toFixed(1)}k g
+                </div>
+                <div className="text-[9px] text-rift-mutedbright/70 truncate">
+                  {stats.records.biggestStomp.winnerTeam} ▸{" "}
+                  {stats.records.biggestStomp.loserTeam}
+                </div>
+              </div>
+            )}
+            {stats.records.bestMvp && (
+              <div className="flex items-center gap-2 border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2">
+                {championsById.get(stats.records.bestMvp.championId) && (
+                  <img
+                    src={championsById.get(stats.records.bestMvp.championId)!.iconUrl}
+                    alt=""
+                    draggable={false}
+                    className="w-8 h-8 rounded-sm ring-1 ring-rift-gold/30 shrink-0"
+                  />
+                )}
+                <div className="min-w-0">
+                  <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-0.5">
+                    Best Game
+                  </div>
+                  <div className="font-display text-xs text-rift-goldbright tabular-nums">
+                    {stats.records.bestMvp.kills}/{stats.records.bestMvp.deaths}/
+                    {stats.records.bestMvp.assists}
+                    <span className="text-rift-mutedbright/60">
+                      {" "}
+                      {championsById.get(stats.records.bestMvp.championId)?.name}
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-rift-mutedbright/70 truncate">
+                    {stats.records.bestMvp.teamName}
+                  </div>
+                </div>
+              </div>
+            )}
+            {stats.records.fastestPentakill && (
+              <div className="flex items-center gap-2 border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2">
+                {championsById.get(stats.records.fastestPentakill.championId) && (
+                  <img
+                    src={
+                      championsById.get(
+                        stats.records.fastestPentakill.championId,
+                      )!.iconUrl
+                    }
+                    alt=""
+                    draggable={false}
+                    className="w-8 h-8 rounded-sm ring-1 ring-rift-gold/30 shrink-0"
+                  />
+                )}
+                <div className="min-w-0">
+                  <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-0.5">
+                    Fastest Penta
+                  </div>
+                  <div className="font-display text-xs text-rift-goldbright tabular-nums">
+                    {Math.round(stats.records.fastestPentakill.minute)}′{" "}
+                    <span className="text-rift-mutedbright/60">
+                      {stats.records.fastestPentakill.championName}
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-rift-mutedbright/70 truncate">
+                    {stats.records.fastestPentakill.teamName}
+                  </div>
+                </div>
+              </div>
+            )}
+            {stats.records.biggestSwing && (
+              <div className="border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2">
+                <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-1">
+                  Biggest Swing
+                </div>
+                <div className="text-[10px] text-rift-goldbright leading-tight line-clamp-2">
+                  {stats.records.biggestSwing.description}
+                </div>
+                <div className="text-[9px] text-rift-mutedbright/70 truncate mt-0.5">
+                  {stats.records.biggestSwing.teamName} ·{" "}
+                  {Math.round(stats.records.biggestSwing.minute)}′ ·{" "}
+                  {Math.round(Math.abs(stats.records.biggestSwing.probDelta) * 100)}
+                  pp
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MVP leaderboard — which roster slot (team + lane) earned the most
+          Player-of-the-Game nods this year, with their signature champion. */}
+      {stats.mvpLeaderboard.length > 0 && (
+        <div className="mb-4">
+          <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
+            Most MVPs
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+            {stats.mvpLeaderboard.slice(0, 6).map((p) => {
+              const team = seasonTeam(season, p.teamId);
+              const champ = championsById.get(p.topChampionId);
+              const laneLabel =
+                p.lane === "middle"
+                  ? "MID"
+                  : p.lane === "bottom"
+                  ? "BOT"
+                  : p.lane === "jungle"
+                  ? "JG"
+                  : p.lane === "support"
+                  ? "SUP"
+                  : "TOP";
+              const avg = (n: number) => (n / Math.max(1, p.count)).toFixed(1);
+              return (
+                <div
+                  key={`${p.teamId}-${p.lane}`}
+                  className="flex items-center gap-2 border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2"
+                >
+                  {champ && (
+                    <img
+                      src={champ.iconUrl}
+                      alt=""
+                      draggable={false}
+                      className="w-8 h-8 rounded-sm ring-1 ring-rift-gold/30 shrink-0"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1">
+                      {team && (
+                        <TeamIcon
+                          iconKey={team.iconKey}
+                          logoUrl={team.logoUrl}
+                          size={12}
+                          color={team.color}
+                        />
+                      )}
+                      <span className="font-display text-xs tracking-wider text-rift-goldbright truncate">
+                        {team?.name ?? "—"}
+                      </span>
+                      <span className="ml-auto text-[8px] uppercase tracking-wider text-rift-gold/50 shrink-0">
+                        {laneLabel}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[9px] text-rift-mutedbright/70 tabular-nums">
+                        {avg(p.kills)}/{avg(p.deaths)}/{avg(p.assists)} avg
+                      </span>
+                      <span className="font-display text-[11px] text-rift-goldbright tabular-nums shrink-0">
+                        ×{p.count}
+                      </span>
+                    </div>
+                    {p.tier && (
+                      <div className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 truncate">
+                        {p.tier}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Pentakill board — every solo-ace of the year, by champion + the team
+          that scored it. A rare highlight, so even a handful reads well. */}
+      {stats.totalPentakills > 0 && (
+        <div className="mb-4">
+          <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
+            Pentakills · {stats.totalPentakills}
+            <span className="text-rift-mutedbright/50">
+              {" "}
+              · {stats.uniquePentaChampions} champion
+              {stats.uniquePentaChampions === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+            {stats.pentakills.slice(0, 12).map((p) => {
+              const champ = championsById.get(p.championId);
+              const laneLabel =
+                p.lane === "middle"
+                  ? "MID"
+                  : p.lane === "bottom"
+                  ? "BOT"
+                  : p.lane === "jungle"
+                  ? "JG"
+                  : p.lane === "support"
+                  ? "SUP"
+                  : p.lane === "top"
+                  ? "TOP"
+                  : null;
+              return (
+                <div
+                  key={`${p.championId}-${p.teamName}`}
+                  className="flex items-center gap-2 border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2"
+                >
+                  {champ && (
+                    <img
+                      src={champ.iconUrl}
+                      alt={p.championName}
+                      draggable={false}
+                      className="w-8 h-8 rounded-sm ring-1 ring-rift-gold/30 shrink-0"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <div className="font-display text-xs tracking-wider text-rift-goldbright truncate">
+                      {p.championName}
+                      {laneLabel && (
+                        <span className="text-rift-gold/50 text-[8px] tracking-wider">
+                          {" "}
+                          {laneLabel}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[9px] text-rift-mutedbright/70 truncate">
+                      {p.teamName}
+                      {p.earliestMinute > 0 && (
+                        <span className="text-rift-mutedbright/50 tabular-nums">
+                          {" "}
+                          · first @ {Math.round(p.earliestMinute)}′
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="ml-auto font-display text-sm text-rift-goldbright tabular-nums">
+                    ×{p.count}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Rivalries — the most-played head-to-heads of the year, with record. */}
+      {stats.rivalries.length > 0 && (
+        <div className="mb-4">
+          <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
+            Rivalries of the Year
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {stats.rivalries.map((r) => {
+              const a = seasonTeam(season, r.teamAId);
+              const b = seasonTeam(season, r.teamBId);
+              return (
+                <div
+                  key={`${r.teamAId}-${r.teamBId}`}
+                  className="flex items-center gap-2 border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2"
+                >
+                  <div className="flex items-center gap-1 min-w-0 flex-1 justify-end">
+                    <span className="font-display text-xs text-rift-goldbright truncate">
+                      {a?.name ?? "—"}
+                    </span>
+                    {a && (
+                      <TeamIcon
+                        iconKey={a.iconKey}
+                        logoUrl={a.logoUrl}
+                        size={14}
+                        color={a.color}
+                      />
+                    )}
+                  </div>
+                  <div className="font-display text-sm text-rift-goldbright tabular-nums shrink-0 px-1">
+                    {r.aWins}–{r.bWins}
+                  </div>
+                  <div className="flex items-center gap-1 min-w-0 flex-1">
+                    {b && (
+                      <TeamIcon
+                        iconKey={b.iconKey}
+                        logoUrl={b.logoUrl}
+                        size={14}
+                        color={b.color}
+                      />
+                    )}
+                    <span className="font-display text-xs text-rift-goldbright truncate">
+                      {b?.name ?? "—"}
+                    </span>
+                  </div>
+                  <span className="text-[8px] uppercase tracking-wider text-rift-muted/70 shrink-0">
+                    ×{r.meetings}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* How far the meta drifted over the year — only once the season
           is decided (mid-season, the live meta panel covers the now). */}
       {season.status === "complete" && (

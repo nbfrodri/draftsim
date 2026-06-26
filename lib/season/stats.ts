@@ -17,6 +17,7 @@ import {
   type PlayerAward,
   type SpecialAward,
 } from "../awards";
+import type { Lane } from "../types";
 import { tournamentPlacements } from "./engine";
 import {
   LEAGUE_IDS,
@@ -97,6 +98,85 @@ export interface SeasonStats {
   // internationals), by match wins (titles, then fewer losses, break
   // ties).
   leagueBestTeams: Partial<Record<LeagueId, SeasonTeamLine>>;
+  // Pentakill leaderboard for the season — every solo-ace, grouped by the
+  // champion + the team that scored it, sorted by count. Empty if none.
+  pentakills: Array<{
+    championId: number;
+    championName: string;
+    teamName: string;
+    count: number;
+    lane: Lane | null; // the lane they penta'd from (most common); legacy → null
+    earliestMinute: number; // their fastest penta (minutes)
+  }>;
+  // Total pentakills across the season (sum of the above counts).
+  totalPentakills: number;
+  // How many distinct champions recorded a pentakill this year.
+  uniquePentaChampions: number;
+  // Season records / milestones — drawn only from recap fields that survive
+  // persistence (durationMinutes, mvp, biggestSwing). Each is null until at
+  // least one completed game supplies it.
+  records: SeasonRecords;
+  // Per-player MVP leaderboard — players are identified by team + lane (the
+  // roster has no names), so this is "which roster slot earned the most Player-
+  // of-the-Game nods this year". Sorted by count desc. Uses recap.mvp (survives
+  // persistence). Empty until at least one game has an MVP.
+  mvpLeaderboard: Array<{
+    teamId: string;
+    teamName: string;
+    lane: Lane;
+    count: number;
+    topChampionId: number; // their most-MVP'd champion (for the icon)
+    // Aggregate K/D/A across this slot's MVP games (for an avg-KDA readout).
+    kills: number;
+    deaths: number;
+    assists: number;
+    tier: string | null; // the player's skill tier, from the roster
+  }>;
+  // Rivalries — the team pairings that met most often this year, with their
+  // head-to-head record. Sorted by meetings desc. Only pairs that met ≥ 2 times.
+  rivalries: Array<{
+    teamAId: string;
+    teamAName: string;
+    teamBId: string;
+    teamBName: string;
+    meetings: number;
+    aWins: number;
+    bWins: number;
+  }>;
+}
+
+export interface SeasonRecords {
+  // Longest / shortest decided game of the year.
+  longestGame: { minutes: number; blueTeam: string; redTeam: string } | null;
+  shortestGame: { minutes: number; blueTeam: string; redTeam: string } | null;
+  // The single best individual game (MVP with the most kills).
+  bestMvp: {
+    championId: number;
+    teamName: string;
+    kills: number;
+    deaths: number;
+    assists: number;
+  } | null;
+  // The most dramatic single moment of the season (largest win-prob swing).
+  biggestSwing: {
+    minute: number;
+    description: string;
+    teamName: string;
+    probDelta: number;
+  } | null;
+  // The most lopsided game (largest end-of-game team gold gap).
+  biggestStomp: {
+    goldLead: number; // absolute, in gold
+    winnerTeam: string;
+    loserTeam: string;
+  } | null;
+  // The fastest pentakill of the year (earliest minute).
+  fastestPentakill: {
+    minute: number;
+    championId: number;
+    championName: string;
+    teamName: string;
+  } | null;
 }
 
 const SEASON_MIN_WR_GAMES = 8;
@@ -108,6 +188,53 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
   let totalBans = 0;
   const champRows = new Map<number, SeasonChampionLine>();
   const teamRows = new Map<string, SeasonTeamLine>();
+  const pentaRows = new Map<
+    string,
+    {
+      championId: number;
+      championName: string;
+      teamName: string;
+      count: number;
+      laneCounts: Map<Lane, number>;
+      earliestMinute: number;
+    }
+  >();
+  const teamNameById = new Map(season.teams.map((t) => [t.id, t.name]));
+  const nameOf = (id: string | null | undefined) =>
+    (id && teamNameById.get(id)) || id || "—";
+  const records: SeasonRecords = {
+    longestGame: null,
+    shortestGame: null,
+    bestMvp: null,
+    biggestSwing: null,
+    biggestStomp: null,
+    fastestPentakill: null,
+  };
+  // MVP leaderboard rows keyed by `${teamId}:${lane}`, tracking total MVPs, a
+  // per-champion tally (for the signature-pick icon) and aggregate K/D/A.
+  const mvpRows = new Map<
+    string,
+    {
+      teamId: string;
+      lane: Lane;
+      count: number;
+      champCounts: Map<number, number>;
+      kills: number;
+      deaths: number;
+      assists: number;
+    }
+  >();
+  // Rivalry rows keyed by the sorted team-id pair → meetings + head-to-head.
+  const rivalryRows = new Map<
+    string,
+    { teamAId: string; teamBId: string; meetings: number; aWins: number; bWins: number }
+  >();
+  const LANE_ORDER: Lane[] = ["top", "jungle", "middle", "bottom", "support"];
+  const tierOf = (teamId: string, lane: Lane): string | null => {
+    const team = season.teams.find((t) => t.id === teamId);
+    const player = team?.players[LANE_ORDER.indexOf(lane)];
+    return player?.tier ?? null;
+  };
 
   const ensureTeam = (teamId: string): SeasonTeamLine => {
     let r = teamRows.get(teamId);
@@ -144,13 +271,195 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
       row.losses += s.losses;
     }
     for (const m of t.matches) {
+      // Walk every completed game's recap (kept on the match's series; survives
+      // compaction) for pentakills AND season records.
+      const blueName = nameOf(m.blueTeamId);
+      const redName = nameOf(m.redTeamId);
+      for (const g of m.series?.games ?? []) {
+        const recap = g.recap;
+        if (!recap) continue;
+        for (const p of recap.pentakills ?? []) {
+          const key = `${p.championId}:${p.teamName}`;
+          const row = pentaRows.get(key) ?? {
+            championId: p.championId,
+            championName: p.championName,
+            teamName: p.teamName,
+            count: 0,
+            laneCounts: new Map<Lane, number>(),
+            earliestMinute: Infinity,
+          };
+          row.count++;
+          if (p.lane) row.laneCounts.set(p.lane, (row.laneCounts.get(p.lane) ?? 0) + 1);
+          row.earliestMinute = Math.min(row.earliestMinute, p.minute);
+          pentaRows.set(key, row);
+          // Fastest pentakill of the season.
+          if (
+            !records.fastestPentakill ||
+            p.minute < records.fastestPentakill.minute
+          ) {
+            records.fastestPentakill = {
+              minute: p.minute,
+              championId: p.championId,
+              championName: p.championName,
+              teamName: p.teamName,
+            };
+          }
+        }
+        // Biggest stomp — largest end-of-game team gold gap (net lane gold,
+        // blue-positive). laneGoldDiff survives persistence.
+        if (recap.laneGoldDiff) {
+          let net = 0;
+          for (const l of LANE_ORDER) net += recap.laneGoldDiff[l] ?? 0;
+          const gap = Math.abs(net);
+          if (gap > 0 && (!records.biggestStomp || gap > records.biggestStomp.goldLead)) {
+            records.biggestStomp = {
+              goldLead: Math.round(gap),
+              winnerTeam: net > 0 ? blueName : redName,
+              loserTeam: net > 0 ? redName : blueName,
+            };
+          }
+        }
+        // Records — only from fields that survive persistence.
+        const mins = recap.durationMinutes;
+        if (typeof mins === "number" && mins > 0) {
+          if (!records.longestGame || mins > records.longestGame.minutes) {
+            records.longestGame = { minutes: mins, blueTeam: blueName, redTeam: redName };
+          }
+          if (!records.shortestGame || mins < records.shortestGame.minutes) {
+            records.shortestGame = { minutes: mins, blueTeam: blueName, redTeam: redName };
+          }
+        }
+        const mvp = recap.mvp;
+        if (mvp && (!records.bestMvp || mvp.kills > records.bestMvp.kills)) {
+          records.bestMvp = {
+            championId: mvp.championId,
+            teamName: mvp.side === "blue" ? blueName : redName,
+            kills: mvp.kills,
+            deaths: mvp.deaths,
+            assists: mvp.assists,
+          };
+        }
+        // MVP leaderboard: credit the roster slot (team + lane) that earned it.
+        const mvpTeamId = mvp
+          ? mvp.side === "blue"
+            ? m.blueTeamId
+            : m.redTeamId
+          : null;
+        if (mvp && mvpTeamId) {
+          const key = `${mvpTeamId}:${mvp.lane}`;
+          const row =
+            mvpRows.get(key) ??
+            ({
+              teamId: mvpTeamId,
+              lane: mvp.lane,
+              count: 0,
+              champCounts: new Map<number, number>(),
+              kills: 0,
+              deaths: 0,
+              assists: 0,
+            });
+          row.count++;
+          row.kills += mvp.kills;
+          row.deaths += mvp.deaths;
+          row.assists += mvp.assists;
+          row.champCounts.set(
+            mvp.championId,
+            (row.champCounts.get(mvp.championId) ?? 0) + 1,
+          );
+          mvpRows.set(key, row);
+        }
+        const swing = recap.biggestSwing;
+        if (
+          swing &&
+          (!records.biggestSwing ||
+            Math.abs(swing.probDelta) > Math.abs(records.biggestSwing.probDelta))
+        ) {
+          records.biggestSwing = {
+            minute: swing.minute,
+            description: swing.description,
+            teamName: swing.side === "blue" ? blueName : redName,
+            probDelta: swing.probDelta,
+          };
+        }
+      }
       if (!m.winner) continue;
       const loserId =
         m.winner.teamId === m.blueTeamId ? m.redTeamId : m.blueTeamId;
       ensureTeam(m.winner.teamId).wins++;
       if (loserId) ensureTeam(loserId).losses++;
+      // Rivalry head-to-head (keyed by the sorted pair so A-vs-B and B-vs-A
+      // accumulate together).
+      if (m.blueTeamId && m.redTeamId) {
+        const [a, b] = [m.blueTeamId, m.redTeamId].sort();
+        const key = `${a}:${b}`;
+        const row =
+          rivalryRows.get(key) ??
+          ({ teamAId: a, teamBId: b, meetings: 0, aWins: 0, bWins: 0 });
+        row.meetings++;
+        if (m.winner.teamId === a) row.aWins++;
+        else row.bWins++;
+        rivalryRows.set(key, row);
+      }
     }
   }
+  const pentakills = [...pentaRows.values()]
+    .map((r) => {
+      let lane: Lane | null = null;
+      let best = 0;
+      for (const [l, c] of r.laneCounts) {
+        if (c > best) {
+          best = c;
+          lane = l;
+        }
+      }
+      return {
+        championId: r.championId,
+        championName: r.championName,
+        teamName: r.teamName,
+        count: r.count,
+        lane,
+        earliestMinute: Number.isFinite(r.earliestMinute) ? r.earliestMinute : 0,
+      };
+    })
+    .sort((a, b) => b.count - a.count);
+  const totalPentakills = pentakills.reduce((s, p) => s + p.count, 0);
+  const uniquePentaChampions = new Set(pentakills.map((p) => p.championId)).size;
+  const rivalries = [...rivalryRows.values()]
+    .filter((r) => r.meetings >= 2)
+    .map((r) => ({
+      teamAId: r.teamAId,
+      teamAName: nameOf(r.teamAId),
+      teamBId: r.teamBId,
+      teamBName: nameOf(r.teamBId),
+      meetings: r.meetings,
+      aWins: r.aWins,
+      bWins: r.bWins,
+    }))
+    .sort((a, b) => b.meetings - a.meetings)
+    .slice(0, 6);
+  const mvpLeaderboard = [...mvpRows.values()]
+    .map((r) => {
+      let topChampionId = -1;
+      let best = -1;
+      for (const [cid, c] of r.champCounts) {
+        if (c > best) {
+          best = c;
+          topChampionId = cid;
+        }
+      }
+      return {
+        teamId: r.teamId,
+        teamName: nameOf(r.teamId),
+        lane: r.lane,
+        count: r.count,
+        topChampionId,
+        kills: r.kills,
+        deaths: r.deaths,
+        assists: r.assists,
+        tier: tierOf(r.teamId, r.lane),
+      };
+    })
+    .sort((a, b) => b.count - a.count);
   for (const row of champRows.values()) {
     row.presence = row.picks + row.bans;
     const games = row.wins + row.losses;
@@ -238,6 +547,12 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
     intlChampions,
     leagueIntlTitles,
     leagueBestTeams,
+    pentakills,
+    totalPentakills,
+    uniquePentaChampions,
+    records,
+    mvpLeaderboard,
+    rivalries,
   };
 }
 

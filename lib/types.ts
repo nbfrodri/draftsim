@@ -132,6 +132,19 @@ export interface GameRecap {
     blue: number[];
     red: number[];
   };
+  // Pentakills in this game — a single champion solo-acing the enemy team.
+  // Rare. Each entry names the champion + the team that scored it, so a
+  // season can aggregate them into a pentakill leaderboard. Optional / legacy.
+  pentakills?: Array<{
+    minute: number;
+    side: Side;
+    championId: number;
+    championName: string;
+    teamName: string;
+    // Lane the solo-ace came from. Optional: recaps persisted before this
+    // existed lack it (the board falls back to no lane tag).
+    lane?: Lane;
+  }>;
 }
 
 export interface GameDraft {

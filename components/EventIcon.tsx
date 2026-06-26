@@ -179,6 +179,27 @@ export default function EventIcon({ type, size = 16, className = "" }: Props) {
     case "power-spike":
       return <IconTrendingUp {...common} stroke={2} />;
 
+    // Comeback — a defensive stand that holds the line (shield).
+    case "comeback":
+      return <IconShieldHalfFilled {...common} stroke={2} />;
+
+    // Throw — a careless blunder that hands over a lead (bolt = it went sideways).
+    case "throw":
+      return <IconBolt {...common} stroke={2} />;
+
+    // Counter-jungle — invading/denying the enemy jungle (grab their camps).
+    case "counter-jungle":
+      return <IconHandGrab {...common} />;
+
+    // Tower dive — a collapse fight under the turret (swords, filled for the
+    // all-in commit; the "Dive" label disambiguates from a plain teamfight).
+    case "dive":
+      return <IconSwords {...common} fill="currentColor" fillOpacity={0.25} />;
+
+    // Siege — chipping a turret from range (castle motif, lighter stroke).
+    case "siege":
+      return <IconBuildingCastle {...common} stroke={1.3} />;
+
     default:
       // Unknown event: stay graceful with a neutral arrow.
       return <IconArrowsRightLeft {...common} />;

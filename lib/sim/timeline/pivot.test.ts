@@ -108,6 +108,7 @@ function makeTl(opts: TlOptions = {}): TimelineContext {
     soulType: null,
     laneLead: { ...ctx.laneAdvantages },
     lastGankSide: null,
+    jungleBehind: null,
     baronExpiresAt: null,
     baronSide: null,
     elderSide: null,
@@ -118,6 +119,7 @@ function makeTl(opts: TlOptions = {}): TimelineContext {
     atakhanVariant: null,
     atakhanSide: null,
     ruinousActive: false,
+    recentSides: [],
   };
   return {
     ctx,
@@ -125,6 +127,7 @@ function makeTl(opts: TlOptions = {}): TimelineContext {
     rng: createRng(opts.seed ?? 1),
     state,
     events: [],
+    schedule: (_t, resolve) => resolve(),
     laneBias: 0,
     mods: strategyTimelineModifiers(blueStrategy, redStrategy),
     spikeBias: () => 0,

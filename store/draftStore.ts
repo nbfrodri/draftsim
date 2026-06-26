@@ -275,6 +275,15 @@ export interface SavedSeasonEntry {
   savedAt: number;
   season: SeasonState;
   playerForms: PlayerFormMap;
+  // In-progress state so a save mid-draft/mid-match resumes EXACTLY where the
+  // user left off (a real "save game"), not just at the dashboard. The active
+  // draft series, the live tournament being played (compact-encoded like the
+  // season's), and the view/pending flags. All optional → older slots that
+  // predate this still load (they just resume at the dashboard).
+  series?: SeriesState | null;
+  tournament?: TournamentState | null;
+  seasonViewOpen?: boolean;
+  sideChoicePending?: boolean;
 }
 
 /** Team identity carried into a Latest Matchday row (so the panel can
@@ -2022,6 +2031,15 @@ export const useDraftStore = create<DraftStore>()(
         ),
       },
       playerForms: state.playerForms,
+      // Snapshot the in-progress draft/match so loading resumes exactly here —
+      // not back at the dashboard. Compact-encode the live tournament the same
+      // way the season's stage tournaments are encoded.
+      series: state.series,
+      tournament: state.tournament
+        ? compactEncodeTournamentForPersist(state.tournament)
+        : null,
+      seasonViewOpen: state.seasonViewOpen,
+      sideChoicePending: state.sideChoicePending,
     };
     set((s) => ({
       savedSeasons: [
@@ -2059,15 +2077,23 @@ export const useDraftStore = create<DraftStore>()(
         };
     set((s) => ({
       season,
-      seasonViewOpen: true,
+      // Resume EXACTLY where the save was taken: restore the in-progress draft
+      // series + live tournament + view/pending flags instead of dropping to
+      // the dashboard. Older slots without these fields fall back to the
+      // dashboard (series/tournament null, view open) — same as before.
+      seasonViewOpen: entry.seasonViewOpen ?? true,
       preSeasonMetaSnapshot: preSeason,
-      tournament: null,
-      series: null,
+      tournament: entry.tournament
+        ? decodeCompactTournament(entry.tournament)
+        : null,
+      series: entry.series ?? null,
+      // Transient draft UI (highlighted-not-locked champ, timer, AI rationale)
+      // resets cleanly; the locked picks/bans live in `series`.
       selectedChampionId: null,
       secondsLeft: null,
       aiRationale: null,
       aiRationaleHistory: [],
-      sideChoicePending: false,
+      sideChoicePending: entry.sideChoicePending ?? false,
       playerForms: entry.playerForms ?? {},
       ...applyMetaSnapshotPatch(
         {

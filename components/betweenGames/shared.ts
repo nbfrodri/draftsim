@@ -140,6 +140,11 @@ export const EVENT_LABEL: Record<EventType, string> = {
   "objective-trade": "Trade",
   "wave-crash": "Wave Crash",
   "power-spike": "Spike",
+  comeback: "Comeback",
+  throw: "Throw",
+  "counter-jungle": "Counter-jungle",
+  dive: "Dive",
+  siege: "Siege",
 };
 
 // Events that deserve extra emphasis in the timeline (gold tinted, larger).
@@ -184,6 +189,11 @@ export const EVENT_BLIP_SEVERITY: Partial<Record<EventType, EventBlipSeverity>> 
   shutdown: "major",
   backdoor: "major",
   nexus: "major",
+  comeback: "major",
+  throw: "major",
+  "counter-jungle": "minor",
+  dive: "mid",
+  siege: "minor",
 };
 
 export const EMPHASIS_EVENTS: ReadonlySet<EventType> = new Set([
@@ -193,6 +203,8 @@ export const EMPHASIS_EVENTS: ReadonlySet<EventType> = new Set([
   "nexus",
   "shutdown",
   "backdoor",
+  "comeback",
+  "throw",
 ]);
 
 // Matchup tags that represent an advantage to *this* team. Anything not in

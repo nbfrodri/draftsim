@@ -48,15 +48,18 @@ import {
   finalizeTimeline,
   phaseClosingFight,
   phaseInhibitorCascade,
+  phaseLastStand,
   phaseNexus,
 } from "./sim/timeline/closing";
 import {
   phaseBuffSteal,
+  phaseCheese,
   phaseCounterGank,
   phaseFirstBlood,
   phaseFirstScuttle,
   phaseGank,
   phaseLevelOneInvade,
+  phaseLevelSpikeGank,
   phaseMidRoam,
   phasePlates,
   phaseSoloKills,
@@ -75,13 +78,24 @@ import {
   phaseThirdDrake,
 } from "./sim/timeline/objectives";
 import {
+  phaseBackdoorAttempt,
+  phaseBaronDance,
+  phaseComebackStand,
+  phaseCounterJungle,
+  phaseDisengage,
   phaseMidPickOrSkirmish,
   phaseMidTeamfight,
   phaseObjectiveTrade,
   phaseOutplay,
+  phasePitSkirmish,
+  phasePokeSiege,
   phasePowerSpikes,
   phaseShutdown,
+  phaseTeleportFlank,
+  phaseThrownLead,
+  phaseTowerDive,
   phaseVisionPick,
+  phaseVisionSweep,
 } from "./sim/timeline/fights";
 
 // Re-export types so consumers importing from "@/lib/matchSimulator" still
@@ -1641,6 +1655,32 @@ export function playerLaneFormBias(
   );
 }
 
+// Champion-mastery → highlight plays. The timeline's outplay/pentakill picker
+// keys off a per-lane "who's likely to pop off" form value; a player on their
+// comfort pick (a main) should pop off more, an off-pick less. This MERGES the
+// pool-comfort signal (poolBias: main +1, secondary partial, off-pick −1) into
+// the form value passed to the timeline — so the highlight plays reflect both
+// hot streaks AND champion mastery. The lane-gold layer keeps comfort separate
+// (playerLanePoolBias), so this is not a double-count: it's a different effect
+// (who makes the highlight, not how much gold the lane earns). Returns the raw
+// forms unchanged when no roster is supplied (default sims untouched).
+const COMFORT_HIGHLIGHT_WEIGHT = 0.7;
+function highlightForms(
+  players: Roster | undefined,
+  picks: (Champion | null)[],
+  baseForms: SideForms | undefined,
+): SideForms | undefined {
+  if (!players) return baseForms;
+  const out: SideForms = { ...(baseForms ?? {}) };
+  for (let i = 0; i < POSITIONAL_LANES.length; i++) {
+    const lane = POSITIONAL_LANES[i];
+    const comfort = poolBias(playerForLane(players, lane), picks[i]?.id ?? null);
+    const base = baseForms?.[lane] ?? 0;
+    out[lane] = Math.max(-1, Math.min(1, base + comfort * COMFORT_HIGHLIGHT_WEIGHT));
+  }
+  return out;
+}
+
 // Deterministic per-lane g/min advantages from the drafted matchups and
 // rosters. PURE — no noise here. The per-game lane variance (players having
 // a good/bad day) is applied separately at the call site in simulateMatch
@@ -1815,6 +1855,7 @@ function generateTimeline(
     soulType: null,
     laneLead: { ...ctx.laneAdvantages },
     lastGankSide: null,
+    jungleBehind: null,
     baronExpiresAt: null,
     baronSide: null,
     elderSide: null,
@@ -1825,6 +1866,7 @@ function generateTimeline(
     atakhanVariant: null,
     atakhanSide: null,
     ruinousActive: false,
+    recentSides: [],
   };
   const events: MatchEvent[] = [];
 
@@ -1877,12 +1919,19 @@ function generateTimeline(
   // timeline modules. Picks are positional, so roles = POSITIONAL_LANES; the
   // mid-fight passes null laneGold (the per-lane fed-carry bonus is a closing
   // refinement) and the live gold lead.
+  // Time-ordered scheduler: phases register (time, resolve) tasks during the
+  // schedule pass; we run their resolves in game-time order below.
+  const tasks: { time: number; seq: number; resolve: () => void }[] = [];
+  let taskSeq = 0;
   const tl: TimelineContext = {
     ctx,
     duration,
     rng,
     state,
     events,
+    schedule: (time, resolve) => {
+      tasks.push({ time, seq: taskSeq++, resolve });
+    },
     laneBias,
     mods,
     spikeBias,
@@ -1899,54 +1948,59 @@ function generateTimeline(
     fightDominance,
   };
 
-  // Laning phases 0a-2: level-1 invade, first scuttle, solo kills,
-  // first blood. Bodies live in ./sim/timeline/laning.
+  // ─── Schedule pass ────────────────────────────────────────────────────
+  // Each phase rolls its event time(s) and registers a resolve closure via
+  // tl.schedule — NO state mutation happens here. Phase listing order only
+  // sets the time-roll RNG order and the tie-break order; the actual play-out
+  // order is decided by time below. Bodies live in ./sim/timeline/*.
   phaseLevelOneInvade(tl);
+  phaseCheese(tl);
   phaseFirstScuttle(tl);
   phaseSoloKills(tl);
   phaseFirstBlood(tl);
-
-  // Objective phases 3-4: voidgrubs, first drake. Bodies live in
-  // ./sim/timeline/objectives.
   phaseGrubs(tl);
   phaseFirstDrake(tl);
-
-  // Laning phases 5-7c: gank, counter-gank, buff steal, plates, mid
-  // roam, wave-crash. Bodies live in ./sim/timeline/laning.
   phaseGank(tl);
   phaseCounterGank(tl);
+  phaseLevelSpikeGank(tl);
+  phaseCounterJungle(tl);
   phaseBuffSteal(tl);
   phasePlates(tl);
   phaseMidRoam(tl);
   phaseWaveCrash(tl);
-
+  phaseTowerDive(tl);
   phaseFirstTower(tl);
-
   phaseAtakhanOrHerald(tl);
-
   phasePowerSpikes(tl);
-
   phaseSecondDrake(tl);
-
   phaseMidPickOrSkirmish(tl);
-
   phaseThirdDrake(tl);
-
-  // Fight phases 13-13e: mid teamfight, shutdown, vision pick, outplay,
-  // cross-map objective trade. Bodies live in ./sim/timeline/fights.
+  phasePitSkirmish(tl);
   phaseMidTeamfight(tl);
   phaseShutdown(tl);
   phaseVisionPick(tl);
+  phaseVisionSweep(tl);
+  phaseTeleportFlank(tl);
   phaseOutplay(tl);
   phaseObjectiveTrade(tl);
-
+  phasePokeSiege(tl);
+  phaseBaronDance(tl);
+  phaseComebackStand(tl);
+  phaseDisengage(tl);
+  phaseThrownLead(tl);
+  phaseBackdoorAttempt(tl);
   phaseFourthDrakeSoul(tl);
-
   phaseFirstBaron(tl);
-
   phaseMidTower(tl);
-
   phaseElder(tl);
+
+  // ─── Resolve pass ─────────────────────────────────────────────────────
+  // Play every scheduled event out in game-time order (stable on ties), so a
+  // phase reading goldLead / laneLead / mapControl / pickAdvantage sees the
+  // state as of its own minute. THIS is what makes the causal chains correct
+  // regardless of the code order above.
+  tasks.sort((a, b) => a.time - b.time || a.seq - b.seq);
+  for (const task of tasks) task.resolve();
 
   // ─── Closing sequence ─────────────────────────────────────────────────
   // Winner decided from FINAL state + per-champion combat resolution, then
@@ -1969,6 +2023,7 @@ function generateTimeline(
   );
   const finalWinner = decideClosingWinner(tl, combat);
   phaseInhibitorCascade(tl, finalWinner);
+  phaseLastStand(tl, finalWinner);
   phaseClosingFight(tl, finalWinner, combat);
   phaseNexus(tl, finalWinner);
   const laningEndMinute = finalizeTimeline(tl);
@@ -2113,6 +2168,17 @@ export function simulateMatch(
       blueStrategy,
       redStrategy,
       adaptiveMidgame: options?.adaptiveMidgame,
+      // Highlight-play propensity = form merged with champion-pool comfort.
+      blueForms: highlightForms(
+        options?.bluePlayers,
+        bluePicks,
+        options?.playerForms?.blue,
+      ),
+      redForms: highlightForms(
+        options?.redPlayers,
+        redPicks,
+        options?.playerForms?.red,
+      ),
     };
     const duration = computeDuration(ctx, r);
     const out = generateTimeline(ctx, duration, r);
@@ -2298,6 +2364,14 @@ export function buildGameRecap(
     bottom: 0,
     support: 0,
   };
+  const pentakills: Array<{
+    minute: number;
+    side: Side;
+    championId: number;
+    championName: string;
+    teamName: string;
+    lane: Lane;
+  }> = [];
   for (const e of events) {
     for (const lane of positionalLanes) {
       const b = e.kdaDelta.blue[lane];
@@ -2313,6 +2387,19 @@ export function buildGameRecap(
         redKDA[lane].a += r.a;
       }
       laneGoldEvent[lane] += e.laneGoldDelta[lane] ?? 0;
+    }
+    // Pentakill: a single champion solo-aced the enemy team this fight.
+    if (e.pentakill) {
+      const laneIdx = positionalLanes.indexOf(e.pentakill.lane);
+      const picks = e.side === "blue" ? game.bluePicks : game.redPicks;
+      pentakills.push({
+        minute: e.minutes,
+        side: e.side,
+        championId: picks[laneIdx] ?? -1,
+        championName: e.pentakill.championName,
+        teamName: e.side === "blue" ? game.blueTeam : game.redTeam,
+        lane: e.pentakill.lane,
+      });
     }
   }
   // Final lane gold = passive lane-phase gold (capped at laning end) +
@@ -2497,5 +2584,6 @@ export function buildGameRecap(
     notableEvents,
     perPickKDA,
     ratings,
+    pentakills: pentakills.length ? pentakills : undefined,
   };
 }

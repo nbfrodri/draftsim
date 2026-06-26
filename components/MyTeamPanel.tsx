@@ -42,6 +42,28 @@ function noteColor(n: number | null): string {
 }
 const fmtNote = (n: number | null) => (n == null ? "–" : n.toFixed(1));
 
+// Career arc — a one-word narrative for a player's season, from their season
+// average note, last-match note, current form and tier movement this split.
+// Priority: a tier drop reads as Decline; a tier bump or a star season reads as
+// Breakout; recent over/under-performance vs the season baseline reads as
+// Rising / Slump; otherwise Steady. Returns null with no rated games.
+function careerArc(
+  avg: number | null,
+  last: number | null,
+  form: number,
+  tierUp: boolean,
+  tierDown: boolean,
+): { label: string; cls: string } | null {
+  if (avg == null) return null;
+  if (tierDown) return { label: "Decline", cls: "text-rift-redbright/80" };
+  if (tierUp || avg >= 7.6) return { label: "Breakout", cls: "text-amber-300" };
+  if (form > 0.25 || (last != null && last - avg >= 0.7))
+    return { label: "Rising", cls: "text-emerald-400/80" };
+  if (form < -0.25 || (last != null && avg - last >= 0.7))
+    return { label: "Slump", cls: "text-rift-redbright/70" };
+  return { label: "Steady", cls: "text-rift-muted/55" };
+}
+
 // First pending match in the current phase that the controlled team is in
 // (both slots filled, no winner yet) — earliest round first.
 function findNextMatch(
@@ -216,6 +238,19 @@ export default function MyTeamPanel() {
                   </span>
                 )}
                 <div className="ml-auto flex items-center gap-2 tabular-nums">
+                  {(() => {
+                    const arc = grades
+                      ? careerArc(grades.avg[i], grades.last[i], form, !!up, shifted && !up)
+                      : null;
+                    return arc ? (
+                      <span
+                        className={`text-[8px] uppercase tracking-[0.2em] ${arc.cls}`}
+                        title="Season career arc"
+                      >
+                        {arc.label}
+                      </span>
+                    ) : null;
+                  })()}
                   {Math.abs(form) > 0.15 && (
                     <span
                       className={`text-[9px] uppercase tracking-[0.2em] ${

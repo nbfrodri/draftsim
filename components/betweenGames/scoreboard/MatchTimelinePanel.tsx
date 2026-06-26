@@ -6,12 +6,15 @@ import type { Champion, Lane } from "@/lib/types";
 import { useDraftStore } from "@/store/draftStore";
 import WinProbChart from "@/components/charts/WinProbChart";
 import GoldLeadChart from "@/components/charts/GoldLeadChart";
+import MomentumChart from "@/components/charts/MomentumChart";
 import {
   computeRunningStats,
   computeLiveLaneGold,
   computeGold,
   formatClock,
+  EMPHASIS_EVENTS,
 } from "../shared";
+import EventIcon from "@/components/EventIcon";
 import { ScoreboardHeader } from "./ScoreboardHeader";
 import { Scoreboard } from "./Scoreboard";
 import { LaneGoldStrip } from "./LaneGoldStrip";
@@ -44,6 +47,28 @@ function computeCausalLinks(events: MatchEvent[]): (string | null)[] {
     }
     return null;
   });
+}
+
+// The 3-5 biggest plays of the game, for a "key moments" highlight strip shown
+// once the game is finished. Scores each event by its win-prob swing plus a
+// bonus for game-defining types (pentakill, ace, soul, baron, comeback, throw,
+// …), takes the top handful, and returns them in chronological order. The nexus
+// is excluded — it's always last and not a "moment".
+function computeKeyMoments(events: MatchEvent[]): MatchEvent[] {
+  const scored = events.map((e, i) => {
+    const prev = i > 0 ? events[i - 1].winProbAfter : 0.5;
+    let score = Math.abs(e.winProbAfter - prev);
+    if (e.pentakill) score += 1;
+    if (EMPHASIS_EVENTS.has(e.type)) score += 0.15;
+    if (e.type === "nexus") score = -1;
+    return { e, score };
+  });
+  return scored
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .sort((a, b) => a.e.minutes - b.e.minutes)
+    .map((s) => s.e);
 }
 
 // Memoized: all props except currentMin / revealedCount / latestEventIdx /
@@ -84,6 +109,10 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
   const causalLinks = useMemo(
     () => computeCausalLinks(timeline.events),
     [timeline.events],
+  );
+  const keyMoments = useMemo(
+    () => (isFinished ? computeKeyMoments(timeline.events) : []),
+    [timeline.events, isFinished],
   );
   const placeholderCount = isFinished ? 0 : Math.max(0, timeline.events.length - revealedCount);
   const stats = useMemo(
@@ -126,6 +155,42 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
         redWinStreak={redWinStreak}
       />
 
+      {/* Key moments — the game's biggest plays, shown once it's decided. */}
+      {keyMoments.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[9px] uppercase tracking-[0.4em] text-rift-gold/70 mb-1.5">
+            Key Moments
+          </div>
+          <div className="flex gap-2 overflow-x-auto custom-scroll pb-1">
+            {keyMoments.map((e, i) => {
+              const isBlue = e.side === "blue";
+              return (
+                <div
+                  key={`${e.type}-${e.minutes}-${i}`}
+                  className={`flex items-center gap-1.5 shrink-0 border px-2 py-1.5 ${
+                    isBlue
+                      ? "border-rift-blue/40 bg-rift-blue/10"
+                      : "border-rift-red/40 bg-rift-red/10"
+                  }`}
+                >
+                  <span className="text-[9px] tabular-nums text-rift-mutedbright/70 shrink-0">
+                    {e.time}
+                  </span>
+                  <EventIcon
+                    type={e.type}
+                    size={13}
+                    className={isBlue ? "text-rift-bluebright" : "text-rift-redbright"}
+                  />
+                  <span className="text-[10px] text-rift-goldbright max-w-[200px] truncate">
+                    {e.description}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Bento layout: the objective scoreboard, the win-prob / gold-lead
           graphs, and the lane-gold strip occupy a wide main column, while the
           event log sits ALONGSIDE them (large screens) in a column that fills
@@ -159,6 +224,11 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
               redTeam={redTeam}
             />
           </div>
+          <MomentumChart
+            events={timeline.events}
+            revealedCount={revealedCount}
+            durationMinutes={timeline.durationMinutes}
+          />
           <LaneGoldStrip
             laneGold={laneGold}
             laneKDA={stats.laneKDA}
