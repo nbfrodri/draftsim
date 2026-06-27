@@ -10,6 +10,7 @@ import { seasonTeam, type SeasonState } from "@/lib/season/types";
 import type { TournamentMatch, TournamentState } from "@/lib/tournament";
 import type { Lane, PlayerTier } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
+import LaneIcon from "./LaneIcon";
 
 // "My Team" dashboard panel for the controlled team: the live roster with
 // tier badges (and ▲/▼ shift arrows when a tier moved this split) + current
@@ -205,6 +206,15 @@ export default function MyTeamPanel() {
       <div className="grid md:grid-cols-2 gap-3 p-3">
         {/* Roster — tiers + shift arrows + form */}
         <div className="space-y-1">
+          {controlled.coach && (
+            <div className="flex items-center gap-1.5 mb-1 text-[9px]">
+              <span className="uppercase tracking-[0.2em] text-rift-blue/70">Coach</span>
+              <span className="text-rift-bluebright font-medium truncate">{controlled.coach.name}</span>
+              <span className="text-rift-gold/70 tabular-nums" title="Rating — drives your AI draft on Watch-live">
+                ★{controlled.coach.rating.toFixed(1)}
+              </span>
+            </div>
+          )}
           <div className="flex items-baseline justify-between mb-1">
             <span className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/55">
               Roster
@@ -222,14 +232,17 @@ export default function MyTeamPanel() {
             const up = shifted && TIER_VALUE[p.tier] > TIER_VALUE[prevTier];
             return (
               <div key={lane} className="flex items-center gap-2 text-[10px]">
-                <span className="w-8 text-rift-muted/70 uppercase tracking-[0.15em]">
-                  {LANE_LABEL[lane]}
-                </span>
+                <LaneIcon lane={lane} size="sm" className="shrink-0" />
                 <span
                   className={`w-5 text-center border font-display ${TIER_CLS[p.tier]}`}
                 >
                   {p.tier}
                 </span>
+                {p.name && (
+                  <span className="text-rift-mutedbright font-medium max-w-[88px] truncate" title={p.name}>
+                    {p.name}
+                  </span>
+                )}
                 {shifted && (
                   <span
                     className={up ? "text-emerald-400" : "text-rift-redbright"}

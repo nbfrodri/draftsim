@@ -90,6 +90,8 @@ function LaneGoldRow({
   blueFlash,
   redFlash,
   flashKey,
+  bluePlayerName,
+  redPlayerName,
 }: {
   lane: Lane;
   blueChamp: Champion | null;
@@ -101,6 +103,8 @@ function LaneGoldRow({
   blueFlash: FlashKind;
   redFlash: FlashKind;
   flashKey: number;
+  bluePlayerName?: string | null;
+  redPlayerName?: string | null;
 }) {
   const absDiff = Math.abs(diff);
   const leadSide: Side | "even" =
@@ -138,9 +142,20 @@ function LaneGoldRow({
         }`}
       >
         <div className="flex flex-col items-end min-w-0">
-          <span className="truncate font-display tracking-wider text-[11px] md:text-[13px]">
-            {blueChamp?.name ?? "—"}
-          </span>
+          {bluePlayerName ? (
+            <>
+              <span className="truncate font-display tracking-wider text-[11px] md:text-[13px]">
+                {bluePlayerName}
+              </span>
+              <span className="truncate text-[9px] uppercase tracking-[0.15em] text-rift-mutedbright/60 leading-tight">
+                {blueChamp?.name ?? "—"}
+              </span>
+            </>
+          ) : (
+            <span className="truncate font-display tracking-wider text-[11px] md:text-[13px]">
+              {blueChamp?.name ?? "—"}
+            </span>
+          )}
           {blueChamp && (
             <span className="text-[10px] md:text-[11px] tabular-nums tracking-tight text-rift-mutedbright/85 leading-tight mt-0.5">
               <span className="text-rift-bluebright">{blueKDA.k}</span>
@@ -225,9 +240,20 @@ function LaneGoldRow({
           </span>
         )}
         <div className="flex flex-col items-start min-w-0">
-          <span className="truncate font-display tracking-wider text-[11px] md:text-[13px]">
-            {redChamp?.name ?? "—"}
-          </span>
+          {redPlayerName ? (
+            <>
+              <span className="truncate font-display tracking-wider text-[11px] md:text-[13px]">
+                {redPlayerName}
+              </span>
+              <span className="truncate text-[9px] uppercase tracking-[0.15em] text-rift-mutedbright/60 leading-tight">
+                {redChamp?.name ?? "—"}
+              </span>
+            </>
+          ) : (
+            <span className="truncate font-display tracking-wider text-[11px] md:text-[13px]">
+              {redChamp?.name ?? "—"}
+            </span>
+          )}
           {redChamp && (
             <span className="text-[10px] md:text-[11px] tabular-nums tracking-tight text-rift-mutedbright/85 leading-tight mt-0.5">
               <span className="text-rift-redbright">{redKDA.k}</span>
@@ -267,6 +293,8 @@ export const LaneGoldStrip = memo(function LaneGoldStrip({
   currentMin,
   latestEvent,
   flashKey,
+  bluePlayerNames,
+  redPlayerNames,
 }: {
   laneGold: Record<Lane, number>;
   laneKDA: { blue: SideLaneKDA; red: SideLaneKDA };
@@ -276,6 +304,8 @@ export const LaneGoldStrip = memo(function LaneGoldStrip({
   currentMin: number;
   latestEvent: MatchEvent | null;
   flashKey: number;
+  bluePlayerNames?: (string | null)[];
+  redPlayerNames?: (string | null)[];
 }) {
   return (
     <div className="border-t border-rift-line/40 mt-4 pt-3 space-y-2">
@@ -309,6 +339,8 @@ export const LaneGoldStrip = memo(function LaneGoldStrip({
             blueFlash={inv.blue}
             redFlash={inv.red}
             flashKey={flashKey}
+            bluePlayerName={bluePlayerNames?.[i] ?? null}
+            redPlayerName={redPlayerNames?.[i] ?? null}
           />
         );
       })}

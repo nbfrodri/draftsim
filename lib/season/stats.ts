@@ -23,6 +23,7 @@ import {
   LEAGUE_IDS,
   type InternationalId,
   type LeagueId,
+  type PhaseRosterSnapshot,
   type SeasonState,
   type SplitId,
 } from "./types";
@@ -104,6 +105,7 @@ export interface SeasonStats {
     championId: number;
     championName: string;
     teamName: string;
+    playerName?: string | null; // the player who penta'd, when known
     count: number;
     lane: Lane | null; // the lane they penta'd from (most common); legacy → null
     earliestMinute: number; // their fastest penta (minutes)
@@ -131,6 +133,7 @@ export interface SeasonStats {
     deaths: number;
     assists: number;
     tier: string | null; // the player's skill tier, from the roster
+    playerName: string | null; // in-game handle, when present on the roster
   }>;
   // Rivalries — the team pairings that met most often this year, with their
   // head-to-head record. Sorted by meetings desc. Only pairs that met ≥ 2 times.
@@ -143,6 +146,8 @@ export interface SeasonStats {
     aWins: number;
     bWins: number;
   }>;
+  // Per-player leaderboards (by stable id): kills, rating, MVPs, pentakills.
+  playerLeaders: PlayerLeaders;
 }
 
 export interface SeasonRecords {
@@ -153,6 +158,8 @@ export interface SeasonRecords {
   bestMvp: {
     championId: number;
     teamName: string;
+    playerName?: string;
+    lane?: Lane;
     kills: number;
     deaths: number;
     assists: number;
@@ -181,6 +188,241 @@ export interface SeasonRecords {
 
 const SEASON_MIN_WR_GAMES = 8;
 
+// ─── Per-player season stats (by stable id) ─────────────────────────────────
+// Now that players carry a stable id, we can aggregate a season BY PLAYER
+// (across teams, if they transferred mid-year) rather than by roster slot.
+
+const POS_LANES: Lane[] = ["top", "jungle", "middle", "bottom", "support"];
+const PLAYER_MIN_RATING_GAMES = 8;
+
+export interface PlayerSeasonLine {
+  playerId: string;
+  playerName: string;
+  teamId: string; // most recent team seen this season
+  teamName: string;
+  lane: Lane;
+  games: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  avgRating: number | null;
+  mvps: number;
+  pentakills: number;
+}
+
+export interface PlayerLeaders {
+  byKills: PlayerSeasonLine[];
+  byRating: PlayerSeasonLine[]; // min games applied
+  byMVP: PlayerSeasonLine[];
+  byPentakills: PlayerSeasonLine[];
+}
+
+/** Aggregate every completed game's recap by player id. Returns one line per
+ *  player who has at least one rated/recorded game this season. */
+export function computePlayerSeasonLines(season: SeasonState): PlayerSeasonLine[] {
+  const teamNameById = new Map(season.teams.map((t) => [t.id, t.name]));
+  type Agg = Omit<PlayerSeasonLine, "avgRating"> & { ratingSum: number; ratingCount: number };
+  const rows = new Map<string, Agg>();
+  const ensure = (id: string, name: string, teamId: string, lane: Lane): Agg => {
+    let r = rows.get(id);
+    if (!r) {
+      r = {
+        playerId: id,
+        playerName: name,
+        teamId,
+        teamName: teamNameById.get(teamId) ?? teamId,
+        lane,
+        games: 0,
+        kills: 0,
+        deaths: 0,
+        assists: 0,
+        ratingSum: 0,
+        ratingCount: 0,
+        mvps: 0,
+        pentakills: 0,
+      };
+      rows.set(id, r);
+    } else {
+      // Track the most recent team/name seen (handles mid-season transfers).
+      r.teamId = teamId;
+      r.teamName = teamNameById.get(teamId) ?? teamId;
+      if (name) r.playerName = name;
+    }
+    return r;
+  };
+
+  for (const t of Object.values(season.tournaments)) {
+    for (const m of t.matches) {
+      if (m.isBye || !m.series) continue;
+      for (const g of m.series.games) {
+        const recap = g.recap;
+        if (!recap?.perPickIds) continue;
+        for (const side of ["blue", "red"] as const) {
+          const teamId = side === "blue" ? m.blueTeamId : m.redTeamId;
+          if (!teamId) continue;
+          const ids = recap.perPickIds[side];
+          const names = recap.perPickNames?.[side];
+          const kda = recap.perPickKDA?.[side];
+          const ratings = recap.ratings?.[side];
+          for (let li = 0; li < POS_LANES.length; li++) {
+            const id = ids[li];
+            if (!id) continue;
+            const row = ensure(id, names?.[li] ?? "", teamId, POS_LANES[li]);
+            row.games += 1;
+            if (kda?.[li]) {
+              row.kills += kda[li].k;
+              row.deaths += kda[li].d;
+              row.assists += kda[li].a;
+            }
+            const r = ratings?.[li];
+            if (typeof r === "number" && Number.isFinite(r)) {
+              row.ratingSum += r;
+              row.ratingCount += 1;
+            }
+          }
+        }
+        if (recap.mvp?.playerId) {
+          const r = rows.get(recap.mvp.playerId);
+          if (r) r.mvps += 1;
+        }
+        for (const p of recap.pentakills ?? []) {
+          if (!p.lane) continue;
+          const li = POS_LANES.indexOf(p.lane);
+          const id = li >= 0 ? recap.perPickIds[p.side]?.[li] : null;
+          const r = id ? rows.get(id) : null;
+          if (r) r.pentakills += 1;
+        }
+      }
+    }
+  }
+
+  return [...rows.values()].map(({ ratingSum, ratingCount, ...rest }) => ({
+    ...rest,
+    avgRating: ratingCount > 0 ? Math.round((ratingSum / ratingCount) * 10) / 10 : null,
+  }));
+}
+
+function topN<T>(arr: T[], key: (x: T) => number, n = 10): T[] {
+  return [...arr].sort((a, b) => key(b) - key(a)).slice(0, n);
+}
+
+export function computePlayerLeaders(season: SeasonState): PlayerLeaders {
+  const lines = computePlayerSeasonLines(season);
+  return {
+    byKills: topN(lines.filter((l) => l.kills > 0), (l) => l.kills),
+    byRating: topN(
+      lines.filter((l) => l.games >= PLAYER_MIN_RATING_GAMES && l.avgRating != null),
+      (l) => l.avgRating ?? 0,
+    ),
+    byMVP: topN(lines.filter((l) => l.mvps > 0), (l) => l.mvps),
+    byPentakills: topN(lines.filter((l) => l.pentakills > 0), (l) => l.pentakills),
+  };
+}
+
+// One player's achievements in ONE season — archived per season so the Hall
+// can aggregate true CAREERS by player id across seasons (and realities).
+// Team honours are credited to the player's end-of-season team roster.
+export interface PlayerSeasonRecord {
+  playerId: string;
+  playerName: string;
+  leagueId: LeagueId | null;
+  teamName?: string; // end-of-season team, for a logo in the career boards
+  games: number;
+  kills: number;
+  mvps: number;
+  allPro: number;
+  splitTitles: number;
+  intlAppearances: number;
+  intlTitles: number;
+}
+
+// Attribute titles/appearances to the players who were ON the champion's
+// roster AT that stage (via phaseRosters), NOT their end-of-season team — a
+// player who wins a split then transfers mid-season keeps the title they
+// actually won. Falls back to the current roster when no snapshot exists
+// (legacy saves predating phaseRosters). Exported for direct testing without a
+// full simulated-tournament fixture.
+export function computePlayerTitleCounts(
+  season: SeasonState,
+): Map<string, { split: number; intlTitles: number; intlApps: number }> {
+  const achv = new Map<string, { split: number; intlTitles: number; intlApps: number }>();
+  const ensure = (id: string) => {
+    let a = achv.get(id);
+    if (!a) {
+      a = { split: 0, intlTitles: 0, intlApps: 0 };
+      achv.set(id, a);
+    }
+    return a;
+  };
+  const snaps = season.phaseRosters ?? [];
+  const playersOnTeam = (
+    teamId: string,
+    match: (s: PhaseRosterSnapshot) => boolean,
+  ): string[] => {
+    const team = snaps.find(match)?.teams.find((t) => t.teamId === teamId);
+    const roster = team
+      ? team.players
+      : season.teams.find((t) => t.id === teamId)?.players;
+    return (roster ?? []).map((p) => p.id).filter((x): x is string => !!x);
+  };
+  for (const [split, byLeague] of Object.entries(season.splitResults)) {
+    for (const order of Object.values(byLeague ?? {})) {
+      const champ = order?.[0];
+      if (champ)
+        for (const pid of playersOnTeam(champ, (s) => s.split === split)) ensure(pid).split += 1;
+    }
+  }
+  for (const [event, order] of Object.entries(season.intlResults)) {
+    const champ = order?.[0];
+    if (champ)
+      for (const pid of playersOnTeam(champ, (s) => s.event === event)) ensure(pid).intlTitles += 1;
+  }
+  for (const phase of season.phases) {
+    if (phase.kind !== "international") continue;
+    const attended = new Set<string>();
+    for (const tid of phase.tournamentIds) {
+      for (const tt of season.tournaments[tid]?.teams ?? []) attended.add(tt.id);
+    }
+    for (const id of attended)
+      for (const pid of playersOnTeam(id, (s) => s.event === phase.event)) ensure(pid).intlApps += 1;
+  }
+  return achv;
+}
+
+export function computePlayerCareerRecords(season: SeasonState): PlayerSeasonRecord[] {
+  const lines = computePlayerSeasonLines(season);
+  const teamOfPlayer = new Map<string, string>();
+  for (const t of season.teams) {
+    for (const p of t.players) if (p.id) teamOfPlayer.set(p.id, t.id);
+  }
+  const achv = computePlayerTitleCounts(season);
+  const allProById = new Map<string, number>();
+  for (const t of Object.values(season.tournaments)) {
+    for (const ap of computeStageStats(t).allPro) {
+      if (ap.playerId) allProById.set(ap.playerId, (allProById.get(ap.playerId) ?? 0) + 1);
+    }
+  }
+  const leagueOf = new Map(season.teams.map((t) => [t.id, t.leagueId]));
+  const nameOfTeam = new Map(season.teams.map((t) => [t.id, t.name]));
+  return lines.map((l) => {
+    const teamId = teamOfPlayer.get(l.playerId) ?? l.teamId;
+    const a = achv.get(l.playerId) ?? { split: 0, intlTitles: 0, intlApps: 0 };
+    return {
+      playerId: l.playerId,
+      playerName: l.playerName,
+      leagueId: leagueOf.get(teamId) ?? null,
+      teamName: nameOfTeam.get(teamId) ?? l.teamName,
+      games: l.games,
+      kills: l.kills,
+      mvps: l.mvps,
+      allPro: allProById.get(l.playerId) ?? 0,
+      splitTitles: a.split,
+      intlAppearances: a.intlApps,
+      intlTitles: a.intlTitles,
+    };
+  });
+}
+
 export function computeSeasonStats(season: SeasonState): SeasonStats {
   let totalMatches = 0;
   let totalGames = 0;
@@ -194,6 +436,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
       championId: number;
       championName: string;
       teamName: string;
+      playerName: string | null;
       count: number;
       laneCounts: Map<Lane, number>;
       earliestMinute: number;
@@ -234,6 +477,11 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
     const team = season.teams.find((t) => t.id === teamId);
     const player = team?.players[LANE_ORDER.indexOf(lane)];
     return player?.tier ?? null;
+  };
+  const playerNameOf = (teamId: string, lane: Lane): string | null => {
+    const team = season.teams.find((t) => t.id === teamId);
+    const player = team?.players[LANE_ORDER.indexOf(lane)];
+    return player?.name ?? null;
   };
 
   const ensureTeam = (teamId: string): SeasonTeamLine => {
@@ -280,14 +528,20 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
         if (!recap) continue;
         for (const p of recap.pentakills ?? []) {
           const key = `${p.championId}:${p.teamName}`;
+          const pentaName =
+            p.lane && recap.perPickNames
+              ? recap.perPickNames[p.side]?.[POS_LANES.indexOf(p.lane)] ?? null
+              : null;
           const row = pentaRows.get(key) ?? {
             championId: p.championId,
             championName: p.championName,
             teamName: p.teamName,
+            playerName: pentaName,
             count: 0,
             laneCounts: new Map<Lane, number>(),
             earliestMinute: Infinity,
           };
+          if (pentaName) row.playerName = pentaName; // prefer any identified name
           row.count++;
           if (p.lane) row.laneCounts.set(p.lane, (row.laneCounts.get(p.lane) ?? 0) + 1);
           row.earliestMinute = Math.min(row.earliestMinute, p.minute);
@@ -334,6 +588,8 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
           records.bestMvp = {
             championId: mvp.championId,
             teamName: mvp.side === "blue" ? blueName : redName,
+            ...(mvp.playerName ? { playerName: mvp.playerName } : {}),
+            lane: mvp.lane,
             kills: mvp.kills,
             deaths: mvp.deaths,
             assists: mvp.assists,
@@ -416,6 +672,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
         championId: r.championId,
         championName: r.championName,
         teamName: r.teamName,
+        playerName: r.playerName ?? null,
         count: r.count,
         lane,
         earliestMinute: Number.isFinite(r.earliestMinute) ? r.earliestMinute : 0,
@@ -457,6 +714,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
         deaths: r.deaths,
         assists: r.assists,
         tier: tierOf(r.teamId, r.lane),
+        playerName: playerNameOf(r.teamId, r.lane),
       };
     })
     .sort((a, b) => b.count - a.count);
@@ -553,6 +811,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
     records,
     mvpLeaderboard,
     rivalries,
+    playerLeaders: computePlayerLeaders(season),
   };
 }
 

@@ -1,0 +1,434 @@
+{
+  "LCK": {
+    "Gen.G Esports": {
+      "top": "Kiin",
+      "jungle": "Canyon",
+      "middle": "Chovy",
+      "bottom": "Ruler",
+      "support": "Duro"
+    },
+    "Hanwha Life Esports": {
+      "top": "Zeus",
+      "jungle": "Kanavi",
+      "middle": "Zeka",
+      "bottom": "Gumayusi",
+      "support": "Delight"
+    },
+    "NONGSHIM RED FORCE": {
+      "top": "Kingen",
+      "jungle": "Sponge",
+      "middle": "Calix",
+      "bottom": "Diable",
+      "support": "Lehends"
+    },
+    "T1": {
+      "top": "Doran",
+      "jungle": "Oner",
+      "middle": "Faker",
+      "bottom": "Peyz",
+      "support": "Keria"
+    },
+    "kt Rolster": {
+      "top": "PerfecT",
+      "jungle": "Cuzz",
+      "middle": "Bdd",
+      "bottom": "Aiming",
+      "support": "Effort"
+    },
+    "Dplus KIA": {
+      "top": null,
+      "jungle": null,
+      "middle": null,
+      "bottom": null,
+      "support": null
+    },
+    "BNK FEARX": {
+      "top": "Clear",
+      "jungle": "Raptor",
+      "middle": "Daystar",
+      "bottom": "Taeyoon",
+      "support": "Kellin"
+    },
+    "HANJIN BRION": {
+      "top": "Panther",
+      "jungle": "Jackal",
+      "middle": "Cracker",
+      "bottom": "Pyeonsik",
+      "support": "Bluffing"
+    },
+    "DN SOOPers": {
+      "top": "DuDu",
+      "jungle": "Pyosik",
+      "middle": "Clozer",
+      "bottom": "deokdam",
+      "support": "Life"
+    },
+    "KIWOOM DRX": {
+      "top": null,
+      "jungle": null,
+      "middle": null,
+      "bottom": null,
+      "support": null
+    }
+  },
+  "LPL": {
+    "BILIBILI GAMING": {
+      "top": "Bin",
+      "jungle": "Xun",
+      "middle": "Knight",
+      "bottom": "Viper",
+      "support": "ON"
+    },
+    "Beijing JDG Esports": {
+      "top": "Xiaoxu",
+      "jungle": "JunJia",
+      "middle": "HongQ",
+      "bottom": "GALA",
+      "support": "Vampire"
+    },
+    "TOP ESPORTS": {
+      "top": "369",
+      "jungle": "Tian",
+      "middle": "Creme",
+      "bottom": "JackeyLove",
+      "support": "fengyue"
+    },
+    "Anyone's Legend": {
+      "top": "Flandre",
+      "jungle": "Tarzan",
+      "middle": "Shanks",
+      "bottom": "Hope",
+      "support": "Kael"
+    },
+    "Shenzhen NINJAS IN PYJAMAS": {
+      "top": "HOYA",
+      "jungle": "Guwon",
+      "middle": "Care",
+      "bottom": "Assum",
+      "support": "Zhuo"
+    },
+    "WeiboGaming": {
+      "top": "Zika",
+      "jungle": "Jiejie",
+      "middle": "Xiaohu",
+      "bottom": "Elk",
+      "support": "Hang"
+    },
+    "Invictus Gaming": {
+      "top": "TheShy",
+      "jungle": "Wei",
+      "middle": "Renard",
+      "bottom": "JiaQi",
+      "support": "Meiko"
+    },
+    "Xi'an Team WE": {
+      "top": "Cube",
+      "jungle": "Monki",
+      "middle": "Karis",
+      "bottom": "About",
+      "support": "Erha"
+    },
+    "Suzhou LNG Esports": {
+      "top": "sheer",
+      "jungle": "Croco",
+      "middle": "BuLLDoG",
+      "bottom": "1xn",
+      "support": "MISSING"
+    },
+    "THUNDER TALK GAMING": {
+      "top": "Keshi",
+      "jungle": "Junhao",
+      "middle": "Heru",
+      "bottom": "Ahn",
+      "support": "Feather"
+    }
+  },
+  "LEC": {
+    "SK Gaming": {
+      "top": "Wunder",
+      "jungle": "Skeanz",
+      "middle": "LIDER",
+      "bottom": "Jopa",
+      "support": "Mikyx"
+    },
+    "GIANTX": {
+      "top": "Lot",
+      "jungle": "ISMA",
+      "middle": "Jackies",
+      "bottom": "Flakked",
+      "support": "Jun"
+    },
+    "Movistar KOI": {
+      "top": "Myrwn",
+      "jungle": "Elyoya",
+      "middle": "Jojopyun",
+      "bottom": "Supa",
+      "support": "Alvaro"
+    },
+    "Shifters": {
+      "top": "Rooster",
+      "jungle": "Boukada",
+      "middle": "nuc",
+      "bottom": "Paduck",
+      "support": "Stend"
+    },
+    "Team Heretics": {
+      "top": "Tracyn",
+      "jungle": "Daglas",
+      "middle": "Serin",
+      "bottom": "Hype",
+      "support": "Way"
+    },
+    "Karmine Corp": {
+      "top": "Canna",
+      "jungle": "Yike",
+      "middle": "kyeahoo",
+      "bottom": "Caliste",
+      "support": "Busio"
+    },
+    "Natus Vincere": {
+      "top": "Maynter",
+      "jungle": "Rhilech",
+      "middle": "Larssen",
+      "bottom": "SamD",
+      "support": "Parus"
+    },
+    "Fnatic": {
+      "top": "Empyros",
+      "jungle": "Obsess",
+      "middle": "Vladi",
+      "bottom": "Upset",
+      "support": "Lospa"
+    },
+    "G2 Esports": {
+      "top": "BrokenBlade",
+      "jungle": "SkewMond",
+      "middle": "Caps",
+      "bottom": "Hans Sama",
+      "support": "Labrov"
+    },
+    "Team Vitality": {
+      "top": "Naak Nako",
+      "jungle": "Lyncas",
+      "middle": "Humanoid",
+      "bottom": "Carzzy",
+      "support": "Fleshy"
+    }
+  },
+  "LCS": {
+    "Disguised": {
+      "top": "Srtty",
+      "jungle": "KryRa",
+      "middle": "Callme",
+      "bottom": "sajed",
+      "support": "Lyonz"
+    },
+    "Shopify Rebellion": {
+      "top": "Fudge",
+      "jungle": "Contractz",
+      "middle": "Zinie",
+      "bottom": "Bvoy",
+      "support": "Ceos"
+    },
+    "Cloud9 Kia": {
+      "top": "Thanatos",
+      "jungle": "Blaber",
+      "middle": "APA",
+      "bottom": "Tactical",
+      "support": "Vulcan"
+    },
+    "Dignitas": {
+      "top": "Photon",
+      "jungle": "eXyu",
+      "middle": "Palafox",
+      "bottom": "FBI",
+      "support": "Ignar"
+    },
+    "Team Liquid Alienware": {
+      "top": "Morgan",
+      "jungle": "Josedeodo",
+      "middle": "Quid",
+      "bottom": "Yeon",
+      "support": "CoreJJ"
+    },
+    "FlyQuest": {
+      "top": "Gakgos",
+      "jungle": "Gryffinn",
+      "middle": "Quad",
+      "bottom": "Massu",
+      "support": "Cryogen"
+    },
+    "LYON": {
+      "top": null,
+      "jungle": null,
+      "middle": null,
+      "bottom": null,
+      "support": null
+    },
+    "Sentinels": {
+      "top": "Impact",
+      "jungle": "HamBak",
+      "middle": "DARKWINGS",
+      "bottom": "Rahel",
+      "support": "huhi"
+    },
+    "100 Thieves": {
+      "top": null,
+      "jungle": null,
+      "middle": null,
+      "bottom": null,
+      "support": null
+    },
+    "NRG Kia": {
+      "top": "Zamudo",
+      "jungle": "Kisno",
+      "middle": "PhyMini",
+      "bottom": "Sushee",
+      "support": "Spica"
+    }
+  },
+  "CBLOL": {
+    "RED Canids Kalunga": {
+      "top": "zynts",
+      "jungle": "STEPZ",
+      "middle": "Kaze",
+      "bottom": "Morttheus",
+      "support": "frosty"
+    },
+    "FURIA": {
+      "top": "Guigo",
+      "jungle": "Tatu",
+      "middle": "Tutsz",
+      "bottom": "Ayu",
+      "support": "JoJo"
+    },
+    "Vivo Keyd Stars": {
+      "top": "zekas",
+      "jungle": "Disamis",
+      "middle": "Mireu",
+      "bottom": "ceo",
+      "support": "scamber"
+    },
+    "LOS": {
+      "top": null,
+      "jungle": null,
+      "middle": null,
+      "bottom": null,
+      "support": null
+    },
+    "Fluxo": {
+      "top": null,
+      "jungle": null,
+      "middle": null,
+      "bottom": null,
+      "support": null
+    },
+    "LOUD": {
+      "top": "xyno",
+      "jungle": "Sinatra",
+      "middle": "Envy",
+      "bottom": "Bull",
+      "support": "uZent"
+    },
+    "paiN Gaming": {
+      "top": "Boal",
+      "jungle": "CarioK",
+      "middle": "Keine",
+      "bottom": null,
+      "support": "Kuri"
+    },
+    "LEVIATÁN": {
+      "top": null,
+      "jungle": null,
+      "middle": null,
+      "bottom": null,
+      "support": null
+    },
+    "KaBuM!": {
+      "top": null,
+      "jungle": null,
+      "middle": null,
+      "bottom": null,
+      "support": null
+    },
+    "INTZ": {
+      "top": "Kiari",
+      "jungle": "StineR",
+      "middle": "Leleko",
+      "bottom": null,
+      "support": "konseki"
+    }
+  },
+  "LCP": {
+    "Team Secret Whales": {
+      "top": "Hiro02",
+      "jungle": "Hizto",
+      "middle": "Dire",
+      "bottom": "Eddie",
+      "support": "Bie"
+    },
+    "GAM Esports": {
+      "top": "Kiaya",
+      "jungle": "Draktharr",
+      "middle": "Gloryy",
+      "bottom": "Artemis",
+      "support": "Taki"
+    },
+    "MVK Esports": {
+      "top": "Kratos",
+      "jungle": "Gury",
+      "middle": "Chika",
+      "bottom": "Harky",
+      "support": "SiuLoong"
+    },
+    "Fukuoka SoftBank HAWKS gaming": {
+      "top": "Evi",
+      "jungle": "Van1",
+      "middle": "Aria",
+      "bottom": "Marble",
+      "support": "Vsta"
+    },
+    "Relove Deep Cross Gaming": {
+      "top": "Flauren",
+      "jungle": "Pop9",
+      "middle": "HongSuo",
+      "bottom": "Feng",
+      "support": "ShiauC"
+    },
+    "CTBC Flying Oyster": {
+      "top": "Rest",
+      "jungle": "Shad0w",
+      "middle": "Pout",
+      "bottom": "Doggo",
+      "support": "Kino"
+    },
+    "Ground Zero Gaming": {
+      "top": "1Jiang",
+      "jungle": "Husha",
+      "middle": "JimieN",
+      "bottom": "Shunn",
+      "support": "Orca"
+    },
+    "DetonatioN FocusMe": {
+      "top": "Momo",
+      "jungle": "Citrus",
+      "middle": "Fisher",
+      "bottom": "Kakkun",
+      "support": "Woody"
+    },
+    "PSG Talon": {
+      "top": null,
+      "jungle": null,
+      "middle": null,
+      "bottom": null,
+      "support": null
+    },
+    "The Chiefs Esports Club": {
+      "top": null,
+      "jungle": null,
+      "middle": null,
+      "bottom": null,
+      "support": null
+    }
+  }
+}

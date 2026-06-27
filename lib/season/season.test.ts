@@ -1659,3 +1659,57 @@ describe("region tides stay anchored to the prestige ranking", () => {
     expect(order.slice(0, 3)).toEqual(["LCK", "LPL", "LEC"]);
   });
 });
+
+describe("transfer windows as phases", () => {
+  const champions = championPool();
+  const teams = generateSeasonTeams(champions, rngFrom(5));
+  const meta = {
+    metaOverride: null,
+    metaEnabled: true,
+    synergyOverride: null,
+    counterOverride: null,
+  };
+
+  it("inserts two transfer phases (after First Stand and MSI) only when enabled", () => {
+    const off = createSeason({ config: makeConfig(), teams, activeMeta: meta });
+    expect(off.phases.some((p) => p.kind === "transfer")).toBe(false);
+
+    const on = createSeason({
+      config: { ...makeConfig(), playerTransfers: true },
+      teams,
+      activeMeta: meta,
+    });
+    expect(on.phases.map((p) => p.kind)).toEqual([
+      "split",
+      "international",
+      "transfer",
+      "split",
+      "international",
+      "transfer",
+      "split",
+      "international",
+    ]);
+    // Each window follows its international and precedes the next split.
+    expect(on.phases.filter((p) => p.kind === "transfer").map((p) => p.event)).toEqual([
+      "first-stand",
+      "msi",
+    ]);
+  });
+
+  it("flows through the windows to a champion, never opening one after Worlds", () => {
+    const done = runSeason(
+      createSeason({
+        config: { ...makeConfig(), playerTransfers: true },
+        teams,
+        activeMeta: meta,
+      }),
+      champions,
+    );
+    expect(done.status).toBe("complete");
+    // No controlled team → windows auto-complete.
+    for (const p of done.phases.filter((p) => p.kind === "transfer")) {
+      expect(p.status).toBe("complete");
+    }
+    expect(done.transfersByEvent?.worlds).toBeUndefined();
+  });
+});

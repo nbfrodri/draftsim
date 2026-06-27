@@ -4,6 +4,8 @@ import { useMemo } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import type { TournamentState } from "@/lib/tournament";
 import { hotPlayers } from "@/lib/streaks";
+import type { Lane } from "@/lib/types";
+import LaneIcon from "../../LaneIcon";
 import { teamStreaksFor } from "./MatchCard";
 
 // StreaksPanel — compact "On fire / Slumping" sidebar panel.
@@ -15,19 +17,8 @@ import { teamStreaksFor } from "./MatchCard";
 // Hidden entirely when nothing qualifies. Matches the same panel language
 // used by LiveChampionMetaPanel (mb-6 border bg-rift-panel/40 p-3 md:p-4).
 
-function LaneDot({ lane }: { lane: string }) {
-  const abbr: Record<string, string> = {
-    top: "TOP",
-    jungle: "JGL",
-    middle: "MID",
-    bottom: "BOT",
-    support: "SUP",
-  };
-  return (
-    <span className="text-[8px] uppercase tracking-[0.1em] text-rift-mutedbright/55 shrink-0">
-      {abbr[lane] ?? lane.toUpperCase()}
-    </span>
-  );
+function LaneDot({ lane }: { lane: Lane }) {
+  return <LaneIcon lane={lane} size="xs" className="opacity-70" />;
 }
 
 export function StreaksPanel({ tournament }: { tournament: TournamentState }) {

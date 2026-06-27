@@ -9,6 +9,15 @@ import { getMetaTiers, type MetaTier } from "./championMeta";
 
 export type RNG = () => number;
 
+// Stable, unique player id. Lives here (dependency-free) so both the name and
+// lifecycle modules can stamp ids without an import cycle. Career stats key on
+// this, so it must be permanent and travel with the player across transfers.
+let _playerSeq = 0;
+export function makePlayerId(rng: RNG = Math.random): string {
+  _playerSeq = (_playerSeq + 1) % 1_000_000;
+  return `p-${Math.floor(rng() * 1e9).toString(36)}-${_playerSeq.toString(36)}`;
+}
+
 // Positional lane order — matches blueRoles/redRoles indexing so a Roster
 // aligns 1:1 with the pick slots once a draft resolves.
 export const LANE_ORDER: readonly Lane[] = [
@@ -393,7 +402,26 @@ export function normalizeRoster(
       const bad = cleanIds((entry as { badChamps?: unknown }).badChamps)
         .filter((id) => !goodSet.has(id))
         .slice(0, MAX_POOL);
-      byLane.set(lane, { lane, tier, goodChamps: good, badChamps: bad });
+      const rawName = (entry as { name?: unknown }).name;
+      const name = typeof rawName === "string" && rawName.trim() ? rawName : undefined;
+      const rawId = (entry as { id?: unknown }).id;
+      const id = typeof rawId === "string" && rawId ? rawId : undefined;
+      const rawAge = (entry as { age?: unknown }).age;
+      const age = typeof rawAge === "number" && Number.isFinite(rawAge) ? rawAge : undefined;
+      const rawPot = (entry as { potential?: unknown }).potential;
+      const potential = PLAYER_TIERS.includes(rawPot as PlayerTier)
+        ? (rawPot as PlayerTier)
+        : undefined;
+      byLane.set(lane, {
+        ...(id ? { id } : {}),
+        ...(name ? { name } : {}),
+        ...(age != null ? { age } : {}),
+        ...(potential ? { potential } : {}),
+        lane,
+        tier,
+        goodChamps: good,
+        badChamps: bad,
+      });
     }
   }
   return LANE_ORDER.map(

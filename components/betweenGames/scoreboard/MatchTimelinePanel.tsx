@@ -13,6 +13,7 @@ import {
   computeGold,
   formatClock,
   EMPHASIS_EVENTS,
+  applyChampHandles,
 } from "../shared";
 import EventIcon from "@/components/EventIcon";
 import { ScoreboardHeader } from "./ScoreboardHeader";
@@ -87,6 +88,8 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
   revealedCount,
   latestEventIdx,
   isFinished,
+  bluePlayerNames,
+  redPlayerNames,
 }: {
   timeline: MatchTimeline;
   blueTeam: string;
@@ -99,6 +102,8 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
   revealedCount: number;
   latestEventIdx: number;
   isFinished: boolean;
+  bluePlayerNames?: (string | null)[];
+  redPlayerNames?: (string | null)[];
 }) {
   // Game win streaks within this series (side-correct: lib/series swaps the
   // counters when teams swap sides between games).
@@ -132,6 +137,25 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
   // Team gold derives from lane sum so the totals match what's displayed
   // below in the Lane Gold strip — no off-by-N gold inconsistencies.
   const gold = useMemo(() => computeGold(laneGold, currentMin), [laneGold, currentMin]);
+
+  // Build champion-name → player-handle map for description substitution.
+  // Stable across playback: only recomputes if picks or player names change.
+  const champToHandle = useMemo(() => {
+    const map = new Map<string, string>();
+    bluePicks.forEach((id, i) => {
+      const handle = bluePlayerNames?.[i];
+      if (!handle || id == null) return;
+      const champ = byId.get(id);
+      if (champ) map.set(champ.name, handle);
+    });
+    redPicks.forEach((id, i) => {
+      const handle = redPlayerNames?.[i];
+      if (!handle || id == null) return;
+      const champ = byId.get(id);
+      if (champ) map.set(champ.name, handle);
+    });
+    return map;
+  }, [bluePicks, redPicks, byId, bluePlayerNames, redPlayerNames]);
 
   // Keep the newest event in view while the log is a bounded scroll column
   // (large screens). During live playback we pin to the bottom as events
@@ -182,7 +206,7 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
                     className={isBlue ? "text-rift-bluebright" : "text-rift-redbright"}
                   />
                   <span className="text-[10px] text-rift-goldbright max-w-[200px] truncate">
-                    {e.description}
+                    {applyChampHandles(e.description, champToHandle)}
                   </span>
                 </div>
               );
@@ -242,6 +266,8 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
                 : null
             }
             flashKey={latestEventIdx}
+            bluePlayerNames={bluePlayerNames}
+            redPlayerNames={redPlayerNames}
           />
         </div>
 
@@ -276,6 +302,7 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
                   redTeam={redTeam}
                   isNew={i === latestEventIdx}
                   link={causalLinks[i]}
+                  champToHandle={champToHandle.size > 0 ? champToHandle : undefined}
                 />
               ))}
               {placeholderCount > 0 && (

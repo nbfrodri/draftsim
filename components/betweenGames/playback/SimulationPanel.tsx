@@ -47,6 +47,8 @@ export function SimulationPanel({
   onResimulate,
   blueForms,
   redForms,
+  bluePlayerNames,
+  redPlayerNames,
 }: {
   result: SimulationResult;
   blueTeam: string;
@@ -62,6 +64,9 @@ export function SimulationPanel({
   // Optional per-player form arrays (lane order: top/jg/mid/bot/sup)
   blueForms?: number[];
   redForms?: number[];
+  // Optional per-player handles in positional lane order.
+  bluePlayerNames?: (string | null)[];
+  redPlayerNames?: (string | null)[];
 }) {
   const duration = result.timeline.durationMinutes;
   const winnerIsBlue = result.winner === "blue";
@@ -320,6 +325,8 @@ export function SimulationPanel({
         revealedCount={revealedCount}
         latestEventIdx={latestEventIdx}
         isFinished={isFinished}
+        bluePlayerNames={bluePlayerNames}
+        redPlayerNames={redPlayerNames}
       />
 
       {isFinished && (
@@ -334,6 +341,8 @@ export function SimulationPanel({
           winner={result.winner}
           blueTeam={blueTeam}
           redTeam={redTeam}
+          bluePlayerNames={bluePlayerNames}
+          redPlayerNames={redPlayerNames}
         />
       )}
 
@@ -346,6 +355,7 @@ export function SimulationPanel({
           laneKDA={isFinished ? finalLaneKDA?.blue : undefined}
           ratings={gameRatings?.blue}
           forms={blueForms}
+          playerNames={bluePlayerNames}
         />
         <ChampionContributions
           side="red"
@@ -355,6 +365,7 @@ export function SimulationPanel({
           laneKDA={isFinished ? finalLaneKDA?.red : undefined}
           ratings={gameRatings?.red}
           forms={redForms}
+          playerNames={redPlayerNames}
         />
       </div>
 

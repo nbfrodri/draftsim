@@ -11,8 +11,10 @@ import type {
   AIDifficulty,
   VariancePreset,
   PlayerTier,
+  Lane,
 } from "../types";
 import type { MetaOverride, Synergy, CounterPair } from "../championMeta";
+import type { Coach } from "./coach";
 import type { TournamentFormat, TournamentState } from "../tournament";
 
 // ─── Leagues ───────────────────────────────────────────────────────────────
@@ -83,7 +85,10 @@ export const SPLIT_FEEDS_EVENT: Record<SplitId, InternationalId> = {
 
 // One phase of the season calendar, in play order.
 export interface SeasonPhase {
-  kind: "split" | "international";
+  // "transfer" phases hold no tournaments — they're the between-splits roster
+  // window that follows First Stand and MSI. Their `event` names the
+  // international they follow (the window key).
+  kind: "split" | "international" | "transfer";
   split?: SplitId;
   event?: InternationalId;
   label: string;
@@ -221,6 +226,12 @@ export interface SeasonConfig {
   // lower-rated rosters trend up, peaked ones regress down, modulated by
   // recent form — so team star ratings move across the year.
   playerDevelopment?: boolean;
+  // Player transfers: between splits, a light free-agency window moves
+  // standout players up and weak links down. A player's transfer value
+  // blends skill tier, the split's match grades, and how well their
+  // champion pool fits the CURRENT patch — so a cold pool can cost a star
+  // a seat even at equal tier. Cross-region, ~1-2 moves per lane.
+  playerTransfers?: boolean;
   // Meta adaptability: teams carry a hidden adaptability trait; each
   // between-phase patch shift nudges adaptable teams' form up and rigid
   // teams' down (only meaningful alongside patchShift).
@@ -256,6 +267,9 @@ export interface SeasonTeam {
   logoUrl?: string;
   players: Roster;
   personalityId: string;
+  // The team's coach — rating drives AI draft strength, plus playstyle +
+  // meta-adaptability. Optional (older saves lack it; backfilled on load).
+  coach?: Coach;
 }
 
 // ─── Season state ──────────────────────────────────────────────────────────
@@ -312,6 +326,84 @@ export interface SeasonState {
   // recent player-development pass — so the UI can show ▲/▼ shift arrows.
   // [playerDevelopment]
   prevPlayerTiers?: Record<string, PlayerTier[]>;
+  // Franchise/"reality" context: present when this season is one year of a
+  // continuous timeline (teams + careers carry across years). Absent for a
+  // classic one-off season. `aging` (chosen at reality creation) decides
+  // whether the offseason ages players / retires veterans / introduces rookies.
+  franchise?: { id: string; name: string; year: number; aging: boolean };
+  // Snapshot of every team's roster as each split / international COMPLETED, so
+  // the Hall can show who played each stage (rosters shift between stages via
+  // transfer windows). Captured at phase completion; archived into history.
+  phaseRosters?: PhaseRosterSnapshot[];
+  // Completed roster moves per transfer window, keyed by the international the
+  // window followed ("first-stand" / "msi"). Powers the league-wide transfer
+  // recap on each transfer-phase node. Absent until a window runs.
+  // [playerTransfers]
+  transfersByEvent?: Partial<Record<InternationalId, PlayerTransfer[]>>;
+  // Pending moves that involve the FOLLOWED team — surfaced for the user to
+  // accept or decline instead of auto-applying, so a controlled roster only
+  // ever changes by the user's call. Cleared as each window is resolved or a
+  // new one opens. [playerTransfers + controlledTeamId]
+  proposedTransfers?: ProposedTransfer[];
+}
+
+// A snapshot of a moving player at transfer time, so each record renders its
+// own tier / split grade / champion pool without depending on live rosters
+// (which change in later windows).
+export interface TransferPlayer {
+  name?: string; // in-game handle, when the roster carries one
+  tier: PlayerTier;
+  grade: number | null; // avg 1-10 match note this split (null = didn't play)
+  goodChamps: number[]; // champion-pool ids (mains first)
+}
+
+// One completed swap from a transfer window: `star` (the higher-valued player)
+// moved from `fromTeamId` up to the better seat `toTeamId`; `swap` moved the
+// other way. `lane` is shared (same positional slot on both teams).
+export interface PlayerTransfer {
+  event: InternationalId;
+  lane: Lane;
+  fromTeamId: string;
+  toTeamId: string;
+  star: TransferPlayer;
+  swap: TransferPlayer;
+}
+
+// A transfer awaiting the user's decision because it touches the followed
+// team. `kind` is from the controlled team's view: "incoming" = a stronger
+// player wants to join (accept to upgrade, dropping `mine`); "outgoing" = a
+// rival is poaching your `mine` (accept to let them go for `theirs`, decline to
+// keep them). Accepting swaps the `laneIndex` players between the two teams.
+export interface ProposedTransfer {
+  event: InternationalId;
+  lane: Lane;
+  laneIndex: number;
+  controlledTeamId: string;
+  otherTeamId: string;
+  kind: "incoming" | "outgoing";
+  mine: TransferPlayer; // the followed team's current player at this lane
+  theirs: TransferPlayer; // the other team's player at this lane
+}
+
+// A compact roster snapshot for one team at one stage of the year.
+export interface TeamRosterSnapshot {
+  teamId: string;
+  teamName: string;
+  leagueId: LeagueId;
+  logoUrl?: string;
+  // The team's coach at this stage (name + rating), when it had one.
+  coach?: { name: string; rating: number };
+  players: Array<{ id?: string; name?: string; tier: PlayerTier; lane: Lane }>;
+}
+
+// Every team's roster as a given split / international completed.
+export interface PhaseRosterSnapshot {
+  phaseIndex: number;
+  label: string;
+  kind: "split" | "international";
+  split?: SplitId;
+  event?: InternationalId;
+  teams: TeamRosterSnapshot[];
 }
 
 export function seasonTeam(

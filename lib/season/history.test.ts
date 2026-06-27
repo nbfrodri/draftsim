@@ -89,6 +89,34 @@ describe("buildSeasonHistoryEntry", () => {
     expect("leagueStrength" in plain).toBe(false);
   });
 
+  it("freezes the year's transfers with team names, grouped under the entry", () => {
+    const move = {
+      event: "msi" as const,
+      lane: "middle" as const,
+      fromTeamId: "t2",
+      toTeamId: "t1",
+      star: { name: "Faker", tier: "S", grade: 8, goodChamps: [] },
+      swap: { name: "Chovy", tier: "A", grade: 7, goodChamps: [] },
+    };
+    const entry = buildSeasonHistoryEntry(
+      fabricate({ transfersByEvent: { msi: [move] } } as Partial<SeasonState>),
+      1,
+    );
+    expect(entry.transfers).toHaveLength(1);
+    expect(entry.transfers![0]).toMatchObject({
+      event: "msi",
+      lane: "middle",
+      from: { name: "T2" }, // denormalized name, not the id
+      to: { name: "T1" },
+      inName: "Faker",
+      inTier: "S",
+      outName: "Chovy",
+      outTier: "A",
+    });
+    // No transfers → field omitted entirely (legacy-safe serialization).
+    expect("transfers" in buildSeasonHistoryEntry(fabricate(), 1)).toBe(false);
+  });
+
   it("marks the starting meta unknown for seasons that pre-date initialMeta", () => {
     const entry = buildSeasonHistoryEntry(
       fabricate({

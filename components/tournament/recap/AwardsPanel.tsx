@@ -6,6 +6,7 @@ import { computeTournamentAwards } from "@/lib/awards";
 import type { TournamentAwards, PlayerAward, SpecialAward } from "@/lib/awards";
 import type { TournamentState } from "@/lib/tournament";
 import type { Lane } from "@/lib/types";
+import LaneIcon from "../../LaneIcon";
 
 // ─── Rating badge (mirrors ContributionRow.tsx color logic exactly) ───────────
 
@@ -28,15 +29,6 @@ function RatingBadge({ rating }: { rating: number }) {
   );
 }
 
-// ─── Lane label ───────────────────────────────────────────────────────────────
-
-const LANE_LABEL: Record<Lane, string> = {
-  top: "Top",
-  jungle: "JGL",
-  middle: "Mid",
-  bottom: "Bot",
-  support: "Sup",
-};
 
 // ─── MVP card ─────────────────────────────────────────────────────────────────
 
@@ -48,7 +40,7 @@ function MVPCard({ mvp }: { mvp: PlayerAward }) {
       </div>
       <div className="flex items-baseline gap-3 flex-wrap">
         <span className="font-display text-xl tracking-wider text-rift-goldbright">
-          {mvp.displayName}
+          {mvp.playerName ?? mvp.displayName}
         </span>
         <RatingBadge rating={mvp.avgRating} />
         <span className="text-[9px] uppercase tracking-[0.25em] text-rift-mutedbright/60">
@@ -56,7 +48,7 @@ function MVPCard({ mvp }: { mvp: PlayerAward }) {
         </span>
       </div>
       <div className="mt-1 text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/55">
-        {mvp.teamName}
+        {mvp.playerName ? mvp.displayName : mvp.teamName}
       </div>
     </div>
   );
@@ -86,11 +78,9 @@ function AllProStrip({ allPro }: { allPro: TournamentAwards["allPro"] }) {
               className="flex items-center justify-between px-3 py-2"
             >
               <div className="flex items-center gap-2">
-                <span className="text-[9px] uppercase tracking-[0.25em] text-rift-mutedbright/50 w-8">
-                  {LANE_LABEL[lane]}
-                </span>
+                <LaneIcon lane={lane} size="sm" className="shrink-0" />
                 <span className="font-display tracking-wider text-sm text-rift-mutedbright">
-                  {player.displayName}
+                  {player.playerName ?? player.displayName}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -140,7 +130,7 @@ function AwardsList({ awards }: { awards: SpecialAward[] }) {
             </div>
             <div className="flex items-baseline gap-2 flex-wrap pl-4">
               <span className="font-display tracking-wider text-sm text-rift-mutedbright">
-                {award.player.displayName}
+                {award.player.playerName ?? award.player.displayName}
               </span>
               <RatingBadge rating={award.player.avgRating} />
               <span className="text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright/50">

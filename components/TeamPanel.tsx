@@ -205,6 +205,7 @@ export default function TeamPanel({ champions, side }: Props) {
               locked={id != null}
               role={id != null ? liveRoles[slot] : null}
               playerTier={id != null ? slotPlayer?.tier ?? null : null}
+              playerName={id != null ? slotPlayer?.name ?? null : null}
               poolSign={id != null && slotPlayer ? poolBias(slotPlayer, id) : 0}
             />
           );
@@ -457,6 +458,14 @@ function ChampPools({
                   >
                     {p.tier}
                   </span>
+                  {p.name && (
+                    <span
+                      className="text-[9px] font-medium text-rift-mutedbright max-w-[60px] truncate"
+                      title={p.name}
+                    >
+                      {p.name}
+                    </span>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                   <PoolRow ids={p.goodChamps} tone="good" byId={byId} champStatus={champStatus} tiered />
@@ -479,6 +488,7 @@ function PickSlot({
   locked,
   role,
   playerTier = null,
+  playerName = null,
   poolSign = 0,
 }: {
   champ: Champion | undefined;
@@ -488,6 +498,7 @@ function PickSlot({
   locked: boolean;
   role: Lane | null;
   playerTier?: PlayerTier | null;
+  playerName?: string | null;
   poolSign?: number;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -574,7 +585,13 @@ function PickSlot({
                 {champ.name}
               </div>
               <div className="text-[9px] uppercase tracking-[0.25em] text-rift-muted truncate">
-                {champ.roles.slice(0, 2).join(" · ")}
+                {playerName ? (
+                  <span className="text-rift-mutedbright normal-case tracking-normal font-medium">
+                    {playerName}
+                  </span>
+                ) : (
+                  champ.roles.slice(0, 2).join(" · ")
+                )}
               </div>
             </div>
             {playerTier && (

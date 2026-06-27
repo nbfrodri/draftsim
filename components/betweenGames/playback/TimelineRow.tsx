@@ -3,18 +3,20 @@
 import { memo } from "react";
 import type { MatchEvent } from "@/lib/matchSimulator";
 import EventIcon from "@/components/EventIcon";
-import { EVENT_LABEL, EMPHASIS_EVENTS } from "../shared";
+import { EVENT_LABEL, EMPHASIS_EVENTS, applyChampHandles } from "../shared";
 
 // Memoized: the event log re-renders every playback state update, but each
 // already-revealed row's props (stable event object, team name strings, the
 // `isNew` boolean) only change for the newly-revealed row and the previously
 // newest row (isNew true→false). Every older row skips re-rendering.
+
 export const TimelineRow = memo(function TimelineRow({
   event,
   blueTeam,
   redTeam,
   isNew,
   link,
+  champToHandle,
 }: {
   event: MatchEvent;
   blueTeam: string;
@@ -22,9 +24,12 @@ export const TimelineRow = memo(function TimelineRow({
   isNew?: boolean;
   // "off the …" causal tag when this objective came off a recent setup play.
   link?: string | null;
+  // Champion name → player handle for all champions in this game.
+  champToHandle?: Map<string, string>;
 }) {
   const isBlue = event.side === "blue";
   const accentText = isBlue ? "text-rift-bluebright" : "text-rift-redbright";
+  const description = champToHandle ? applyChampHandles(event.description, champToHandle) : event.description;
   const sideTintBg = isBlue
     ? "bg-gradient-to-r from-rift-blue/10 via-rift-blue/[0.03] to-transparent"
     : "bg-gradient-to-l from-rift-red/10 via-rift-red/[0.03] to-transparent";
@@ -97,7 +102,7 @@ export const TimelineRow = memo(function TimelineRow({
             isEmphasis ? "text-rift-goldbright/95" : "text-rift-mutedbright"
           }`}
         >
-          {event.description}
+          {description}
         </div>
         {link && (
           <div className="text-[9px] md:text-[10px] mt-0.5 italic text-rift-muted/70">

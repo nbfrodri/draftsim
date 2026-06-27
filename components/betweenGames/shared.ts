@@ -351,6 +351,19 @@ export function formatLaneGold(g: number): string {
   return Math.round(g).toLocaleString("en-US");
 }
 
+// Replace champion names in event descriptions with player handles.
+// Sorted by name length descending so "Miss Fortune" replaces before "Miss".
+// ponytail: plain split/join; champion names are proper nouns, never substrings of each other.
+export function applyChampHandles(desc: string, map: Map<string, string>): string {
+  if (map.size === 0) return desc;
+  let result = desc;
+  const entries = [...map.entries()].sort((a, b) => b[0].length - a[0].length);
+  for (const [champName, handle] of entries) {
+    result = result.split(champName).join(handle);
+  }
+  return result;
+}
+
 export function formatClock(min: number): string {
   const m = Math.floor(min);
   const s = Math.floor((min - m) * 60);

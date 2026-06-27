@@ -1,0 +1,725 @@
+// Between-splits player transfers — a light, fully automatic free-agency
+// window. After a split wraps (and player development has run), standout
+// players move up and weak links move down. A player's TRANSFER VALUE blends
+// three signals so champion pools matter beyond raw tier:
+//   • skill tier            (PLAYER_TIER_VALUE, the dominant term)
+//   • this split's grades   (avg 1-10 match rating for their roster slot)
+//   • champion-pool fit     (how strong their pool is under the CURRENT patch)
+// so a star whose pool went cold this patch can lose a seat to an equal-tier
+// player whose mains are S-tier now. Cross-region, ~1-2 moves per lane per
+// split — deriveStar re-rates teams automatically from the swapped rosters.
+//
+// Self-contained (no engine/stats imports) to stay off the season import
+// cycle; the grade walk mirrors teamSeasonGrades(), scoped to one split.
+
+import type { Champion, Lane, Player, PlayerTier } from "../types";
+import {
+  LANE_ORDER,
+  PLAYER_TIER_VALUE,
+  MAIN_POOL,
+  SECONDARY_COMFORT,
+  deriveStar,
+} from "../players";
+import {
+  CHAMPION_META,
+  TIER_VALUE as META_TIER_VALUE,
+  type MetaTier,
+} from "../championMeta";
+import { computeGameRatings } from "../matchSimulator";
+import {
+  LEAGUE_IDS,
+  QUALIFYING_SPLIT,
+  TEAMS_PER_LEAGUE,
+  type InternationalId,
+  type LeagueId,
+  type PlayerTransfer,
+  type ProposedTransfer,
+  type SeasonMetaSnapshot,
+  type SeasonPhase,
+  type SeasonState,
+  type SeasonTeam,
+  type SplitId,
+  type TransferPlayer,
+} from "./types";
+
+// ── Calibration knobs (ponytail: tune here, not in the logic) ──────────────
+// How much a great/poor split and a hot/cold pool move transfer value,
+// relative to skill tier (1 tier-step = 1.0). A standout split (grade ~8) or a
+// fully S-tier pool each swing value by ~+1 — meaningful, but skill still leads.
+const W_PERF = 0.35; // × (grade − 5.5); grade is 1..10
+const W_META = 0.4; //  × pool-fit, where fit ≈ avg(metaTierValue − B) over pool
+const GRADE_NEUTRAL = 5.5;
+const POOL_NEUTRAL = META_TIER_VALUE.B; // a "B"-meta champion is neutral fit
+// A swap needs roughly this much value justification, and at most this many
+// moves happen per lane per window. With 60 teams (six regions) the gap guard
+// is what really limits volume — only genuine mismatches move — so the cap is
+// generous: up to MAX_MOVES_PER_LANE × 5 lanes ≈ 30 cross-region moves/window.
+const VALUE_GAP_MIN = 0.8;
+const MAX_MOVES_PER_LANE = 6;
+// How much value the OTHER team may lose and still agree to a user-initiated
+// swap (they accept incoming ≥ outgoing − tolerance). Roughly half a tier of
+// give — enough for lateral / pool-fit trades, not enough to rob a superstar.
+const WILLING_TOL = 0.6;
+// The post-Worlds offseason is the big window — teams are far more willing to
+// move players, and the auto market is much more active (lower gap, higher cap).
+const OFFSEASON_WILLING_TOL = 1.3;
+const OFFSEASON_GAP_MIN = 0.35;
+const OFFSEASON_MAX_MOVES = 10;
+
+// Champion's meta tier in a lane under this snapshot: the split's full,
+// patch-shifted override first, then the baseline dataset. Null = untiered
+// there (skipped from pool fit). Mirrors applyPatchShift's source order.
+function metaTierAt(
+  alias: string,
+  lane: Lane,
+  meta: SeasonMetaSnapshot,
+): MetaTier | null {
+  return meta.metaOverride?.[alias]?.[lane] ?? CHAMPION_META[alias]?.metaTiers?.[lane] ?? null;
+}
+
+// Pool fit: weighted average of (metaTierValue − neutral) over the player's
+// liked champs in their lane, mains full weight and secondaries SECONDARY_COMFORT
+// (same weighting poolBias uses). 0 when no pool champ is tiered in the lane.
+export function poolFit(
+  player: Player,
+  byId: Map<number, Champion>,
+  meta: SeasonMetaSnapshot,
+): number {
+  let wsum = 0;
+  let vsum = 0;
+  player.goodChamps.forEach((id, i) => {
+    const champ = byId.get(id);
+    if (!champ) return;
+    const tier = metaTierAt(champ.alias, player.lane, meta);
+    if (!tier) return;
+    const w = i < MAIN_POOL ? 1 : SECONDARY_COMFORT;
+    wsum += w;
+    vsum += w * (META_TIER_VALUE[tier] - POOL_NEUTRAL);
+  });
+  return wsum > 0 ? vsum / wsum : 0;
+}
+
+// How much an un-acclimated cross-region import is discounted: a brand-new
+// import (acclimation 0) is worth ~0.5 tiers less right now, fading to 0 as
+// they settle — teams price in the language-barrier dip.
+const W_COHESION = 0.5;
+
+// A player's transfer value: skill + split form + pool fit − language barrier.
+// `grade` is the slot's average match rating this split (null = didn't play).
+export function transferValue(
+  player: Player,
+  grade: number | null,
+  byId: Map<number, Champion>,
+  meta: SeasonMetaSnapshot,
+): number {
+  let v = PLAYER_TIER_VALUE[player.tier];
+  if (grade != null) v += W_PERF * (grade - GRADE_NEUTRAL);
+  v += W_META * poolFit(player, byId, meta);
+  const acc = Math.max(0, Math.min(1, player.acclimation ?? 1)); // guard NaN/out-of-range
+  v -= W_COHESION * (1 - acc);
+  return v;
+}
+
+// Re-settle a player after a transfer to `toLeague` (they came from
+// `fromLeague`). Coming home → fully acclimated; lateral within a region →
+// unchanged; a fresh cross-region move → resets acclimation low (the barrier).
+export function settle(player: Player, fromLeague: string, toLeague: string): Player {
+  if (!player.homeRegion) return player;
+  if (toLeague === player.homeRegion) return { ...player, acclimation: 1 };
+  if (toLeague === fromLeague) return player;
+  return { ...player, acclimation: 0.15 };
+}
+
+// ── Split grades (per team, per lane slot) ─────────────────────────────────
+// Average 1-10 match rating for each roster slot across the split's
+// tournaments. Scoped variant of teamSeasonGrades(); kept here to avoid the
+// engine↔stats import cycle. ponytail: if a third caller appears, fold the two.
+function splitLaneGrades(
+  season: SeasonState,
+  tournamentIds: string[],
+): Map<string, (number | null)[]> {
+  const sums = new Map<string, number[]>();
+  const counts = new Map<string, number[]>();
+  const ensure = (m: Map<string, number[]>, id: string) => {
+    let row = m.get(id);
+    if (!row) {
+      row = [0, 0, 0, 0, 0];
+      m.set(id, row);
+    }
+    return row;
+  };
+  for (const tid of tournamentIds) {
+    const t = season.tournaments[tid];
+    if (!t) continue;
+    for (const match of t.matches) {
+      if (match.isBye || !match.series) continue;
+      for (const teamId of [match.blueTeamId, match.redTeamId]) {
+        if (!teamId) continue;
+        const side: "blue" | "red" = teamId === match.blueTeamId ? "blue" : "red";
+        for (const game of match.series.games) {
+          if (game.status !== "complete" || game.winner == null) continue;
+          const recap = game.recap;
+          if (!recap) continue;
+          let ratings = recap.ratings ?? null;
+          if (!ratings && recap.perPickKDA) ratings = computeGameRatings(recap, game.winner);
+          if (!ratings) continue;
+          const notes = side === "blue" ? ratings.blue : ratings.red;
+          const s = ensure(sums, teamId);
+          const c = ensure(counts, teamId);
+          for (let i = 0; i < 5; i++) {
+            const v = notes[i];
+            if (typeof v !== "number" || !Number.isFinite(v)) continue;
+            s[i] += v;
+            c[i] += 1;
+          }
+        }
+      }
+    }
+  }
+  const out = new Map<string, (number | null)[]>();
+  for (const [teamId, s] of sums) {
+    const c = counts.get(teamId)!;
+    out.set(teamId, s.map((sum, i) => (c[i] > 0 ? sum / c[i] : null)));
+  }
+  return out;
+}
+
+// ── Destination desirability ───────────────────────────────────────────────
+// How attractive a team is to move TO: this split's league finish + a fixed
+// region-prestige bonus (LEAGUE_IDS is the canonical inter-league ranking). A
+// top team in a top region is the most desirable seat; winning a weaker region
+// rates near a mid-table strong-region team. ponytail: fixed prestige order;
+// wire leagueStrength in here if regionTides should sway the market too.
+function regionBonus(league: LeagueId): number {
+  return LEAGUE_IDS.length - LEAGUE_IDS.indexOf(league); // LCK 6 .. LCP 1
+}
+
+function destScores(season: SeasonState, split: SplitId): Map<string, number> {
+  const finishByLeague = (split && season.splitResults[split]) || {};
+  const out = new Map<string, number>();
+  for (const team of season.teams) {
+    const order = finishByLeague[team.leagueId] ?? [];
+    const idx = order.indexOf(team.id);
+    const finish = idx >= 0 ? TEAMS_PER_LEAGUE - idx : TEAMS_PER_LEAGUE / 2; // 10..1
+    out.set(team.id, regionBonus(team.leagueId) + finish);
+  }
+  return out;
+}
+
+// ── Swap planner (pure, testable) ──────────────────────────────────────────
+export interface LaneEntry {
+  teamId: string;
+  value: number;
+  dest: number; // destination desirability of this player's current team
+}
+export interface PlannedSwap {
+  aTeamId: string; // the stuck star (high value, undesirable team) → moves up
+  bTeamId: string; // the weak link (low value, desirable team)    → moves down
+}
+
+const norm = (x: number, lo: number, hi: number) => (hi > lo ? (x - lo) / (hi - lo) : 0.5);
+
+// Pick up to MAX_MOVES_PER_LANE poach pairs: the most "underplaced" player
+// (high value, low-desirability team) swaps with the most "overplaced" one
+// (low value, high-desirability team), provided the value gap clears the floor
+// and the move is genuinely upward. Each team is used at most once per lane.
+export function planLaneSwaps(
+  entries: LaneEntry[],
+  // The offseason (biggest window of the year) passes a lower gap + higher cap
+  // so far more players change teams than during the lighter in-season windows.
+  opts: { gapMin?: number; maxMoves?: number } = {},
+): PlannedSwap[] {
+  const gapMin = opts.gapMin ?? VALUE_GAP_MIN;
+  const maxMoves = opts.maxMoves ?? MAX_MOVES_PER_LANE;
+  const swaps: PlannedSwap[] = [];
+  const used = new Set<string>();
+  for (let move = 0; move < maxMoves; move++) {
+    const pool = entries.filter((e) => !used.has(e.teamId));
+    if (pool.length < 2) break;
+    const vs = pool.map((e) => e.value);
+    const ds = pool.map((e) => e.dest);
+    const [vlo, vhi] = [Math.min(...vs), Math.max(...vs)];
+    const [dlo, dhi] = [Math.min(...ds), Math.max(...ds)];
+    let star: LaneEntry | null = null; // max(vNorm − dNorm)
+    let link: LaneEntry | null = null; // max(dNorm − vNorm)
+    let starM = -Infinity;
+    let linkM = -Infinity;
+    for (const e of pool) {
+      const m = norm(e.value, vlo, vhi) - norm(e.dest, dlo, dhi);
+      if (m > starM) (starM = m), (star = e);
+      if (-m > linkM) (linkM = -m), (link = e);
+    }
+    if (!star || !link || star.teamId === link.teamId) break;
+    if (star.value - link.value < gapMin) break;
+    if (link.dest <= star.dest) break; // weak link's team must be the better seat
+    swaps.push({ aTeamId: star.teamId, bTeamId: link.teamId });
+    used.add(star.teamId);
+    used.add(link.teamId);
+  }
+  return swaps;
+}
+
+function snapshot(player: Player, grade: number | null): TransferPlayer {
+  return {
+    ...(player.name ? { name: player.name } : {}),
+    tier: player.tier,
+    grade,
+    goodChamps: [...player.goodChamps],
+  };
+}
+
+// ── Entry point ────────────────────────────────────────────────────────────
+// Runs as a transfer window opens — i.e. when the FIRST STAND / MSI
+// international that precedes it completes. Performance is read across the
+// qualifying split plus that international; champion-pool fit uses the
+// just-shifted patch. Stores the window's auto-applied moves under
+// transfersByEvent[event]; moves touching the followed team become proposals.
+export function applyTransfers(
+  season: SeasonState,
+  champions: readonly Champion[],
+  intlPhase: SeasonPhase,
+): SeasonState {
+  if (!season.config.playerTransfers) return season;
+  const event = intlPhase.event;
+  if (!event || event === "worlds") return season; // no window after Worlds
+  const split = QUALIFYING_SPLIT[event];
+  const byId = new Map(champions.map((c) => [c.id, c]));
+  // Grade over the qualifying split's games plus this international's.
+  const grades = splitLaneGrades(season, windowGradeTids(season, event));
+  const dest = destScores(season, split);
+  const meta = season.currentMeta;
+
+  // Mutable team lookup; swaps below rewrite the lane slot in place.
+  const teams = new Map(season.teams.map((t) => [t.id, { ...t, players: [...t.players] }]));
+  const transfers: PlayerTransfer[] = [];
+  const proposals: ProposedTransfer[] = [];
+  const controlledId = season.config.controlledTeamId;
+  const gradeOf = (teamId: string, li: number) => grades.get(teamId)?.[li] ?? null;
+
+  for (let li = 0; li < LANE_ORDER.length; li++) {
+    const lane = LANE_ORDER[li];
+    const entries: LaneEntry[] = [];
+    for (const team of teams.values()) {
+      const player = team.players[li];
+      if (!player) continue;
+      entries.push({
+        teamId: team.id,
+        value: transferValue(player, gradeOf(team.id, li), byId, meta),
+        dest: dest.get(team.id) ?? 0,
+      });
+    }
+    for (const { aTeamId, bTeamId } of planLaneSwaps(entries)) {
+      const a = teams.get(aTeamId)!;
+      const b = teams.get(bTeamId)!;
+      const pa = a.players[li]; // stuck star → goes to b (better seat)
+      const pb = b.players[li]; // weak link → goes to a (the poacher's old slot)
+      const starSnap = snapshot(pa, gradeOf(aTeamId, li));
+      const swapSnap = snapshot(pb, gradeOf(bTeamId, li));
+      // A move touching the followed team is the user's call — propose it, but
+      // leave both rosters untouched until they accept.
+      if (controlledId && (aTeamId === controlledId || bTeamId === controlledId)) {
+        const isController = aTeamId === controlledId; // controller is the poached star
+        proposals.push({
+          event,
+          lane,
+          laneIndex: li,
+          controlledTeamId: controlledId,
+          otherTeamId: isController ? bTeamId : aTeamId,
+          kind: isController ? "outgoing" : "incoming",
+          mine: isController ? starSnap : swapSnap,
+          theirs: isController ? swapSnap : starSnap,
+        });
+        continue;
+      }
+      a.players[li] = settle(pb, b.leagueId, a.leagueId);
+      b.players[li] = settle(pa, a.leagueId, b.leagueId);
+      transfers.push({ event, lane, fromTeamId: aTeamId, toTeamId: bTeamId, star: starSnap, swap: swapSnap });
+    }
+  }
+
+  if (transfers.length === 0 && proposals.length === 0) return season;
+  return {
+    ...season,
+    teams: [...teams.values()],
+    transfersByEvent: { ...season.transfersByEvent, [event]: transfers },
+    proposedTransfers: proposals,
+  };
+}
+
+// Apply or dismiss a pending followed-team transfer (by index into
+// season.proposedTransfers). Accepting swaps the two teams' players in that
+// lane and logs it into the window's recap; either way the proposal is
+// removed. deriveStar re-rates teams automatically.
+export function resolveTransfer(
+  season: SeasonState,
+  index: number,
+  accept: boolean,
+): SeasonState {
+  const props = season.proposedTransfers;
+  if (!props || index < 0 || index >= props.length) return season;
+  const prop = props[index];
+  const remaining = props.filter((_, i) => i !== index);
+  if (!accept) return { ...season, proposedTransfers: remaining };
+  const teams = season.teams.map((t) =>
+    t.id === prop.controlledTeamId || t.id === prop.otherTeamId
+      ? { ...t, players: [...t.players] }
+      : t,
+  );
+  const a = teams.find((t) => t.id === prop.controlledTeamId);
+  const b = teams.find((t) => t.id === prop.otherTeamId);
+  if (!a || !b) return { ...season, proposedTransfers: remaining };
+  const li = prop.laneIndex;
+  const toA = settle(b.players[li], b.leagueId, a.leagueId);
+  const toB = settle(a.players[li], a.leagueId, b.leagueId);
+  a.players[li] = toA;
+  b.players[li] = toB;
+  // Log into the window recap, oriented star (up) → swap (down).
+  const incoming = prop.kind === "incoming";
+  const record: PlayerTransfer = {
+    event: prop.event,
+    lane: prop.lane,
+    fromTeamId: incoming ? prop.otherTeamId : prop.controlledTeamId,
+    toTeamId: incoming ? prop.controlledTeamId : prop.otherTeamId,
+    star: incoming ? prop.theirs : prop.mine,
+    swap: incoming ? prop.mine : prop.theirs,
+  };
+  const log = [...(season.transfersByEvent?.[prop.event] ?? []), record];
+  return {
+    ...season,
+    teams,
+    proposedTransfers: remaining,
+    transfersByEvent: { ...season.transfersByEvent, [prop.event]: log },
+  };
+}
+
+// ── User-initiated shopping ─────────────────────────────────────────────────
+// The window's grading scope: the qualifying split's games plus that
+// international's. Shared by applyTransfers and the shopping search so values
+// match exactly.
+function windowGradeTids(season: SeasonState, event: InternationalId): string[] {
+  const split = QUALIFYING_SPLIT[event];
+  const splitPhase = season.phases.find((p) => p.kind === "split" && p.split === split);
+  const intlPhase = season.phases.find((p) => p.kind === "international" && p.event === event);
+  return [...(splitPhase?.tournamentIds ?? []), ...(intlPhase?.tournamentIds ?? [])];
+}
+
+// The open transfer window's event, or null when not sitting on one.
+function openWindowEvent(season: SeasonState): InternationalId | null {
+  const phase = season.phases[season.phaseIndex];
+  return phase?.kind === "transfer" && phase.event ? phase.event : null;
+}
+
+// Each team makes at most ONE move per role per window. Has `teamId` already
+// been part of a transfer at `lane` this window?
+export function teamMovedAtLane(
+  season: SeasonState,
+  event: InternationalId,
+  teamId: string,
+  lane: Lane,
+): boolean {
+  const moves = season.transfersByEvent?.[event] ?? [];
+  return moves.some(
+    (m) => m.lane === lane && (m.fromTeamId === teamId || m.toTeamId === teamId),
+  );
+}
+
+// The followed team may make at most this many transfers per window — on
+// distinct roles (the 1-per-role cap already guarantees distinct positions).
+export const USER_MAX_TRANSFERS_PER_WINDOW = 3;
+
+// How many transfers the followed team has already made this window.
+export function userTransferCount(
+  season: SeasonState,
+  event: InternationalId,
+  teamId: string,
+): number {
+  const moves = season.transfersByEvent?.[event] ?? [];
+  return moves.filter((m) => m.fromTeamId === teamId || m.toTeamId === teamId).length;
+}
+
+// Has the followed team hit its per-window transfer cap?
+export function userTransferCapReached(
+  season: SeasonState,
+  event: InternationalId,
+  teamId: string,
+): boolean {
+  return userTransferCount(season, event, teamId) >= USER_MAX_TRANSFERS_PER_WINDOW;
+}
+
+// One other team's player as a possible swap for a followed-team roster slot.
+export interface TransferCandidate {
+  otherTeamId: string;
+  lane: Lane;
+  theirs: TransferPlayer;
+  mineValue: number;
+  theirsValue: number;
+  // Would the other team agree? (They accept incoming ≥ outgoing − tolerance.)
+  willing: boolean;
+  upgrade: number; // theirsValue − mineValue (positive = better for you)
+}
+
+// Search every other team for a swap of the followed team's player at `lane`,
+// during the open window. Willing candidates (the other team would agree) come
+// first, best upgrade first. Pure — the UI calls it directly.
+export function transferCandidates(
+  season: SeasonState,
+  champions: readonly Champion[],
+  lane: Lane,
+): TransferCandidate[] {
+  const event = openWindowEvent(season);
+  const controlledId = season.config.controlledTeamId;
+  if (!event || !controlledId || !season.config.playerTransfers) return [];
+  const me = season.teams.find((t) => t.id === controlledId);
+  const li = LANE_ORDER.indexOf(lane);
+  if (!me || li < 0 || !me.players[li]) return [];
+  // One move per role: nothing to shop once your team has used this lane.
+  if (teamMovedAtLane(season, event, controlledId, lane)) return [];
+  // Hit the per-window cap → nothing more to shop on any lane.
+  if (userTransferCapReached(season, event, controlledId)) return [];
+  const byId = new Map(champions.map((c) => [c.id, c]));
+  const grades = splitLaneGrades(season, windowGradeTids(season, event));
+  const meta = season.currentMeta;
+  const mineValue = transferValue(me.players[li], grades.get(controlledId)?.[li] ?? null, byId, meta);
+  const out: TransferCandidate[] = [];
+  for (const team of season.teams) {
+    if (team.id === controlledId) continue;
+    // A team that already used this role this window can't trade it again.
+    if (teamMovedAtLane(season, event, team.id, lane)) continue;
+    const p = team.players[li];
+    if (!p) continue;
+    const grade = grades.get(team.id)?.[li] ?? null;
+    const v = transferValue(p, grade, byId, meta);
+    out.push({
+      otherTeamId: team.id,
+      lane,
+      theirs: snapshot(p, grade),
+      mineValue,
+      theirsValue: v,
+      willing: mineValue >= v - WILLING_TOL,
+      upgrade: v - mineValue,
+    });
+  }
+  out.sort((a, b) => Number(b.willing) - Number(a.willing) || b.upgrade - a.upgrade);
+  return out;
+}
+
+// Execute a user-shopped swap (followed team ⇄ otherTeam at `lane`) if the
+// other team would agree. Logs it into the window recap and supersedes any
+// pending auto-proposal on that lane. No-op if not on a window or not willing.
+export function executeUserTransfer(
+  season: SeasonState,
+  champions: readonly Champion[],
+  lane: Lane,
+  otherTeamId: string,
+): SeasonState {
+  const event = openWindowEvent(season);
+  const controlledId = season.config.controlledTeamId;
+  if (!event || !controlledId) return season;
+  const li = LANE_ORDER.indexOf(lane);
+  const me = season.teams.find((t) => t.id === controlledId);
+  const other = season.teams.find((t) => t.id === otherTeamId);
+  if (li < 0 || !me || !other || !me.players[li] || !other.players[li]) return season;
+  // One move per role per window — for both sides.
+  if (
+    teamMovedAtLane(season, event, controlledId, lane) ||
+    teamMovedAtLane(season, event, otherTeamId, lane)
+  ) {
+    return season;
+  }
+  // The user's per-window transfer cap.
+  if (userTransferCapReached(season, event, controlledId)) return season;
+  const byId = new Map(champions.map((c) => [c.id, c]));
+  const grades = splitLaneGrades(season, windowGradeTids(season, event));
+  const meta = season.currentMeta;
+  const myGrade = grades.get(controlledId)?.[li] ?? null;
+  const theirGrade = grades.get(otherTeamId)?.[li] ?? null;
+  const pMine = me.players[li];
+  const pThem = other.players[li];
+  const vMine = transferValue(pMine, myGrade, byId, meta);
+  const vThem = transferValue(pThem, theirGrade, byId, meta);
+  if (vMine < vThem - WILLING_TOL) return season; // they wouldn't agree
+
+  const teams = season.teams.map((t) =>
+    t.id === controlledId || t.id === otherTeamId ? { ...t, players: [...t.players] } : t,
+  );
+  const m2 = teams.find((t) => t.id === controlledId)!;
+  const o2 = teams.find((t) => t.id === otherTeamId)!;
+  const incoming = settle(o2.players[li], o2.leagueId, m2.leagueId);
+  const outgoing = settle(m2.players[li], m2.leagueId, o2.leagueId);
+  m2.players[li] = incoming;
+  o2.players[li] = outgoing;
+
+  const mineSnap = snapshot(pMine, myGrade);
+  const themSnap = snapshot(pThem, theirGrade);
+  const themBetter = vThem >= vMine;
+  const record: PlayerTransfer = {
+    event,
+    lane,
+    fromTeamId: themBetter ? otherTeamId : controlledId,
+    toTeamId: themBetter ? controlledId : otherTeamId,
+    star: themBetter ? themSnap : mineSnap,
+    swap: themBetter ? mineSnap : themSnap,
+  };
+  const log = [...(season.transfersByEvent?.[event] ?? []), record];
+  return {
+    ...season,
+    teams,
+    // The shopped lane's auto-proposal (if any) is now stale — drop it.
+    proposedTransfers: (season.proposedTransfers ?? []).filter((p) => p.laneIndex !== li),
+    transfersByEvent: { ...season.transfersByEvent, [event]: log },
+  };
+}
+
+// ── Offseason (post-Worlds) transfer window ─────────────────────────────────
+// Run BETWEEN seasons in a franchise: the biggest window of the year. Uses the
+// just-finished season's per-lane grades + each team's strength/prestige to
+// auto-shuffle rosters across every region (all teams, no proposals — it's the
+// offseason market). `gradeOf` returns a player's last-season grade (1-10) for
+// (teamId, laneIndex). Returns the evolved teams + a recap keyed "worlds".
+export function offseasonTransferPass(
+  teams: readonly SeasonTeam[],
+  gradeOf: (teamId: string, laneIndex: number) => number | null,
+  byId: Map<number, Champion>,
+  meta: SeasonMetaSnapshot,
+  // The followed team handles its OWN offseason interactively, so the auto
+  // market leaves it (and any lane it already moved) alone.
+  skipTeamId?: string | null,
+  movedLanes?: (teamId: string, laneIndex: number) => boolean,
+): { teams: SeasonTeam[]; moves: PlayerTransfer[] } {
+  const map = new Map(teams.map((t) => [t.id, { ...t, players: [...t.players] }]));
+  const moves: PlayerTransfer[] = [];
+  const prestige = (lg: LeagueId) => LEAGUE_IDS.length - LEAGUE_IDS.indexOf(lg);
+  for (let li = 0; li < LANE_ORDER.length; li++) {
+    const lane = LANE_ORDER[li];
+    const entries: LaneEntry[] = [];
+    for (const t of map.values()) {
+      const p = t.players[li];
+      if (!p) continue;
+      if (t.id === skipTeamId) continue; // user's team — they shop it themselves
+      if (movedLanes?.(t.id, li)) continue; // already transacted this lane
+      entries.push({
+        teamId: t.id,
+        value: transferValue(p, gradeOf(t.id, li), byId, meta),
+        dest: deriveStar(t.players) + prestige(t.leagueId),
+      });
+    }
+    for (const { aTeamId, bTeamId } of planLaneSwaps(entries, {
+      gapMin: OFFSEASON_GAP_MIN,
+      maxMoves: OFFSEASON_MAX_MOVES,
+    })) {
+      const a = map.get(aTeamId)!;
+      const b = map.get(bTeamId)!;
+      const pa = a.players[li];
+      const pb = b.players[li];
+      a.players[li] = settle(pb, b.leagueId, a.leagueId);
+      b.players[li] = settle(pa, a.leagueId, b.leagueId);
+      moves.push({
+        event: "worlds",
+        lane,
+        fromTeamId: aTeamId,
+        toTeamId: bTeamId,
+        star: snapshot(pa, gradeOf(aTeamId, li)),
+        swap: snapshot(pb, gradeOf(bTeamId, li)),
+      });
+    }
+  }
+  return { teams: [...map.values()], moves };
+}
+
+// ── Interactive offseason shopping (followed team) ──────────────────────────
+// Same idea as transferCandidates/executeUserTransfer, but for the post-Worlds
+// offseason on a COMPLETED season: it doesn't need an open transfer phase, uses
+// the WHOLE season's grades, and records under the "worlds" window.
+const OFFSEASON = "worlds" as const;
+
+function wholeSeasonGrades(season: SeasonState) {
+  return splitLaneGrades(season, Object.keys(season.tournaments));
+}
+
+export function offseasonCandidates(
+  season: SeasonState,
+  champions: readonly Champion[],
+  lane: Lane,
+): TransferCandidate[] {
+  if (!season.config.playerTransfers) return [];
+  const controlledId = season.config.controlledTeamId;
+  const me = season.teams.find((t) => t.id === controlledId);
+  const li = LANE_ORDER.indexOf(lane);
+  if (!controlledId || !me || li < 0 || !me.players[li]) return [];
+  if (teamMovedAtLane(season, OFFSEASON, controlledId, lane)) return [];
+  if (userTransferCapReached(season, OFFSEASON, controlledId)) return [];
+  const byId = new Map(champions.map((c) => [c.id, c]));
+  const grades = wholeSeasonGrades(season);
+  const meta = season.currentMeta;
+  const mineValue = transferValue(me.players[li], grades.get(controlledId)?.[li] ?? null, byId, meta);
+  const out: TransferCandidate[] = [];
+  for (const team of season.teams) {
+    if (team.id === controlledId) continue;
+    if (teamMovedAtLane(season, OFFSEASON, team.id, lane)) continue;
+    const p = team.players[li];
+    if (!p) continue;
+    const grade = grades.get(team.id)?.[li] ?? null;
+    const v = transferValue(p, grade, byId, meta);
+    out.push({
+      otherTeamId: team.id,
+      lane,
+      theirs: snapshot(p, grade),
+      mineValue,
+      theirsValue: v,
+      willing: mineValue >= v - OFFSEASON_WILLING_TOL,
+      upgrade: v - mineValue,
+    });
+  }
+  out.sort((a, b) => Number(b.willing) - Number(a.willing) || b.upgrade - a.upgrade);
+  return out;
+}
+
+export function executeOffseasonUserTransfer(
+  season: SeasonState,
+  champions: readonly Champion[],
+  lane: Lane,
+  otherTeamId: string,
+): SeasonState {
+  const controlledId = season.config.controlledTeamId;
+  const li = LANE_ORDER.indexOf(lane);
+  const me = season.teams.find((t) => t.id === controlledId);
+  const other = season.teams.find((t) => t.id === otherTeamId);
+  if (!controlledId || li < 0 || !me || !other || !me.players[li] || !other.players[li]) return season;
+  if (
+    teamMovedAtLane(season, OFFSEASON, controlledId, lane) ||
+    teamMovedAtLane(season, OFFSEASON, otherTeamId, lane)
+  ) {
+    return season;
+  }
+  if (userTransferCapReached(season, OFFSEASON, controlledId)) return season;
+  const byId = new Map(champions.map((c) => [c.id, c]));
+  const grades = wholeSeasonGrades(season);
+  const meta = season.currentMeta;
+  const myGrade = grades.get(controlledId)?.[li] ?? null;
+  const theirGrade = grades.get(otherTeamId)?.[li] ?? null;
+  const pMine = me.players[li];
+  const pThem = other.players[li];
+  const vMine = transferValue(pMine, myGrade, byId, meta);
+  const vThem = transferValue(pThem, theirGrade, byId, meta);
+  if (vMine < vThem - OFFSEASON_WILLING_TOL) return season; // offseason: easier deals
+  const teams = season.teams.map((t) =>
+    t.id === controlledId || t.id === otherTeamId ? { ...t, players: [...t.players] } : t,
+  );
+  const m2 = teams.find((t) => t.id === controlledId)!;
+  const o2 = teams.find((t) => t.id === otherTeamId)!;
+  m2.players[li] = settle(o2.players[li], o2.leagueId, m2.leagueId);
+  o2.players[li] = settle(pMine, m2.leagueId, o2.leagueId);
+  const mineSnap = snapshot(pMine, myGrade);
+  const themSnap = snapshot(pThem, theirGrade);
+  const themBetter = vThem >= vMine;
+  const record: PlayerTransfer = {
+    event: OFFSEASON,
+    lane,
+    fromTeamId: themBetter ? otherTeamId : controlledId,
+    toTeamId: themBetter ? controlledId : otherTeamId,
+    star: themBetter ? themSnap : mineSnap,
+    swap: themBetter ? mineSnap : themSnap,
+  };
+  const log = [...(season.transfersByEvent?.[OFFSEASON] ?? []), record];
+  return { ...season, teams, transfersByEvent: { ...season.transfersByEvent, [OFFSEASON]: log } };
+}

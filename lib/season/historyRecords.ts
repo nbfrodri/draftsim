@@ -438,6 +438,7 @@ export interface PlayerAllTimeLine {
   lane: Lane;
   mvp: number;
   allPro: number;
+  playerName?: string; // newest archived handle for this slot, when known
 }
 
 /** All-time MVP / All-Pro tallies per team-position, summed from the
@@ -462,9 +463,66 @@ export function computePlayerAllTime(
           lane: t.lane,
           mvp: t.mvp,
           allPro: t.allPro,
+          ...(t.playerName ? { playerName: t.playerName } : {}),
         });
       }
     }
   }
   return [...byKey.values()];
+}
+
+// ─── Player careers (by stable id, across seasons) ──────────────────────────
+
+export interface PlayerCareerLine {
+  playerId: string;
+  playerName: string;
+  leagueId: LeagueId | null; // most recent
+  teamName?: string; // most recent team, for a logo
+  seasons: number;
+  games: number;
+  kills: number;
+  mvps: number;
+  allPro: number;
+  splitTitles: number;
+  intlAppearances: number;
+  intlTitles: number;
+}
+
+/** Aggregate per-season player records into true careers, keyed by stable
+ *  player id. Newest archived season sets the displayed name/league. Empty
+ *  until a season archived with player ids. */
+export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCareerLine[] {
+  const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
+  const byId = new Map<string, PlayerCareerLine>();
+  for (const e of ordered) {
+    for (const r of e.playerCareers ?? []) {
+      const cur = byId.get(r.playerId);
+      if (cur) {
+        cur.seasons += 1;
+        cur.games += r.games;
+        cur.kills += r.kills;
+        cur.mvps += r.mvps;
+        cur.allPro += r.allPro;
+        cur.splitTitles += r.splitTitles;
+        cur.intlAppearances += r.intlAppearances;
+        cur.intlTitles += r.intlTitles;
+      } else {
+        byId.set(r.playerId, {
+          playerId: r.playerId,
+          playerName: r.playerName,
+          leagueId: r.leagueId,
+          teamName: r.teamName,
+          seasons: 1,
+          games: r.games,
+          kills: r.kills,
+          mvps: r.mvps,
+          allPro: r.allPro,
+          splitTitles: r.splitTitles,
+          intlAppearances: r.intlAppearances,
+          intlTitles: r.intlTitles,
+        });
+      }
+    }
+  }
+  return [...byId.values()];
 }

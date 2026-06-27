@@ -109,6 +109,7 @@ export function ContributionRow({
   damageShare,
   rating,
   form,
+  playerName,
 }: {
   champ: Champion;
   meta: ChampionMeta | null;
@@ -121,6 +122,8 @@ export function ContributionRow({
   rating?: number;
   // Optional form value in [-1, 1] for this player.
   form?: number;
+  // Optional player handle (e.g. "Faker"). Renders near champion name.
+  playerName?: string | null;
 }) {
   const accent = side === "blue" ? "text-rift-bluebright" : "text-rift-redbright";
   const barCls = side === "blue" ? "bg-rift-blue" : "bg-rift-red";
@@ -145,6 +148,11 @@ export function ContributionRow({
             >
               {champ.name}
             </span>
+            {playerName && (
+              <span className="text-[10px] font-medium text-rift-mutedbright truncate">
+                {playerName}
+              </span>
+            )}
             {form != null && <FormIndicator form={form} />}
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">

@@ -1655,6 +1655,26 @@ export function playerLaneFormBias(
   );
 }
 
+// Language-barrier / cohesion lane-gold penalty. A cross-region import who
+// hasn't acclimated (low `acclimation`) under-performs in lane — communication
+// and synergy lag behind. `(1 − acclimation)` is the penalty; settled/native
+// players (acclimation ≈ 1, or absent) contribute 0, keeping default sims
+// unchanged. ~14 g/min for a brand-new import, fading as they acclimate.
+const COHESION_LANE_K = 14;
+export function playerLaneCohesionBias(
+  bluePlayers: Roster | undefined,
+  redPlayers: Roster | undefined,
+  lane: Lane,
+  k: number = COHESION_LANE_K,
+): number {
+  const pen = (r: Roster | undefined): number => {
+    const p = playerForLane(r, lane);
+    return p ? 1 - (p.acclimation ?? 1) : 0;
+  };
+  // A side's own penalty reduces its lane gold (blue-positive advantage).
+  return (pen(redPlayers) - pen(bluePlayers)) * k;
+}
+
 // Champion-mastery → highlight plays. The timeline's outplay/pentakill picker
 // keys off a per-lane "who's likely to pop off" form value; a player on their
 // comfort pick (a main) should pop off more, an off-pick less. This MERGES the
@@ -1751,6 +1771,8 @@ function computeLaneAdvantages(
     // Hot/cold form for the players in this lane (lib/playerForm.ts). Exactly
     // 0 when the caller passes no forms — the default path stays unchanged.
     const formLaneBias = playerLaneFormBias(blueForms, redForms, lane);
+    // Language barrier: unacclimated cross-region imports under-perform.
+    const cohesionLaneBias = playerLaneCohesionBias(bluePlayers, redPlayers, lane);
     adv[lane] =
       phaseDiff * 50 +
       ccDiff * 5 +
@@ -1761,7 +1783,8 @@ function computeLaneAdvantages(
       counterAdvantage +
       playerBias +
       poolLaneBias +
-      formLaneBias;
+      formLaneBias +
+      cohesionLaneBias;
   }
   // Apply weakside redistributions. The weak side bleeds ~25 g/min while
   // the strong side gets +15 g/min — net negative for the team, but the
@@ -2329,6 +2352,10 @@ export function buildGameRecap(
   game: GameDraft,
   champions: Champion[],
   result: SimulationResult,
+  // Optional rosters (lane order) so the recap can record who played each
+  // pick + the MVP's handle/id. Absent → names omitted (legacy-safe).
+  bluePlayers?: ReadonlyArray<{ name?: string; id?: string }>,
+  redPlayers?: ReadonlyArray<{ name?: string; id?: string }>,
 ): import("./types").GameRecap {
   const byId = new Map(champions.map((c) => [c.id, c]));
   // Re-compute final per-lane KDA and lane gold from the timeline. We
@@ -2467,6 +2494,7 @@ export function buildGameRecap(
     }
   }
   candidates.sort((a, b) => b.score - a.score);
+  const mvpRoster = (side: Side) => (side === "blue" ? bluePlayers : redPlayers);
   const mvp = candidates[0]
     ? {
         side: candidates[0].side,
@@ -2476,6 +2504,13 @@ export function buildGameRecap(
         deaths: candidates[0].kda.d,
         assists: candidates[0].kda.a,
         laneGoldDiff: candidates[0].laneGoldDiff,
+        ...(() => {
+          const slot = mvpRoster(candidates[0].side)?.[positionalLanes.indexOf(candidates[0].lane)];
+          return {
+            ...(slot?.name ? { playerName: slot.name } : {}),
+            ...(slot?.id ? { playerId: slot.id } : {}),
+          };
+        })(),
       }
     : null;
 
@@ -2565,6 +2600,28 @@ export function buildGameRecap(
     })),
   };
 
+  // Per-pick roster handles aligned to the positional lanes (when rosters
+  // were supplied). Only emitted if at least one side carries names.
+  const perPickNames =
+    bluePlayers || redPlayers
+      ? {
+          blue: positionalLanes.map((_, i) => bluePlayers?.[i]?.name ?? null),
+          red: positionalLanes.map((_, i) => redPlayers?.[i]?.name ?? null),
+        }
+      : undefined;
+  const perPickIds =
+    bluePlayers || redPlayers
+      ? {
+          blue: positionalLanes.map((_, i) => bluePlayers?.[i]?.id ?? null),
+          red: positionalLanes.map((_, i) => redPlayers?.[i]?.id ?? null),
+        }
+      : undefined;
+  const hasNames =
+    perPickNames &&
+    (perPickNames.blue.some(Boolean) || perPickNames.red.some(Boolean));
+  const hasIds =
+    perPickIds && (perPickIds.blue.some(Boolean) || perPickIds.red.some(Boolean));
+
   // Per-player game ratings (1-10) derived from the same per-pick KDA and
   // lane-gold numbers above. Optional on the type (legacy recaps lack it);
   // always populated for freshly built recaps.
@@ -2584,6 +2641,8 @@ export function buildGameRecap(
     notableEvents,
     perPickKDA,
     ratings,
+    ...(hasNames ? { perPickNames } : {}),
+    ...(hasIds ? { perPickIds } : {}),
     pentakills: pentakills.length ? pentakills : undefined,
   };
 }

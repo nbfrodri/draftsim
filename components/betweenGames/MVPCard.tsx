@@ -36,6 +36,8 @@ export function MVPCard({
   winner,
   blueTeam,
   redTeam,
+  bluePlayerNames,
+  redPlayerNames,
 }: {
   timeline: MatchTimeline;
   laneAdvantages: Record<Lane, number>;
@@ -47,6 +49,9 @@ export function MVPCard({
   winner: Side;
   blueTeam: string;
   redTeam: string;
+  // Optional per-lane player handles (positional order) for each side.
+  bluePlayerNames?: (string | null)[];
+  redPlayerNames?: (string | null)[];
 }) {
   const mvp = useMemo(() => {
     // Final stats = stats accumulated across ALL events.
@@ -122,6 +127,10 @@ export function MVPCard({
   const champ = byId.get(mvp.championId);
   if (!champ) return null;
   const sideName = mvp.side === "blue" ? blueTeam : redTeam;
+  const mvpHandle =
+    (mvp.side === "blue" ? bluePlayerNames : redPlayerNames)?.[
+      LANE_ORDER.indexOf(mvp.lane)
+    ] ?? null;
   const sideBorderHex =
     mvp.side === "blue" ? "border-rift-blue" : "border-rift-red";
   const sideAccentText =
@@ -189,6 +198,11 @@ export function MVPCard({
           <div className="font-display text-2xl md:text-3xl tracking-wider truncate text-rift-goldbright leading-tight">
             {champ.name}
           </div>
+          {mvpHandle && (
+            <div className="text-[11px] font-medium text-rift-mutedbright tracking-wider mt-0.5 truncate">
+              {mvpHandle}
+            </div>
+          )}
           <div className="flex items-baseline gap-3 md:gap-4 mt-2 flex-wrap">
             {/* KDA cluster */}
             <div className="flex items-baseline gap-1">

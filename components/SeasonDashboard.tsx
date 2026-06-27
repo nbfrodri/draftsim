@@ -18,7 +18,11 @@ import {
   qualifierTag,
   seasonGoldenRoadTeamId,
 } from "@/lib/season/engine";
-import { computeSeasonStats, computeStageStats } from "@/lib/season/stats";
+import {
+  computeSeasonStats,
+  computeStageStats,
+  type PlayerSeasonLine,
+} from "@/lib/season/stats";
 import {
   computePowerRankings,
   type PowerRankingRow,
@@ -27,6 +31,10 @@ import {
 import { buildSeasonStory } from "@/lib/season/seasonStory";
 import SeasonStoryCard from "./SeasonStoryCard";
 import MyTeamPanel from "./MyTeamPanel";
+import TransferWindowPanel from "./TransferWindowPanel";
+import TeamBrowserPanel from "./TeamBrowserPanel";
+import FranchisePanel from "./FranchisePanel";
+import OffseasonView from "./OffseasonView";
 import {
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
@@ -41,6 +49,8 @@ import {
 import type { Champion, Lane } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
 import LeagueIcon from "./LeagueIcon";
+import LaneIcon from "./LaneIcon";
+import { logoForTeamName } from "@/lib/season/realTeams";
 import {
   IntlChampionBadge,
   QualifierTagView,
@@ -165,10 +175,20 @@ export default function SeasonDashboard() {
           type="button"
           onClick={() => {
             const ok = saveCurrentSeason();
-            setSaveFeedback(ok ? "Season saved" : "Save failed");
+            setSaveFeedback(
+              ok
+                ? season.franchise
+                  ? "Saved to reality"
+                  : "Season saved"
+                : "Save failed",
+            );
           }}
           className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
-          title="Save this season locally — load, duplicate, or delete it from Saved Seasons on the main menu"
+          title={
+            season.franchise
+              ? "Save progress into this reality — find it in the Realities hub"
+              : "Save this season locally — load, duplicate, or delete it from Saved Seasons on the main menu"
+          }
         >
           <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
             <path d="M3 3v10h10V5l-2-2H3z" strokeLinejoin="round" />
@@ -219,6 +239,11 @@ export default function SeasonDashboard() {
 
         {/* My team: roster (tiers + shifts) + next match (play / watch). */}
         <MyTeamPanel />
+
+        {/* Franchise / realities — live banner during the year, full offseason
+            view (stats + biggest transfer window + finalize) once it's done. */}
+        <FranchisePanel />
+        <OffseasonView />
 
         {/* Champion banner */}
         {season.status === "complete" && championTeam && (
@@ -276,8 +301,12 @@ export default function SeasonDashboard() {
                     ? 100
                     : 0;
               const isIntl = p.kind === "international";
+              const isTransfer = p.kind === "transfer";
               const active = p.status === "in-progress";
               const complete = p.status === "complete";
+              const moveCount = isTransfer && p.event
+                ? season.transfersByEvent?.[p.event]?.length ?? 0
+                : 0;
               return (
                 <div key={`${p.label}-${i}`} className="flex items-stretch">
                   {i > 0 && (
@@ -289,46 +318,61 @@ export default function SeasonDashboard() {
                     </span>
                   )}
                   <div
-                    className={`min-w-[92px] md:min-w-[104px] px-2.5 py-1.5 border flex flex-col gap-1 ${
+                    className={`${isTransfer ? "min-w-[70px] md:min-w-[78px]" : "min-w-[92px] md:min-w-[104px]"} px-2.5 py-1.5 border flex flex-col gap-1 ${
                       active
-                        ? "border-rift-gold bg-rift-gold/15"
+                        ? isTransfer
+                          ? "border-rift-blue bg-rift-blue/15 border-dashed"
+                          : "border-rift-gold bg-rift-gold/15"
                         : complete
                           ? isIntl
                             ? "border-rift-gold/45 bg-rift-gold/[0.06]"
-                            : "border-rift-gold/30 bg-rift-gold/[0.03]"
-                          : "border-rift-line/50 bg-rift-bg/30"
+                            : isTransfer
+                              ? "border-rift-blue/35 bg-rift-blue/[0.04] border-dashed"
+                              : "border-rift-gold/30 bg-rift-gold/[0.03]"
+                          : isTransfer
+                            ? "border-rift-line/40 bg-rift-bg/30 border-dashed"
+                            : "border-rift-line/50 bg-rift-bg/30"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-1">
                       <span
                         className={`text-[9px] uppercase tracking-[0.2em] truncate ${
                           active
-                            ? "text-rift-goldbright"
+                            ? isTransfer
+                              ? "text-rift-bluebright"
+                              : "text-rift-goldbright"
                             : complete
-                              ? "text-rift-gold/70"
+                              ? isTransfer
+                                ? "text-rift-bluebright/70"
+                                : "text-rift-gold/70"
                               : "text-rift-muted"
                         }`}
                       >
-                        {p.label}
+                        {isTransfer ? "Transfers" : p.label}
                       </span>
                       {complete ? (
-                        <span className="text-rift-gold/70 text-[9px]" aria-hidden>
+                        <span className={`text-[9px] ${isTransfer ? "text-rift-bluebright/70" : "text-rift-gold/70"}`} aria-hidden>
                           ✓
                         </span>
                       ) : active ? (
-                        <span className="text-rift-goldbright text-[8px] animate-pulse" aria-hidden>
+                        <span className={`text-[8px] animate-pulse ${isTransfer ? "text-rift-bluebright" : "text-rift-goldbright"}`} aria-hidden>
                           ●
                         </span>
                       ) : null}
                     </div>
                     <div
                       className={`text-[7px] uppercase tracking-[0.2em] ${
-                        isIntl ? "text-rift-gold/55" : "text-rift-mutedbright/45"
+                        isIntl ? "text-rift-gold/55" : isTransfer ? "text-rift-blue/55" : "text-rift-mutedbright/45"
                       }`}
                     >
-                      {isIntl ? "International" : "Split"}
+                      {isIntl ? "International" : isTransfer ? "Window" : "Split"}
                     </div>
-                    {(active || (complete && prog.total > 0)) && (
+                    {isTransfer && (complete || active) && (
+                      <div className="text-[7px] tabular-nums text-rift-mutedbright/55">
+                        {moveCount} move{moveCount === 1 ? "" : "s"}
+                      </div>
+                    )}
+                    {!isTransfer && (active || (complete && prog.total > 0)) && (
                       <div className="flex items-center gap-1">
                         <div className="flex-1 h-1 bg-rift-line/30 overflow-hidden">
                           <div
@@ -348,8 +392,16 @@ export default function SeasonDashboard() {
           </div>
         </div>
 
-        {/* Sim controls */}
-        {season.status !== "complete" && (
+        {/* Transfer window — followed-team decisions + league-wide recap */}
+        <TransferWindowPanel />
+
+        {/* Browse every region's teams + full rosters */}
+        <TeamBrowserPanel />
+
+        {/* Sim controls — hidden while a transfer window is open (nothing to
+            sim; the window's "Proceed" button advances the season). */}
+        {season.status !== "complete" &&
+          season.phases[season.phaseIndex]?.kind !== "transfer" && (
           <div className="flex items-center justify-center gap-2 mb-7 flex-wrap">
             <button
               type="button"
@@ -1176,7 +1228,8 @@ function PastResults({
   const [statsFor, setStatsFor] = useState<string | null>(null);
   const [resultsFor, setResultsFor] = useState<string | null>(null);
   const past = season.phases.filter(
-    (p, i) => p.status === "complete" || i < season.phaseIndex,
+    (p, i) =>
+      p.kind !== "transfer" && (p.status === "complete" || i < season.phaseIndex),
   );
   if (past.length === 0) return null;
   return (
@@ -1523,8 +1576,10 @@ function StageStatsRow({
         {stats.mvp && (
           <StageStatCell
             label="MVP"
-            value={stats.mvp.displayName}
-            sub={`${stats.mvp.teamName} · ${stats.mvp.avgRating.toFixed(1)} rating`}
+            value={stats.mvp.playerName ?? stats.mvp.displayName}
+            sub={stats.mvp.playerName
+              ? `${stats.mvp.displayName} · ${stats.mvp.avgRating.toFixed(1)} rating`
+              : `${stats.mvp.teamName} · ${stats.mvp.avgRating.toFixed(1)} rating`}
           />
         )}
         {contested && (
@@ -1563,10 +1618,8 @@ function StageStatsRow({
                 key={lane}
                 className="inline-flex items-baseline gap-1 text-[10px]"
               >
-                <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/70">
-                  {LANE_LABEL[lane]}
-                </span>
-                <span className="text-rift-bluebright">{p.displayName}</span>
+                <LaneIcon lane={lane} size="xs" />
+                <span className="text-rift-bluebright">{p.playerName ?? p.displayName}</span>
                 <span className="text-rift-muted/60 tabular-nums">
                   {p.avgRating.toFixed(1)}
                 </span>
@@ -1793,6 +1846,9 @@ function SeasonRecapPanel({
                     Best Game
                   </div>
                   <div className="font-display text-xs text-rift-goldbright tabular-nums">
+                    {stats.records.bestMvp.playerName ? (
+                      <span>{stats.records.bestMvp.playerName} · </span>
+                    ) : null}
                     {stats.records.bestMvp.kills}/{stats.records.bestMvp.deaths}/
                     {stats.records.bestMvp.assists}
                     <span className="text-rift-mutedbright/60">
@@ -1800,8 +1856,11 @@ function SeasonRecapPanel({
                       {championsById.get(stats.records.bestMvp.championId)?.name}
                     </span>
                   </div>
-                  <div className="text-[9px] text-rift-mutedbright/70 truncate">
-                    {stats.records.bestMvp.teamName}
+                  <div className="flex items-center gap-1 text-[9px] text-rift-mutedbright/70 truncate">
+                    {stats.records.bestMvp.lane && (
+                      <LaneIcon lane={stats.records.bestMvp.lane} size="xs" />
+                    )}
+                    <span className="truncate">{stats.records.bestMvp.teamName}</span>
                   </div>
                 </div>
               </div>
@@ -1902,12 +1961,17 @@ function SeasonRecapPanel({
                         />
                       )}
                       <span className="font-display text-xs tracking-wider text-rift-goldbright truncate">
-                        {team?.name ?? "—"}
+                        {p.playerName ?? (team?.name ?? "—")}
                       </span>
                       <span className="ml-auto text-[8px] uppercase tracking-wider text-rift-gold/50 shrink-0">
                         {laneLabel}
                       </span>
                     </div>
+                    {p.playerName && (
+                      <div className="text-[8px] tracking-wide text-rift-mutedbright/50 truncate">
+                        {team?.name ?? "—"}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between gap-1">
                       <span className="text-[9px] text-rift-mutedbright/70 tabular-nums">
                         {avg(p.kills)}/{avg(p.deaths)}/{avg(p.assists)} avg
@@ -1929,6 +1993,60 @@ function SeasonRecapPanel({
         </div>
       )}
 
+      {/* Player leaders — season stats aggregated by stable player id, so a
+          transferred player's numbers follow them across teams. */}
+      {(() => {
+        const pl = stats.playerLeaders;
+        const boards: Array<{ label: string; rows: PlayerSeasonLine[]; val: (l: PlayerSeasonLine) => string }> = [
+          { label: "Most Kills", rows: pl.byKills, val: (l: PlayerSeasonLine) => `${l.kills}` },
+          { label: "Best Rating", rows: pl.byRating, val: (l: PlayerSeasonLine) => (l.avgRating ?? 0).toFixed(1) },
+          { label: "Most MVPs", rows: pl.byMVP, val: (l: PlayerSeasonLine) => `×${l.mvps}` },
+          { label: "Most Pentakills", rows: pl.byPentakills, val: (l: PlayerSeasonLine) => `×${l.pentakills}` },
+        ].filter((b) => b.rows.length > 0);
+        if (boards.length === 0) return null;
+        return (
+          <div className="mb-4">
+            <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
+              Player Leaders
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+              {boards.map((b) => (
+                <div key={b.label} className="border border-rift-line/40 bg-rift-bg/30">
+                  <div className="px-2 py-1 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.25em] text-rift-gold/55">
+                    {b.label}
+                  </div>
+                  <div className="divide-y divide-rift-line/15">
+                    {b.rows.slice(0, 5).map((l, i) => {
+                      const lteam = seasonTeam(season, l.teamId);
+                      return (
+                        <div key={l.playerId} className="flex items-center gap-1.5 px-2 py-1 text-[10px]">
+                          <span className="w-3 text-[8px] tabular-nums text-rift-muted/60">{i + 1}</span>
+                          {lteam && (
+                            <TeamIcon iconKey={lteam.iconKey} logoUrl={lteam.logoUrl} size={13} color={lteam.color} />
+                          )}
+                          <LaneIcon lane={l.lane} size="xs" className="shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">
+                            <span className="text-rift-mutedbright font-medium">
+                              {l.playerName || l.teamName}
+                            </span>
+                            <span className="text-rift-muted/50">
+                              {" "}· {l.teamName}
+                            </span>
+                          </span>
+                          <span className={`font-display tabular-nums shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}>
+                            {b.val(l)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Pentakill board — every solo-ace of the year, by champion + the team
           that scored it. A rare highlight, so even a handful reads well. */}
       {stats.totalPentakills > 0 && (
@@ -1944,18 +2062,6 @@ function SeasonRecapPanel({
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
             {stats.pentakills.slice(0, 12).map((p) => {
               const champ = championsById.get(p.championId);
-              const laneLabel =
-                p.lane === "middle"
-                  ? "MID"
-                  : p.lane === "bottom"
-                  ? "BOT"
-                  : p.lane === "jungle"
-                  ? "JG"
-                  : p.lane === "support"
-                  ? "SUP"
-                  : p.lane === "top"
-                  ? "TOP"
-                  : null;
               return (
                 <div
                   key={`${p.championId}-${p.teamName}`}
@@ -1970,21 +2076,19 @@ function SeasonRecapPanel({
                     />
                   )}
                   <div className="min-w-0">
-                    <div className="font-display text-xs tracking-wider text-rift-goldbright truncate">
-                      {p.championName}
-                      {laneLabel && (
-                        <span className="text-rift-gold/50 text-[8px] tracking-wider">
-                          {" "}
-                          {laneLabel}
-                        </span>
-                      )}
+                    <div className="font-display text-xs tracking-wider text-rift-goldbright truncate flex items-center gap-1">
+                      {p.lane && <LaneIcon lane={p.lane} size="xs" />}
+                      <span className="truncate">{p.playerName || p.championName}</span>
                     </div>
-                    <div className="text-[9px] text-rift-mutedbright/70 truncate">
-                      {p.teamName}
+                    <div className="flex items-center gap-1 text-[9px] text-rift-mutedbright/70 truncate">
+                      <TeamIcon iconKey="shield" logoUrl={logoForTeamName(p.teamName)} size={11} />
+                      <span className="truncate">
+                        {p.playerName ? `${p.championName} · ` : ""}
+                        {p.teamName}
+                      </span>
                       {p.earliestMinute > 0 && (
-                        <span className="text-rift-mutedbright/50 tabular-nums">
-                          {" "}
-                          · first @ {Math.round(p.earliestMinute)}′
+                        <span className="text-rift-mutedbright/50 tabular-nums shrink-0">
+                          @ {Math.round(p.earliestMinute)}′
                         </span>
                       )}
                     </div>

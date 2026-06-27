@@ -67,6 +67,7 @@ import { setActivePowerSpikeOverride } from "@/lib/championBuilds";
 import type {
   Champion,
   GameDraft,
+  Lane,
   SeriesState,
   SimulationSettings,
   Side,
@@ -116,6 +117,14 @@ import {
   phaseProgress as seasonPhaseProgress,
   leagueOfTournament,
 } from "@/lib/season/engine";
+import {
+  resolveTransfer as resolveSeasonTransfer,
+  executeUserTransfer,
+  executeOffseasonUserTransfer,
+} from "@/lib/season/transfers";
+import { advanceTransferWindow } from "@/lib/season/engine";
+import { swapCoaches } from "@/lib/season/coach";
+import { seedFranchise, startNextSeason } from "@/lib/season/franchise";
 import { ensureTeamIdentities } from "@/lib/season/teamGen";
 import {
   buildSeasonHistoryEntry,
@@ -130,6 +139,17 @@ import type {
 } from "@/lib/season/types";
 
 export const ACTION_SECONDS = 30;
+
+// A saved "reality" — a continuous franchise timeline. Its `season` is the
+// year currently in play; `history` is that reality's Hall. The active reality
+// mirrors into the live `season`/`seasonHistory`; the rest sit dormant here.
+export interface SavedReality {
+  id: string;
+  name: string;
+  year: number;
+  season: SeasonState;
+  history: SeasonHistoryEntry[];
+}
 
 // localStorage wrapper that gracefully handles QuotaExceededError.
 //
@@ -579,6 +599,23 @@ interface DraftStore {
   // the user can browse its bracket or play/sim matches through the
   // normal tournament flow. Updates sync back into the season.
   openSeasonTournament: (tournamentId: string) => void;
+  // Accept or decline a pending followed-team transfer (index into
+  // season.proposedTransfers). Accepting swaps the players; either way the
+  // proposal is cleared.
+  resolveSeasonTransfer: (index: number, accept: boolean) => void;
+  // Close the open transfer window and move on to the next split. Any
+  // proposals left undecided are treated as declined.
+  advanceSeasonTransfers: () => void;
+  // User-initiated swap: trade the followed team's player at `lane` for the
+  // named team's player, if that team would agree. No-op otherwise.
+  shopSeasonTransfer: (lane: Lane, otherTeamId: string) => void;
+  // Same, but for the post-Worlds OFFSEASON on a completed reality season.
+  shopOffseasonTransfer: (lane: Lane, otherTeamId: string) => void;
+  // Offseason coach market: swap the user's coach with another team's coach.
+  shopOffseasonCoach: (otherTeamId: string) => void;
+  // Edit the completed reality season's config (split/intl formats) so the
+  // change carries into next year via startNextSeason(prev.config).
+  updateSeasonConfig: (patch: Partial<SeasonConfig>) => void;
   // Simulate the current phase (all its tournaments), the entire
   // remaining season, or one specific tournament (a single league's
   // split, or one international). Auto-advances phases, applies patch
@@ -620,8 +657,33 @@ interface DraftStore {
   archiveSeasonToHistory: () => boolean;
   /** Archive a saved season's résumé without loading it. */
   archiveSavedSeasonToHistory: (entryId: string) => boolean;
-  removeSeasonFromHistory: (entryId: string) => void;
-  clearSeasonHistory: () => void;
+  // realityId scopes the mutation to that reality's Hall; omit for the
+  // one-off Season-mode Hall.
+  removeSeasonFromHistory: (entryId: string, realityId?: string) => void;
+  clearSeasonHistory: (realityId?: string) => void;
+
+  // ─── Franchise / Realities (continuous multi-season timelines) ───────
+  realities: SavedReality[];
+  activeRealityId: string | null;
+  /** Pending intent: the next started season becomes Year 1 of this reality
+   *  (set by the Realities hub before sending the user to season setup). */
+  pendingReality: { name: string; aging: boolean } | null;
+  /** Begin a new reality — records the intent so the next `startSeason`
+   *  promotes its result into Year 1 of a continuous timeline. */
+  beginNewReality: (name: string, aging: boolean) => void;
+  /** Turn the current configured season into Year 1 of a new named reality.
+   *  `aging` enables the offseason aging/retirement/rookie simulation. */
+  startReality: (name: string, aging: boolean) => void;
+  /** Roll the (complete) active reality season into the next year. */
+  continueSeasonToNextYear: () => void;
+  /** Switch the live season to another saved reality (snapshots the current). */
+  switchReality: (id: string) => void;
+  deleteReality: (id: string) => void;
+  /** Serialize a reality (its timeline + its own season history) to a JSON
+   *  string for download. Tournaments are compact-encoded. Null if unknown. */
+  exportReality: (id: string) => string | null;
+  /** Restore a reality from an exported JSON string (upsert by id). */
+  importReality: (json: string) => { ok: boolean; error?: string; id?: string };
   /** Merge entries parsed from an imported .xlsx (upsert by id, newest
    *  archive first). Returns how many were new vs. overwritten. */
   importSeasonHistory: (
@@ -875,7 +937,13 @@ function autoPlayMatch(
       },
       adaptiveMidgame: true,
     });
-    const recap = buildGameRecap(game, champions, result);
+    const recap = buildGameRecap(
+      game,
+      champions,
+      result,
+      series.bluePlayers,
+      series.redPlayers,
+    );
     // Update forms after the game.
     if (recap.ratings) {
       currentForms = applyRatingsToForms(currentForms, blueKey, recap.ratings.blue);
@@ -1348,6 +1416,9 @@ export const useDraftStore = create<DraftStore>()(
   preSeasonMetaSnapshot: null,
   savedSeasons: [],
   seasonHistory: [],
+  realities: [],
+  activeRealityId: null,
+  pendingReality: null,
   seasonMatchday: null,
   simulating: null,
   simProgress: null,
@@ -1581,7 +1652,7 @@ export const useDraftStore = create<DraftStore>()(
       state.season?.status === "complete"
         ? buildSeasonHistoryEntry(state.season, Date.now())
         : state.seasonHistory.find((e) => e.complete);
-    const season = createSeason({
+    const built = createSeason({
       config,
       teams: ensureTeamIdentities(teams),
       activeMeta: {
@@ -1592,10 +1663,31 @@ export const useDraftStore = create<DraftStore>()(
       },
       priorSeason,
     });
+    // If this season was started from the Realities hub, promote it to Year 1
+    // of a new continuous timeline and register the reality save.
+    const pending = state.pendingReality;
+    const season = pending ? seedFranchise(built, pending.name, pending.aging) : built;
+    const realityPatch =
+      pending && season.franchise
+        ? {
+            activeRealityId: season.franchise.id,
+            realities: [
+              ...state.realities.filter((r) => r.id !== season.franchise!.id),
+              {
+                id: season.franchise.id,
+                name: season.franchise.name,
+                year: 1,
+                season,
+                history: [] as SeasonHistoryEntry[],
+              },
+            ],
+          }
+        : {};
     set({
       season,
       seasonViewOpen: true,
       preSeasonMetaSnapshot: userMeta,
+      pendingReality: null,
       tournament: null,
       series: null,
       selectedChampionId: null,
@@ -1604,6 +1696,7 @@ export const useDraftStore = create<DraftStore>()(
       aiRationaleHistory: [],
       playerForms: {},
       sideChoicePending: false,
+      ...realityPatch,
     });
   },
 
@@ -1641,6 +1734,18 @@ export const useDraftStore = create<DraftStore>()(
       series: null,
       selectedChampionId: null,
       secondsLeft: null,
+      // Autosave: keep the active reality's slot in sync with the live season
+      // so resuming from the Realities hub never loses the year's progress
+      // (the slot is what switchReality restores and RealitiesHub displays).
+      ...(s.activeRealityId && s.season?.franchise?.id === s.activeRealityId
+        ? {
+            realities: s.realities.map((r) =>
+              r.id === s.activeRealityId
+                ? { ...r, year: s.season!.franchise!.year, season: s.season! }
+                : r,
+            ),
+          }
+        : {}),
       ...(s.preSeasonMetaSnapshot
         ? applyMetaSnapshotPatch(s.preSeasonMetaSnapshot, s)
         : {}),
@@ -1709,6 +1814,210 @@ export const useDraftStore = create<DraftStore>()(
           )
         : {}),
     }));
+  },
+
+  resolveSeasonTransfer: (index, accept) => {
+    const season = get().season;
+    if (!season) return;
+    set({ season: resolveSeasonTransfer(season, index, accept) });
+  },
+
+  advanceSeasonTransfers: () => {
+    const season = get().season;
+    if (!season) return;
+    set({ season: advanceTransferWindow(season) });
+  },
+
+  shopSeasonTransfer: (lane, otherTeamId) => {
+    const { season, champions } = get();
+    if (!season) return;
+    set({ season: executeUserTransfer(season, champions, lane, otherTeamId) });
+  },
+
+  shopOffseasonTransfer: (lane, otherTeamId) => {
+    const { season, champions } = get();
+    if (!season) return;
+    set({ season: executeOffseasonUserTransfer(season, champions, lane, otherTeamId) });
+  },
+
+  shopOffseasonCoach: (otherTeamId) => {
+    const { season } = get();
+    // Coaches only change in the post-Worlds offseason of a reality.
+    if (!season?.franchise || season.status !== "complete") return;
+    const me = season.config.controlledTeamId;
+    if (!me || me === otherTeamId) return;
+    set({ season: { ...season, teams: swapCoaches(season.teams, me, otherTeamId) } });
+  },
+
+  updateSeasonConfig: (patch) => {
+    const { season } = get();
+    // Format changes only apply between years — edit the completed season's
+    // config so startNextSeason picks them up for the new year.
+    if (!season?.franchise || season.status !== "complete") return;
+    set({ season: { ...season, config: { ...season.config, ...patch } } });
+  },
+
+  beginNewReality: (name, aging) => {
+    set({ pendingReality: { name: name.trim() || "My Reality", aging } });
+  },
+
+  // NOTE: a reality keeps its OWN Hall in its slot's `history`. The global
+  // `seasonHistory` is the one-off Season mode's Hall and is never touched by
+  // realities, so the two never mix.
+  startReality: (name, aging) => {
+    const season = get().season;
+    if (!season) return;
+    const seeded = seedFranchise(season, name, aging);
+    const id = seeded.franchise!.id;
+    set((s) => ({
+      season: seeded,
+      seasonViewOpen: true,
+      activeRealityId: id,
+      realities: [
+        ...s.realities.filter((r) => r.id !== id),
+        { id, name: seeded.franchise!.name, year: 1, season: seeded, history: [] },
+      ],
+    }));
+  },
+
+  continueSeasonToNextYear: () => {
+    const { season, champions } = get();
+    if (!season || !season.franchise || season.status !== "complete") return;
+    const rid = season.franchise.id;
+    const prevHistory = get().realities.find((r) => r.id === rid)?.history ?? [];
+    // Archive the finished year into THIS reality's Hall, then roll forward.
+    const entry = buildSeasonHistoryEntry(season, Date.now());
+    const history = [entry, ...prevHistory.filter((e) => e.id !== entry.id)].slice(
+      0,
+      seasonHistoryCap(),
+    );
+    const next = startNextSeason(season, champions);
+    set((s) => ({
+      season: next,
+      realities: s.realities.map((r) =>
+        r.id === next.franchise!.id
+          ? { ...r, year: next.franchise!.year, season: next, history }
+          : r,
+      ),
+    }));
+  },
+
+  switchReality: (id) => {
+    const s = get();
+    // Snapshot the live franchise season back into its slot FIRST (history
+    // already lives in the slot — don't touch the global seasonHistory), then
+    // read the target from the UPDATED list. Reading it before the snapshot
+    // meant resuming the active reality restored its stale slot and lost the
+    // year's mid-season progress.
+    const realities = s.realities.map((r) =>
+      r.id === s.activeRealityId && s.season?.franchise
+        ? { ...r, year: s.season.franchise.year, season: s.season }
+        : r,
+    );
+    const target = realities.find((r) => r.id === id);
+    if (!target) return;
+    set({
+      realities,
+      activeRealityId: id,
+      season: target.season,
+      seasonViewOpen: true,
+    });
+  },
+
+  deleteReality: (id) => {
+    set((s) => {
+      const wasActive = s.activeRealityId === id;
+      return {
+        realities: s.realities.filter((r) => r.id !== id),
+        ...(wasActive
+          ? { activeRealityId: null, season: null, seasonViewOpen: false }
+          : {}),
+      };
+    });
+  },
+
+  exportReality: (id) => {
+    // If the reality being exported is the live one, snapshot its progress
+    // first so the export matches what's on screen.
+    const s = get();
+    const live =
+      s.activeRealityId === id && s.season?.franchise?.id === id ? s.season : null;
+    const r = s.realities.find((x) => x.id === id);
+    if (!r) return null;
+    const season = live ?? r.season;
+    const payload = {
+      kind: "reality" as const,
+      version: 1,
+      reality: {
+        id: r.id,
+        name: r.name,
+        year: live?.franchise?.year ?? r.year,
+        // Compact-encode tournaments (the heavy part); history résumés ride
+        // along as-is.
+        season: {
+          ...season,
+          tournaments: Object.fromEntries(
+            Object.entries(season.tournaments).map(([tid, t]) => [
+              tid,
+              compactEncodeTournamentForPersist(t),
+            ]),
+          ),
+        },
+        history: r.history,
+      },
+    };
+    return JSON.stringify(payload);
+  },
+
+  importReality: (json) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(json);
+    } catch {
+      return { ok: false, error: "Not a valid file (bad JSON)." };
+    }
+    const p = parsed as { kind?: string; reality?: Partial<SavedReality> } | null;
+    const r = p?.reality;
+    const rs = r?.season as Partial<SeasonState> | undefined;
+    if (
+      !p ||
+      p.kind !== "reality" ||
+      !r ||
+      typeof r.id !== "string" ||
+      typeof r.name !== "string" ||
+      !rs ||
+      rs.tournaments == null ||
+      typeof rs.tournaments !== "object"
+    ) {
+      return { ok: false, error: "Not a DraftSim reality export." };
+    }
+    const id = r.id;
+    // Decode the compact tournaments back to full form, mirroring loadSavedSeason.
+    const decoded = ensureSeasonIdentities({
+      ...(rs as SeasonState),
+      tournaments: Object.fromEntries(
+        Object.entries((rs as SeasonState).tournaments).map(([tid, t]) => [
+          tid,
+          decodeCompactTournament(t),
+        ]),
+      ),
+    });
+    // Keep the franchise id pinned to the slot id (switchReality / archive
+    // routing key off season.franchise.id).
+    const season: SeasonState = decoded.franchise
+      ? { ...decoded, franchise: { ...decoded.franchise, id, name: r.name } }
+      : decoded;
+    const slot: SavedReality = {
+      id,
+      name: r.name,
+      year: typeof r.year === "number" ? r.year : (season.franchise?.year ?? 1),
+      season,
+      history: Array.isArray(r.history) ? (r.history as SeasonHistoryEntry[]) : [],
+    };
+    set((st) => ({
+      realities: [slot, ...st.realities.filter((x) => x.id !== id)],
+    }));
+    return { ok: true, id };
   },
 
   simSeason: (scope) => {
@@ -2023,6 +2332,22 @@ export const useDraftStore = create<DraftStore>()(
   // ─── Saved seasons ───────────────────────────────────────────────────
 
   saveCurrentSeason: () => {
+    const season = get().season;
+    // A reality season belongs to its own slot — "Save" snapshots the live
+    // season back into the reality, it never leaks into the one-off
+    // savedSeasons list. switchReality/continueSeasonToNextYear also sync the
+    // slot; this lets the user save mid-year without switching away.
+    const rid = season?.franchise?.id;
+    if (rid) {
+      set((s) => ({
+        realities: s.realities.map((r) =>
+          r.id === rid
+            ? { ...r, year: season!.franchise!.year, season: season! }
+            : r,
+        ),
+      }));
+      return true;
+    }
     const entry = get().exportCurrentSeason();
     if (!entry) return false;
     set((s) => ({
@@ -2200,6 +2525,25 @@ export const useDraftStore = create<DraftStore>()(
     const season = get().season;
     if (!season) return false;
     const entry = buildSeasonHistoryEntry(season, Date.now());
+    // A reality's seasons archive into THAT reality's Hall; one-off seasons
+    // archive into the global Hall. They never mix.
+    const rid = season.franchise?.id;
+    if (rid) {
+      set((s) => ({
+        realities: s.realities.map((r) =>
+          r.id === rid
+            ? {
+                ...r,
+                history: [entry, ...r.history.filter((e) => e.id !== entry.id)].slice(
+                  0,
+                  seasonHistoryCap(),
+                ),
+              }
+            : r,
+        ),
+      }));
+      return true;
+    }
     set((s) => ({
       seasonHistory: [
         entry,
@@ -2222,13 +2566,35 @@ export const useDraftStore = create<DraftStore>()(
     return true;
   },
 
-  removeSeasonFromHistory: (entryId) => {
+  removeSeasonFromHistory: (entryId, realityId) => {
+    // A reality keeps its own Hall in its slot; the one-off Season-mode Hall is
+    // the global list. Route the removal to whichever the user is viewing.
+    if (realityId) {
+      set((s) => ({
+        realities: s.realities.map((r) =>
+          r.id === realityId
+            ? { ...r, history: r.history.filter((e) => e.id !== entryId) }
+            : r,
+        ),
+      }));
+      return;
+    }
     set((s) => ({
       seasonHistory: s.seasonHistory.filter((e) => e.id !== entryId),
     }));
   },
 
-  clearSeasonHistory: () => set({ seasonHistory: [] }),
+  clearSeasonHistory: (realityId) => {
+    if (realityId) {
+      set((s) => ({
+        realities: s.realities.map((r) =>
+          r.id === realityId ? { ...r, history: [] } : r,
+        ),
+      }));
+      return;
+    }
+    set({ seasonHistory: [] });
+  },
 
   importSeasonHistory: (entries) => {
     // Dedupe the incoming batch by id (last occurrence wins), then
@@ -3701,6 +4067,10 @@ export const useDraftStore = create<DraftStore>()(
       savedSeasons: state.savedSeasons,
       // Season history — tiny résumé snapshots, persisted as-is.
       seasonHistory: state.seasonHistory,
+      // Franchise realities. ponytail: inactive seasons stored as-is (not
+      // compacted); fine for a handful of saves, revisit if they bloat.
+      realities: state.realities,
+      activeRealityId: state.activeRealityId,
       // Persist player form so it survives reload (tournament-scoped;
       // resets when a new tournament is started).
       playerForms: state.playerForms,

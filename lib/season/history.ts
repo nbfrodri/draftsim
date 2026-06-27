@@ -12,17 +12,39 @@ import {
   type MetaOverride,
   type MetaTier,
 } from "../championMeta";
-import type { Lane } from "../types";
+import type { Lane, PlayerTier } from "../types";
 import {
   seasonTeam,
   LEAGUE_IDS,
   type InternationalId,
   type LeagueId,
+  type PhaseRosterSnapshot,
+  type PlayerTransfer,
   type SeasonState,
   type SplitId,
 } from "./types";
-import { computeSeasonStats, computeStageStats } from "./stats";
+import {
+  computeSeasonStats,
+  computeStageStats,
+  computePlayerCareerRecords,
+  type PlayerSeasonRecord,
+} from "./stats";
 import { buildSeasonStory, type SeasonStory } from "./seasonStory";
+
+/** A roster move frozen for the Hall: team names (not ids — teams regenerate)
+ *  plus the two players who swapped lanes between the two clubs. */
+export interface HistoryTransfer {
+  event: InternationalId;
+  lane: Lane;
+  from: SeasonHistoryTeamRef | null;
+  to: SeasonHistoryTeamRef | null;
+  /** Headline player moving from→to. */
+  inName?: string;
+  inTier: PlayerTier;
+  /** Player going the other way (to→from). */
+  outName?: string;
+  outTier: PlayerTier;
+}
 
 /** Frozen team identity at archive time (teams are regenerated every
  *  season, so ids alone would dangle). */
@@ -54,6 +76,9 @@ export interface SeasonHistoryAwardTally {
   lane: Lane;
   mvp: number;
   allPro: number;
+  // The handle holding this slot, snapshotted at archive time (most recent
+  // award winner). Optional — absent on archives saved before names existed.
+  playerName?: string;
 }
 
 export interface SeasonHistoryEntry {
@@ -86,6 +111,17 @@ export interface SeasonHistoryEntry {
    *  player boards. Optional — only on seasons archived after the stats
    *  expansion. */
   awardTally?: SeasonHistoryAwardTally[];
+  /** Per-player season records (by stable id) for the all-time CAREER boards —
+   *  kills, MVPs, all-pro, split titles, international appearances/titles.
+   *  Optional — only on seasons archived after player ids existed. */
+  playerCareers?: PlayerSeasonRecord[];
+  /** Every team's roster as each split/international was played, so the Hall
+   *  can show who was on which team at any stage of the year. */
+  phaseRosters?: PhaseRosterSnapshot[];
+  /** Roster moves that happened during the year's transfer windows, frozen
+   *  with team names so they recap forever. Optional — only on seasons that
+   *  ran with player transfers and had at least one move. */
+  transfers?: HistoryTransfer[];
   /** Per-league strength score at archive time (the evolved region tide).
    *  Optional — only present on seasons that ran with Region Tides on.
    *  Carried into the next season's starting tides (decayed toward
@@ -226,13 +262,16 @@ export function buildSeasonHistoryEntry(
         if (ref) {
           const key = tallyKey(ref, stage.mvp.lane);
           const cur = tallyMap.get(key);
-          if (cur) cur.mvp += 1;
-          else
+          if (cur) {
+            cur.mvp += 1;
+            if (stage.mvp.playerName) cur.playerName = stage.mvp.playerName;
+          } else
             tallyMap.set(key, {
               team: ref,
               lane: stage.mvp.lane,
               mvp: 1,
               allPro: 0,
+              ...(stage.mvp.playerName ? { playerName: stage.mvp.playerName } : {}),
             });
         }
       }
@@ -241,12 +280,41 @@ export function buildSeasonHistoryEntry(
         if (!ref) continue;
         const key = tallyKey(ref, ap.lane);
         const cur = tallyMap.get(key);
-        if (cur) cur.allPro += 1;
-        else tallyMap.set(key, { team: ref, lane: ap.lane, mvp: 0, allPro: 1 });
+        if (cur) {
+          cur.allPro += 1;
+          if (ap.playerName) cur.playerName = ap.playerName;
+        } else
+          tallyMap.set(key, {
+            team: ref,
+            lane: ap.lane,
+            mvp: 0,
+            allPro: 1,
+            ...(ap.playerName ? { playerName: ap.playerName } : {}),
+          });
       }
     }
   }
   const awardTally = [...tallyMap.values()];
+  const playerCareers =
+    tournaments.length > 0 ? computePlayerCareerRecords(season) : [];
+  // Freeze the year's roster moves with team names so they recap forever.
+  const transfers: HistoryTransfer[] = [];
+  for (const [event, moves] of Object.entries(season.transfersByEvent ?? {}) as Array<
+    [InternationalId, PlayerTransfer[]]
+  >) {
+    for (const m of moves ?? []) {
+      transfers.push({
+        event,
+        lane: m.lane,
+        from: teamRef(season, m.fromTeamId),
+        to: teamRef(season, m.toTeamId),
+        ...(m.star.name ? { inName: m.star.name } : {}),
+        inTier: m.star.tier,
+        ...(m.swap.name ? { outName: m.swap.name } : {}),
+        outTier: m.swap.tier,
+      });
+    }
+  }
   // Templated narrative recap (only attach when it found at least one
   // headline, so empty/sparse archives serialize unchanged).
   const story = buildSeasonStory(season);
@@ -263,6 +331,9 @@ export function buildSeasonHistoryEntry(
     ...(hasStory ? { story } : {}),
     ...(Object.keys(leagueBestTeams).length > 0 ? { leagueBestTeams } : {}),
     ...(awardTally.length > 0 ? { awardTally } : {}),
+    ...(playerCareers.length > 0 ? { playerCareers } : {}),
+    ...(season.phaseRosters?.length ? { phaseRosters: season.phaseRosters } : {}),
+    ...(transfers.length > 0 ? { transfers } : {}),
     // Starting tier table (undefined when the season pre-dates
     // initialMeta — we can't reconstruct what it began on) and the
     // table at archive time after a year of drift.

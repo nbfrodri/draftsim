@@ -55,6 +55,9 @@ import {
   type SplitId,
 } from "./types";
 import type { SeasonHistoryEntry } from "./history";
+import { applyTransfers } from "./transfers";
+import { coachDifficulty, coachMotivationFactor } from "./coach";
+import { applyPoolDrift } from "./poolDrift";
 
 export function makeSeasonId(): string {
   return `season-${Date.now().toString(36)}-${Math.random()
@@ -141,6 +144,7 @@ function singleElimOverrides(
 // ─── Team plumbing ─────────────────────────────────────────────────────────
 
 function toTournamentTeam(team: SeasonTeam, seed: number): TournamentTeam {
+  const diff = coachDifficulty(team.coach);
   return {
     id: team.id,
     name: team.name,
@@ -150,7 +154,10 @@ function toTournamentTeam(team: SeasonTeam, seed: number): TournamentTeam {
     color: team.color,
     logoUrl: team.logoUrl,
     players: team.players,
-    personalityId: team.personalityId,
+    // The coach drives the team's draft: their rating sets how strongly the AI
+    // plays for this side, and their playstyle is the draft personality.
+    personalityId: team.coach?.personalityId ?? team.personalityId,
+    ...(diff ? { aiDifficulty: diff } : {}),
   };
 }
 
@@ -735,7 +742,12 @@ function tagSeason(t: TournamentState, season: SeasonState): TournamentState {
         const extra: { form?: number; clutch?: number } = {};
         if (formEnabled(config)) {
           const f = season.teamForm?.[tt.id];
-          if (typeof f === "number" && f !== 0) extra.form = f;
+          if (typeof f === "number" && f !== 0) {
+            // The coach's motivation amplifies/dampens how much the team rides
+            // its current momentum into the match.
+            const coach = season.teams.find((s) => s.id === tt.id)?.coach;
+            extra.form = f * coachMotivationFactor(coach);
+          }
         }
         if (config.clutchFactor) {
           const c = season.teamClutch?.[tt.id];
@@ -1471,6 +1483,17 @@ export function createSeason(opts: {
   // reputation across years (ignored unless regionTides is on).
   priorSeason?: SeasonHistoryEntry;
 }): SeasonState {
+  // Transfer windows are real calendar phases that follow First Stand and MSI
+  // — but only when the feature is on, so a classic season's roadmap is
+  // unchanged (and old saves stay byte-identical).
+  const transferOn = !!opts.config.playerTransfers;
+  const transferPhase = (event: InternationalId): SeasonPhase => ({
+    kind: "transfer",
+    event,
+    label: "Transfer Window",
+    tournamentIds: [],
+    status: "pending",
+  });
   const phases: SeasonPhase[] = [
     {
       kind: "split",
@@ -1486,6 +1509,7 @@ export function createSeason(opts: {
       tournamentIds: [],
       status: "pending",
     },
+    ...(transferOn ? [transferPhase("first-stand")] : []),
     {
       kind: "split",
       split: "spring",
@@ -1500,6 +1524,7 @@ export function createSeason(opts: {
       tournamentIds: [],
       status: "pending",
     },
+    ...(transferOn ? [transferPhase("msi")] : []),
     {
       kind: "split",
       split: "summer",
@@ -1554,12 +1579,26 @@ export function createSeason(opts: {
 function startPhase(season: SeasonState, index: number): SeasonState {
   const phase = season.phases[index];
   if (!phase) return season;
+  // Transfer windows hold no tournaments. The window's moves were computed as
+  // the preceding international wrapped (applyTournamentUpdate). Pause here for
+  // a followed team — so the user can review auto-proposals AND shop their
+  // roster — otherwise (no controlled team) mark complete and flow straight on.
+  if (phase.kind === "transfer") {
+    const pending = !!season.config.controlledTeamId;
+    const phases = season.phases.map((p, i) =>
+      i === index
+        ? { ...p, status: (pending ? "in-progress" : "complete") as SeasonPhase["status"] }
+        : p,
+    );
+    const s = { ...season, phases, phaseIndex: index, updatedAt: Date.now() };
+    return pending ? s : startPhase(s, index + 1);
+  }
   const created: TournamentState[] = [];
   if (phase.kind === "split" && phase.split) {
     for (const league of LEAGUE_IDS) {
       created.push(createSplitTournament(season, league, phase.split));
     }
-  } else if (phase.event === "first-stand") {
+  } else if (phase.kind === "international" && phase.event === "first-stand") {
     // Seeds-bye First Stand opens with a play-in for the #2 seeds; the
     // main bracket (with the #1 seeds pre-placed) spawns when it completes
     // (applyTournamentUpdate), same as the Worlds/MSI play-in flow.
@@ -1568,12 +1607,12 @@ function startPhase(season: SeasonState, index: number): SeasonState {
         ? createFirstStandPlayIn(season)
         : createFirstStand(season),
     );
-  } else if (phase.event === "msi") {
+  } else if (phase.kind === "international" && phase.event === "msi") {
     // Ill-fitting field (odd swiss / unequal groups) → qualifier first;
     // the main event spawns when it completes (applyTournamentUpdate),
     // same as the Worlds play-in.
     created.push(msiNeedsPlayIn(season) ? createMSIPlayIn(season) : createMSI(season));
-  } else if (phase.event === "worlds") {
+  } else if (phase.kind === "international" && phase.event === "worlds") {
     // Worlds opens with the play-in; when disabled, the main event is
     // built directly with every qualified team.
     created.push(
@@ -1756,6 +1795,38 @@ export function applyTournamentUpdate(
   );
   next = { ...next, phases };
 
+  // Snapshot the rosters that PLAYED this split/international, before the
+  // between-phase transfer windows reshuffle them — so the Hall can show who
+  // was on each team at each stage of the year.
+  if (phase.kind === "split" || phase.kind === "international") {
+    next = {
+      ...next,
+      phaseRosters: [
+        ...(next.phaseRosters ?? []),
+        {
+          phaseIndex: next.phaseIndex,
+          label: phase.label,
+          kind: phase.kind,
+          ...(phase.split ? { split: phase.split } : {}),
+          ...(phase.event ? { event: phase.event } : {}),
+          teams: next.teams.map((t) => ({
+            teamId: t.id,
+            teamName: t.name,
+            leagueId: t.leagueId,
+            ...(t.logoUrl ? { logoUrl: t.logoUrl } : {}),
+            ...(t.coach ? { coach: { name: t.coach.name, rating: t.coach.rating } } : {}),
+            players: t.players.map((p) => ({
+              ...(p.id ? { id: p.id } : {}),
+              ...(p.name ? { name: p.name } : {}),
+              tier: p.tier,
+              lane: p.lane,
+            })),
+          })),
+        },
+      ],
+    };
+  }
+
   const isLastPhase = next.phaseIndex >= next.phases.length - 1;
   if (isLastPhase) {
     return {
@@ -1786,6 +1857,19 @@ export function applyTournamentUpdate(
   // the next event sees the updated rosters.
   if (phase.kind === "split") {
     next = applyPlayerDevelopment(next);
+    // [B] Pools drift a little too — same cadence and realism flag, so rosters
+    // track the meta instead of carrying the same champs all year.
+    if (next.config.playerDevelopment) {
+      next = applyPoolDrift(next, champions);
+    }
+  }
+  // [T] Free-agency window: opens as First Stand / MSI wrap (the transfer
+  // phase that follows). Standouts move up, weak links down; pool fit under
+  // the just-shifted patch factors in, so it runs after the patch. The
+  // upcoming transfer phase (startPhase below) then pauses for the followed
+  // team's decisions, or flows straight through if there are none.
+  if (phase.kind === "international" && phase.event !== "worlds") {
+    next = applyTransfers(next, champions, phase);
   }
   return startPhase(next, next.phaseIndex + 1);
 }
@@ -1805,4 +1889,19 @@ export function phaseProgress(
     total += t.matches.length;
   }
   return { done, total };
+}
+
+// Close an in-progress transfer window and advance to the next split. Any
+// proposals the user left unresolved are treated as declined (dropped). No-op
+// unless the current phase is an in-progress transfer window.
+export function advanceTransferWindow(season: SeasonState): SeasonState {
+  const phase = season.phases[season.phaseIndex];
+  if (phase?.kind !== "transfer" || phase.status !== "in-progress") return season;
+  const phases = season.phases.map((p, i) =>
+    i === season.phaseIndex ? { ...p, status: "complete" as const } : p,
+  );
+  return startPhase(
+    { ...season, phases, proposedTransfers: [], updatedAt: Date.now() },
+    season.phaseIndex + 1,
+  );
 }

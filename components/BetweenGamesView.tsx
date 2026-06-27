@@ -135,7 +135,13 @@ export default function BetweenGamesView({ champions }: Props) {
     if (!simResult) return;
     // Persist a compact recap (MVP + biggest swing) on the game so the
     // post-series narrative can synthesize a per-game storyline.
-    const recap = buildGameRecap(game, champions, simResult);
+    const recap = buildGameRecap(
+      game,
+      champions,
+      simResult,
+      series.bluePlayers,
+      series.redPlayers,
+    );
     declareWinner(simResult.winner, recap);
     setSimResult(null);
   };
@@ -371,6 +377,8 @@ export default function BetweenGamesView({ champions }: Props) {
               onResimulate={handleResimulate}
               blueForms={sideForms.blue}
               redForms={sideForms.red}
+              bluePlayerNames={series.bluePlayers?.map((p) => p.name ?? null)}
+              redPlayerNames={series.redPlayers?.map((p) => p.name ?? null)}
             />
           </div>
         ) : !winnerDeclared ? (

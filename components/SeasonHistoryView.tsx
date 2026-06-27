@@ -6,6 +6,7 @@ import { useDraftStore } from "@/store/draftStore";
 import {
   diffMetaOverrides,
   goldenRoadTeam,
+  type HistoryTransfer,
   type SeasonHistoryEntry,
   type SeasonHistoryTeamRef,
 } from "@/lib/season/history";
@@ -21,9 +22,11 @@ import {
   computeRegionStrength,
   computeTitleStreaks,
   computePlayerAllTime,
+  computePlayerCareers,
   DYNASTY_WINDOW,
   type TeamRecord,
   type DynastyTier,
+  type PlayerCareerLine,
 } from "@/lib/season/historyRecords";
 import { logoForTeamName } from "@/lib/season/realTeams";
 import { isDesktop, openBinaryFileNative } from "@/lib/desktopStorage";
@@ -45,6 +48,7 @@ import {
 } from "@/lib/season/types";
 import TeamIcon from "./TeamIcon";
 import LeagueIcon from "./LeagueIcon";
+import LaneIcon from "./LaneIcon";
 import Modal from "./Modal";
 import SeasonStoryCard from "./SeasonStoryCard";
 import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
@@ -406,12 +410,185 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
         <SeasonStoryCard story={entry.story} title="Story of the Season" />
       )}
 
+      {/* Stage rosters — who played each split / international */}
+      {entry.phaseRosters && entry.phaseRosters.length > 0 && (
+        <StageRosters entry={entry} />
+      )}
+
+      {/* Transfer log — every roster move of the year, recap-able forever */}
+      {entry.transfers && entry.transfers.length > 0 && (
+        <TransferLog transfers={entry.transfers} />
+      )}
+
       {/* Meta story */}
       <div>
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
           The Meta · Start → Finish
         </div>
         <MetaStory entry={entry} />
+      </div>
+    </div>
+  );
+}
+
+// Browse every team's roster at any split / international of the year, with the
+// stage's champion flagged. Rosters shift between stages via transfer windows,
+// so each stage shows who actually played it.
+const STAGE_TIER_CLS: Record<string, string> = {
+  S: "border-rift-gold text-rift-goldbright bg-rift-gold/10",
+  A: "border-rift-blue/70 text-rift-bluebright bg-rift-blue/10",
+  B: "border-rift-line text-rift-mutedbright",
+  C: "border-amber-600/50 text-amber-300/80",
+  D: "border-rift-red/50 text-rift-redbright bg-rift-red/5",
+};
+function StageRosters({ entry }: { entry: SeasonHistoryEntry }) {
+  const phases = entry.phaseRosters ?? [];
+  const [phaseIdx, setPhaseIdx] = useState(phases.length - 1);
+  const [league, setLeague] = useState<LeagueId>("LCK");
+  const phase = phases[phaseIdx] ?? phases[phases.length - 1];
+  if (!phase) return null;
+  const teams = phase.teams.filter((t) => t.leagueId === league);
+  // Which team won this stage? (champions are archived as team refs by name.)
+  const champRef =
+    phase.kind === "split" && phase.split
+      ? entry.splitChampions[phase.split]?.[league]
+      : phase.kind === "international" && phase.event
+        ? entry.intlChampions[phase.event]
+        : null;
+  const champName = champRef?.name ?? null;
+
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+        Stage Rosters
+      </div>
+      {/* Stage selector */}
+      <div className="flex flex-wrap gap-1 mb-1.5">
+        {phases.map((p, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => setPhaseIdx(i)}
+            className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.2em] transition-all ${
+              i === phaseIdx ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      {/* Region selector */}
+      <div className="flex flex-wrap gap-1 mb-2">
+        {LEAGUE_IDS.map((lg) => (
+          <button
+            key={lg}
+            type="button"
+            onClick={() => setLeague(lg)}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 border text-[8px] uppercase tracking-[0.2em] transition-all ${
+              lg === league ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+            }`}
+          >
+            <LeagueIcon league={lg} size={11} />
+            {lg}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+        {teams.map((t) => {
+          const isChamp = !!champName && t.teamName === champName;
+          return (
+            <div
+              key={t.teamId}
+              className={`border px-2 py-1.5 ${isChamp ? "border-rift-gold/60 bg-rift-gold/[0.06]" : "border-rift-line/40 bg-rift-bg/30"}`}
+            >
+              <div className="flex items-center gap-1.5 mb-1">
+                <TeamIcon iconKey="shield" logoUrl={t.logoUrl ?? logoForTeamName(t.teamName)} size={13} />
+                <span className="text-[11px] text-rift-mutedbright truncate">{t.teamName}</span>
+                {isChamp && <span className="ml-auto text-[8px] uppercase tracking-[0.2em] text-rift-goldbright">★ champion</span>}
+              </div>
+              {t.coach && (
+                <div className="flex items-center gap-1 mb-1 text-[9px]">
+                  <span className="shrink-0 px-1 border border-rift-blue/40 text-rift-blue/80 text-[7px] uppercase tracking-[0.15em]">
+                    Coach
+                  </span>
+                  <span className="text-rift-mutedbright truncate max-w-[110px]">{t.coach.name}</span>
+                  <span className="text-rift-gold/70 tabular-nums">★{t.coach.rating.toFixed(1)}</span>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                {t.players.map((p, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 text-[9px]">
+                    <LaneIcon lane={p.lane} size="xs" />
+                    <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>
+                    <span className="text-rift-mutedbright truncate max-w-[80px]">{p.name ?? "—"}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Transfer log — every roster move of the year, grouped by the window it
+// happened in (post First Stand / post MSI / post Worlds offseason). Each move
+// is a lane swap between two clubs; we show who arrived on each side.
+const XFER_TIER_CLS = STAGE_TIER_CLS;
+function TransferLog({ transfers }: { transfers: HistoryTransfer[] }) {
+  const byEvent = new Map<InternationalId, HistoryTransfer[]>();
+  for (const t of transfers) {
+    const arr = byEvent.get(t.event) ?? [];
+    arr.push(t);
+    byEvent.set(t.event, arr);
+  }
+  const teamChip = (team: HistoryTransfer["from"]) =>
+    team ? (
+      <span className="inline-flex items-center gap-1 min-w-0">
+        <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl ?? logoForTeamName(team.name)} size={12} color={team.color} />
+        <span className="text-rift-mutedbright truncate max-w-[84px]">{team.name}</span>
+      </span>
+    ) : (
+      <span className="text-rift-muted">—</span>
+    );
+  const tier = (t: string) => (
+    <span className={`px-1 border font-display text-[8px] ${XFER_TIER_CLS[t] ?? ""}`}>{t}</span>
+  );
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+        Transfers
+      </div>
+      <div className="space-y-2">
+        {INTL_ORDER.filter((e) => byEvent.has(e)).map((event) => (
+          <div key={event}>
+            <div className="text-[8px] uppercase tracking-[0.25em] text-rift-muted/55 mb-1">
+              Post {INTERNATIONAL_LABELS[event]} — {byEvent.get(event)!.length} move
+              {byEvent.get(event)!.length === 1 ? "" : "s"}
+            </div>
+            <div className="space-y-1">
+              {byEvent.get(event)!.map((t, i) => (
+                <div
+                  key={i}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] border border-rift-line/40 bg-rift-bg/30 px-2 py-1"
+                >
+                  <LaneIcon lane={t.lane} size="xs" className="shrink-0 opacity-80" />
+                  {/* Star arrives on `to`; swap goes back to `from`. */}
+                  {tier(t.inTier)}
+                  <span className="text-rift-mutedbright truncate max-w-[90px]">{t.inName ?? "—"}</span>
+                  <span className="text-rift-gold/60">▸</span>
+                  {teamChip(t.to)}
+                  <span className="text-rift-muted/40 mx-0.5">⇄</span>
+                  {tier(t.outTier)}
+                  <span className="text-rift-mutedbright truncate max-w-[90px]">{t.outName ?? "—"}</span>
+                  <span className="text-rift-gold/60">▸</span>
+                  {teamChip(t.from)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -560,6 +737,20 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
         .slice(0, 5),
     [players],
   );
+  // Career boards — by stable player id, following a player across teams/years.
+  const careers = useMemo(() => computePlayerCareers(entries), [entries]);
+  const careerBoards = useMemo(() => {
+    const top = (key: (p: PlayerCareerLine) => number) =>
+      [...careers].filter((p) => key(p) > 0).sort((a, b) => key(b) - key(a)).slice(0, 5);
+    return [
+      { label: "Most MVPs", rows: top((p) => p.mvps), val: (p: PlayerCareerLine) => `${p.mvps}` },
+      { label: "Most Kills", rows: top((p) => p.kills), val: (p: PlayerCareerLine) => `${p.kills}` },
+      { label: "Most All-Pro", rows: top((p) => p.allPro), val: (p: PlayerCareerLine) => `${p.allPro}` },
+      { label: "Region Titles", rows: top((p) => p.splitTitles), val: (p: PlayerCareerLine) => `${p.splitTitles}` },
+      { label: "Intl Appearances", rows: top((p) => p.intlAppearances), val: (p: PlayerCareerLine) => `${p.intlAppearances}` },
+      { label: "Intl Titles", rows: top((p) => p.intlTitles), val: (p: PlayerCareerLine) => `${p.intlTitles}` },
+    ].filter((b) => b.rows.length > 0);
+  }, [careers]);
   const intlDetail = (r: TeamRecord) =>
     INTL_ORDER.filter((e) => (r.intlTitles[e] ?? 0) > 0)
       .map((e) => `${r.intlTitles[e]}× ${INTERNATIONAL_LABELS[e]}`)
@@ -892,9 +1083,15 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                     <span className="min-w-0 flex-1">
                       <TeamRef team={p.team} size={13} muted={i > 0} />
                     </span>
-                    <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 flex-shrink-0">
-                      {LANE_SHORT[p.lane]}
-                    </span>
+                    {p.playerName && (
+                      <span
+                        className="text-[10px] font-medium text-rift-mutedbright truncate max-w-[84px] flex-shrink-0"
+                        title={p.playerName}
+                      >
+                        {p.playerName}
+                      </span>
+                    )}
+                    <LaneIcon lane={p.lane} size="xs" className="flex-shrink-0" />
                     <span
                       className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}
                     >
@@ -920,9 +1117,15 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                     <span className="min-w-0 flex-1">
                       <TeamRef team={p.team} size={13} muted={i > 0} />
                     </span>
-                    <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 flex-shrink-0">
-                      {LANE_SHORT[p.lane]}
-                    </span>
+                    {p.playerName && (
+                      <span
+                        className="text-[10px] font-medium text-rift-mutedbright truncate max-w-[84px] flex-shrink-0"
+                        title={p.playerName}
+                      >
+                        {p.playerName}
+                      </span>
+                    )}
+                    <LaneIcon lane={p.lane} size="xs" className="flex-shrink-0" />
                     <span
                       className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}
                     >
@@ -931,6 +1134,48 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Player careers — aggregated by stable id across every archived
+            season, so a player's record follows them across teams and years. */}
+        {careerBoards.length > 0 && (
+          <div className="mt-4">
+            <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/70 mb-1.5">
+              Player Careers
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {careerBoards.map((b) => (
+                <div key={b.label} className="border border-rift-line/40 bg-rift-bg/30">
+                  <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
+                    {b.label}
+                  </div>
+                  <div className="divide-y divide-rift-line/15">
+                    {b.rows.map((p, i) => (
+                      <div key={p.playerId} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
+                        <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
+                          {i + 1}
+                        </span>
+                        {p.teamName && (
+                          <TeamIcon iconKey="shield" logoUrl={logoForTeamName(p.teamName)} size={13} />
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-rift-mutedbright font-medium">
+                          {p.playerName || "—"}
+                        </span>
+                        {p.leagueId && (
+                          <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 flex-shrink-0">
+                            {p.leagueId}
+                          </span>
+                        )}
+                        <span className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}>
+                          {b.val(p)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -1100,7 +1345,19 @@ function OverallTimeline({ entries }: { entries: SeasonHistoryEntry[] }) {
 }
 
 export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
-  const seasonHistory = useDraftStore((s) => s.seasonHistory);
+  // Season mode and Realities each keep their OWN Hall — season mode doesn't
+  // carry rosters between years, realities do, so they never mix. The user
+  // picks which to view up top; default to the live context.
+  const globalHistory = useDraftStore((s) => s.seasonHistory);
+  const realities = useDraftStore((s) => s.realities);
+  const liveFid = useDraftStore((s) => s.season?.franchise?.id ?? null);
+  // source: "season" = one-off Hall; otherwise a reality id.
+  const [source, setSource] = useState<string>(() => liveFid ?? "season");
+  const realityId = source === "season" ? undefined : source;
+  const seasonHistory =
+    realityId != null
+      ? (realities.find((r) => r.id === realityId)?.history ?? [])
+      : globalHistory;
   const removeSeasonFromHistory = useDraftStore(
     (s) => s.removeSeasonFromHistory,
   );
@@ -1310,6 +1567,40 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
           </div>
         </div>
 
+        {/* Which Hall to view — Season mode vs. each Reality. They never mix:
+            season mode starts fresh each year, realities carry rosters forward. */}
+        {realities.length > 0 && (
+          <div className="mb-6 border border-rift-line/40 bg-rift-panel/30 px-3 py-2">
+            <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted/55 mb-1.5">
+              Viewing history of
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[{ id: "season", name: "Season Mode" }, ...realities.map((r) => ({ id: r.id, name: r.name }))].map(
+                (opt) => {
+                  const on = source === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        setSource(opt.id);
+                        setSelectedId(null);
+                      }}
+                      className={`px-2.5 py-1 text-[9px] uppercase tracking-[0.2em] border transition-all ${
+                        on
+                          ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                          : "border-rift-line text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright"
+                      }`}
+                    >
+                      {opt.id === "season" ? opt.name : `Reality · ${opt.name}`}
+                    </button>
+                  );
+                },
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Web fallback for the import file picker (desktop uses the
             native Open dialog instead). */}
         <input
@@ -1500,7 +1791,7 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
         cancelLabel="Cancel"
         tone="danger"
         onConfirm={() => {
-          clearSeasonHistory();
+          clearSeasonHistory(realityId);
           setConfirmRemove(null);
         }}
         onCancel={() => setConfirmRemove(null)}
@@ -1513,7 +1804,7 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
         cancelLabel="Cancel"
         tone="danger"
         onConfirm={() => {
-          if (confirmRemove) removeSeasonFromHistory(confirmRemove);
+          if (confirmRemove) removeSeasonFromHistory(confirmRemove, realityId);
           setConfirmRemove(null);
         }}
         onCancel={() => setConfirmRemove(null)}

@@ -353,6 +353,7 @@ function ReplayGamePanel({
           laneGoldDiff={recap?.laneGoldDiff}
           perPickKDA={recap?.perPickKDA?.blue}
           ratings={perGameRatings?.blue}
+          playerNames={recap?.perPickNames?.blue}
         />
         <PickColumn
           side="red"
@@ -364,6 +365,7 @@ function ReplayGamePanel({
           laneGoldDiff={recap?.laneGoldDiff}
           perPickKDA={recap?.perPickKDA?.red}
           ratings={perGameRatings?.red}
+          playerNames={recap?.perPickNames?.red}
         />
       </div>
 
@@ -603,6 +605,7 @@ function PickColumn({
   laneGoldDiff,
   perPickKDA,
   ratings,
+  playerNames,
 }: {
   side: Side;
   label: string;
@@ -619,6 +622,8 @@ function PickColumn({
   // Color-coded badge shown next to KDA: ≥8 gold, ≥6.5 green, ≥5 neutral,
   // <5 muted red. Matches the RatingBadge style from ContributionRow.
   ratings?: number[];
+  // Optional per-pick player handles (positional lane order).
+  playerNames?: (string | null)[];
 }) {
   const sideAccent =
     side === "blue" ? "text-rift-bluebright" : "text-rift-redbright";
@@ -683,6 +688,11 @@ function PickColumn({
                     />
                     <span className="text-[11px] font-display tracking-wider text-rift-mutedbright truncate flex-1">
                       {c.name}
+                      {playerNames?.[i] && (
+                        <span className="ml-1 font-sans font-medium text-[10px] text-rift-mutedbright">
+                          {playerNames[i]}
+                        </span>
+                      )}
                     </span>
                     {diff != null && (
                       <span

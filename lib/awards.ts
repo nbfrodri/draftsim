@@ -21,6 +21,10 @@ export interface PlayerAward {
   displayName: string;
   /** Team name (for display). */
   teamName: string;
+  /** In-game handle (e.g. "Faker"). Null when roster has no name for this slot. */
+  playerName?: string;
+  /** Stable player id, for crediting careers across teams/seasons. */
+  playerId?: string;
   /** Average rating across rated games (1-10 scale). */
   avgRating: number;
   /** Number of rated games this player played. */
@@ -76,6 +80,8 @@ interface PlayerStats {
   teamId: string;
   lane: Lane;
   teamName: string;
+  playerName?: string;
+  playerId?: string;
   ratings: number[];
   /** Max single-game rating recorded (with match context). */
   peakRating: number;
@@ -105,10 +111,16 @@ function collectPlayerStats(
   // key = `${teamId}:${lane}`
   const map = new Map<string, PlayerStats>();
 
-  const ensurePlayer = (teamId: string, lane: Lane, teamName: string): PlayerStats => {
+  const ensurePlayer = (
+    teamId: string,
+    lane: Lane,
+    teamName: string,
+    playerName?: string,
+    playerId?: string,
+  ): PlayerStats => {
     const key = `${teamId}:${lane}`;
     if (!map.has(key)) {
-      map.set(key, { teamId, lane, teamName, ratings: [], peakRating: 0, peakContext: "" });
+      map.set(key, { teamId, lane, teamName, playerName, playerId, ratings: [], peakRating: 0, peakContext: "" });
     }
     return map.get(key)!;
   };
@@ -141,7 +153,7 @@ function collectPlayerStats(
         const laneIdx = LANE_INDEX[lane];
         const blueRating = gameRatings.blue[laneIdx];
         if (typeof blueRating !== "number" || !Number.isFinite(blueRating)) continue;
-        const stats = ensurePlayer(blueTeam.id, lane, blueTeam.name);
+        const stats = ensurePlayer(blueTeam.id, lane, blueTeam.name, blueTeam.players?.[laneIdx]?.name, blueTeam.players?.[laneIdx]?.id);
         stats.ratings.push(blueRating);
         if (blueRating > stats.peakRating) {
           stats.peakRating = blueRating;
@@ -154,7 +166,7 @@ function collectPlayerStats(
         const laneIdx = LANE_INDEX[lane];
         const redRating = gameRatings.red[laneIdx];
         if (typeof redRating !== "number" || !Number.isFinite(redRating)) continue;
-        const stats = ensurePlayer(redTeam.id, lane, redTeam.name);
+        const stats = ensurePlayer(redTeam.id, lane, redTeam.name, redTeam.players?.[laneIdx]?.name, redTeam.players?.[laneIdx]?.id);
         stats.ratings.push(redRating);
         if (redRating > stats.peakRating) {
           stats.peakRating = redRating;
@@ -192,6 +204,8 @@ function makePlayerAward(stats: PlayerStats): PlayerAward {
     lane: stats.lane,
     displayName: `${stats.teamName} ${LANE_LABEL[stats.lane]}`,
     teamName: stats.teamName,
+    ...(stats.playerName ? { playerName: stats.playerName } : {}),
+    ...(stats.playerId ? { playerId: stats.playerId } : {}),
     avgRating: round1(avg(stats.ratings)),
     gamesPlayed: stats.ratings.length,
   };

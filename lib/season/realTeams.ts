@@ -9,17 +9,22 @@
 // get icons for free from the same payload.
 
 import { LEAGUE_IDS, TEAMS_PER_LEAGUE, type LeagueId } from "./types";
+import type { Lane } from "../types";
+import { realPlayersForTeam } from "./playerNames";
 import bundledTeamsJson from "./realTeamNames.json";
 
 /** A real pro team: display name plus an optional logo URL. In the
  *  bundled snapshot `logoUrl` is a local bundled path (/team-logos/…),
  *  with `logoRemote` keeping the original source URL for re-downloading
  *  (see scripts/fetch-team-logos.mjs). A live API fetch instead returns a
- *  remote https `logoUrl` and no `logoRemote`. */
+ *  remote https `logoUrl` and no `logoRemote`. `players` (real per-lane
+ *  handles) is filled by the live fetch only — the bundled snapshot has
+ *  none, so bundled-named teams fall back to generated handles. */
 export interface RealTeam {
   name: string;
   logoUrl?: string;
   logoRemote?: string;
+  players?: Partial<Record<Lane, string>>;
 }
 
 /** Bundled offline snapshot — 10 real pro teams per region, with logos.
@@ -190,10 +195,67 @@ export function dedupeAcrossLeagues(
   return out;
 }
 
-/** Fetch real teams (names + logos) for every sim league. Leagues
- *  resolve in parallel; each list is at most TEAMS_PER_LEAGUE long and
- *  may be shorter if the API has fewer current teams — callers should
- *  keep generated names for the remainder. */
+// ─── Player rosters ──────────────────────────────────────────────────────
+// One getTeams call returns every team with its current roster, so we fetch
+// it once and match each named team to its five lane handles. Best-effort:
+// roles can be noisy / placeholder, so junk entries are skipped and any lane
+// without a real handle is left for the caller's generated fallback.
+
+const ROLE_TO_LANE: Record<string, Lane> = {
+  top: "top",
+  jungle: "jungle",
+  mid: "middle",
+  bottom: "bottom",
+  support: "support",
+};
+const isJunkHandle = (n: string | undefined): boolean =>
+  !n || /test|\bjg\d|\bmid\d|player\d|tbd|sub\d/i.test(n);
+
+interface ApiRosterTeam {
+  name?: string;
+  players?: { summonerName?: string; role?: string }[];
+}
+
+/** Map normalized team name → that team's per-lane handles, from getTeams. */
+async function fetchTeamRosters(
+  signal: AbortSignal | undefined,
+): Promise<Map<string, Partial<Record<Lane, string>>>> {
+  const data = await getJson<{ data: { teams: ApiRosterTeam[] } }>(
+    "getTeams?hl=en-US",
+    signal,
+  );
+  const map = new Map<string, Partial<Record<Lane, string>>>();
+  for (const t of data.data.teams ?? []) {
+    if (!t.name || !(t.players && t.players.length)) continue;
+    const roster: Partial<Record<Lane, string>> = {};
+    for (const p of t.players) {
+      const lane = p.role ? ROLE_TO_LANE[p.role] : undefined;
+      const handle = p.summonerName?.trim();
+      if (!lane || roster[lane] || isJunkHandle(handle)) continue;
+      roster[lane] = handle;
+    }
+    if (Object.keys(roster).length > 0) map.set(normalizeTeamName(t.name), roster);
+  }
+  return map;
+}
+
+/** Best roster for a team name: exact normalized match, else a contains
+ *  match (handles "Gen.G" vs "Gen.G Esports"-style differences). */
+function matchRoster(
+  name: string,
+  rosters: Map<string, Partial<Record<Lane, string>>>,
+): Partial<Record<Lane, string>> | undefined {
+  const n = normalizeTeamName(name);
+  const exact = rosters.get(n);
+  if (exact) return exact;
+  for (const [k, r] of rosters) if (k && (k.includes(n) || n.includes(k))) return r;
+  return undefined;
+}
+
+/** Fetch real teams (names + logos + rosters) for every sim league.
+ *  Leagues resolve in parallel; each list is at most TEAMS_PER_LEAGUE long
+ *  and may be shorter if the API has fewer current teams — callers should
+ *  keep generated names/handles for the remainder. */
 export async function fetchRealTeams(
   signal?: AbortSignal,
 ): Promise<Record<LeagueId, RealTeam[]>> {
@@ -215,12 +277,32 @@ export async function fetchRealTeams(
     Object.fromEntries(lists) as Record<LeagueId, RealTeam[]>,
   );
 
-  // Prefer a bundled local logo when the team name matches, so seasons
-  // created from a live fetch still show logos offline; fall back to the
-  // remote URL for teams not in the bundle.
+  // Rosters come from a single getTeams call. Best-effort: if it fails, teams
+  // still get their names + logos and the caller fills generated handles.
+  let rosters: Map<string, Partial<Record<Lane, string>>> = new Map();
+  try {
+    rosters = await fetchTeamRosters(signal);
+  } catch {
+    /* names/logos already resolved — proceed without real handles */
+  }
+
   for (const league of LEAGUE_IDS) {
     for (const team of deduped[league]) {
+      // Prefer a bundled local logo when the team name matches, so seasons
+      // created from a live fetch still show logos offline; fall back to the
+      // remote URL for teams not in the bundle.
       team.logoUrl = logoForTeamName(team.name) ?? team.logoUrl;
+      // Prefer the accurate bundled roster (Leaguepedia starters); fill any
+      // gaps from the live LoL Esports squad. The live feed alone is unreliable
+      // (full org list, no starter flag), so it's only a fallback.
+      const bundled = realPlayersForTeam(team.name);
+      const live = matchRoster(team.name, rosters);
+      const merged: Partial<Record<Lane, string>> = {};
+      for (const lane of ["top", "jungle", "middle", "bottom", "support"] as Lane[]) {
+        const handle = bundled[lane] || live?.[lane];
+        if (handle) merged[lane] = handle;
+      }
+      if (Object.keys(merged).length > 0) team.players = merged;
     }
   }
   return deduped;

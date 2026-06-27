@@ -35,6 +35,31 @@ export interface Champion {
 export type PlayerTier = "S" | "A" | "B" | "C" | "D";
 
 export interface Player {
+  // Stable, permanent identity — survives transfers AND seasons, so a player's
+  // career (awards, teams, titles) can be followed across a franchise timeline.
+  // Optional: legacy/one-off rosters may lack it; assign on load when missing.
+  id?: string;
+  // In-game handle (e.g. "Faker"). Cosmetic identity that travels with the
+  // player through transfers. Optional — absent on legacy/manually-built
+  // rosters, which simply render by lane. Real handles where available, a
+  // generated one otherwise.
+  name?: string;
+  // Age in years. Drives between-season growth (young) and decline (veteran)
+  // and eventual retirement in franchise mode. Optional — only stamped on
+  // franchise/reality rosters; one-off seasons leave it unset.
+  age?: number;
+  // Hidden ceiling tier a player can grow toward while young; once reached,
+  // age + performance govern whether they hold it or decline. Optional, like
+  // age. Defaults to the current tier when absent (no headroom).
+  potential?: PlayerTier;
+  // The league (region) the player is native to — set at creation, fixed.
+  // Used to decide the language-barrier penalty on cross-region transfers.
+  homeRegion?: string;
+  // How settled the player is in their CURRENT team's region, 0..1. 1 = native
+  // or fully acclimated; a fresh cross-region import starts low and climbs each
+  // split/offseason. `(1 − acclimation)` is the language-barrier penalty applied
+  // to lane performance and transfer value. Absent ⇒ treated as 1 (no penalty).
+  acclimation?: number;
   // Position the player occupies. Fixed identity — a player tagged `top`
   // always drafts for top.
   lane: Lane;
@@ -76,6 +101,8 @@ export interface GameRecap {
     deaths: number;
     assists: number;
     laneGoldDiff: number; // signed from this player's perspective
+    playerName?: string; // roster handle, when known at sim time
+    playerId?: string; // stable player id, for career aggregation
   } | null;
   // Per-lane gold differential at the end of the game, signed from
   // BLUE's perspective (positive = blue ahead in that lane). Optional
@@ -122,6 +149,20 @@ export interface GameRecap {
   perPickKDA?: {
     blue: Array<{ k: number; d: number; a: number }>;
     red: Array<{ k: number; d: number; a: number }>;
+  };
+  // Per-pick roster handles, 5 per side indexed by positional lane like
+  // perPickKDA. Filled when the rosters are known at sim time; lets the
+  // scoreboard / replay / MVP card show who played each pick without
+  // re-threading rosters. Optional / legacy-safe.
+  perPickNames?: {
+    blue: Array<string | null>;
+    red: Array<string | null>;
+  };
+  // Per-pick stable player ids, parallel to perPickNames. Lets season/career
+  // stats credit the exact player. Optional / legacy-safe.
+  perPickIds?: {
+    blue: Array<string | null>;
+    red: Array<string | null>;
   };
   // Per-pick performance ratings on a 1-10 scale (one decimal), 5 entries
   // per side indexed by positional lane like perPickKDA. Blends KDA quality,

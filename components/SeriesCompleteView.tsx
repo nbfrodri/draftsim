@@ -196,9 +196,14 @@ export default function SeriesCompleteView({ champions }: Props) {
 // computeGameRatings for historical recaps that have perPickKDA but no ratings.
 // Rendered only when at least one game has usable rating data.
 
+// Positional lane order the recap's per-pick arrays are indexed by.
+const POS_LANES: Lane[] = ["top", "jungle", "middle", "bottom", "support"];
+
 function computeSeriesAverageRatings(games: GameDraft[]): {
   left: number[];
   right: number[];
+  leftNames: (string | null)[];
+  rightNames: (string | null)[];
 } | null {
   // leftTeam is the blue team in Game 1. We accumulate across games by
   // tracking which team is blue in each game (it may swap between games).
@@ -208,6 +213,8 @@ function computeSeriesAverageRatings(games: GameDraft[]): {
   const rightAccum = [0, 0, 0, 0, 0];
   const leftCount = [0, 0, 0, 0, 0];
   const rightCount = [0, 0, 0, 0, 0];
+  const leftNames: (string | null)[] = [null, null, null, null, null];
+  const rightNames: (string | null)[] = [null, null, null, null, null];
   const leftTeamName = games[0]?.blueTeam;
 
   for (const g of games) {
@@ -218,9 +225,14 @@ function computeSeriesAverageRatings(games: GameDraft[]): {
     const blueIsLeft = g.blueTeam === leftTeamName;
     const leftRatings = blueIsLeft ? r.blue : r.red;
     const rightRatings = blueIsLeft ? r.red : r.blue;
+    const names = g.recap.perPickNames;
+    const leftN = names && (blueIsLeft ? names.blue : names.red);
+    const rightN = names && (blueIsLeft ? names.red : names.blue);
     for (let i = 0; i < 5; i++) {
       if (leftRatings[i] != null) { leftAccum[i] += leftRatings[i]; leftCount[i]++; }
       if (rightRatings[i] != null) { rightAccum[i] += rightRatings[i]; rightCount[i]++; }
+      if (leftN?.[i] && !leftNames[i]) leftNames[i] = leftN[i];
+      if (rightN?.[i] && !rightNames[i]) rightNames[i] = rightN[i];
     }
   }
 
@@ -230,6 +242,8 @@ function computeSeriesAverageRatings(games: GameDraft[]): {
   return {
     left: leftAccum.map((sum, i) => leftCount[i] > 0 ? Math.round((sum / leftCount[i]) * 10) / 10 : 0),
     right: rightAccum.map((sum, i) => rightCount[i] > 0 ? Math.round((sum / rightCount[i]) * 10) / 10 : 0),
+    leftNames,
+    rightNames,
   };
 }
 
@@ -244,32 +258,39 @@ function SeriesPlayerRatings({
 }) {
   const avgs = useMemo(() => computeSeriesAverageRatings(games), [games]);
   if (!avgs) return null;
+  const column = (
+    team: string,
+    color: string,
+    ratings: number[],
+    names: (string | null)[],
+  ) => (
+    <div>
+      <div className={`text-[9px] uppercase tracking-[0.3em] ${color} mb-1.5 truncate`}>
+        <TeamName name={team} size={12} />
+      </div>
+      <div className="space-y-1">
+        {POS_LANES.map((lane, i) =>
+          ratings[i] > 0 ? (
+            <div key={lane} className="flex items-center gap-2 text-[11px]">
+              <LaneIcon lane={lane} size="xs" className="shrink-0 opacity-80" />
+              <span className="text-rift-mutedbright truncate flex-1 min-w-0">
+                {names[i] ?? "—"}
+              </span>
+              <RatingBadge rating={ratings[i]} />
+            </div>
+          ) : null,
+        )}
+      </div>
+    </div>
+  );
   return (
     <div className="sc-fade border border-rift-gold/20 bg-rift-panel/30 p-3 md:p-4 mb-4 md:mb-5">
       <div className="text-[10px] md:text-xs uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
         Series Avg Ratings
       </div>
       <div className="grid grid-cols-2 gap-3 md:gap-4">
-        <div>
-          <div className="text-[9px] uppercase tracking-[0.3em] text-rift-bluebright mb-1.5 truncate">
-            <TeamName name={leftTeam} size={12} />
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {avgs.left.map((r, i) => (
-              r > 0 ? <RatingBadge key={i} rating={r} /> : null
-            ))}
-          </div>
-        </div>
-        <div>
-          <div className="text-[9px] uppercase tracking-[0.3em] text-rift-redbright mb-1.5 truncate">
-            <TeamName name={rightTeam} size={12} />
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {avgs.right.map((r, i) => (
-              r > 0 ? <RatingBadge key={i} rating={r} /> : null
-            ))}
-          </div>
-        </div>
+        {column(leftTeam, "text-rift-bluebright", avgs.left, avgs.leftNames)}
+        {column(rightTeam, "text-rift-redbright", avgs.right, avgs.rightNames)}
       </div>
     </div>
   );
@@ -299,10 +320,6 @@ const EVENT_PHRASES: Record<string, (side: string) => string> = {
   atakhan: (s) => `${s} secured Atakhan`,
 };
 
-function laneShort(lane: Lane): string {
-  return lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
-}
-
 function paceLabel(durationMinutes: number): string {
   if (durationMinutes < 25) return "in a quick stomp";
   if (durationMinutes < 32) return "in a clean game";
@@ -310,11 +327,18 @@ function paceLabel(durationMinutes: number): string {
   return "in a marathon";
 }
 
+interface MvpBits {
+  champ: Champion;
+  lane: Lane;
+  playerName: string | null;
+  kda: string;
+}
+
 function describeGameRecap(
   game: GameDraft,
   byId: Map<number, Champion>,
   recap: GameRecap | undefined,
-): { headline: string; mvpLine: string | null; swingLine: string | null } {
+): { headline: string; mvp: MvpBits | null; swingLine: string | null } {
   // Winner team name (broadcast-style).
   const winnerName =
     game.winner === "blue"
@@ -325,7 +349,7 @@ function describeGameRecap(
   if (!recap || !game.winner) {
     return {
       headline: `${winnerName} took Game ${game.gameNumber}`,
-      mvpLine: null,
+      mvp: null,
       swingLine: null,
     };
   }
@@ -333,12 +357,16 @@ function describeGameRecap(
   const headline = `${winnerName} closed Game ${game.gameNumber} ${paceLabel(
     recap.durationMinutes,
   )}`;
-  // MVP line: lead with the champion, lane, KDA. Skip if recap has no MVP
-  // or KDA is all-zero (very rare, but possible for an early surrender).
+  // MVP: champion + lane icons rendered by the caller, plus name/KDA text.
   const mvpChamp = recap.mvp ? byId.get(recap.mvp.championId) : null;
-  const mvpLine =
+  const mvp: MvpBits | null =
     recap.mvp && mvpChamp
-      ? `${mvpChamp.name} (${laneShort(recap.mvp.lane)}) carried ${recap.mvp.kills}/${recap.mvp.deaths}/${recap.mvp.assists}`
+      ? {
+          champ: mvpChamp,
+          lane: recap.mvp.lane,
+          playerName: recap.mvp.playerName ?? null,
+          kda: `${recap.mvp.kills}/${recap.mvp.deaths}/${recap.mvp.assists}`,
+        }
       : null;
   // Swing line: explain WHAT moved the needle. Map known event types to
   // natural phrases; fall back to the raw description for the rest.
@@ -352,7 +380,7 @@ function describeGameRecap(
     const minute = Math.floor(recap.biggestSwing.minute);
     swingLine = `Decisive moment at ${minute}': ${phrase}`;
   }
-  return { headline, mvpLine, swingLine };
+  return { headline, mvp, swingLine };
 }
 
 function SeriesNarrative({
@@ -369,7 +397,7 @@ function SeriesNarrative({
       </div>
       <div className="space-y-3">
         {series.map((g, idx) => {
-          const { headline, mvpLine, swingLine } = describeGameRecap(
+          const { headline, mvp, swingLine } = describeGameRecap(
             g,
             byId,
             g.recap,
@@ -392,10 +420,19 @@ function SeriesNarrative({
                 <div className={`text-xs md:text-sm font-display tracking-[0.1em] truncate ${winnerCls}`}>
                   {headline}
                 </div>
-                {mvpLine && (
-                  <div className="text-[11px] md:text-xs text-rift-mutedbright truncate">
-                    <span className="text-rift-gold/60 mr-1">MVP ·</span>
-                    {mvpLine}
+                {mvp && (
+                  <div className="text-[11px] md:text-xs text-rift-mutedbright flex items-center gap-1.5 min-w-0">
+                    <span className="text-rift-gold/60 shrink-0">MVP ·</span>
+                    <img
+                      src={mvp.champ.iconUrl}
+                      alt={mvp.champ.name}
+                      className="w-4 h-4 md:w-5 md:h-5 object-cover border border-rift-line/40 shrink-0"
+                    />
+                    <LaneIcon lane={mvp.lane} size="xs" className="shrink-0 opacity-80" />
+                    <span className="truncate">
+                      {mvp.playerName ? `${mvp.playerName} · ` : ""}
+                      {mvp.champ.name} {mvp.kda}
+                    </span>
                   </div>
                 )}
                 {swingLine && (

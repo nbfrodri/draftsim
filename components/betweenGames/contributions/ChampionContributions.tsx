@@ -23,6 +23,7 @@ export const ChampionContributions = memo(function ChampionContributions({
   laneKDA,
   ratings,
   forms,
+  playerNames,
 }: {
   side: Side;
   picks: (number | null)[];
@@ -33,6 +34,8 @@ export const ChampionContributions = memo(function ChampionContributions({
   ratings?: number[];
   // Per-lane ordered form values [-1,1]. Optional.
   forms?: number[];
+  // Per-lane player handles in positional order. Optional.
+  playerNames?: (string | null)[];
 }) {
   const border = side === "blue" ? "border-rift-blue/40" : "border-rift-red/40";
   const accentBg = side === "blue" ? "bg-rift-blue/5" : "bg-rift-red/5";
@@ -100,6 +103,7 @@ export const ChampionContributions = memo(function ChampionContributions({
               damageShare={laneKDA ? damageShare : null}
               rating={ratings?.[i]}
               form={forms?.[i]}
+              playerName={playerNames?.[i]}
             />
           );
         })}

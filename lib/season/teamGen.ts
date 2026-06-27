@@ -8,6 +8,8 @@
 import type { Champion } from "../types";
 import { makeTeamId, TEAM_COLORS, TEAM_ICON_KEYS } from "../tournament";
 import { randomizeRoster, type RNG } from "../players";
+import { nameRoster } from "./playerNames";
+import { makeCoach } from "./coach";
 import { PERSONALITY_LIST } from "../draftAI";
 import {
   LEAGUE_IDS,
@@ -153,6 +155,7 @@ export function generateSeasonTeams(
   rng: RNG = Math.random,
 ): SeasonTeam[] {
   const takenNames = new Set<string>();
+  const takenHandles = new Set<string>(); // player handles, unique season-wide
   const colors = shuffled(TEAM_COLORS, rng);
   const icons = shuffled(TEAM_ICON_KEYS, rng);
   let cosmeticIdx = 0;
@@ -161,14 +164,24 @@ export function generateSeasonTeams(
   for (const league of LEAGUE_IDS) {
     const stars = shuffled(STAR_DISTRIBUTIONS[league], rng);
     for (let i = 0; i < TEAMS_PER_LEAGUE; i++) {
+      const name = pickName(league, takenNames, rng);
       teams.push({
         id: makeTeamId(),
         leagueId: league,
-        name: pickName(league, takenNames, rng),
+        name,
         color: colors[cosmeticIdx % colors.length],
         iconKey: icons[cosmeticIdx % icons.length],
-        players: randomizeRoster({ champions, star: stars[i], rng }),
+        // Generated handles now (teams are fictional-named); the "Real Names"
+        // button overlays real handles where the snapshot has them. Each player
+        // is native to this league (homeRegion) and fully acclimated.
+        players: nameRoster(
+          randomizeRoster({ champions, star: stars[i], rng }),
+          name,
+          rng,
+          takenHandles,
+        ).map((p) => ({ ...p, homeRegion: league, acclimation: 1 })),
         personalityId: randomPersonalityId(rng),
+        coach: makeCoach(stars[i], rng, takenHandles),
       });
       cosmeticIdx++;
     }
