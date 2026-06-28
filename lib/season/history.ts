@@ -98,6 +98,13 @@ export interface SeasonHistoryEntry {
   splitChampions: Partial<
     Record<SplitId, Partial<Record<LeagueId, SeasonHistoryTeamRef>>>
   >;
+  /** Runner-up of each international (2nd place). Optional — only on seasons
+   *  archived after this existed; older entries omit it. */
+  intlRunnersUp?: Partial<Record<InternationalId, SeasonHistoryTeamRef>>;
+  /** Runner-up of every split, per league (2nd place). Optional, as above. */
+  splitRunnersUp?: Partial<
+    Record<SplitId, Partial<Record<LeagueId, SeasonHistoryTeamRef>>>
+  >;
   /** Champion tier table the season STARTED on. null = the default
    *  tiers; undefined = unknown (season pre-dates initialMeta). */
   initialMetaOverride?: MetaOverride | null;
@@ -210,24 +217,32 @@ export function buildSeasonHistoryEntry(
 ): SeasonHistoryEntry {
   const worlds = season.intlResults.worlds ?? [];
   const intlChampions: SeasonHistoryEntry["intlChampions"] = {};
+  const intlRunnersUp: NonNullable<SeasonHistoryEntry["intlRunnersUp"]> = {};
   for (const [event, placements] of Object.entries(season.intlResults) as Array<
     [InternationalId, string[]]
   >) {
     const ref = teamRef(season, placements[0]);
     if (ref) intlChampions[event] = ref;
+    const ru = teamRef(season, placements[1]);
+    if (ru) intlRunnersUp[event] = ru;
   }
   const splitChampions: SeasonHistoryEntry["splitChampions"] = {};
+  const splitRunnersUp: NonNullable<SeasonHistoryEntry["splitRunnersUp"]> = {};
   for (const [split, byLeague] of Object.entries(season.splitResults) as Array<
     [SplitId, Partial<Record<LeagueId, string[]>>]
   >) {
     const out: Partial<Record<LeagueId, SeasonHistoryTeamRef>> = {};
+    const ru: Partial<Record<LeagueId, SeasonHistoryTeamRef>> = {};
     for (const [league, placements] of Object.entries(byLeague) as Array<
       [LeagueId, string[]]
     >) {
       const ref = teamRef(season, placements?.[0]);
       if (ref) out[league] = ref;
+      const r2 = teamRef(season, placements?.[1]);
+      if (r2) ru[league] = r2;
     }
     if (Object.keys(out).length > 0) splitChampions[split] = out;
+    if (Object.keys(ru).length > 0) splitRunnersUp[split] = ru;
   }
   // Performance-derived stats need the season's tournaments. They're
   // always present on a real season, but stay defensive for sparse /
@@ -328,6 +343,8 @@ export function buildSeasonHistoryEntry(
     runnerUp: teamRef(season, worlds[1]),
     intlChampions,
     splitChampions,
+    ...(Object.keys(intlRunnersUp).length > 0 ? { intlRunnersUp } : {}),
+    ...(Object.keys(splitRunnersUp).length > 0 ? { splitRunnersUp } : {}),
     ...(hasStory ? { story } : {}),
     ...(Object.keys(leagueBestTeams).length > 0 ? { leagueBestTeams } : {}),
     ...(awardTally.length > 0 ? { awardTally } : {}),

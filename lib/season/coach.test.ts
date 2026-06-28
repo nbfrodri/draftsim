@@ -1,6 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { makeCoach, coachDifficulty, coachPlaystyle, swapCoaches, reassignCoaches } from "./coach";
+import {
+  makeCoach,
+  coachDifficulty,
+  coachPlaystyle,
+  swapCoaches,
+  reassignCoaches,
+  nextCoachRating,
+  coachAdaptabilityTrait,
+  coachDevTilt,
+} from "./coach";
 import type { Coach } from "./coach";
+
+const mkCoach = (over: Partial<Coach>): Coach => ({
+  id: "c",
+  name: "x",
+  rating: 3,
+  personalityId: "p",
+  adaptability: 0.5,
+  motivation: 0.5,
+  ...over,
+});
 
 const rng = (seed: number) => {
   let a = seed >>> 0;
@@ -18,6 +37,40 @@ describe("coachDifficulty", () => {
     expect(coachDifficulty({ id: "c", name: "x", rating: 3, personalityId: "p", adaptability: 0.5 })).toBe("normal");
     expect(coachDifficulty({ id: "c", name: "x", rating: 1.5, personalityId: "p", adaptability: 0.5 })).toBe("easy");
     expect(coachDifficulty(undefined)).toBeUndefined();
+  });
+});
+
+describe("coach evolution", () => {
+  it("over-performing raises rating, under-performing lowers it", () => {
+    expect(nextCoachRating(3, +1)).toBeGreaterThan(3);
+    expect(nextCoachRating(3, -1)).toBeLessThan(3);
+  });
+
+  it("regresses toward the mean with neutral results (no ceiling pileup)", () => {
+    expect(nextCoachRating(5, 0)).toBeLessThan(5); // elite coach drifts down
+    expect(nextCoachRating(1, 0)).toBeGreaterThan(1); // poor coach drifts up
+    expect(nextCoachRating(3, 0)).toBeCloseTo(3); // mean is the fixed point
+  });
+
+  it("stays within 1..5", () => {
+    expect(nextCoachRating(5, 1)).toBeLessThanOrEqual(5);
+    expect(nextCoachRating(1, -1)).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("coach influence traits", () => {
+  it("adaptability trait centers at 0 and spans [-1,1]", () => {
+    expect(coachAdaptabilityTrait(mkCoach({ adaptability: 0.5 }))).toBeCloseTo(0);
+    expect(coachAdaptabilityTrait(mkCoach({ adaptability: 1 }))).toBeCloseTo(1);
+    expect(coachAdaptabilityTrait(mkCoach({ adaptability: 0 }))).toBeCloseTo(-1);
+    expect(coachAdaptabilityTrait(undefined)).toBe(0);
+  });
+
+  it("dev tilt helps players under a strong coach, hurts under a weak one", () => {
+    expect(coachDevTilt(mkCoach({ rating: 5 }))).toBeGreaterThan(0);
+    expect(coachDevTilt(mkCoach({ rating: 1 }))).toBeLessThan(0);
+    expect(coachDevTilt(mkCoach({ rating: 3 }))).toBeCloseTo(0);
+    expect(coachDevTilt(undefined)).toBe(0);
   });
 });
 

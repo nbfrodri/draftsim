@@ -52,6 +52,11 @@ describe("buildSeasonHistoryEntry", () => {
     expect(entry.splitChampions.winter?.LEC?.name).toBe("T3");
     expect(entry.splitChampions.summer?.LCK?.name).toBe("T2");
     expect(entry.splitChampions.spring).toBeUndefined();
+    // Runners-up (2nd place) captured per event/split for the by-season recap.
+    expect(entry.intlRunnersUp?.["first-stand"]?.name).toBe("T1"); // ["t3","t1"]
+    expect(entry.intlRunnersUp?.msi?.name).toBe("T2");
+    expect(entry.splitRunnersUp?.winter?.LCK?.name).toBe("T2"); // ["t1","t2"]
+    expect(entry.splitRunnersUp?.winter?.LEC).toBeUndefined(); // only one team
   });
 
   it("captures the starting and final tier tables", () => {

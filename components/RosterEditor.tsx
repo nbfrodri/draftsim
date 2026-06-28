@@ -37,6 +37,7 @@ const LANE_LABEL: Record<Lane, string> = {
 };
 
 const TIER_TEXT: Record<PlayerTier, string> = {
+  "S+": "text-rift-goldbright",
   S: "text-rift-goldbright",
   A: "text-rift-bluebright",
   B: "text-rift-mutedbright",

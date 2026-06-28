@@ -66,15 +66,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
  },
  "timeline": {
   "durationMinutes": 33.3,
-  "laningEndMinute": 11.791245877044275,
+  "laningEndMinute": 11.729616251308471,
   "durationLabel": "33:18",
   "events": [
    {
-    "type": "scuttle",
-    "minutes": 3.9116048756986856,
-    "time": "3:55",
-    "side": "red",
-    "description": "Draven fights for bot side scuttler — wins the crab",
+    "type": "invade",
+    "minutes": 0.42003924208693205,
+    "time": "0:25",
+    "side": "blue",
+    "description": "LEVEL ONE — Vi catches Draven at enemy red buff",
     "kills": {
      "blue": 0,
      "red": 0
@@ -88,15 +88,49 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "red": 0
     },
     "laneGoldDelta": {
-     "jungle": -80
+     "top": 16,
+     "jungle": 16,
+     "middle": 16,
+     "bottom": 16,
+     "support": 16
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5014999955000162,
-    "goldLeadAfter": -675,
-    "momentumAfter": -0.06,
+    "winProbAfter": 0.555273179297599,
+    "goldLeadAfter": 16,
+    "momentumAfter": 0.12,
+    "mapControlAfter": 0
+   },
+   {
+    "type": "scuttle",
+    "minutes": 3.9116048756986856,
+    "time": "3:55",
+    "side": "blue",
+    "description": "Vi fights for top side scuttler — wins the crab",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "jungle": 80
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.5623733983475708,
+    "goldLeadAfter": -435,
+    "momentumAfter": 0.144,
     "mapControlAfter": 0
    },
    {
@@ -104,7 +138,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
     "minutes": 4.200106174801476,
     "time": "4:12",
     "side": "red",
-    "description": "Darius outduels Lucian in the enemy jungle",
+    "description": "Darius outduels Lucian post-back",
     "kills": {
      "blue": 0,
      "red": 1
@@ -118,7 +152,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -400
+     "top": -400,
+     "jungle": -100
     },
     "kdaDelta": {
      "blue": {
@@ -133,12 +168,17 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
        "k": 1,
        "d": 0,
        "a": 0
+      },
+      "jungle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
       }
      }
     },
-    "winProbAfter": 0.417656781031056,
-    "goldLeadAfter": -1119,
-    "momentumAfter": -0.242,
+    "winProbAfter": 0.4598267831174054,
+    "goldLeadAfter": -979,
+    "momentumAfter": -0.09920000000000002,
     "mapControlAfter": 0
    },
    {
@@ -146,10 +186,10 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
     "minutes": 5.350974672008306,
     "time": "5:21",
     "side": "red",
-    "description": "Darius solo-kills in top",
+    "description": "Darius dominates top (2 solo kills)",
     "kills": {
      "blue": 0,
-     "red": 1
+     "red": 2
     },
     "towers": {
      "blue": 0,
@@ -160,57 +200,27 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -420
+     "top": -840
     },
     "kdaDelta": {
      "blue": {
       "top": {
        "k": 0,
-       "d": 1,
+       "d": 2,
        "a": 0
       }
      },
      "red": {
       "top": {
-       "k": 1,
+       "k": 2,
        "d": 0,
        "a": 0
       }
      }
     },
-    "winProbAfter": 0.35313664408883455,
-    "goldLeadAfter": -1714,
-    "momentumAfter": -0.3694,
-    "mapControlAfter": 0
-   },
-   {
-    "type": "counter-jungle",
-    "minutes": 7.071087439544499,
-    "time": "7:04",
-    "side": "red",
-    "description": "Draven invades and clears the enemy jungle — their jungler falls behind",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "jungle": -200
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.36305237457870027,
-    "goldLeadAfter": -2176,
-    "momentumAfter": -0.33858,
+    "winProbAfter": 0.33954376780445705,
+    "goldLeadAfter": -1994,
+    "momentumAfter": -0.31944,
     "mapControlAfter": 0
    },
    {
@@ -218,7 +228,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
     "minutes": 7.255956351524219,
     "time": "7:15",
     "side": "red",
-    "description": "Red secures Ocean Drake (first)",
+    "description": "Red secures Chemtech Drake (first)",
     "kills": {
      "blue": 0,
      "red": 0
@@ -242,9 +252,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.34002359770894636,
-    "goldLeadAfter": -2354,
-    "momentumAfter": -0.35700599999999993,
+    "winProbAfter": 0.31788634287737183,
+    "goldLeadAfter": -2434,
+    "momentumAfter": -0.34360799999999997,
     "mapControlAfter": 0
    },
    {
@@ -276,146 +286,80 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.4035696675126508,
-    "goldLeadAfter": -2146,
-    "momentumAfter": -0.12990419999999994,
+    "winProbAfter": 0.37854627542246144,
+    "goldLeadAfter": -2226,
+    "momentumAfter": -0.12052559999999995,
     "mapControlAfter": 0
    },
    {
-    "type": "counter-gank",
-    "minutes": 8.226114348508418,
-    "time": "8:14",
-    "side": "blue",
-    "description": "Vi counter-ganks the play",
-    "kills": {
-     "blue": 1,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "middle": 160,
-     "jungle": 340
-    },
-    "kdaDelta": {
-     "blue": {
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.4978193519040756,
-    "goldLeadAfter": -1792,
-    "momentumAfter": 0.08906706000000005,
-    "mapControlAfter": 0
-   },
-   {
-    "type": "dive",
-    "minutes": 9.764888683799654,
-    "time": "9:46",
-    "side": "blue",
-    "description": "Vi collapses top — clean tower dive",
-    "kills": {
-     "blue": 2,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": 220,
-     "jungle": 600
-    },
-    "kdaDelta": {
-     "blue": {
-      "jungle": {
-       "k": 2,
-       "d": 0,
-       "a": 0
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "top": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.5924246056668153,
-    "goldLeadAfter": -1206,
-    "momentumAfter": 0.22234694200000005,
-    "mapControlAfter": 0
-   },
-   {
-    "type": "tower",
-    "minutes": 11.791245877044275,
-    "time": "11:47",
+    "type": "wave-crash",
+    "minutes": 8.637407236499712,
+    "time": "8:38",
     "side": "red",
-    "description": "Red takes the outer middle tower",
+    "description": "Elise crashes the wave mid, freezes the bounce",
     "kills": {
      "blue": 0,
      "red": 0
     },
     "towers": {
      "blue": 0,
-     "red": 1
+     "red": 0
     },
     "inhibs": {
      "blue": 0,
      "red": 0
     },
     "laneGoldDelta": {
-     "middle": -500
+     "middle": -220
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.47967105211836963,
-    "goldLeadAfter": -2014,
-    "momentumAfter": 0.005642859400000033,
-    "mapControlAfter": -1
+    "winProbAfter": 0.3746064239070597,
+    "goldLeadAfter": -2655,
+    "momentumAfter": -0.14436791999999996,
+    "mapControlAfter": 0
    },
    {
-    "type": "dragon",
-    "minutes": 12.389310412853956,
-    "time": "12:23",
+    "type": "tower",
+    "minutes": 11.729616251308471,
+    "time": "11:44",
     "side": "blue",
-    "description": "Blue secures Infernal Drake (first)",
+    "description": "Blue takes the outer middle tower",
     "kills": {
      "blue": 0,
      "red": 0
+    },
+    "towers": {
+     "blue": 1,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "bottom": 500
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.48399033230737537,
+    "goldLeadAfter": -2625,
+    "momentumAfter": 0.04894245600000004,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "dragon",
+    "minutes": 13.244701047986746,
+    "time": "13:15",
+    "side": "blue",
+    "description": "STOLEN! Blue smites Chemtech Drake away (first)",
+    "kills": {
+     "blue": 0,
+     "red": 1
     },
     "towers": {
      "blue": 0,
@@ -427,26 +371,43 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
     },
     "laneGoldDelta": {
      "top": 40,
-     "jungle": 40,
+     "jungle": -260,
      "middle": 40,
      "bottom": 40,
      "support": 40
     },
     "kdaDelta": {
-     "blue": {},
-     "red": {}
+     "blue": {
+      "top": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "jungle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     },
+     "red": {
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 1
+      }
+     }
     },
-    "winProbAfter": 0.5414149140006436,
-    "goldLeadAfter": -1814,
-    "momentumAfter": 0.14395000158000004,
-    "mapControlAfter": -1
+    "winProbAfter": 0.5597672629034836,
+    "goldLeadAfter": -2725,
+    "momentumAfter": 0.31425971920000006,
+    "mapControlAfter": 1
    },
    {
     "type": "power-spike",
     "minutes": 14.537609023042023,
     "time": "14:32",
     "side": "red",
-    "description": "POWER SPIKE — Darius powers up with Trinity Force",
+    "description": "POWER SPIKE — Draven powers up with Kraken Slayer",
     "kills": {
      "blue": 0,
      "red": 0
@@ -460,27 +421,27 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -34.2,
-     "jungle": -34.2,
-     "middle": -34.2,
-     "bottom": -34.2,
-     "support": -34.2
+     "top": -50.4,
+     "jungle": -50.4,
+     "middle": -50.4,
+     "bottom": -50.4,
+     "support": -50.4
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.499889366846442,
-    "goldLeadAfter": -1985,
-    "momentumAfter": 0.0009275011060000116,
-    "mapControlAfter": -1
+    "winProbAfter": 0.48973738549170903,
+    "goldLeadAfter": -2977,
+    "momentumAfter": 0.07315680344000003,
+    "mapControlAfter": 1
    },
    {
     "type": "power-spike",
     "minutes": 14.610769625287503,
     "time": "14:37",
-    "side": "red",
-    "description": "POWER SPIKE — Draven completes Kraken Slayer",
+    "side": "blue",
+    "description": "POWER SPIKE — Jax powers up with Goredrinker",
     "kills": {
      "blue": 0,
      "red": 0
@@ -494,29 +455,63 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -49,
-     "jungle": -49,
-     "middle": -49,
-     "bottom": -49,
-     "support": -49
+     "top": 33.6,
+     "jungle": 33.6,
+     "middle": 33.6,
+     "bottom": 33.6,
+     "support": 33.6
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.45716742960932116,
-    "goldLeadAfter": -2230,
-    "momentumAfter": -0.14197574922580003,
-    "mapControlAfter": -1
+    "winProbAfter": 0.5126629986968019,
+    "goldLeadAfter": -2809,
+    "momentumAfter": 0.14920976240800002,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "power-spike",
+    "minutes": 14.68850074429065,
+    "time": "14:41",
+    "side": "blue",
+    "description": "POWER SPIKE — Lucian finishes Luden's Companion",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": 48,
+     "jungle": 48,
+     "middle": 48,
+     "bottom": 48,
+     "support": 48
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.5412637537550009,
+    "goldLeadAfter": -2569,
+    "momentumAfter": 0.24444683368560002,
+    "mapControlAfter": 1
    },
    {
     "type": "atakhan",
-    "minutes": 15.153077500872314,
-    "time": "15:09",
+    "minutes": 14.836834252811968,
+    "time": "14:50",
     "side": "red",
-    "description": "Red kills Voracious Atakhan — extra gold from kills",
+    "description": "Red kills Ruinous Atakhan — Blood Roses for revives",
     "kills": {
-     "blue": 1,
+     "blue": 0,
      "red": 2
     },
     "towers": {
@@ -528,60 +523,116 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -50,
+     "top": -350,
      "jungle": -50,
-     "middle": 150,
-     "bottom": -450,
-     "support": -350
+     "middle": -350,
+     "bottom": -150,
+     "support": -250
     },
     "kdaDelta": {
      "blue": {
-      "middle": {
-       "k": 1,
-       "d": 1,
-       "a": 0
-      },
       "top": {
        "k": 0,
-       "d": 1,
+       "d": 2,
+       "a": 0
+      }
+     },
+     "red": {
+      "top": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "middle": {
+       "k": 1,
+       "d": 0,
        "a": 0
       },
       "bottom": {
        "k": 0,
        "d": 0,
        "a": 1
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 2
+      }
+     }
+    },
+    "winProbAfter": 0.36659330018721137,
+    "goldLeadAfter": -3719,
+    "momentumAfter": -0.008887216420079974,
+    "mapControlAfter": 1,
+    "atakhanVariant": "Ruinous"
+   },
+   {
+    "type": "skirmish",
+    "minutes": 16.380877160816453,
+    "time": "16:23",
+    "side": "red",
+    "description": "LeeSin wins a 3v3 in mid lane (2-0)",
+    "kills": {
+     "blue": 0,
+     "red": 2
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -112,
+     "jungle": -112,
+     "middle": -312,
+     "bottom": -412,
+     "support": -12
+    },
+    "kdaDelta": {
+     "blue": {
+      "bottom": {
+       "k": 0,
+       "d": 2,
+       "a": 0
       }
      },
      "red": {
       "bottom": {
        "k": 1,
        "d": 0,
-       "a": 2
-      },
-      "support": {
-       "k": 1,
-       "d": 1,
-       "a": 0
+       "a": 1
       },
       "middle": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "top": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      },
+      "jungle": {
        "k": 0,
        "d": 0,
        "a": 1
       }
      }
     },
-    "winProbAfter": 0.34320604044939906,
-    "goldLeadAfter": -2980,
-    "momentumAfter": -0.27938302445806,
-    "mapControlAfter": -1,
-    "atakhanVariant": "Voracious"
+    "winProbAfter": 0.2846497233539877,
+    "goldLeadAfter": -4679,
+    "momentumAfter": -0.186221051494056,
+    "mapControlAfter": 1
    },
    {
     "type": "dragon",
-    "minutes": 17.380877160816453,
-    "time": "17:23",
-    "side": "blue",
-    "description": "Blue secures Cloud Drake (second)",
+    "minutes": 16.696817379212007,
+    "time": "16:42",
+    "side": "red",
+    "description": "Red secures Ocean Drake (second)",
     "kills": {
      "blue": 0,
      "red": 0
@@ -595,88 +646,27 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 44,
-     "jungle": 44,
-     "middle": 44,
-     "bottom": 44,
-     "support": 44
+     "top": -44,
+     "jungle": -44,
+     "middle": -44,
+     "bottom": -44,
+     "support": -44
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.43125686514619854,
-    "goldLeadAfter": -2760,
-    "momentumAfter": -0.045568117120642015,
-    "mapControlAfter": -1
-   },
-   {
-    "type": "skirmish",
-    "minutes": 17.680876309983432,
-    "time": "17:41",
-    "side": "red",
-    "description": "Elise wins a 3v2 in bot side jungle (1-1)",
-    "kills": {
-     "blue": 1,
-     "red": 1
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -106,
-     "jungle": -6,
-     "middle": 94,
-     "bottom": -6,
-     "support": -6
-    },
-    "kdaDelta": {
-     "blue": {
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.38349495630907127,
-    "goldLeadAfter": -2790,
-    "momentumAfter": -0.21189768198444942,
-    "mapControlAfter": -1
+    "winProbAfter": 0.24808072002013606,
+    "goldLeadAfter": -4899,
+    "momentumAfter": -0.28035473604583916,
+    "mapControlAfter": 1
    },
    {
     "type": "vision",
-    "minutes": 17.781021065078676,
-    "time": "17:47",
+    "minutes": 16.879200355615467,
+    "time": "16:53",
     "side": "red",
-    "description": "Elise drops a control ward in drake pit — Lucian steps on it",
+    "description": "Elise drops a control ward in the lane brush — Lucian steps on it",
     "kills": {
      "blue": 0,
      "red": 1
@@ -722,88 +712,17 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
       }
      }
     },
-    "winProbAfter": 0.3317954271074095,
-    "goldLeadAfter": -3440,
-    "momentumAfter": -0.3283283773891146,
-    "mapControlAfter": -1
-   },
-   {
-    "type": "baron",
-    "minutes": 20.713498940621502,
-    "time": "20:43",
-    "side": "blue",
-    "description": "Vi secures Baron Nashor (3-2)",
-    "kills": {
-     "blue": 3,
-     "red": 2
-    },
-    "towers": {
-     "blue": 2,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -20,
-     "jungle": 180,
-     "middle": 680,
-     "bottom": 780,
-     "support": -220
-    },
-    "kdaDelta": {
-     "blue": {
-      "bottom": {
-       "k": 2,
-       "d": 0,
-       "a": 1
-      },
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 2
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "support": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      }
-     },
-     "red": {
-      "top": {
-       "k": 1,
-       "d": 2,
-       "a": 0
-      },
-      "support": {
-       "k": 1,
-       "d": 1,
-       "a": 1
-      },
-      "bottom": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     }
-    },
-    "winProbAfter": 0.5998140842582377,
-    "goldLeadAfter": -2040,
-    "momentumAfter": 0.27017013582761984,
+    "winProbAfter": 0.21257836741284075,
+    "goldLeadAfter": -5549,
+    "momentumAfter": -0.3762483152320874,
     "mapControlAfter": 1
    },
    {
     "type": "dragon",
-    "minutes": 21.10166597738862,
-    "time": "21:06",
+    "minutes": 21.306881264783442,
+    "time": "21:18",
     "side": "blue",
-    "description": "STOLEN! Blue smites Ocean Drake away (third)",
+    "description": "STOLEN! Blue smites Mountain Drake away (second)",
     "kills": {
      "blue": 0,
      "red": 2
@@ -817,269 +736,135 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -152,
-     "jungle": -452,
-     "middle": -52,
-     "bottom": 48,
+     "top": -52,
+     "jungle": 148,
+     "middle": -352,
+     "bottom": -352,
      "support": 48
     },
     "kdaDelta": {
      "blue": {
-      "middle": {
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "top": {
        "k": 0,
        "d": 1,
        "a": 0
       },
       "jungle": {
        "k": 0,
-       "d": 1,
+       "d": 0,
        "a": 1
       }
      },
      "red": {
-      "jungle": {
-       "k": 2,
-       "d": 0,
-       "a": 0
-      },
       "middle": {
-       "k": 0,
+       "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "bottom": {
+       "k": 1,
        "d": 0,
        "a": 1
       },
       "top": {
        "k": 0,
        "d": 0,
-       "a": 2
+       "a": 1
       }
      }
     },
-    "winProbAfter": 0.6438641535039616,
-    "goldLeadAfter": -2600,
-    "momentumAfter": 0.4891190950793339,
+    "winProbAfter": 0.3111282122169499,
+    "goldLeadAfter": -6109,
+    "momentumAfter": 0.03662617933753881,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "outplay",
+    "minutes": 21.981013576500118,
+    "time": "21:59",
+    "side": "blue",
+    "description": "OUTPLAY! Lucian wins a 1v2 in their own jungle",
+    "kills": {
+     "blue": 2,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "bottom": 800
+    },
+    "kdaDelta": {
+     "blue": {
+      "bottom": {
+       "k": 2,
+       "d": 0,
+       "a": 0
+      }
+     },
+     "red": {
+      "support": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      }
+     }
+    },
+    "winProbAfter": 0.4065796627476457,
+    "goldLeadAfter": -5309,
+    "momentumAfter": 0.24563832553627718,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "objective-trade",
+    "minutes": 22.036702884361148,
+    "time": "22:02",
+    "side": "red",
+    "description": "Cross-map: Red trades Drake for tower",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -36,
+     "jungle": -36,
+     "middle": 164,
+     "bottom": -36,
+     "support": -36
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.3715889929483593,
+    "goldLeadAfter": -5289,
+    "momentumAfter": 0.121946827875394,
     "mapControlAfter": 1
    },
    {
     "type": "teamfight",
-    "minutes": 22.70455214055255,
-    "time": "22:42",
+    "minutes": 23.88834925345145,
+    "time": "23:53",
     "side": "blue",
-    "description": "Baron buff — Rell crashes the engage and pins them down",
-    "kills": {
-     "blue": 6,
-     "red": 1
-    },
-    "towers": {
-     "blue": 1,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -128,
-     "jungle": 972,
-     "middle": 1272,
-     "bottom": 172,
-     "support": 372
-    },
-    "kdaDelta": {
-     "blue": {
-      "middle": {
-       "k": 4,
-       "d": 0,
-       "a": 0
-      },
-      "jungle": {
-       "k": 2,
-       "d": 0,
-       "a": 4
-      },
-      "top": {
-       "k": 0,
-       "d": 1,
-       "a": 1
-      },
-      "support": {
-       "k": 0,
-       "d": 0,
-       "a": 3
-      },
-      "bottom": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "bottom": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      },
-      "support": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "top": {
-       "k": 1,
-       "d": 2,
-       "a": 0
-      },
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 1
-      }
-     }
-    },
-    "winProbAfter": 0.7958671076388739,
-    "goldLeadAfter": 60,
-    "momentumAfter": 0.7188929868441031,
-    "mapControlAfter": 2
-   },
-   {
-    "type": "tower",
-    "minutes": 29.141570235812104,
-    "time": "29:08",
-    "side": "blue",
-    "description": "Blue takes the inner bottom tower",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 1,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "bottom": 400
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.778445540106297,
-    "goldLeadAfter": 460,
-    "momentumAfter": 0.6532250907908721,
-    "mapControlAfter": 3
-   },
-   {
-    "type": "objective-trade",
-    "minutes": 29.32668368616141,
-    "time": "29:20",
-    "side": "blue",
-    "description": "Both teams dance around Baron — neither commits, the tension builds",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {},
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.75,
-    "goldLeadAfter": 460,
-    "momentumAfter": 0.4872575635536104,
-    "mapControlAfter": 3
-   },
-   {
-    "type": "inhibitor",
-    "minutes": 30.427288949210194,
-    "time": "30:26",
-    "side": "blue",
-    "description": "Blue breaks the bottom inhibitor (×2)",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 3,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 2,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "bottom": 550
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.8564637952610739,
-    "goldLeadAfter": 1010,
-    "momentumAfter": 0.6710802944875273,
-    "mapControlAfter": 8
-   },
-   {
-    "type": "comeback",
-    "minutes": 31.016769530065353,
-    "time": "31:01",
-    "side": "red",
-    "description": "Red repels the push at the Nexus — one more breath",
-    "kills": {
-     "blue": 0,
-     "red": 1
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -12,
-     "jungle": -12,
-     "middle": -312,
-     "bottom": -12,
-     "support": -12
-    },
-    "kdaDelta": {
-     "blue": {
-      "middle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     },
-     "red": {
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.7931099199227106,
-    "goldLeadAfter": 650,
-    "momentumAfter": 0.36975620614126903,
-    "mapControlAfter": 8
-   },
-   {
-    "type": "teamfight",
-    "minutes": 32.067173529719,
-    "time": "32:04",
-    "side": "blue",
-    "description": "MASSIVE fight at dragon pit, Blue wins 5-0 — Heavy CC Lockdown hits",
+    "description": "ACE! MASSIVE fight at mid lane, Blue wins 5-0 — Heavy CC Lockdown hits",
     "kills": {
      "blue": 5,
      "red": 0
@@ -1093,23 +878,232 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 420,
-     "jungle": 520,
-     "middle": 920,
-     "bottom": 420,
-     "support": 520
+     "top": 160,
+     "jungle": 1160,
+     "middle": 560,
+     "bottom": 260,
+     "support": 360
+    },
+    "kdaDelta": {
+     "blue": {
+      "jungle": {
+       "k": 3,
+       "d": 0,
+       "a": 2
+      },
+      "middle": {
+       "k": 1,
+       "d": 0,
+       "a": 2
+      },
+      "support": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "bottom": {
+       "k": 0,
+       "d": 0,
+       "a": 2
+      },
+      "top": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     },
+     "red": {
+      "top": {
+       "k": 0,
+       "d": 3,
+       "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      }
+     }
+    },
+    "winProbAfter": 0.5797067693113055,
+    "goldLeadAfter": -2789,
+    "momentumAfter": 0.4053627795127758,
+    "mapControlAfter": 2
+   },
+   {
+    "type": "tower",
+    "minutes": 26.629990161815655,
+    "time": "26:38",
+    "side": "red",
+    "description": "Red takes the inner bottom tower",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 1
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -400
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.47176710335403277,
+    "goldLeadAfter": -3189,
+    "momentumAfter": 0.13375394565894302,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "baron",
+    "minutes": 27.82419221822638,
+    "time": "27:49",
+    "side": "red",
+    "description": "Draven secures Baron Nashor (1-1)",
+    "kills": {
+     "blue": 1,
+     "red": 1
+    },
+    "towers": {
+     "blue": 0,
+     "red": 3
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -180,
+     "jungle": -180,
+     "middle": -480,
+     "bottom": 120,
+     "support": -180
     },
     "kdaDelta": {
      "blue": {
       "bottom": {
        "k": 1,
-       "d": 0,
+       "d": 1,
        "a": 0
       },
       "support": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     },
+     "red": {
+      "middle": {
+       "k": 1,
+       "d": 1,
+       "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     }
+    },
+    "winProbAfter": 0.2556226970803144,
+    "goldLeadAfter": -4089,
+    "momentumAfter": -0.4063722380387399,
+    "mapControlAfter": -2
+   },
+   {
+    "type": "inhibitor",
+    "minutes": 29.57715301606804,
+    "time": "29:35",
+    "side": "blue",
+    "description": "MOMENTUM SHIFT! Jax cracks the middle inhibitor — super minions inbound",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 2,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 1,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "bottom": 350
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.75,
+    "goldLeadAfter": -3739,
+    "momentumAfter": -0.03446056662711788,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "teamfight",
+    "minutes": 32.2912427701056,
+    "time": "32:17",
+    "side": "blue",
+    "description": "5v5 at dragon pit, Vi pops off 2-3 — Heavy CC Lockdown hits",
+    "kills": {
+     "blue": 2,
+     "red": 3
+    },
+    "towers": {
+     "blue": 2,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -152,
+     "jungle": 48,
+     "middle": -452,
+     "bottom": 48,
+     "support": 448
+    },
+    "kdaDelta": {
+     "blue": {
+      "jungle": {
        "k": 1,
        "d": 0,
        "a": 1
+      },
+      "support": {
+       "k": 1,
+       "d": 1,
+       "a": 1
+      },
+      "middle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      },
+      "top": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     },
+     "red": {
+      "support": {
+       "k": 0,
+       "d": 2,
+       "a": 0
       },
       "jungle": {
        "k": 1,
@@ -1119,43 +1113,26 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
       "middle": {
        "k": 2,
        "d": 0,
-       "a": 2
+       "a": 0
       },
       "top": {
        "k": 0,
        "d": 0,
-       "a": 3
-      }
-     },
-     "red": {
-      "jungle": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      },
-      "support": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      },
-      "top": {
-       "k": 0,
-       "d": 1,
-       "a": 0
+       "a": 2
       }
      }
     },
-    "winProbAfter": 0.8811608364176874,
-    "goldLeadAfter": 3450,
-    "momentumAfter": 0.7088293442988883,
-    "mapControlAfter": 9
+    "winProbAfter": 0.75,
+    "goldLeadAfter": -3799,
+    "momentumAfter": 0.4258776033610175,
+    "mapControlAfter": 3
    },
    {
     "type": "nexus",
     "minutes": 33.3,
     "time": "33:18",
     "side": "blue",
-    "description": "BASE RACE! both Nexuses crumbling — Blue hits home first",
+    "description": "Blue destroys the Nexus at 33:18",
     "kills": {
      "blue": 0,
      "red": 0
@@ -1180,9 +1157,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
      "red": {}
     },
     "winProbAfter": 0.99,
-    "goldLeadAfter": 3950,
-    "momentumAfter": 0.4961805410092218,
-    "mapControlAfter": 11
+    "goldLeadAfter": -3299,
+    "momentumAfter": 0.29811432235271224,
+    "mapControlAfter": 5
    }
   ]
  },
@@ -1198,16 +1175,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
 
 exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: result hashes across 10 seeds 1`] = `
 [
-  "11:e57264f3",
-  "42:b4ed006a",
-  "101:ad6ea89b",
-  "777:a895571b",
-  "1234:02045fda",
-  "5150:6901c64a",
-  "9001:5ae43ecb",
-  "31337:5964b63b",
-  "65535:042f5bd1",
-  "999983:5b31afff",
+  "11:f6a88d97",
+  "42:28cec9a7",
+  "101:df404d98",
+  "777:b65f0f09",
+  "1234:5c710281",
+  "5150:9cd42069",
+  "9001:27bab4f3",
+  "31337:c5629654",
+  "65535:6ebd0002",
+  "999983:98984b1d",
 ]
 `;
 
@@ -1275,15 +1252,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
  },
  "timeline": {
   "durationMinutes": 28.5,
-  "laningEndMinute": 11.791245877044275,
+  "laningEndMinute": 11.729616251308471,
   "durationLabel": "28:30",
   "events": [
    {
     "type": "scuttle",
     "minutes": 3.9116048756986856,
     "time": "3:55",
-    "side": "blue",
-    "description": "Draven fights for top side scuttler — wins the crab",
+    "side": "red",
+    "description": "Azir fights for bot side scuttler — wins the crab",
     "kills": {
      "blue": 0,
      "red": 0
@@ -1297,15 +1274,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": 0
     },
     "laneGoldDelta": {
-     "jungle": 80
+     "jungle": -80
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.7059926376190437,
-    "goldLeadAfter": 2829,
-    "momentumAfter": 0.06,
+    "winProbAfter": 0.6752440052838452,
+    "goldLeadAfter": 2669,
+    "momentumAfter": -0.06,
     "mapControlAfter": 0
    },
    {
@@ -1313,7 +1290,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
     "minutes": 4.200106174801476,
     "time": "4:12",
     "side": "blue",
-    "description": "Darius outduels Anivia in a 2v2 trade",
+    "description": "Darius outduels Anivia in the enemy jungle",
     "kills": {
      "blue": 1,
      "red": 0
@@ -1345,9 +1322,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
       }
      }
     },
-    "winProbAfter": 0.7710765522804218,
-    "goldLeadAfter": 3432,
-    "momentumAfter": 0.242,
+    "winProbAfter": 0.7527996533682716,
+    "goldLeadAfter": 3272,
+    "momentumAfter": 0.15800000000000003,
     "mapControlAfter": 0
    },
    {
@@ -1355,9 +1332,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
     "minutes": 5.350974672008306,
     "time": "5:21",
     "side": "blue",
-    "description": "Darius dominates top (3 solo kills)",
+    "description": "Darius dominates top (2 solo kills)",
     "kills": {
-     "blue": 3,
+     "blue": 2,
      "red": 0
     },
     "towers": {
@@ -1369,12 +1346,12 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 1260
+     "top": 840
     },
     "kdaDelta": {
      "blue": {
       "top": {
-       "k": 3,
+       "k": 2,
        "d": 0,
        "a": 0
       }
@@ -1382,14 +1359,44 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": {
       "top": {
        "k": 0,
-       "d": 3,
+       "d": 2,
        "a": 0
       }
      }
     },
-    "winProbAfter": 0.8638074274212907,
-    "goldLeadAfter": 5501,
-    "momentumAfter": 0.46940000000000004,
+    "winProbAfter": 0.8315594605296134,
+    "goldLeadAfter": 4921,
+    "momentumAfter": 0.36060000000000003,
+    "mapControlAfter": 0
+   },
+   {
+    "type": "counter-jungle",
+    "minutes": 7.071087439544499,
+    "time": "7:04",
+    "side": "blue",
+    "description": "Draven invades and clears the enemy jungle — their jungler falls behind",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "jungle": 200
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.8254432322022367,
+    "goldLeadAfter": 6330,
+    "momentumAfter": 0.33242000000000005,
     "mapControlAfter": 0
    },
    {
@@ -1397,7 +1404,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
     "minutes": 7.255956351524219,
     "time": "7:15",
     "side": "blue",
-    "description": "Blue secures Mountain Drake (first)",
+    "description": "Blue secures Ocean Drake (first)",
     "kills": {
      "blue": 0,
      "red": 0
@@ -1421,17 +1428,17 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.8685113045598757,
-    "goldLeadAfter": 6990,
-    "momentumAfter": 0.44858,
+    "winProbAfter": 0.839754906006774,
+    "goldLeadAfter": 6610,
+    "momentumAfter": 0.352694,
     "mapControlAfter": 0
    },
    {
     "type": "grubs",
     "minutes": 7.265281008090824,
     "time": "7:16",
-    "side": "red",
-    "description": "Red secures 6 Voidgrubs",
+    "side": "blue",
+    "description": "Blue secures 6 Voidgrubs",
     "kills": {
      "blue": 0,
      "red": 0
@@ -1445,27 +1452,27 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -42,
-     "jungle": -42,
-     "middle": -42,
-     "bottom": -42,
-     "support": -42
+     "top": 42,
+     "jungle": 42,
+     "middle": 42,
+     "bottom": 42,
+     "support": 42
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.8295248799018485,
-    "goldLeadAfter": 6786,
-    "momentumAfter": 0.19400599999999996,
+    "winProbAfter": 0.8420226658700073,
+    "goldLeadAfter": 6826,
+    "momentumAfter": 0.3668858,
     "mapControlAfter": 0
    },
    {
-    "type": "dive",
-    "minutes": 9.764888683799654,
-    "time": "9:46",
+    "type": "counter-gank",
+    "minutes": 8.226114348508418,
+    "time": "8:14",
     "side": "blue",
-    "description": "Draven collapses bot — clean tower dive",
+    "description": "Draven counter-ganks the play",
     "kills": {
      "blue": 1,
      "red": 0
@@ -1479,8 +1486,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": 0
     },
     "laneGoldDelta": {
-     "bottom": 220,
-     "jungle": 300
+     "middle": 160,
+     "jungle": 340
     },
     "kdaDelta": {
      "blue": {
@@ -1489,33 +1496,33 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
        "d": 0,
        "a": 0
       },
-      "bottom": {
+      "middle": {
        "k": 0,
        "d": 0,
        "a": 1
       }
      },
      "red": {
-      "bottom": {
+      "jungle": {
        "k": 0,
        "d": 1,
        "a": 0
       }
      }
     },
-    "winProbAfter": 0.856297394123905,
-    "goldLeadAfter": 9063,
-    "momentumAfter": 0.29580419999999996,
+    "winProbAfter": 0.8655993102094365,
+    "goldLeadAfter": 8001,
+    "momentumAfter": 0.43682005999999995,
     "mapControlAfter": 0
    },
    {
-    "type": "roam",
-    "minutes": 10.507853110320866,
-    "time": "10:30",
+    "type": "plates",
+    "minutes": 9.58367034420371,
+    "time": "9:35",
     "side": "blue",
-    "description": "Elise roams to bot, picks up a kill",
+    "description": "Blue secures plates mid",
     "kills": {
-     "blue": 1,
+     "blue": 0,
      "red": 0
     },
     "towers": {
@@ -1527,40 +1534,25 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": 0
     },
     "laneGoldDelta": {
+     "top": 160,
      "bottom": 160,
-     "jungle": 40,
-     "middle": 300
+     "middle": 40,
+     "jungle": 20,
+     "support": 20
     },
     "kdaDelta": {
-     "blue": {
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "bottom": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     }
+     "blue": {},
+     "red": {}
     },
-    "winProbAfter": 0.8733328442290842,
-    "goldLeadAfter": 10085,
-    "momentumAfter": 0.33706294,
+    "winProbAfter": 0.8593301140122259,
+    "goldLeadAfter": 9356,
+    "momentumAfter": 0.405774042,
     "mapControlAfter": 0
    },
    {
     "type": "tower",
-    "minutes": 11.791245877044275,
-    "time": "11:47",
+    "minutes": 11.729616251308471,
+    "time": "11:44",
     "side": "red",
     "description": "Red takes the outer bottom tower",
     "kills": {
@@ -1582,17 +1574,17 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.8049922329153972,
-    "goldLeadAfter": 10487,
-    "momentumAfter": 0.08594405799999996,
+    "winProbAfter": 0.7806018822258247,
+    "goldLeadAfter": 10364,
+    "momentumAfter": 0.1340418294,
     "mapControlAfter": -1
    },
    {
     "type": "dragon",
-    "minutes": 12.389310412853956,
-    "time": "12:23",
+    "minutes": 13.244701047986746,
+    "time": "13:15",
     "side": "blue",
-    "description": "Blue secures Ocean Drake (second)",
+    "description": "Blue secures Cloud Drake (second)",
     "kills": {
      "blue": 0,
      "red": 0
@@ -1616,17 +1608,17 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.8358533089930071,
-    "goldLeadAfter": 10687,
-    "momentumAfter": 0.20016084059999997,
+    "winProbAfter": 0.8114545428485386,
+    "goldLeadAfter": 10564,
+    "momentumAfter": 0.23382928058000002,
     "mapControlAfter": -1
    },
    {
     "type": "power-spike",
-    "minutes": 13.836834252811968,
-    "time": "13:50",
-    "side": "blue",
-    "description": "POWER SPIKE — Draven completes Kraken Slayer",
+    "minutes": 13.635221723467112,
+    "time": "13:38",
+    "side": "red",
+    "description": "POWER SPIKE — Anivia finishes Luden's Companion",
     "kills": {
      "blue": 0,
      "red": 0
@@ -1640,25 +1632,25 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 52.6,
-     "jungle": 52.6,
-     "middle": 52.6,
-     "bottom": 52.6,
-     "support": 52.6
+     "top": -33.6,
+     "jungle": -33.6,
+     "middle": -33.6,
+     "bottom": -33.6,
+     "support": -33.6
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.8483931225535859,
-    "goldLeadAfter": 10950,
-    "momentumAfter": 0.29323758842,
+    "winProbAfter": 0.7782123945089294,
+    "goldLeadAfter": 10396,
+    "momentumAfter": 0.06568049640599999,
     "mapControlAfter": -1
    },
    {
     "type": "power-spike",
-    "minutes": 14.610769625287503,
-    "time": "14:37",
+    "minutes": 14.537609023042023,
+    "time": "14:32",
     "side": "red",
     "description": "POWER SPIKE — Aphelios powers up with Kraken Slayer",
     "kills": {
@@ -1684,15 +1676,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.8083340330571006,
-    "goldLeadAfter": 10710,
-    "momentumAfter": 0.06526631189399995,
+    "winProbAfter": 0.7423112188077888,
+    "goldLeadAfter": 10156,
+    "momentumAfter": -0.09402365251580003,
     "mapControlAfter": -1
    },
    {
     "type": "power-spike",
-    "minutes": 14.68850074429065,
-    "time": "14:41",
+    "minutes": 14.610769625287503,
+    "time": "14:37",
     "side": "blue",
     "description": "POWER SPIKE — Darius completes Trinity Force",
     "kills": {
@@ -1708,29 +1700,29 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 36.8,
-     "jungle": 36.8,
-     "middle": 36.8,
-     "bottom": 36.8,
-     "support": 36.8
+     "top": 35.2,
+     "jungle": 35.2,
+     "middle": 35.2,
+     "bottom": 35.2,
+     "support": 35.2
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.823961301802504,
-    "goldLeadAfter": 10894,
-    "momentumAfter": 0.15287391832579997,
+    "winProbAfter": 0.7711369189026941,
+    "goldLeadAfter": 10332,
+    "momentumAfter": 0.03696094323893999,
     "mapControlAfter": -1
    },
    {
     "type": "atakhan",
-    "minutes": 15.153077500872314,
-    "time": "15:09",
+    "minutes": 14.836834252811968,
+    "time": "14:50",
     "side": "blue",
-    "description": "Blue kills Ruinous Atakhan — Blood Roses for revives",
+    "description": "Blue kills Voracious Atakhan — extra gold from kills",
     "kills": {
-     "blue": 1,
+     "blue": 2,
      "red": 1
     },
     "towers": {
@@ -1744,115 +1736,31 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
     "laneGoldDelta": {
      "top": 50,
      "jungle": 50,
-     "middle": 50,
-     "bottom": -50,
-     "support": 150
+     "middle": -150,
+     "bottom": 450,
+     "support": 350
     },
     "kdaDelta": {
      "blue": {
-      "middle": {
+      "bottom": {
        "k": 1,
        "d": 0,
-       "a": 0
+       "a": 2
       },
       "support": {
+       "k": 1,
+       "d": 1,
+       "a": 0
+      },
+      "middle": {
        "k": 0,
        "d": 0,
        "a": 1
-      },
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
       }
      },
      "red": {
-      "support": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
       "middle": {
        "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "bottom": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     }
-    },
-    "winProbAfter": 0.8720070859118131,
-    "goldLeadAfter": 11144,
-    "momentumAfter": 0.28701174282805997,
-    "mapControlAfter": -1,
-    "atakhanVariant": "Ruinous"
-   },
-   {
-    "type": "dragon",
-    "minutes": 17.380877160816453,
-    "time": "17:23",
-    "side": "blue",
-    "description": "Blue secures Cloud Drake (third)",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": 44,
-     "jungle": 44,
-     "middle": 44,
-     "bottom": 44,
-     "support": 44
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.8858287944001906,
-    "goldLeadAfter": 11364,
-    "momentumAfter": 0.35090821997964194,
-    "mapControlAfter": -1
-   },
-   {
-    "type": "skirmish",
-    "minutes": 17.680876309983432,
-    "time": "17:41",
-    "side": "red",
-    "description": "Anivia wins a 3v3 in the river (2-0)",
-    "kills": {
-     "blue": 0,
-     "red": 2
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -12,
-     "jungle": -312,
-     "middle": -112,
-     "bottom": -12,
-     "support": -512
-    },
-    "kdaDelta": {
-     "blue": {
-      "bottom": {
-       "k": 0,
        "d": 1,
        "a": 0
       },
@@ -1860,35 +1768,109 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
        "k": 0,
        "d": 1,
        "a": 0
-      }
-     },
-     "red": {
-      "support": {
-       "k": 1,
-       "d": 0,
-       "a": 2
       },
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "middle": {
+      "bottom": {
        "k": 0,
        "d": 0,
        "a": 1
       }
      }
     },
-    "winProbAfter": 0.8220117485129081,
-    "goldLeadAfter": 10404,
-    "momentumAfter": 0.06563575398574936,
+    "winProbAfter": 0.8494936750941293,
+    "goldLeadAfter": 11082,
+    "momentumAfter": 0.20587266026725798,
+    "mapControlAfter": -1,
+    "atakhanVariant": "Voracious"
+   },
+   {
+    "type": "skirmish",
+    "minutes": 16.380877160816453,
+    "time": "16:23",
+    "side": "red",
+    "description": "Azir wins a 3v2 in top side jungle (1-0)",
+    "kills": {
+     "blue": 0,
+     "red": 1
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -6,
+     "jungle": -306,
+     "middle": -6,
+     "bottom": -6,
+     "support": -106
+    },
+    "kdaDelta": {
+     "blue": {
+      "middle": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     },
+     "red": {
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     }
+    },
+    "winProbAfter": 0.7918810066058621,
+    "goldLeadAfter": 10652,
+    "momentumAfter": -0.035889137812919414,
+    "mapControlAfter": -1
+   },
+   {
+    "type": "dragon",
+    "minutes": 16.696817379212007,
+    "time": "16:42",
+    "side": "red",
+    "description": "Red secures Infernal Drake (first)",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -44,
+     "jungle": -44,
+     "middle": -44,
+     "bottom": -44,
+     "support": -44
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.7478643105019415,
+    "goldLeadAfter": 10432,
+    "momentumAfter": -0.1751223964690436,
     "mapControlAfter": -1
    },
    {
     "type": "vision",
-    "minutes": 17.781021065078676,
-    "time": "17:47",
+    "minutes": 16.879200355615467,
+    "time": "16:53",
     "side": "blue",
     "description": "Draven drops a control ward in river entrance — Anivia steps on it",
     "kills": {
@@ -1931,19 +1913,125 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
       }
      }
     },
-    "winProbAfter": 0.8591116618538595,
-    "goldLeadAfter": 10954,
-    "momentumAfter": 0.22594502779002454,
+    "winProbAfter": 0.8105980192649905,
+    "goldLeadAfter": 10982,
+    "momentumAfter": 0.057414322471669485,
+    "mapControlAfter": -1
+   },
+   {
+    "type": "outplay",
+    "minutes": 21.15084464708343,
+    "time": "21:09",
+    "side": "blue",
+    "description": "OUTPLAY! Draven wins a 1v2 in their own jungle",
+    "kills": {
+     "blue": 1,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "jungle": 400
+    },
+    "kdaDelta": {
+     "blue": {
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      }
+     },
+     "red": {
+      "support": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     }
+    },
+    "winProbAfter": 0.8500284537647131,
+    "goldLeadAfter": 11382,
+    "momentumAfter": 0.26019002573016864,
+    "mapControlAfter": -1
+   },
+   {
+    "type": "dragon",
+    "minutes": 21.306881264783442,
+    "time": "21:18",
+    "side": "blue",
+    "description": "Blue secures Cloud Drake (third)",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": 48,
+     "jungle": 48,
+     "middle": 48,
+     "bottom": 48,
+     "support": 48
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.8738335203902542,
+    "goldLeadAfter": 11622,
+    "momentumAfter": 0.362133018011118,
+    "mapControlAfter": -1
+   },
+   {
+    "type": "vision",
+    "minutes": 21.948411602526903,
+    "time": "21:57",
+    "side": "blue",
+    "description": "Blue sweeps the wards — vision cleared before the objective",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "jungle": 60
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.8663701445796654,
+    "goldLeadAfter": 11682,
+    "momentumAfter": 0.3134931126077826,
     "mapControlAfter": -1
    },
    {
     "type": "baron",
-    "minutes": 20.345241422881372,
-    "time": "20:21",
+    "minutes": 23.78589946043212,
+    "time": "23:47",
     "side": "blue",
-    "description": "Blue takes Baron Nashor (2-0)",
+    "description": "Draven secures Baron Nashor (3-0)",
     "kills": {
-     "blue": 2,
+     "blue": 3,
      "red": 0
     },
     "towers": {
@@ -1955,143 +2043,35 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 480,
-     "jungle": 180,
-     "middle": 380,
-     "bottom": 480,
-     "support": 280
+     "top": 280,
+     "jungle": 280,
+     "middle": 480,
+     "bottom": 780,
+     "support": 380
     },
     "kdaDelta": {
      "blue": {
-      "bottom": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "top": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
       "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 2
-      },
-      "support": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "bottom": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.947553656018583,
-    "goldLeadAfter": 12754,
-    "momentumAfter": 0.6581615194530172,
-    "mapControlAfter": 2
-   },
-   {
-    "type": "soul",
-    "minutes": 21.10166597738862,
-    "time": "21:06",
-    "side": "blue",
-    "description": "Blue claims Mountain SOUL",
-    "kills": {
-     "blue": 1,
-     "red": 2
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": 460,
-     "jungle": 160,
-     "middle": 160,
-     "bottom": -440,
-     "support": 60
-    },
-    "kdaDelta": {
-     "blue": {
-      "top": {
        "k": 1,
-       "d": 2,
+       "d": 0,
        "a": 0
       },
-      "support": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
       "bottom": {
        "k": 2,
-       "d": 1,
+       "d": 0,
        "a": 0
       },
       "support": {
        "k": 0,
        "d": 0,
        "a": 2
-      }
-     }
-    },
-    "winProbAfter": 0.97,
-    "goldLeadAfter": 13154,
-    "momentumAfter": 1,
-    "mapControlAfter": 2,
-    "soulElement": "Mountain"
-   },
-   {
-    "type": "skirmish",
-    "minutes": 22.14058384229429,
-    "time": "22:08",
-    "side": "blue",
-    "description": "Draven wins a 3v3 in the river (2-0)",
-    "kills": {
-     "blue": 2,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": 12,
-     "jungle": 712,
-     "middle": 112,
-     "bottom": 12,
-     "support": 112
-    },
-    "kdaDelta": {
-     "blue": {
+      },
+      "top": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      },
       "jungle": {
-       "k": 2,
-       "d": 0,
-       "a": 1
-      },
-      "support": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "middle": {
        "k": 0,
        "d": 0,
        "a": 1
@@ -2105,24 +2085,24 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
       },
       "middle": {
        "k": 0,
-       "d": 1,
+       "d": 2,
        "a": 0
       }
      }
     },
-    "winProbAfter": 0.97,
-    "goldLeadAfter": 14114,
-    "momentumAfter": 0.8999999999999999,
+    "winProbAfter": 0.9488241010678866,
+    "goldLeadAfter": 13882,
+    "momentumAfter": 0.7194451788254478,
     "mapControlAfter": 2
    },
    {
     "type": "teamfight",
-    "minutes": 22.70455214055255,
-    "time": "22:42",
+    "minutes": 23.88834925345145,
+    "time": "23:53",
     "side": "blue",
-    "description": "Baron buff — ACE! MASSIVE fight at river, Darius pops off 5-0 — Dive Comp hits",
+    "description": "Baron buff — RAMPAGE! MASSIVE fight at Baron pit, Draven pops off 4-0 — Dive Comp hits",
     "kills": {
-     "blue": 5,
+     "blue": 4,
      "red": 0
     },
     "towers": {
@@ -2134,123 +2114,64 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": 0
     },
     "laneGoldDelta": {
-     "bottom": 700,
-     "top": 900,
-     "jungle": 200,
-     "middle": 300,
-     "support": 400
+     "bottom": 580,
+     "jungle": 1200,
+     "middle": 400,
+     "support": 100
     },
     "kdaDelta": {
      "blue": {
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "top": {
+      "jungle": {
        "k": 3,
        "d": 0,
-       "a": 0
+       "a": 3
       },
-      "bottom": {
-       "k": 1,
-       "d": 0,
-       "a": 1
-      },
-      "jungle": {
-       "k": 0,
-       "d": 0,
-       "a": 2
-      },
-      "support": {
-       "k": 0,
-       "d": 0,
-       "a": 4
-      }
-     },
-     "red": {
-      "top": {
-       "k": 0,
-       "d": 3,
-       "a": 0
-      },
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.97,
-    "goldLeadAfter": 16614,
-    "momentumAfter": 1,
-    "mapControlAfter": 4
-   },
-   {
-    "type": "shutdown",
-    "minutes": 23.444174626725726,
-    "time": "23:27",
-    "side": "red",
-    "description": "MOMENTUM SHIFT! SHUTDOWN! AurelionSol collects 500g bounty on Draven",
-    "kills": {
-     "blue": 0,
-     "red": 1
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "middle": -800,
-     "support": -100
-    },
-    "kdaDelta": {
-     "blue": {
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     },
-     "red": {
       "middle": {
        "k": 1,
        "d": 0,
-       "a": 0
+       "a": 1
       },
       "support": {
        "k": 0,
        "d": 0,
        "a": 1
+      },
+      "bottom": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     },
+     "red": {
+      "bottom": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      },
+      "top": {
+       "k": 0,
+       "d": 2,
+       "a": 0
       }
      }
     },
     "winProbAfter": 0.97,
-    "goldLeadAfter": 15714,
-    "momentumAfter": 0.41999999999999993,
+    "goldLeadAfter": 16162,
+    "momentumAfter": 0.8956116251778135,
     "mapControlAfter": 4
    },
    {
     "type": "tower",
-    "minutes": 25.103277478017844,
-    "time": "25:06",
+    "minutes": 24.243147315690294,
+    "time": "24:15",
     "side": "blue",
-    "description": "Blue takes the inner bottom tower",
+    "description": "Blue takes the inner top tower",
     "kills": {
      "blue": 0,
      "red": 0
     },
     "towers": {
-     "blue": 1,
+     "blue": 2,
      "red": 0
     },
     "inhibs": {
@@ -2265,16 +2186,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": {}
     },
     "winProbAfter": 0.97,
-    "goldLeadAfter": 16114,
-    "momentumAfter": 0.44399999999999995,
-    "mapControlAfter": 5
+    "goldLeadAfter": 16562,
+    "momentumAfter": 0.7769281376244694,
+    "mapControlAfter": 6
    },
    {
     "type": "inhibitor",
-    "minutes": 25.627288949210197,
-    "time": "25:38",
+    "minutes": 24.93150242511183,
+    "time": "24:56",
     "side": "blue",
-    "description": "Blue breaks the bottom inhibitor (×2)",
+    "description": "Blue breaks the top inhibitor (×3)",
     "kills": {
      "blue": 0,
      "red": 0
@@ -2284,29 +2205,29 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": 0
     },
     "inhibs": {
-     "blue": 2,
+     "blue": 3,
      "red": 0
     },
     "laneGoldDelta": {
-     "middle": 550
+     "top": 750
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
     "winProbAfter": 0.97,
-    "goldLeadAfter": 16664,
-    "momentumAfter": 0.6408,
-    "mapControlAfter": 10
+    "goldLeadAfter": 17312,
+    "momentumAfter": 0.9538496963371286,
+    "mapControlAfter": 12
    },
    {
     "type": "teamfight",
-    "minutes": 25.628894404834135,
-    "time": "25:38",
+    "minutes": 26.96968929988798,
+    "time": "26:58",
     "side": "blue",
-    "description": "MASSIVE fight at Baron pit, Blue wins 5-1 — Dive Comp hits",
+    "description": "MASSIVE fight at river, Blue wins 6-1 — Dive Comp hits",
     "kills": {
-     "blue": 5,
+     "blue": 6,
      "red": 1
     },
     "towers": {
@@ -2318,74 +2239,74 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 420,
-     "jungle": 420,
-     "middle": 620,
-     "bottom": 420,
-     "support": 520
+     "top": 844,
+     "jungle": 544,
+     "middle": 644,
+     "bottom": 444,
+     "support": 544
     },
     "kdaDelta": {
      "blue": {
       "bottom": {
-       "k": 2,
+       "k": 1,
        "d": 0,
        "a": 0
+      },
+      "jungle": {
+       "k": 2,
+       "d": 0,
+       "a": 1
+      },
+      "top": {
+       "k": 2,
+       "d": 0,
+       "a": 1
       },
       "middle": {
        "k": 1,
-       "d": 0,
-       "a": 2
-      },
-      "support": {
-       "k": 1,
-       "d": 0,
-       "a": 1
-      },
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 1
-      },
-      "top": {
-       "k": 0,
        "d": 1,
        "a": 3
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 4
       }
      },
      "red": {
-      "bottom": {
-       "k": 1,
-       "d": 2,
-       "a": 0
-      },
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 1
-      },
       "support": {
        "k": 0,
-       "d": 1,
+       "d": 4,
        "a": 0
       },
       "top": {
        "k": 0,
        "d": 1,
+       "a": 0
+      },
+      "middle": {
+       "k": 0,
+       "d": 1,
+       "a": 1
+      },
+      "jungle": {
+       "k": 1,
+       "d": 0,
        "a": 0
       }
      }
     },
     "winProbAfter": 0.97,
-    "goldLeadAfter": 19064,
-    "momentumAfter": 0.89856,
-    "mapControlAfter": 11
+    "goldLeadAfter": 20332,
+    "momentumAfter": 1,
+    "mapControlAfter": 13
    },
    {
     "type": "nexus",
     "minutes": 28.5,
     "time": "28:30",
     "side": "blue",
-    "description": "Blue destroys the Nexus at 28:30",
+    "description": "BASE RACE! both Nexuses crumbling — Blue hits home first",
     "kills": {
      "blue": 0,
      "red": 0
@@ -2410,9 +2331,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
      "red": {}
     },
     "winProbAfter": 0.99,
-    "goldLeadAfter": 19564,
-    "momentumAfter": 0.628992,
-    "mapControlAfter": 13
+    "goldLeadAfter": 20832,
+    "momentumAfter": 0.7,
+    "mapControlAfter": 15
    }
   ]
  },
@@ -2428,16 +2349,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
 
 exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: result hashes across 10 seeds 1`] = `
 [
-  "11:836ce582",
-  "42:796a1e36",
-  "101:e1b2ee5b",
-  "777:3f6acd57",
-  "1234:abda09ac",
-  "5150:b71a0d23",
-  "9001:fbe2ef5b",
-  "31337:4ee1eee4",
-  "65535:dbd2bfbf",
-  "999983:ecdc82ac",
+  "11:cac32ab9",
+  "42:c16ff1c4",
+  "101:82d8b06c",
+  "777:cddd201e",
+  "1234:d09c09fb",
+  "5150:0442d766",
+  "9001:d4718562",
+  "31337:ebeab187",
+  "65535:95446aed",
+  "999983:af8f31c9",
 ]
 `;
 
@@ -2445,7 +2366,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
 "{
  "blueProb": 0.7335353555988716,
  "redProb": 0.2664646444011284,
- "winner": "blue",
+ "winner": "red",
  "blueScore": {
   "damageBalance": 0,
   "frontline": 0,
@@ -2505,15 +2426,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
  },
  "timeline": {
   "durationMinutes": 38.5,
-  "laningEndMinute": 11.791245877044275,
+  "laningEndMinute": 11.729616251308471,
   "durationLabel": "38:30",
   "events": [
    {
-    "type": "scuttle",
-    "minutes": 3.9116048756986856,
-    "time": "3:55",
-    "side": "red",
-    "description": "Draven fights for bot side scuttler — wins the crab",
+    "type": "invade",
+    "minutes": 0.42003924208693205,
+    "time": "0:25",
+    "side": "blue",
+    "description": "LEVEL ONE — Anivia catches Draven at enemy red buff",
     "kills": {
      "blue": 0,
      "red": 0
@@ -2527,15 +2448,49 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      "red": 0
     },
     "laneGoldDelta": {
-     "jungle": -80
+     "top": 16,
+     "jungle": 16,
+     "middle": 16,
+     "bottom": 16,
+     "support": 16
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5234827114426752,
-    "goldLeadAfter": -2737,
-    "momentumAfter": -0.06,
+    "winProbAfter": 0.5768852611320463,
+    "goldLeadAfter": -205,
+    "momentumAfter": 0.12,
+    "mapControlAfter": 0
+   },
+   {
+    "type": "scuttle",
+    "minutes": 3.9116048756986856,
+    "time": "3:55",
+    "side": "blue",
+    "description": "Azir fights for top side scuttler — wins the crab",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "jungle": 80
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.583898999171127,
+    "goldLeadAfter": -2497,
+    "momentumAfter": 0.144,
     "mapControlAfter": 0
    },
    {
@@ -2543,7 +2498,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
     "minutes": 4.200106174801476,
     "time": "4:12",
     "side": "red",
-    "description": "Darius outduels Anivia in the enemy jungle",
+    "description": "Darius outduels Anivia post-back",
     "kills": {
      "blue": 0,
      "red": 1
@@ -2557,7 +2512,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -400
+     "top": -400,
+     "jungle": -100
     },
     "kdaDelta": {
      "blue": {
@@ -2572,12 +2528,17 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
        "k": 1,
        "d": 0,
        "a": 0
+      },
+      "jungle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
       }
      }
     },
-    "winProbAfter": 0.4392023264658952,
-    "goldLeadAfter": -3333,
-    "momentumAfter": -0.242,
+    "winProbAfter": 0.4817481135222265,
+    "goldLeadAfter": -3193,
+    "momentumAfter": -0.09920000000000002,
     "mapControlAfter": 0
    },
    {
@@ -2585,10 +2546,10 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
     "minutes": 5.350974672008306,
     "time": "5:21",
     "side": "red",
-    "description": "Darius dominates top (2 solo kills)",
+    "description": "Darius dominates top (3 solo kills)",
     "kills": {
      "blue": 0,
-     "red": 2
+     "red": 3
     },
     "towers": {
      "blue": 0,
@@ -2599,57 +2560,27 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -840
+     "top": -1260
     },
     "kdaDelta": {
      "blue": {
       "top": {
        "k": 0,
-       "d": 2,
+       "d": 3,
        "a": 0
       }
      },
      "red": {
       "top": {
-       "k": 2,
+       "k": 3,
        "d": 0,
        "a": 0
       }
      }
     },
-    "winProbAfter": 0.33241556248316484,
-    "goldLeadAfter": -4954,
-    "momentumAfter": -0.4194,
-    "mapControlAfter": 0
-   },
-   {
-    "type": "counter-jungle",
-    "minutes": 7.071087439544499,
-    "time": "7:04",
-    "side": "red",
-    "description": "Draven invades and clears the enemy jungle — their jungler falls behind",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "jungle": -200
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.34681645272233674,
-    "goldLeadAfter": -6323,
-    "momentumAfter": -0.37357999999999997,
+    "winProbAfter": 0.31922666723444465,
+    "goldLeadAfter": -5234,
+    "momentumAfter": -0.36944000000000005,
     "mapControlAfter": 0
    },
    {
@@ -2657,7 +2588,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
     "minutes": 7.255956351524219,
     "time": "7:15",
     "side": "red",
-    "description": "Red secures Ocean Drake (first)",
+    "description": "Red secures Chemtech Drake (first)",
     "kills": {
      "blue": 0,
      "red": 0
@@ -2681,9 +2612,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.3271772189513399,
-    "goldLeadAfter": -6598,
-    "momentumAfter": -0.38150599999999996,
+    "winProbAfter": 0.3028224780026975,
+    "goldLeadAfter": -6678,
+    "momentumAfter": -0.378608,
     "mapControlAfter": 0
    },
    {
@@ -2715,141 +2646,75 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.3918464262773567,
-    "goldLeadAfter": -6394,
-    "momentumAfter": -0.14705419999999997,
+    "winProbAfter": 0.365055717081407,
+    "goldLeadAfter": -6474,
+    "momentumAfter": -0.14502559999999998,
     "mapControlAfter": 0
    },
    {
-    "type": "counter-gank",
-    "minutes": 8.226114348508418,
-    "time": "8:14",
-    "side": "blue",
-    "description": "Azir counter-ganks the play",
-    "kills": {
-     "blue": 1,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "middle": 160,
-     "jungle": 340
-    },
-    "kdaDelta": {
-     "blue": {
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.4878194685725985,
-    "goldLeadAfter": -6547,
-    "momentumAfter": 0.07706206000000002,
-    "mapControlAfter": 0
-   },
-   {
-    "type": "dive",
-    "minutes": 9.764888683799654,
-    "time": "9:46",
-    "side": "blue",
-    "description": "Azir collapses top — clean tower dive",
-    "kills": {
-     "blue": 2,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": 220,
-     "jungle": 600
-    },
-    "kdaDelta": {
-     "blue": {
-      "jungle": {
-       "k": 2,
-       "d": 0,
-       "a": 0
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "top": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.5848540370405932,
-    "goldLeadAfter": -6772,
-    "momentumAfter": 0.213943442,
-    "mapControlAfter": 0
-   },
-   {
-    "type": "tower",
-    "minutes": 11.791245877044275,
-    "time": "11:47",
+    "type": "wave-crash",
+    "minutes": 8.637407236499712,
+    "time": "8:38",
     "side": "red",
-    "description": "Red takes the outer middle tower",
+    "description": "Elise crashes the wave mid, freezes the bounce",
     "kills": {
      "blue": 0,
      "red": 0
     },
     "towers": {
      "blue": 0,
-     "red": 1
+     "red": 0
     },
     "inhibs": {
      "blue": 0,
      "red": 0
     },
     "laneGoldDelta": {
-     "middle": -500
+     "middle": -220
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.4740787420055815,
-    "goldLeadAfter": -8648,
-    "momentumAfter": -0.00023959060000000587,
-    "mapControlAfter": -1
+    "winProbAfter": 0.36412460860138673,
+    "goldLeadAfter": -7626,
+    "momentumAfter": -0.16151791999999998,
+    "mapControlAfter": 0
+   },
+   {
+    "type": "tower",
+    "minutes": 11.729616251308471,
+    "time": "11:44",
+    "side": "blue",
+    "description": "Blue takes the outer middle tower",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 1,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "bottom": 500
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.47651675107462194,
+    "goldLeadAfter": -9227,
+    "momentumAfter": 0.03693745600000002,
+    "mapControlAfter": 1
    },
    {
     "type": "dragon",
-    "minutes": 12.389310412853956,
-    "time": "12:23",
+    "minutes": 13.244701047986746,
+    "time": "13:15",
     "side": "blue",
     "description": "Blue secures Infernal Drake (first)",
     "kills": {
@@ -2875,17 +2740,17 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5367980716815342,
-    "goldLeadAfter": -8448,
-    "momentumAfter": 0.13983228658000002,
-    "mapControlAfter": -1
+    "winProbAfter": 0.5374629984335794,
+    "goldLeadAfter": -9027,
+    "momentumAfter": 0.16585621920000002,
+    "mapControlAfter": 1
    },
    {
     "type": "power-spike",
     "minutes": 14.537609023042023,
     "time": "14:32",
     "side": "red",
-    "description": "POWER SPIKE — Darius powers up with Trinity Force",
+    "description": "POWER SPIKE — Draven powers up with Kraken Slayer",
     "kills": {
      "blue": 0,
      "red": 0
@@ -2899,27 +2764,27 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -35,
-     "jungle": -35,
-     "middle": -35,
-     "bottom": -35,
-     "support": -35
+     "top": -50.4,
+     "jungle": -50.4,
+     "middle": -50.4,
+     "bottom": -50.4,
+     "support": -50.4
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.49649654384791464,
-    "goldLeadAfter": -8623,
-    "momentumAfter": -0.004159899393999994,
-    "mapControlAfter": -1
+    "winProbAfter": 0.4805809816492595,
+    "goldLeadAfter": -9279,
+    "momentumAfter": -0.030725646560000014,
+    "mapControlAfter": 1
    },
    {
     "type": "power-spike",
     "minutes": 14.610769625287503,
     "time": "14:37",
-    "side": "red",
-    "description": "POWER SPIKE — Draven completes Kraken Slayer",
+    "side": "blue",
+    "description": "POWER SPIKE — Anivia completes Luden's Companion",
     "kills": {
      "blue": 0,
      "red": 0
@@ -2933,25 +2798,25 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -50,
-     "jungle": -50,
-     "middle": -50,
-     "bottom": -50,
-     "support": -50
+     "top": 33.6,
+     "jungle": 33.6,
+     "middle": 33.6,
+     "bottom": 33.6,
+     "support": 33.6
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.45337062502538056,
-    "goldLeadAfter": -8873,
-    "momentumAfter": -0.14868692957580001,
-    "mapControlAfter": -1
+    "winProbAfter": 0.5128475640034427,
+    "goldLeadAfter": -9111,
+    "momentumAfter": 0.076492047408,
+    "mapControlAfter": 1
    },
    {
     "type": "atakhan",
-    "minutes": 15.153077500872314,
-    "time": "15:09",
+    "minutes": 14.836834252811968,
+    "time": "14:50",
     "side": "red",
     "description": "Red kills Voracious Atakhan — extra gold from kills",
     "kills": {
@@ -3009,54 +2874,20 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
       }
      }
     },
-    "winProbAfter": 0.34065541439043967,
-    "goldLeadAfter": -9623,
-    "momentumAfter": -0.28408085070306,
-    "mapControlAfter": -1,
+    "winProbAfter": 0.3762877750417925,
+    "goldLeadAfter": -9861,
+    "momentumAfter": -0.1264555668144,
+    "mapControlAfter": 1,
     "atakhanVariant": "Voracious"
    },
    {
-    "type": "dragon",
-    "minutes": 17.380877160816453,
-    "time": "17:23",
-    "side": "blue",
-    "description": "Blue secures Cloud Drake (second)",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": 44,
-     "jungle": 44,
-     "middle": 44,
-     "bottom": 44,
-     "support": 44
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.430461739902702,
-    "goldLeadAfter": -9403,
-    "momentumAfter": -0.048856595492141996,
-    "mapControlAfter": -1
-   },
-   {
     "type": "skirmish",
-    "minutes": 17.680876309983432,
-    "time": "17:41",
+    "minutes": 16.380877160816453,
+    "time": "16:23",
     "side": "red",
-    "description": "Elise wins a 3v2 in bot side jungle (1-1)",
+    "description": "Draven wins a 3v2 in top side jungle (1-0)",
     "kills": {
-     "blue": 1,
+     "blue": 0,
      "red": 1
     },
     "towers": {
@@ -3068,54 +2899,78 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -106,
-     "jungle": -6,
-     "middle": 94,
+     "top": -6,
+     "jungle": -306,
+     "middle": -6,
      "bottom": -6,
-     "support": -6
+     "support": -106
     },
     "kdaDelta": {
      "blue": {
-      "jungle": {
+      "middle": {
        "k": 0,
        "d": 1,
        "a": 0
-      },
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 1
       }
      },
      "red": {
-      "middle": {
+      "jungle": {
        "k": 1,
        "d": 0,
        "a": 0
       },
-      "top": {
+      "support": {
        "k": 0,
        "d": 0,
        "a": 1
-      },
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
       }
      }
     },
-    "winProbAfter": 0.3832120912104585,
-    "goldLeadAfter": -9433,
-    "momentumAfter": -0.2141996168444994,
-    "mapControlAfter": -1
+    "winProbAfter": 0.3204007860730371,
+    "goldLeadAfter": -10291,
+    "momentumAfter": -0.26851889677008,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "dragon",
+    "minutes": 16.696817379212007,
+    "time": "16:42",
+    "side": "red",
+    "description": "Red secures Infernal Drake (second)",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -44,
+     "jungle": -44,
+     "middle": -44,
+     "bottom": -44,
+     "support": -44
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.2866968841671861,
+    "goldLeadAfter": -10511,
+    "momentumAfter": -0.33796322773905596,
+    "mapControlAfter": 1
    },
    {
     "type": "vision",
-    "minutes": 17.781021065078676,
-    "time": "17:47",
+    "minutes": 16.879200355615467,
+    "time": "16:53",
     "side": "red",
-    "description": "Elise drops a control ward in drake pit — Anivia steps on it",
+    "description": "Draven drops a control ward in river entrance — Anivia steps on it",
     "kills": {
      "blue": 0,
      "red": 1
@@ -3130,8 +2985,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
     },
     "laneGoldDelta": {
      "top": -30,
-     "jungle": -130,
-     "middle": -330,
+     "jungle": -330,
+     "middle": -30,
      "bottom": -30,
      "support": -130
     },
@@ -3144,108 +2999,32 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
       }
      },
      "red": {
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "support": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
       "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "support": {
        "k": 0,
        "d": 0,
        "a": 1
       }
      }
     },
-    "winProbAfter": 0.33177766494575656,
-    "goldLeadAfter": -10083,
-    "momentumAfter": -0.32993973179114955,
-    "mapControlAfter": -1
-   },
-   {
-    "type": "baron",
-    "minutes": 20.767203161958605,
-    "time": "20:46",
-    "side": "blue",
-    "description": "Azir secures Baron Nashor (3-2)",
-    "kills": {
-     "blue": 3,
-     "red": 2
-    },
-    "towers": {
-     "blue": 2,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -20,
-     "jungle": 180,
-     "middle": 680,
-     "bottom": 780,
-     "support": -220
-    },
-    "kdaDelta": {
-     "blue": {
-      "bottom": {
-       "k": 2,
-       "d": 0,
-       "a": 1
-      },
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 2
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "support": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      }
-     },
-     "red": {
-      "top": {
-       "k": 1,
-       "d": 2,
-       "a": 0
-      },
-      "support": {
-       "k": 1,
-       "d": 1,
-       "a": 1
-      },
-      "bottom": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     }
-    },
-    "winProbAfter": 0.6019240716665929,
-    "goldLeadAfter": -8683,
-    "momentumAfter": 0.26904218774619537,
+    "winProbAfter": 0.251172552564364,
+    "goldLeadAfter": -11061,
+    "momentumAfter": -0.41657425941733917,
     "mapControlAfter": 1
    },
    {
     "type": "dragon",
-    "minutes": 21.10166597738862,
-    "time": "21:06",
+    "minutes": 21.306881264783442,
+    "time": "21:18",
     "side": "blue",
-    "description": "STOLEN! Blue smites Ocean Drake away (third)",
+    "description": "Blue secures Mountain Drake (second)",
     "kills": {
      "blue": 0,
-     "red": 2
+     "red": 0
     },
     "towers": {
      "blue": 0,
@@ -3256,280 +3035,87 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -152,
-     "jungle": -452,
-     "middle": -52,
+     "top": 48,
+     "jungle": 48,
+     "middle": 48,
      "bottom": 48,
      "support": 48
     },
     "kdaDelta": {
-     "blue": {
-      "middle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 1
-      }
-     },
-     "red": {
-      "jungle": {
-       "k": 2,
-       "d": 0,
-       "a": 0
-      },
-      "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 2
-      }
-     }
+     "blue": {},
+     "red": {}
     },
-    "winProbAfter": 0.6462563213820745,
-    "goldLeadAfter": -9243,
-    "momentumAfter": 0.4883295314223367,
+    "winProbAfter": 0.3587795820715735,
+    "goldLeadAfter": -10821,
+    "momentumAfter": -0.11160198159213741,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "vision",
+    "minutes": 21.948411602526903,
+    "time": "21:57",
+    "side": "red",
+    "description": "Red sweeps the wards — vision cleared before the objective",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "jungle": -60
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.3536659409315021,
+    "goldLeadAfter": -10881,
+    "momentumAfter": -0.13812138711449617,
     "mapControlAfter": 1
    },
    {
     "type": "teamfight",
-    "minutes": 22.70455214055255,
-    "time": "22:42",
-    "side": "blue",
-    "description": "Baron buff — 5v5 at Baron pit, Blue wins 4-1 — Protect The Carry hits",
+    "minutes": 23.88834925345145,
+    "time": "23:53",
+    "side": "red",
+    "description": "ACE! MASSIVE fight at river, Red wins 6-0 — Dive Comp hits",
     "kills": {
-     "blue": 4,
-     "red": 1
+     "blue": 0,
+     "red": 6
     },
     "towers": {
-     "blue": 1,
-     "red": 0
+     "blue": 0,
+     "red": 1
     },
     "inhibs": {
      "blue": 0,
      "red": 0
     },
     "laneGoldDelta": {
-     "bottom": 40,
-     "top": 100,
-     "jungle": 800,
-     "middle": 700
+     "bottom": -1220,
+     "top": -1000,
+     "jungle": -100,
+     "middle": -600,
+     "support": -500
     },
     "kdaDelta": {
      "blue": {
       "middle": {
-       "k": 2,
-       "d": 0,
-       "a": 1
-      },
-      "jungle": {
-       "k": 2,
-       "d": 0,
-       "a": 2
-      },
-      "bottom": {
        "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "support": {
-       "k": 0,
-       "d": 1,
-       "a": 1
-      }
-     },
-     "red": {
-      "top": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "support": {
-       "k": 0,
-       "d": 1,
-       "a": 1
-      },
-      "jungle": {
-       "k": 0,
-       "d": 1,
+       "d": 3,
        "a": 0
       },
       "bottom": {
-       "k": 1,
-       "d": 1,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.7652121883809749,
-    "goldLeadAfter": -7603,
-    "momentumAfter": 0.6762306719956357,
-    "mapControlAfter": 2
-   },
-   {
-    "type": "skirmish",
-    "minutes": 23.43551450315863,
-    "time": "23:26",
-    "side": "red",
-    "description": "Darius Teleports behind — the flank turns the fight",
-    "kills": {
-     "blue": 0,
-     "red": 1
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -108,
-     "jungle": -308,
-     "middle": -8,
-     "bottom": -8,
-     "support": -8
-    },
-    "kdaDelta": {
-     "blue": {
-      "support": {
        "k": 0,
        "d": 1,
        "a": 0
-      }
-     },
-     "red": {
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     }
-    },
-    "winProbAfter": 0.6557537943097924,
-    "goldLeadAfter": -8043,
-    "momentumAfter": 0.29336147039694493,
-    "mapControlAfter": 2
-   },
-   {
-    "type": "tower",
-    "minutes": 33.51638739008922,
-    "time": "33:31",
-    "side": "blue",
-    "description": "Blue takes the inner bottom tower",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 2,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "middle": 400
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.6881847502384814,
-    "goldLeadAfter": -7643,
-    "momentumAfter": 0.35535302927786144,
-    "mapControlAfter": 4
-   },
-   {
-    "type": "inhibitor",
-    "minutes": 34.77715301606804,
-    "time": "34:47",
-    "side": "blue",
-    "description": "Blue breaks the middle inhibitor (×2)",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 2,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 2,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "middle": 550
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.7977898470112543,
-    "goldLeadAfter": -7093,
-    "momentumAfter": 0.5787471204945029,
-    "mapControlAfter": 8
-   },
-   {
-    "type": "teamfight",
-    "minutes": 37.72163569524418,
-    "time": "37:43",
-    "side": "blue",
-    "description": "5v5 at tri-bush, Azir pops off 2-3 — Protect The Carry hits",
-    "kills": {
-     "blue": 2,
-     "red": 3
-    },
-    "towers": {
-     "blue": 2,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -52,
-     "jungle": 48,
-     "middle": -352,
-     "bottom": 348,
-     "support": -52
-    },
-    "kdaDelta": {
-     "blue": {
-      "bottom": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 1
-      },
-      "support": {
-       "k": 0,
-       "d": 1,
-       "a": 2
       },
       "top": {
        "k": 0,
@@ -3539,65 +3125,353 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
      },
      "red": {
       "middle": {
-       "k": 1,
-       "d": 1,
-       "a": 1
-      },
-      "support": {
-       "k": 1,
-       "d": 1,
+       "k": 2,
+       "d": 0,
        "a": 0
       },
-      "jungle": {
-       "k": 1,
+      "top": {
+       "k": 3,
        "d": 0,
        "a": 1
       },
-      "top": {
+      "bottom": {
+       "k": 1,
+       "d": 0,
+       "a": 2
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 5
+      },
+      "jungle": {
        "k": 0,
        "d": 0,
        "a": 1
       }
      }
     },
-    "winProbAfter": 0.8571903744726316,
-    "goldLeadAfter": -7153,
-    "momentumAfter": 0.8551229843461521,
-    "mapControlAfter": 10
+    "winProbAfter": 0.17767509088370603,
+    "goldLeadAfter": -14301,
+    "momentumAfter": -0.48868497098014735,
+    "mapControlAfter": 0
+   },
+   {
+    "type": "baron",
+    "minutes": 28.413109912071377,
+    "time": "28:25",
+    "side": "red",
+    "description": "Draven secures Baron Nashor (2-2)",
+    "kills": {
+     "blue": 2,
+     "red": 2
+    },
+    "towers": {
+     "blue": 0,
+     "red": 2
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": 120,
+     "jungle": -480,
+     "middle": -580,
+     "bottom": 20,
+     "support": -80
+    },
+    "kdaDelta": {
+     "blue": {
+      "top": {
+       "k": 1,
+       "d": 2,
+       "a": 0
+      },
+      "bottom": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "jungle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     },
+     "red": {
+      "jungle": {
+       "k": 1,
+       "d": 1,
+       "a": 1
+      },
+      "middle": {
+       "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 1
+      }
+     }
+    },
+    "winProbAfter": 0.12014364724344816,
+    "goldLeadAfter": -15301,
+    "momentumAfter": -0.8420794796861031,
+    "mapControlAfter": -2
+   },
+   {
+    "type": "tower",
+    "minutes": 29.21573657845147,
+    "time": "29:13",
+    "side": "red",
+    "description": "Red takes the inner bottom tower",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 2
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -400
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.11661618217659568,
+    "goldLeadAfter": -15701,
+    "momentumAfter": -0.7394556357802722,
+    "mapControlAfter": -4
+   },
+   {
+    "type": "comeback",
+    "minutes": 32.19648535735905,
+    "time": "32:12",
+    "side": "blue",
+    "description": "MOMENTUM SHIFT! DEFIANCE! Aphelios anchors a desperation hold, blows up Draven — the deficit shrinks",
+    "kills": {
+     "blue": 4,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": 664,
+     "jungle": 364,
+     "middle": 264,
+     "bottom": 464,
+     "support": 364
+    },
+    "kdaDelta": {
+     "blue": {
+      "top": {
+       "k": 2,
+       "d": 0,
+       "a": 0
+      },
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "bottom": {
+       "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 3
+      },
+      "middle": {
+       "k": 0,
+       "d": 0,
+       "a": 2
+      }
+     },
+     "red": {
+      "support": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "jungle": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      },
+      "top": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     }
+    },
+    "winProbAfter": 0.27177922379687197,
+    "goldLeadAfter": -13581,
+    "momentumAfter": -0.16761894504619057,
+    "mapControlAfter": -4
+   },
+   {
+    "type": "inhibitor",
+    "minutes": 36.23151545226574,
+    "time": "36:14",
+    "side": "red",
+    "description": "Red breaks the middle inhibitor (×2)",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 3
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 2
+    },
+    "laneGoldDelta": {
+     "top": -550
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.16981893802351475,
+    "goldLeadAfter": -14131,
+    "momentumAfter": -0.44733326153233344,
+    "mapControlAfter": -9
+   },
+   {
+    "type": "teamfight",
+    "minutes": 37.267173529719,
+    "time": "37:16",
+    "side": "red",
+    "description": "MASSIVE fight at dragon pit, Red wins 5-0 — Dive Comp hits",
+    "kills": {
+     "blue": 0,
+     "red": 5
+    },
+    "towers": {
+     "blue": 0,
+     "red": 1
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -420,
+     "jungle": -520,
+     "middle": -920,
+     "bottom": -420,
+     "support": -520
+    },
+    "kdaDelta": {
+     "blue": {
+      "jungle": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      },
+      "top": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     },
+     "red": {
+      "bottom": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "support": {
+       "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "middle": {
+       "k": 2,
+       "d": 0,
+       "a": 2
+      },
+      "top": {
+       "k": 0,
+       "d": 0,
+       "a": 3
+      }
+     }
+    },
+    "winProbAfter": 0.09828504234935476,
+    "goldLeadAfter": -16931,
+    "momentumAfter": -0.7631332830726334,
+    "mapControlAfter": -10
    },
    {
     "type": "nexus",
     "minutes": 38.5,
     "time": "38:30",
-    "side": "blue",
-    "description": "Blue destroys the Nexus at 38:30",
+    "side": "red",
+    "description": "BASE RACE! both Nexuses crumbling — Red hits home first",
     "kills": {
      "blue": 0,
      "red": 0
     },
     "towers": {
-     "blue": 2,
-     "red": 0
+     "blue": 0,
+     "red": 2
     },
     "inhibs": {
      "blue": 0,
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 100,
-     "jungle": 100,
-     "middle": 100,
-     "bottom": 100,
-     "support": 100
+     "top": -100,
+     "jungle": -100,
+     "middle": -100,
+     "bottom": -100,
+     "support": -100
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.99,
-    "goldLeadAfter": -6653,
-    "momentumAfter": 0.5985860890423064,
-    "mapControlAfter": 12
+    "winProbAfter": 0.01,
+    "goldLeadAfter": -17431,
+    "momentumAfter": -0.5341932981508434,
+    "mapControlAfter": -12
    }
   ]
  },
@@ -3613,16 +3487,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
 
 exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: result hashes across 10 seeds 1`] = `
 [
-  "11:51962366",
-  "42:c4579d4b",
-  "101:99dd85a1",
-  "777:0d4e58ef",
-  "1234:fb9717d6",
-  "5150:73f148fa",
-  "9001:de62243d",
-  "31337:783fdfb6",
-  "65535:cc943570",
-  "999983:e51a6562",
+  "11:e1227d50",
+  "42:9d83101c",
+  "101:0ec5925b",
+  "777:2c8507df",
+  "1234:fe49b067",
+  "5150:32fe92d6",
+  "9001:013b288c",
+  "31337:d4bcae49",
+  "65535:bced6cdb",
+  "999983:9b1f3b3a",
 ]
 `;
 
@@ -3630,7 +3504,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
 "{
  "blueProb": 0.525,
  "redProb": 0.475,
- "winner": "blue",
+ "winner": "red",
  "blueScore": {
   "damageBalance": 0,
   "frontline": 5,
@@ -3689,15 +3563,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
  },
  "timeline": {
   "durationMinutes": 35,
-  "laningEndMinute": 11.791245877044275,
+  "laningEndMinute": 11.729616251308471,
   "durationLabel": "35:00",
   "events": [
    {
-    "type": "scuttle",
-    "minutes": 3.9116048756986856,
-    "time": "3:55",
-    "side": "red",
-    "description": "Vi fights for bot side scuttler — wins the crab",
+    "type": "invade",
+    "minutes": 0.42003924208693205,
+    "time": "0:25",
+    "side": "blue",
+    "description": "LEVEL ONE — Malphite catches Ahri at enemy red buff",
     "kills": {
      "blue": 0,
      "red": 0
@@ -3711,15 +3585,49 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "red": 0
     },
     "laneGoldDelta": {
-     "jungle": -80
+     "top": 16,
+     "jungle": 16,
+     "middle": 16,
+     "bottom": 16,
+     "support": 16
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5069995427025188,
-    "goldLeadAfter": -34,
-    "momentumAfter": -0.06,
+    "winProbAfter": 0.560699149682253,
+    "goldLeadAfter": 85,
+    "momentumAfter": 0.12,
+    "mapControlAfter": 0
+   },
+   {
+    "type": "scuttle",
+    "minutes": 3.9116048756986856,
+    "time": "3:55",
+    "side": "blue",
+    "description": "Vi fights for top side scuttler — wins the crab",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "jungle": 80
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.5677801713243794,
+    "goldLeadAfter": 206,
+    "momentumAfter": 0.144,
     "mapControlAfter": 0
    },
    {
@@ -3727,7 +3635,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
     "minutes": 4.200106174801476,
     "time": "4:12",
     "side": "red",
-    "description": "Vi tower-dives Ahri in the enemy jungle",
+    "description": "Vi tower-dives Ahri post-back",
     "kills": {
      "blue": 0,
      "red": 1
@@ -3759,9 +3667,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
       }
      }
     },
-    "winProbAfter": 0.423017106409206,
-    "goldLeadAfter": -430,
-    "momentumAfter": -0.242,
+    "winProbAfter": 0.4652958906662052,
+    "goldLeadAfter": -190,
+    "momentumAfter": -0.09920000000000002,
     "mapControlAfter": 0
    },
    {
@@ -3793,9 +3701,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5010822658036967,
-    "goldLeadAfter": -244,
-    "momentumAfter": -0.0494,
+    "winProbAfter": 0.5310303371140858,
+    "goldLeadAfter": -4,
+    "momentumAfter": 0.05055999999999998,
     "mapControlAfter": 0
    },
    {
@@ -3827,20 +3735,20 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.46957261054743005,
-    "goldLeadAfter": -454,
-    "momentumAfter": -0.15458,
+    "winProbAfter": 0.4905276996817378,
+    "goldLeadAfter": -214,
+    "momentumAfter": -0.08460800000000002,
     "mapControlAfter": 0
    },
    {
-    "type": "dive",
-    "minutes": 9.764888683799654,
-    "time": "9:46",
-    "side": "blue",
-    "description": "Vi collapses bot — clean tower dive",
+    "type": "gank",
+    "minutes": 7.521245534997433,
+    "time": "7:31",
+    "side": "red",
+    "description": "Vi ganks bot for Jhin",
     "kills": {
-     "blue": 1,
-     "red": 0
+     "blue": 0,
+     "red": 1
     },
     "towers": {
      "blue": 0,
@@ -3851,43 +3759,43 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "red": 0
     },
     "laneGoldDelta": {
-     "bottom": 220,
-     "jungle": 300
+     "bottom": -360,
+     "jungle": -140
     },
     "kdaDelta": {
      "blue": {
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     },
+     "red": {
+      "bottom": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
       "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "bottom": {
        "k": 0,
        "d": 0,
        "a": 1
       }
-     },
-     "red": {
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
      }
     },
-    "winProbAfter": 0.5602441045896541,
-    "goldLeadAfter": 95,
-    "momentumAfter": 0.05179400000000001,
+    "winProbAfter": 0.4220586934052553,
+    "goldLeadAfter": -711,
+    "momentumAfter": -0.21922560000000002,
     "mapControlAfter": 0
    },
    {
-    "type": "roam",
-    "minutes": 10.507853110320866,
-    "time": "10:30",
+    "type": "wave-crash",
+    "minutes": 8.637407236499712,
+    "time": "8:38",
     "side": "blue",
-    "description": "Ahri roams to bot, picks up a kill",
+    "description": "Ahri crashes the wave mid, freezes the bounce",
     "kills": {
-     "blue": 1,
+     "blue": 0,
      "red": 0
     },
     "towers": {
@@ -3899,42 +3807,23 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "red": 0
     },
     "laneGoldDelta": {
-     "bottom": 160,
-     "jungle": 40,
-     "middle": 300
+     "middle": 220
     },
     "kdaDelta": {
-     "blue": {
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "bottom": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     }
+     "blue": {},
+     "red": {}
     },
-    "winProbAfter": 0.6192941563795294,
-    "goldLeadAfter": 604,
-    "momentumAfter": 0.1662558,
+    "winProbAfter": 0.460832414464562,
+    "goldLeadAfter": -478,
+    "momentumAfter": -0.09345792,
     "mapControlAfter": 0
    },
    {
     "type": "tower",
-    "minutes": 11.791245877044275,
-    "time": "11:47",
+    "minutes": 11.729616251308471,
+    "time": "11:44",
     "side": "red",
-    "description": "Red takes the outer bottom tower",
+    "description": "Red takes the outer middle tower",
     "kills": {
      "blue": 0,
      "red": 0
@@ -3948,23 +3837,23 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "red": 0
     },
     "laneGoldDelta": {
-     "middle": -500
+     "bottom": -500
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5133775061062721,
-    "goldLeadAfter": 119,
-    "momentumAfter": -0.03362094,
+    "winProbAfter": 0.38334104741536085,
+    "goldLeadAfter": -941,
+    "momentumAfter": -0.215420544,
     "mapControlAfter": -1
    },
    {
     "type": "dragon",
-    "minutes": 12.389310412853956,
-    "time": "12:23",
+    "minutes": 13.244701047986746,
+    "time": "13:15",
     "side": "blue",
-    "description": "Blue secures Ocean Drake (second)",
+    "description": "Blue secures Infernal Drake (second)",
     "kills": {
      "blue": 0,
      "red": 0
@@ -3988,49 +3877,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5781194968533933,
-    "goldLeadAfter": 319,
-    "momentumAfter": 0.11646534200000001,
+    "winProbAfter": 0.4667614639456611,
+    "goldLeadAfter": -741,
+    "momentumAfter": -0.010794380799999975,
     "mapControlAfter": -1
    },
    {
     "type": "power-spike",
-    "minutes": 13.836834252811968,
-    "time": "13:50",
-    "side": "blue",
-    "description": "POWER SPIKE — Jhin completes Kraken Slayer",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": 48,
-     "jungle": 48,
-     "middle": 48,
-     "bottom": 48,
-     "support": 48
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.6093539172218834,
-    "goldLeadAfter": 559,
-    "momentumAfter": 0.22152573940000003,
-    "mapControlAfter": -1
-   },
-   {
-    "type": "power-spike",
-    "minutes": 14.610769625287503,
-    "time": "14:37",
+    "minutes": 14.537609023042023,
+    "time": "14:32",
     "side": "red",
     "description": "POWER SPIKE — Jhin powers up with Kraken Slayer",
     "kills": {
@@ -4046,25 +3901,25 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -49,
-     "jungle": -49,
-     "middle": -49,
-     "bottom": -49,
-     "support": -49
+     "top": -52.2,
+     "jungle": -52.2,
+     "middle": -52.2,
+     "bottom": -52.2,
+     "support": -52.2
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5487326230693641,
-    "goldLeadAfter": 314,
-    "momentumAfter": 0.012443017579999993,
+    "winProbAfter": 0.42616562782719364,
+    "goldLeadAfter": -1002,
+    "momentumAfter": -0.15963106656,
     "mapControlAfter": -1
    },
    {
     "type": "power-spike",
-    "minutes": 14.68850074429065,
-    "time": "14:41",
+    "minutes": 14.610769625287503,
+    "time": "14:37",
     "side": "blue",
     "description": "POWER SPIKE — Ahri completes Luden's Companion",
     "kills": {
@@ -4090,20 +3945,20 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5766064707330835,
-    "goldLeadAfter": 482,
-    "momentumAfter": 0.106710112306,
+    "winProbAfter": 0.4696275245029651,
+    "goldLeadAfter": -834,
+    "momentumAfter": -0.01374174659199999,
     "mapControlAfter": -1
    },
    {
     "type": "atakhan",
-    "minutes": 15.153077500872314,
-    "time": "15:09",
+    "minutes": 14.836834252811968,
+    "time": "14:50",
     "side": "red",
-    "description": "Red kills Ruinous Atakhan — Blood Roses for revives",
+    "description": "Red kills Voracious Atakhan — extra gold from kills",
     "kills": {
      "blue": 1,
-     "red": 1
+     "red": 2
     },
     "towers": {
      "blue": 0,
@@ -4116,115 +3971,14 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
     "laneGoldDelta": {
      "top": -50,
      "jungle": -50,
-     "middle": -50,
-     "bottom": 50,
-     "support": -150
+     "middle": 150,
+     "bottom": -450,
+     "support": -350
     },
     "kdaDelta": {
      "blue": {
-      "support": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
       "middle": {
        "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "bottom": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "support": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.4589810911029749,
-    "goldLeadAfter": 232,
-    "momentumAfter": -0.1053029213858,
-    "mapControlAfter": -1,
-    "atakhanVariant": "Ruinous"
-   },
-   {
-    "type": "dragon",
-    "minutes": 17.380877160816453,
-    "time": "17:23",
-    "side": "blue",
-    "description": "Blue secures Cloud Drake (third)",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": 44,
-     "jungle": 44,
-     "middle": 44,
-     "bottom": 44,
-     "support": 44
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.5346440506546635,
-    "goldLeadAfter": 452,
-    "momentumAfter": 0.07628795502994,
-    "mapControlAfter": -1
-   },
-   {
-    "type": "skirmish",
-    "minutes": 17.680876309983432,
-    "time": "17:41",
-    "side": "red",
-    "description": "Nautilus wins a 3v3 in the river (2-0)",
-    "kills": {
-     "blue": 0,
-     "red": 2
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -12,
-     "jungle": -312,
-     "middle": -112,
-     "bottom": -12,
-     "support": -512
-    },
-    "kdaDelta": {
-     "blue": {
-      "bottom": {
-       "k": 0,
        "d": 1,
        "a": 0
       },
@@ -4232,17 +3986,22 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
        "k": 0,
        "d": 1,
        "a": 0
+      },
+      "bottom": {
+       "k": 0,
+       "d": 0,
+       "a": 1
       }
      },
      "red": {
-      "support": {
+      "bottom": {
        "k": 1,
        "d": 0,
        "a": 2
       },
-      "jungle": {
+      "support": {
        "k": 1,
-       "d": 0,
+       "d": 1,
        "a": 0
       },
       "middle": {
@@ -4252,15 +4011,101 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
       }
      }
     },
-    "winProbAfter": 0.4312347451103984,
-    "goldLeadAfter": -508,
-    "momentumAfter": -0.12659843147904198,
+    "winProbAfter": 0.3441602106285988,
+    "goldLeadAfter": -1584,
+    "momentumAfter": -0.18961922261439998,
+    "mapControlAfter": -1,
+    "atakhanVariant": "Voracious"
+   },
+   {
+    "type": "skirmish",
+    "minutes": 16.380877160816453,
+    "time": "16:23",
+    "side": "red",
+    "description": "Vi wins a 3v2 in top side jungle (1-0)",
+    "kills": {
+     "blue": 0,
+     "red": 1
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -6,
+     "jungle": -306,
+     "middle": -6,
+     "bottom": -6,
+     "support": -106
+    },
+    "kdaDelta": {
+     "blue": {
+      "middle": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     },
+     "red": {
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     }
+    },
+    "winProbAfter": 0.29707382591402404,
+    "goldLeadAfter": -2014,
+    "momentumAfter": -0.31273345583007994,
+    "mapControlAfter": -1
+   },
+   {
+    "type": "dragon",
+    "minutes": 16.696817379212007,
+    "time": "16:42",
+    "side": "red",
+    "description": "Red secures Infernal Drake (first)",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -44,
+     "jungle": -44,
+     "middle": -44,
+     "bottom": -44,
+     "support": -44
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.2682751909294722,
+    "goldLeadAfter": -2234,
+    "momentumAfter": -0.3689134190810559,
     "mapControlAfter": -1
    },
    {
     "type": "vision",
-    "minutes": 17.781021065078676,
-    "time": "17:47",
+    "minutes": 16.879200355615467,
+    "time": "16:53",
     "side": "red",
     "description": "Vi drops a control ward in river entrance — Ahri steps on it",
     "kills": {
@@ -4303,23 +4148,23 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
       }
      }
     },
-    "winProbAfter": 0.3699174666022537,
-    "goldLeadAfter": -1058,
-    "momentumAfter": -0.26861890203532934,
+    "winProbAfter": 0.23644615705259944,
+    "goldLeadAfter": -2784,
+    "momentumAfter": -0.4382393933567391,
     "mapControlAfter": -1
    },
    {
-    "type": "baron",
-    "minutes": 20.767203161958605,
-    "time": "20:46",
+    "type": "dragon",
+    "minutes": 21.306881264783442,
+    "time": "21:18",
     "side": "blue",
-    "description": "Blue takes Baron Nashor (2-0)",
+    "description": "Blue secures Mountain Drake (third)",
     "kills": {
-     "blue": 2,
+     "blue": 0,
      "red": 0
     },
     "towers": {
-     "blue": 3,
+     "blue": 0,
      "red": 0
     },
     "inhibs": {
@@ -4327,54 +4172,138 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 480,
-     "jungle": 180,
-     "middle": 380,
-     "bottom": 480,
-     "support": 280
+     "top": 48,
+     "jungle": 48,
+     "middle": 48,
+     "bottom": 48,
+     "support": 48
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.34715804459635335,
+    "goldLeadAfter": -2544,
+    "momentumAfter": -0.1267675753497174,
+    "mapControlAfter": -1
+   },
+   {
+    "type": "vision",
+    "minutes": 21.948411602526903,
+    "time": "21:57",
+    "side": "red",
+    "description": "Red sweeps the wards — vision cleared before the objective",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "jungle": -60
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.34404459775434426,
+    "goldLeadAfter": -2604,
+    "momentumAfter": -0.14873730274480218,
+    "mapControlAfter": -1
+   },
+   {
+    "type": "teamfight",
+    "minutes": 23.88834925345145,
+    "time": "23:53",
+    "side": "red",
+    "description": "MASSIVE fight at river, Red wins 7-1 — Hyper Engage hits",
+    "kills": {
+     "blue": 1,
+     "red": 7
+    },
+    "towers": {
+     "blue": 0,
+     "red": 1
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "bottom": -1280,
+     "top": -1000,
+     "jungle": 300,
+     "middle": -800,
+     "support": -700
     },
     "kdaDelta": {
      "blue": {
       "bottom": {
-       "k": 1,
-       "d": 0,
+       "k": 0,
+       "d": 2,
        "a": 0
       },
       "top": {
-       "k": 1,
-       "d": 0,
+       "k": 0,
+       "d": 2,
        "a": 0
       },
       "middle": {
        "k": 0,
-       "d": 0,
-       "a": 2
+       "d": 2,
+       "a": 0
       },
-      "support": {
-       "k": 0,
-       "d": 0,
+      "jungle": {
+       "k": 1,
+       "d": 1,
        "a": 1
       }
      },
      "red": {
+      "middle": {
+       "k": 2,
+       "d": 0,
+       "a": 2
+      },
+      "top": {
+       "k": 3,
+       "d": 0,
+       "a": 1
+      },
       "bottom": {
+       "k": 1,
+       "d": 1,
+       "a": 2
+      },
+      "support": {
+       "k": 1,
+       "d": 0,
+       "a": 4
+      },
+      "jungle": {
        "k": 0,
-       "d": 2,
-       "a": 0
+       "d": 0,
+       "a": 1
       }
      }
     },
-    "winProbAfter": 0.6854143102678872,
-    "goldLeadAfter": 742,
-    "momentumAfter": 0.3119667685752695,
-    "mapControlAfter": 2
+    "winProbAfter": 0.17841875144238467,
+    "goldLeadAfter": -6084,
+    "momentumAfter": -0.4675105119213616,
+    "mapControlAfter": -2
    },
    {
-    "type": "soul",
-    "minutes": 21.10166597738862,
-    "time": "21:06",
+    "type": "skirmish",
+    "minutes": 26.44546256866306,
+    "time": "26:27",
     "side": "blue",
-    "description": "Blue claims Mountain SOUL",
+    "description": "Ahri wins a 3v3 in bot side jungle (1-2)",
     "kills": {
      "blue": 1,
      "red": 2
@@ -4388,52 +4317,101 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 460,
-     "jungle": 160,
-     "middle": 160,
-     "bottom": -440,
-     "support": 60
+     "top": -194,
+     "jungle": -94,
+     "middle": 306,
+     "bottom": -294,
+     "support": -94
     },
     "kdaDelta": {
      "blue": {
+      "middle": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "top": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      },
+      "jungle": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     },
+     "red": {
       "top": {
        "k": 1,
-       "d": 2,
+       "d": 1,
        "a": 0
+      },
+      "bottom": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "jungle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
       },
       "support": {
        "k": 0,
        "d": 0,
        "a": 1
       }
-     },
-     "red": {
-      "bottom": {
-       "k": 2,
-       "d": 1,
-       "a": 0
-      },
-      "support": {
-       "k": 0,
-       "d": 0,
-       "a": 2
-      }
      }
     },
-    "winProbAfter": 0.8552431662261273,
-    "goldLeadAfter": 1142,
-    "momentumAfter": 0.7683767380026887,
-    "mapControlAfter": 2,
-    "soulElement": "Mountain"
+    "winProbAfter": 0.2549713783449906,
+    "goldLeadAfter": -6454,
+    "momentumAfter": -0.1272573583449531,
+    "mapControlAfter": -2
    },
    {
-    "type": "skirmish",
-    "minutes": 22.337401221506298,
-    "time": "22:20",
-    "side": "blue",
-    "description": "Vi wins a 3v3 in the river (2-0)",
+    "type": "tower",
+    "minutes": 27.475330336485058,
+    "time": "27:29",
+    "side": "red",
+    "description": "Red takes the inner bottom tower",
     "kills": {
-     "blue": 2,
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 2
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -400
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.20200300255352088,
+    "goldLeadAfter": -6854,
+    "momentumAfter": -0.23908015084146717,
+    "mapControlAfter": -4
+   },
+   {
+    "type": "comeback",
+    "minutes": 27.843444432131946,
+    "time": "27:51",
+    "side": "blue",
+    "description": "Blue disengages cleanly — the enemy commit finds nothing",
+    "kills": {
+     "blue": 0,
      "red": 0
     },
     "towers": {
@@ -4446,135 +4424,98 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
     },
     "laneGoldDelta": {
      "top": 12,
-     "jungle": 712,
-     "middle": 112,
+     "jungle": 12,
+     "middle": 12,
      "bottom": 12,
-     "support": 112
+     "support": 12
     },
     "kdaDelta": {
-     "blue": {
-      "jungle": {
-       "k": 2,
-       "d": 0,
-       "a": 1
-      },
-      "support": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "middle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     }
+     "blue": {},
+     "red": {}
     },
-    "winProbAfter": 0.8671916091282064,
-    "goldLeadAfter": 2102,
-    "momentumAfter": 0.737863716601882,
-    "mapControlAfter": 2
+    "winProbAfter": 0.26360737851441174,
+    "goldLeadAfter": -6794,
+    "momentumAfter": 0.03264389441097301,
+    "mapControlAfter": -4
    },
    {
-    "type": "teamfight",
-    "minutes": 22.70455214055255,
-    "time": "22:42",
+    "type": "baron",
+    "minutes": 28.413109912071377,
+    "time": "28:25",
     "side": "red",
-    "description": "MOMENTUM SHIFT! 5v5 at Baron pit, Red wins 4-1 — Hyper Engage hits",
+    "description": "STOLEN! Vi smites Baron Nashor away",
     "kills": {
-     "blue": 1,
-     "red": 4
+     "blue": 0,
+     "red": 2
     },
     "towers": {
      "blue": 0,
-     "red": 1
+     "red": 3
     },
     "inhibs": {
      "blue": 0,
      "red": 0
     },
     "laneGoldDelta": {
-     "bottom": -340,
-     "top": -300,
-     "jungle": -300,
-     "middle": -600,
-     "support": -100
+     "top": -180,
+     "jungle": -280,
+     "middle": -580,
+     "bottom": -480,
+     "support": -380
     },
     "kdaDelta": {
      "blue": {
-      "support": {
-       "k": 0,
-       "d": 2,
-       "a": 1
-      },
-      "bottom": {
+      "middle": {
        "k": 0,
        "d": 1,
        "a": 0
       },
-      "top": {
-       "k": 1,
+      "support": {
+       "k": 0,
        "d": 1,
        "a": 0
       }
      },
      "red": {
       "middle": {
-       "k": 2,
+       "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "bottom": {
+       "k": 1,
        "d": 0,
        "a": 0
-      },
-      "top": {
-       "k": 2,
-       "d": 0,
-       "a": 0
-      },
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 3
       },
       "support": {
        "k": 0,
        "d": 0,
        "a": 2
       },
-      "bottom": {
+      "jungle": {
        "k": 0,
        "d": 0,
        "a": 1
       }
      }
     },
-    "winProbAfter": 0.7055369854395206,
-    "goldLeadAfter": 462,
-    "momentumAfter": 0.1965046016213174,
-    "mapControlAfter": 1
+    "winProbAfter": 0.09935917757866754,
+    "goldLeadAfter": -8694,
+    "momentumAfter": -0.6271492739123189,
+    "mapControlAfter": -7
    },
    {
-    "type": "tower",
-    "minutes": 30.57179892086424,
-    "time": "30:34",
+    "type": "comeback",
+    "minutes": 30.497071131132543,
+    "time": "30:30",
     "side": "blue",
-    "description": "Blue takes the inner bottom tower",
+    "description": "MOMENTUM SHIFT! THE STAND! Malphite anchors a desperation hold, blows up Ahri — the deficit shrinks",
     "kills": {
-     "blue": 0,
+     "blue": 2,
      "red": 0
     },
     "towers": {
-     "blue": 2,
+     "blue": 0,
      "red": 0
     },
     "inhibs": {
@@ -4582,151 +4523,201 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "red": 0
     },
     "laneGoldDelta": {
-     "bottom": 400
+     "top": 332,
+     "jungle": 32,
+     "middle": 432,
+     "bottom": 32,
+     "support": 232
     },
     "kdaDelta": {
-     "blue": {},
-     "red": {}
+     "blue": {
+      "middle": {
+       "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "top": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 2
+      }
+     },
+     "red": {
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     }
     },
-    "winProbAfter": 0.7627713199172056,
-    "goldLeadAfter": 862,
-    "momentumAfter": 0.28755322113492215,
-    "mapControlAfter": 3
+    "winProbAfter": 0.21438546260291658,
+    "goldLeadAfter": -7634,
+    "momentumAfter": -0.08900449173862324,
+    "mapControlAfter": -7
    },
    {
     "type": "inhibitor",
-    "minutes": 31.408734748139977,
-    "time": "31:25",
-    "side": "blue",
-    "description": "Blue breaks the top inhibitor (×2)",
+    "minutes": 31.27777528204024,
+    "time": "31:17",
+    "side": "red",
+    "description": "Red breaks the bottom inhibitor (×3)",
     "kills": {
      "blue": 0,
      "red": 0
     },
     "towers": {
-     "blue": 3,
-     "red": 0
+     "blue": 0,
+     "red": 3
     },
     "inhibs": {
-     "blue": 2,
-     "red": 0
+     "blue": 0,
+     "red": 3
     },
     "laneGoldDelta": {
-     "top": 550
+     "bottom": -750
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.8766429036859796,
-    "goldLeadAfter": 1412,
-    "momentumAfter": 0.5312872547944455,
-    "mapControlAfter": 8
+    "winProbAfter": 0.08767699866144066,
+    "goldLeadAfter": -8384,
+    "momentumAfter": -0.4723031442170363,
+    "mapControlAfter": -13
    },
    {
-    "type": "teamfight",
-    "minutes": 33.296382291591726,
-    "time": "33:18",
-    "side": "blue",
-    "description": "5v5 at mid lane, Blue wins 3-1 — Hyper Engage hits",
+    "type": "ace",
+    "minutes": 32.89452385874465,
+    "time": "32:54",
+    "side": "red",
+    "description": "PENTAKILL!! Vi solo-aces to end it",
     "kills": {
-     "blue": 3,
-     "red": 1
+     "blue": 0,
+     "red": 5
     },
     "towers": {
-     "blue": 1,
-     "red": 0
+     "blue": 0,
+     "red": 1
     },
     "inhibs": {
      "blue": 0,
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 72,
-     "jungle": 472,
-     "middle": 72,
-     "bottom": 372,
-     "support": 272
+     "top": -360,
+     "jungle": -1660,
+     "middle": -360,
+     "bottom": -360,
+     "support": -360
     },
     "kdaDelta": {
      "blue": {
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 1
-      },
-      "bottom": {
-       "k": 1,
-       "d": 0,
+      "top": {
+       "k": 0,
+       "d": 1,
        "a": 0
       },
       "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 1
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "middle": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 0
       },
       "support": {
-       "k": 0,
-       "d": 0,
-       "a": 2
-      },
-      "top": {
        "k": 0,
        "d": 1,
        "a": 0
       }
      },
      "red": {
-      "support": {
-       "k": 0,
-       "d": 2,
+      "jungle": {
+       "k": 5,
+       "d": 0,
        "a": 0
       },
+      "top": {
+       "k": 0,
+       "d": 0,
+       "a": 2
+      },
       "middle": {
-       "k": 1,
-       "d": 1,
-       "a": 1
+       "k": 0,
+       "d": 0,
+       "a": 2
+      },
+      "bottom": {
+       "k": 0,
+       "d": 0,
+       "a": 2
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 2
       }
      }
     },
-    "winProbAfter": 0.9161635078848238,
-    "goldLeadAfter": 2672,
-    "momentumAfter": 0.8219010783561118,
-    "mapControlAfter": 9
+    "winProbAfter": 0.05284428356390957,
+    "goldLeadAfter": -11484,
+    "momentumAfter": -0.8306122009519255,
+    "mapControlAfter": -14,
+    "pentakill": {
+     "lane": "jungle",
+     "championName": "Vi"
+    }
    },
    {
     "type": "nexus",
     "minutes": 35,
     "time": "35:00",
-    "side": "blue",
-    "description": "Blue destroys the Nexus at 35:00",
+    "side": "red",
+    "description": "BASE RACE! both Nexuses crumbling — Red hits home first",
     "kills": {
      "blue": 0,
      "red": 0
     },
     "towers": {
-     "blue": 2,
-     "red": 0
+     "blue": 0,
+     "red": 2
     },
     "inhibs": {
      "blue": 0,
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 100,
-     "jungle": 100,
-     "middle": 100,
-     "bottom": 100,
-     "support": 100
+     "top": -100,
+     "jungle": -100,
+     "middle": -100,
+     "bottom": -100,
+     "support": -100
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.99,
-    "goldLeadAfter": 3172,
-    "momentumAfter": 0.5753307548492782,
-    "mapControlAfter": 11
+    "winProbAfter": 0.01,
+    "goldLeadAfter": -11984,
+    "momentumAfter": -0.5814285406663477,
+    "mapControlAfter": -16
    }
   ]
  },
@@ -4742,16 +4733,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
 
 exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: result hashes across 10 seeds 1`] = `
 [
-  "11:4a56c20f",
-  "42:d80f3197",
-  "101:5d4cf85f",
-  "777:24c80bce",
-  "1234:7b7ad677",
-  "5150:feb496cf",
-  "9001:0c288a5e",
-  "31337:09caf3d9",
-  "65535:674502f3",
-  "999983:08239f35",
+  "11:84e83b44",
+  "42:55bcf5f5",
+  "101:770034c5",
+  "777:0ee7e9ae",
+  "1234:55011919",
+  "5150:00496024",
+  "9001:50283762",
+  "31337:d3707b6a",
+  "65535:b645c097",
+  "999983:751ec648",
 ]
 `;
 
@@ -4821,15 +4812,49 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
  },
  "timeline": {
   "durationMinutes": 39.4,
-  "laningEndMinute": 11.791245877044275,
+  "laningEndMinute": 11.729616251308471,
   "durationLabel": "39:24",
   "events": [
+   {
+    "type": "invade",
+    "minutes": 0.42003924208693205,
+    "time": "0:25",
+    "side": "red",
+    "description": "LEVEL ONE — Anivia catches Ahri at enemy red buff",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -16,
+     "jungle": -16,
+     "middle": -16,
+     "bottom": -16,
+     "support": -16
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.43265179438778584,
+    "goldLeadAfter": 174,
+    "momentumAfter": -0.12,
+    "mapControlAfter": 0
+   },
    {
     "type": "scuttle",
     "minutes": 3.9116048756986856,
     "time": "3:55",
     "side": "red",
-    "description": "Azir fights for bot side scuttler — wins the crab",
+    "description": "Azir fights for top side scuttler — wins the crab",
     "kills": {
      "blue": 0,
      "red": 0
@@ -4849,9 +4874,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.4504036299473153,
-    "goldLeadAfter": 2282,
-    "momentumAfter": -0.06,
+    "winProbAfter": 0.42559659698400476,
+    "goldLeadAfter": 2202,
+    "momentumAfter": -0.144,
     "mapControlAfter": 0
    },
    {
@@ -4859,7 +4884,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
     "minutes": 4.200106174801476,
     "time": "4:12",
     "side": "red",
-    "description": "Anivia one-shots Ahri in the enemy jungle",
+    "description": "Anivia one-shots Ahri post-back",
     "kills": {
      "blue": 0,
      "red": 1
@@ -4873,7 +4898,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -400
+     "top": -400,
+     "jungle": -100
     },
     "kdaDelta": {
      "blue": {
@@ -4888,12 +4914,17 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
        "k": 1,
        "d": 0,
        "a": 0
+      },
+      "jungle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
       }
      }
     },
-    "winProbAfter": 0.3687833042043592,
-    "goldLeadAfter": 2056,
-    "momentumAfter": -0.242,
+    "winProbAfter": 0.3525155598344841,
+    "goldLeadAfter": 1876,
+    "momentumAfter": -0.3008,
     "mapControlAfter": 0
    },
    {
@@ -4901,9 +4932,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
     "minutes": 5.350974672008306,
     "time": "5:21",
     "side": "blue",
-    "description": "Ahri dominates mid (2 solo kills)",
+    "description": "Ahri dominates mid (3 solo kills)",
     "kills": {
-     "blue": 2,
+     "blue": 3,
      "red": 0
     },
     "towers": {
@@ -4915,12 +4946,12 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "red": 0
     },
     "laneGoldDelta": {
-     "middle": 840
+     "middle": 1260
     },
     "kdaDelta": {
      "blue": {
       "middle": {
-       "k": 2,
+       "k": 3,
        "d": 0,
        "a": 0
       }
@@ -4928,44 +4959,14 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "red": {
       "middle": {
        "k": 0,
-       "d": 2,
+       "d": 3,
        "a": 0
       }
      }
     },
-    "winProbAfter": 0.5224049859995805,
-    "goldLeadAfter": 3591,
-    "momentumAfter": 0.0806,
-    "mapControlAfter": 0
-   },
-   {
-    "type": "counter-jungle",
-    "minutes": 7.071087439544499,
-    "time": "7:04",
-    "side": "red",
-    "description": "Azir invades and clears the enemy jungle — their jungler falls behind",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "jungle": -200
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.49039772138199816,
-    "goldLeadAfter": 4430,
-    "momentumAfter": -0.023580000000000004,
+    "winProbAfter": 0.5548503697642684,
+    "goldLeadAfter": 3831,
+    "momentumAfter": 0.08944000000000005,
     "mapControlAfter": 0
    },
    {
@@ -4973,7 +4974,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
     "minutes": 7.255956351524219,
     "time": "7:15",
     "side": "blue",
-    "description": "Blue secures Ocean Drake (first)",
+    "description": "Blue secures Chemtech Drake (first)",
     "kills": {
      "blue": 0,
      "red": 0
@@ -4997,9 +4998,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5482354547304543,
-    "goldLeadAfter": 4691,
-    "momentumAfter": 0.103494,
+    "winProbAfter": 0.5998575160113815,
+    "goldLeadAfter": 5131,
+    "momentumAfter": 0.18260800000000002,
     "mapControlAfter": 0
    },
    {
@@ -5031,9 +5032,57 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5745058535243194,
-    "goldLeadAfter": 4907,
-    "momentumAfter": 0.1924458,
+    "winProbAfter": 0.6184746693680296,
+    "goldLeadAfter": 5347,
+    "momentumAfter": 0.2478256,
+    "mapControlAfter": 0
+   },
+   {
+    "type": "gank",
+    "minutes": 7.521245534997433,
+    "time": "7:31",
+    "side": "blue",
+    "description": "Elise ganks bot for Ashe",
+    "kills": {
+     "blue": 1,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "bottom": 360,
+     "jungle": 140
+    },
+    "kdaDelta": {
+     "blue": {
+      "bottom": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "jungle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     },
+     "red": {
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     }
+    },
+    "winProbAfter": 0.6681920552819048,
+    "goldLeadAfter": 6001,
+    "momentumAfter": 0.33347792,
     "mapControlAfter": 0
    },
    {
@@ -5079,20 +5128,20 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
       }
      }
     },
-    "winProbAfter": 0.635948145152985,
-    "goldLeadAfter": 5987,
-    "momentumAfter": 0.31471205999999996,
+    "winProbAfter": 0.7116669770934252,
+    "goldLeadAfter": 6927,
+    "momentumAfter": 0.41343454399999996,
     "mapControlAfter": 0
    },
    {
-    "type": "dive",
-    "minutes": 9.764888683799654,
-    "time": "9:46",
-    "side": "blue",
-    "description": "Elise collapses top — clean tower dive",
+    "type": "roam",
+    "minutes": 10.912545410217717,
+    "time": "10:55",
+    "side": "red",
+    "description": "Anivia roams top for a kill with Anivia, leaving Aphelios alone bot",
     "kills": {
-     "blue": 2,
-     "red": 0
+     "blue": 0,
+     "red": 1
     },
     "towers": {
      "blue": 0,
@@ -5103,13 +5152,99 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 220,
-     "jungle": 600
+     "top": -360,
+     "support": -140,
+     "bottom": 50
     },
     "kdaDelta": {
      "blue": {
+      "top": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     },
+     "red": {
+      "top": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     }
+    },
+    "winProbAfter": 0.6134637420366515,
+    "goldLeadAfter": 8099,
+    "momentumAfter": 0.15940418079999996,
+    "mapControlAfter": 0
+   },
+   {
+    "type": "tower",
+    "minutes": 11.729616251308471,
+    "time": "11:44",
+    "side": "blue",
+    "description": "Camille solo-pushes the outer top tower",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 1,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": 500
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.6829325362384755,
+    "goldLeadAfter": 9092,
+    "momentumAfter": 0.26158292655999993,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "dive",
+    "minutes": 12.58249175408855,
+    "time": "12:35",
+    "side": "red",
+    "description": "Azir collapses top — clean tower dive",
+    "kills": {
+     "blue": 0,
+     "red": 1
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -220,
+     "jungle": -300
+    },
+    "kdaDelta": {
+     "blue": {
+      "top": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     },
+     "red": {
       "jungle": {
-       "k": 2,
+       "k": 1,
        "d": 0,
        "a": 0
       },
@@ -5118,56 +5253,19 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
        "d": 0,
        "a": 1
       }
-     },
-     "red": {
-      "top": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      }
      }
     },
-    "winProbAfter": 0.6997365283018524,
-    "goldLeadAfter": 7736,
-    "momentumAfter": 0.38029844199999996,
-    "mapControlAfter": 0
-   },
-   {
-    "type": "tower",
-    "minutes": 11.791245877044275,
-    "time": "11:47",
-    "side": "red",
-    "description": "Red takes the outer middle tower",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 1
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "middle": -500
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.5784354583708902,
-    "goldLeadAfter": 8460,
-    "momentumAfter": 0.11620890939999998,
-    "mapControlAfter": -1
+    "winProbAfter": 0.5910194598207766,
+    "goldLeadAfter": 8572,
+    "momentumAfter": 0.02310804859199994,
+    "mapControlAfter": 1
    },
    {
     "type": "dragon",
-    "minutes": 12.389310412853956,
-    "time": "12:23",
+    "minutes": 13.244701047986746,
+    "time": "13:15",
     "side": "blue",
-    "description": "Blue secures Infernal Drake (second)",
+    "description": "Blue secures Cloud Drake (second)",
     "kills": {
      "blue": 0,
      "red": 0
@@ -5191,51 +5289,17 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.6268660227634019,
-    "goldLeadAfter": 8660,
-    "momentumAfter": 0.22134623658,
-    "mapControlAfter": -1
+    "winProbAfter": 0.6457862493556966,
+    "goldLeadAfter": 8772,
+    "momentumAfter": 0.15617563401439996,
+    "mapControlAfter": 1
    },
    {
     "type": "power-spike",
     "minutes": 14.537609023042023,
     "time": "14:32",
     "side": "red",
-    "description": "POWER SPIKE — Anivia powers up with Luden's Companion",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -33.6,
-     "jungle": -33.6,
-     "middle": -33.6,
-     "bottom": -33.6,
-     "support": -33.6
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.5764300260572819,
-    "goldLeadAfter": 8492,
-    "momentumAfter": 0.056942365605999995,
-    "mapControlAfter": -1
-   },
-   {
-    "type": "power-spike",
-    "minutes": 14.610769625287503,
-    "time": "14:37",
-    "side": "red",
-    "description": "POWER SPIKE — Aphelios completes Kraken Slayer",
+    "description": "POWER SPIKE — Aphelios powers up with Kraken Slayer",
     "kills": {
      "blue": 0,
      "red": 0
@@ -5259,19 +5323,19 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5297599009554516,
-    "goldLeadAfter": 8252,
-    "momentumAfter": -0.10014034407580003,
-    "mapControlAfter": -1
+    "winProbAfter": 0.5895494128352816,
+    "goldLeadAfter": 8532,
+    "momentumAfter": -0.030677056189920046,
+    "mapControlAfter": 1
    },
    {
     "type": "atakhan",
-    "minutes": 15.153077500872314,
-    "time": "15:09",
+    "minutes": 14.836834252811968,
+    "time": "14:50",
     "side": "red",
-    "description": "Red kills Voracious Atakhan — extra gold from kills",
+    "description": "Red kills Ruinous Atakhan — Blood Roses for revives",
     "kills": {
-     "blue": 1,
+     "blue": 0,
      "red": 2
     },
     "towers": {
@@ -5283,60 +5347,116 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -50,
+     "top": -350,
      "jungle": -50,
-     "middle": 150,
-     "bottom": -450,
-     "support": -350
+     "middle": -350,
+     "bottom": -150,
+     "support": -250
     },
     "kdaDelta": {
      "blue": {
-      "middle": {
-       "k": 1,
-       "d": 1,
-       "a": 0
-      },
       "top": {
        "k": 0,
-       "d": 1,
+       "d": 2,
+       "a": 0
+      }
+     },
+     "red": {
+      "top": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "middle": {
+       "k": 1,
+       "d": 0,
        "a": 0
       },
       "bottom": {
        "k": 0,
        "d": 0,
        "a": 1
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 2
+      }
+     }
+    },
+    "winProbAfter": 0.43650394226725175,
+    "goldLeadAfter": 7382,
+    "momentumAfter": -0.20147393933294402,
+    "mapControlAfter": 1,
+    "atakhanVariant": "Ruinous"
+   },
+   {
+    "type": "skirmish",
+    "minutes": 16.380877160816453,
+    "time": "16:23",
+    "side": "red",
+    "description": "Aphelios wins a 3v3 in mid lane (2-0)",
+    "kills": {
+     "blue": 0,
+     "red": 2
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -112,
+     "jungle": -112,
+     "middle": -312,
+     "bottom": -412,
+     "support": -12
+    },
+    "kdaDelta": {
+     "blue": {
+      "bottom": {
+       "k": 0,
+       "d": 2,
+       "a": 0
       }
      },
      "red": {
       "bottom": {
        "k": 1,
        "d": 0,
-       "a": 2
-      },
-      "support": {
-       "k": 1,
-       "d": 1,
-       "a": 0
+       "a": 1
       },
       "middle": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "top": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      },
+      "jungle": {
        "k": 0,
        "d": 0,
        "a": 1
       }
      }
     },
-    "winProbAfter": 0.40664712528250224,
-    "goldLeadAfter": 7502,
-    "momentumAfter": -0.25009824085306,
-    "mapControlAfter": -1,
-    "atakhanVariant": "Voracious"
+    "winProbAfter": 0.3572531239642982,
+    "goldLeadAfter": 6422,
+    "momentumAfter": -0.3210317575330608,
+    "mapControlAfter": 1
    },
    {
     "type": "dragon",
-    "minutes": 17.380877160816453,
-    "time": "17:23",
+    "minutes": 16.696817379212007,
+    "time": "16:42",
     "side": "blue",
-    "description": "Blue secures Cloud Drake (third)",
+    "description": "Blue secures Ocean Drake (third)",
     "kills": {
      "blue": 0,
      "red": 0
@@ -5360,78 +5480,17 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.4911817134797253,
-    "goldLeadAfter": 7722,
-    "momentumAfter": -0.025068768597141994,
-    "mapControlAfter": -1
-   },
-   {
-    "type": "skirmish",
-    "minutes": 17.680876309983432,
-    "time": "17:41",
-    "side": "red",
-    "description": "AurelionSol wins a 3v2 in bot side jungle (1-1)",
-    "kills": {
-     "blue": 1,
-     "red": 1
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -106,
-     "jungle": -6,
-     "middle": 94,
-     "bottom": -6,
-     "support": -6
-    },
-    "kdaDelta": {
-     "blue": {
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.4394836760717166,
-    "goldLeadAfter": 7692,
-    "momentumAfter": -0.1975481380179994,
-    "mapControlAfter": -1
+    "winProbAfter": 0.4473005362018342,
+    "goldLeadAfter": 6642,
+    "momentumAfter": -0.07472223027314254,
+    "mapControlAfter": 1
    },
    {
     "type": "vision",
-    "minutes": 17.781021065078676,
-    "time": "17:47",
+    "minutes": 16.879200355615467,
+    "time": "16:53",
     "side": "blue",
-    "description": "Ahri drops a control ward in drake pit — Anivia steps on it",
+    "description": "Ahri drops a control ward in the lane brush — Anivia steps on it",
     "kills": {
      "blue": 1,
      "red": 0
@@ -5477,94 +5536,23 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
       }
      }
     },
-    "winProbAfter": 0.5323722265275256,
-    "goldLeadAfter": 8342,
-    "momentumAfter": 0.04171630338740043,
-    "mapControlAfter": -1
-   },
-   {
-    "type": "baron",
-    "minutes": 20.767203161958605,
-    "time": "20:46",
-    "side": "blue",
-    "description": "Elise secures Baron Nashor (3-2)",
-    "kills": {
-     "blue": 3,
-     "red": 2
-    },
-    "towers": {
-     "blue": 2,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -20,
-     "jungle": 180,
-     "middle": 680,
-     "bottom": 780,
-     "support": -220
-    },
-    "kdaDelta": {
-     "blue": {
-      "bottom": {
-       "k": 2,
-       "d": 0,
-       "a": 1
-      },
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 2
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "support": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      }
-     },
-     "red": {
-      "top": {
-       "k": 1,
-       "d": 2,
-       "a": 0
-      },
-      "support": {
-       "k": 1,
-       "d": 1,
-       "a": 1
-      },
-      "bottom": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     }
-    },
-    "winProbAfter": 0.7423144059886835,
-    "goldLeadAfter": 9742,
-    "momentumAfter": 0.5292014123711803,
+    "winProbAfter": 0.5299993248739291,
+    "goldLeadAfter": 7292,
+    "momentumAfter": 0.12769443880880021,
     "mapControlAfter": 1
    },
    {
     "type": "soul",
-    "minutes": 21.10166597738862,
-    "time": "21:06",
+    "minutes": 21.306881264783442,
+    "time": "21:18",
     "side": "blue",
-    "description": "Blue claims Ocean SOUL",
+    "description": "Blue claims Mountain SOUL",
     "kills": {
-     "blue": 2,
+     "blue": 3,
      "red": 1
     },
     "towers": {
-     "blue": 0,
+     "blue": 1,
      "red": 0
     },
     "inhibs": {
@@ -5573,15 +5561,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
     },
     "laneGoldDelta": {
      "top": 560,
-     "jungle": -140,
-     "middle": 560,
-     "bottom": 160,
+     "jungle": 260,
+     "middle": 860,
+     "bottom": -140,
      "support": 160
     },
     "kdaDelta": {
      "blue": {
       "middle": {
-       "k": 1,
+       "k": 2,
        "d": 0,
        "a": 1
       },
@@ -5595,48 +5583,48 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
        "d": 0,
        "a": 1
       },
-      "bottom": {
+      "support": {
        "k": 0,
        "d": 1,
-       "a": 0
+       "a": 1
       }
      },
      "red": {
-      "middle": {
+      "top": {
        "k": 0,
        "d": 1,
        "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 1,
+       "a": 1
       },
       "bottom": {
-       "k": 0,
+       "k": 1,
        "d": 1,
        "a": 0
-      },
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 1
       }
      }
     },
-    "winProbAfter": 0.8935528676452904,
-    "goldLeadAfter": 11042,
-    "momentumAfter": 0.9204409886598263,
-    "mapControlAfter": 1,
-    "soulElement": "Ocean"
+    "winProbAfter": 0.8241844093527037,
+    "goldLeadAfter": 8992,
+    "momentumAfter": 0.6393861071661602,
+    "mapControlAfter": 2,
+    "soulElement": "Mountain"
    },
    {
-    "type": "teamfight",
-    "minutes": 22.70455214055255,
-    "time": "22:42",
+    "type": "outplay",
+    "minutes": 21.981013576500118,
+    "time": "21:59",
     "side": "blue",
-    "description": "Baron buff — ACE! MASSIVE fight at river, Camille pops off 5-0 — Pick Comp hits",
+    "description": "Ashe lands the cross-map arrow to start it",
     "kills": {
-     "blue": 5,
+     "blue": 1,
      "red": 0
     },
     "towers": {
-     "blue": 2,
+     "blue": 0,
      "red": 0
     },
     "inhibs": {
@@ -5644,69 +5632,111 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 960,
-     "jungle": 260,
-     "middle": 360,
-     "bottom": 460,
-     "support": 460
+     "bottom": 400
     },
     "kdaDelta": {
      "blue": {
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "top": {
-       "k": 3,
-       "d": 0,
-       "a": 0
-      },
       "bottom": {
        "k": 1,
        "d": 0,
-       "a": 1
-      },
-      "jungle": {
-       "k": 0,
-       "d": 0,
-       "a": 2
-      },
-      "support": {
-       "k": 0,
-       "d": 0,
-       "a": 4
+       "a": 0
       }
      },
      "red": {
-      "top": {
-       "k": 0,
-       "d": 3,
-       "a": 0
-      },
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "jungle": {
+      "middle": {
        "k": 0,
        "d": 1,
        "a": 0
       }
      }
     },
-    "winProbAfter": 0.9432638153541519,
-    "goldLeadAfter": 13542,
-    "momentumAfter": 1,
+    "winProbAfter": 0.8380536615473841,
+    "goldLeadAfter": 9392,
+    "momentumAfter": 0.667570275016312,
+    "mapControlAfter": 2
+   },
+   {
+    "type": "teamfight",
+    "minutes": 23.88834925345145,
+    "time": "23:53",
+    "side": "blue",
+    "description": "Soul edge — MASSIVE fight at Baron pit, Elise pops off 6-0 — Pick Comp hits",
+    "kills": {
+     "blue": 6,
+     "red": 0
+    },
+    "towers": {
+     "blue": 1,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": 172,
+     "jungle": 1372,
+     "middle": 772,
+     "bottom": 172,
+     "support": 572
+    },
+    "kdaDelta": {
+     "blue": {
+      "support": {
+       "k": 1,
+       "d": 0,
+       "a": 2
+      },
+      "jungle": {
+       "k": 3,
+       "d": 0,
+       "a": 4
+      },
+      "middle": {
+       "k": 2,
+       "d": 0,
+       "a": 1
+      },
+      "bottom": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      },
+      "top": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     },
+     "red": {
+      "bottom": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      },
+      "top": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      }
+     }
+    },
+    "winProbAfter": 0.9129269428049129,
+    "goldLeadAfter": 12452,
+    "momentumAfter": 0.8340774479342938,
     "mapControlAfter": 3
    },
    {
     "type": "skirmish",
-    "minutes": 23.43551450315863,
-    "time": "23:26",
-    "side": "red",
-    "description": "Anivia Teleports behind — the flank turns the fight",
+    "minutes": 26.44546256866306,
+    "time": "26:27",
+    "side": "blue",
+    "description": "Ahri wins a 3v2 in top side jungle (1-2)",
     "kills": {
      "blue": 1,
      "red": 2
@@ -5720,40 +5750,140 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 284,
-     "jungle": -16,
-     "middle": -416,
-     "bottom": -216,
-     "support": -216
+     "top": 6,
+     "jungle": -494,
+     "middle": 306,
+     "bottom": -294,
+     "support": 106
     },
     "kdaDelta": {
      "blue": {
-      "jungle": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      },
-      "top": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "bottom": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
       "middle": {
        "k": 1,
        "d": 0,
+       "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
        "a": 1
       },
+      "top": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     },
+     "red": {
+      "bottom": {
+       "k": 1,
+       "d": 1,
+       "a": 0
+      },
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 2
+      }
+     }
+    },
+    "winProbAfter": 0.8937084146413165,
+    "goldLeadAfter": 12082,
+    "momentumAfter": 0.7838542135540056,
+    "mapControlAfter": 3
+   },
+   {
+    "type": "comeback",
+    "minutes": 27.843444432131946,
+    "time": "27:51",
+    "side": "red",
+    "description": "Red disengages cleanly — the enemy commit finds nothing",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -12,
+     "jungle": -12,
+     "middle": -12,
+     "bottom": -12,
+     "support": -12
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.8258924084189614,
+    "goldLeadAfter": 12022,
+    "momentumAfter": 0.3486979494878039,
+    "mapControlAfter": 3
+   },
+   {
+    "type": "baron",
+    "minutes": 28.413109912071377,
+    "time": "28:25",
+    "side": "red",
+    "description": "MOMENTUM SHIFT! Azir secures Baron Nashor (2-2)",
+    "kills": {
+     "blue": 2,
+     "red": 2
+    },
+    "towers": {
+     "blue": 0,
+     "red": 3
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -180,
+     "jungle": -280,
+     "middle": 20,
+     "bottom": -480,
+     "support": -80
+    },
+    "kdaDelta": {
+     "blue": {
+      "middle": {
+       "k": 0,
+       "d": 1,
+       "a": 2
+      },
+      "support": {
+       "k": 1,
+       "d": 1,
+       "a": 0
+      },
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      }
+     },
+     "red": {
       "bottom": {
        "k": 1,
        "d": 0,
        "a": 0
+      },
+      "jungle": {
+       "k": 1,
+       "d": 1,
+       "a": 1
       },
       "support": {
        "k": 0,
@@ -5767,15 +5897,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
       }
      }
     },
-    "winProbAfter": 0.8938209044870117,
-    "goldLeadAfter": 12962,
-    "momentumAfter": 0.52,
-    "mapControlAfter": 3
+    "winProbAfter": 0.623640167380603,
+    "goldLeadAfter": 11022,
+    "momentumAfter": -0.2559114353585373,
+    "mapControlAfter": 0
    },
    {
     "type": "tower",
-    "minutes": 34.27356728217565,
-    "time": "34:16",
+    "minutes": 29.663269612099974,
+    "time": "29:40",
     "side": "blue",
     "description": "Camille solo-pushes an inner top tower",
     "kills": {
@@ -5791,41 +5921,142 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 400
+     "middle": 400
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.856011113869353,
-    "goldLeadAfter": 13362,
-    "momentumAfter": 0.514,
-    "mapControlAfter": 5
+    "winProbAfter": 0.7196413826468987,
+    "goldLeadAfter": 11422,
+    "momentumAfter": -0.029138004750976082,
+    "mapControlAfter": 2
    },
    {
-    "type": "ace",
-    "minutes": 36.62729215559084,
-    "time": "36:38",
-    "side": "red",
-    "description": "MOMENTUM SHIFT! PENTAKILL!! Anivia solo-aces to end it",
+    "type": "elder",
+    "minutes": 34.504441615752874,
+    "time": "34:30",
+    "side": "blue",
+    "description": "Blue kills Elder Dragon",
     "kills": {
-     "blue": 0,
-     "red": 5
+     "blue": 1,
+     "red": 2
     },
     "towers": {
      "blue": 0,
-     "red": 2
+     "red": 0
     },
     "inhibs": {
      "blue": 0,
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -360,
-     "jungle": -360,
-     "middle": -360,
-     "bottom": -360,
-     "support": -1660
+     "top": 200,
+     "jungle": -200,
+     "middle": 300,
+     "bottom": 200,
+     "support": 100
+    },
+    "kdaDelta": {
+     "blue": {
+      "top": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "middle": {
+       "k": 0,
+       "d": 1,
+       "a": 1
+      },
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     },
+     "red": {
+      "middle": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "top": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     }
+    },
+    "winProbAfter": 0.9043649872865646,
+    "goldLeadAfter": 12022,
+    "momentumAfter": 0.6296033966743168,
+    "mapControlAfter": 2
+   },
+   {
+    "type": "inhibitor",
+    "minutes": 36.48717888826504,
+    "time": "36:29",
+    "side": "red",
+    "description": "MOMENTUM SHIFT! Red breaks the top inhibitor (×2)",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 3
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 2
+    },
+    "laneGoldDelta": {
+     "bottom": -550
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.25,
+    "goldLeadAfter": 11472,
+    "momentumAfter": 0.1107223776720217,
+    "mapControlAfter": -3
+   },
+   {
+    "type": "ace",
+    "minutes": 37.093911453802136,
+    "time": "37:06",
+    "side": "red",
+    "description": "Red ACES — bases wide open",
+    "kills": {
+     "blue": 0,
+     "red": 5
+    },
+    "towers": {
+     "blue": 0,
+     "red": 1
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -760,
+     "jungle": -760,
+     "middle": -760,
+     "bottom": -760,
+     "support": -760
     },
     "kdaDelta": {
      "blue": {
@@ -5856,71 +6087,37 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
       }
      },
      "red": {
-      "support": {
-       "k": 5,
-       "d": 0,
-       "a": 0
-      },
       "top": {
-       "k": 0,
+       "k": 1,
        "d": 0,
-       "a": 2
+       "a": 3
       },
       "jungle": {
-       "k": 0,
+       "k": 1,
        "d": 0,
-       "a": 2
+       "a": 3
       },
       "middle": {
-       "k": 0,
+       "k": 1,
        "d": 0,
-       "a": 2
+       "a": 3
       },
       "bottom": {
-       "k": 0,
+       "k": 1,
        "d": 0,
-       "a": 2
+       "a": 3
+      },
+      "support": {
+       "k": 1,
+       "d": 0,
+       "a": 3
       }
      }
     },
     "winProbAfter": 0.25,
-    "goldLeadAfter": 10262,
-    "momentumAfter": -0.47914,
-    "mapControlAfter": -1,
-    "pentakill": {
-     "lane": "support",
-     "championName": "Anivia"
-    }
-   },
-   {
-    "type": "inhibitor",
-    "minutes": 37.3809062811546,
-    "time": "37:23",
-    "side": "red",
-    "description": "MOMENTUM SHIFT! Red breaks the middle inhibitor (×2)",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 2
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 2
-    },
-    "laneGoldDelta": {
-     "middle": -550
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.25,
-    "goldLeadAfter": 9712,
-    "momentumAfter": 0.029799999999999993,
-    "mapControlAfter": 1
+    "goldLeadAfter": 7672,
+    "momentumAfter": -0.4224943356295848,
+    "mapControlAfter": -4
    },
    {
     "type": "nexus",
@@ -5952,9 +6149,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
      "red": {}
     },
     "winProbAfter": 0.01,
-    "goldLeadAfter": 9212,
-    "momentumAfter": -0.335398,
-    "mapControlAfter": -3
+    "goldLeadAfter": 7172,
+    "momentumAfter": -0.29574603494070933,
+    "mapControlAfter": -6
    }
   ]
  },
@@ -5970,16 +6167,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
 
 exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategies: result hashes across 10 seeds 1`] = `
 [
-  "11:afa1dae3",
-  "42:148738c3",
-  "101:5dc69c69",
-  "777:b7a8305f",
-  "1234:c9c4d5d0",
-  "5150:5ad6b412",
-  "9001:8b47e770",
-  "31337:a11dc5fd",
-  "65535:74c40c6b",
-  "999983:33e639f2",
+  "11:17b1de54",
+  "42:c2b21bb7",
+  "101:aa418631",
+  "777:3bb25363",
+  "1234:b3c0eb1b",
+  "5150:4df2358f",
+  "9001:3e29e500",
+  "31337:7629b195",
+  "65535:f37f6df6",
+  "999983:0979d446",
 ]
 `;
 
@@ -6050,15 +6247,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
  },
  "timeline": {
   "durationMinutes": 42.7,
-  "laningEndMinute": 11.791245877044275,
+  "laningEndMinute": 11.729616251308471,
   "durationLabel": "42:42",
   "events": [
    {
-    "type": "scuttle",
-    "minutes": 3.9116048756986856,
-    "time": "3:55",
+    "type": "invade",
+    "minutes": 0.42003924208693205,
+    "time": "0:25",
     "side": "red",
-    "description": "Vi fights for bot side scuttler — wins the crab",
+    "description": "LEVEL ONE — Malphite catches Gangplank at enemy red buff",
     "kills": {
      "blue": 0,
      "red": 0
@@ -6072,15 +6269,49 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "red": 0
     },
     "laneGoldDelta": {
-     "jungle": -80
+     "top": -16,
+     "jungle": -16,
+     "middle": -16,
+     "bottom": -16,
+     "support": -16
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.47731558326295354,
-    "goldLeadAfter": -988,
-    "momentumAfter": -0.06,
+    "winProbAfter": 0.4593896545790999,
+    "goldLeadAfter": -178,
+    "momentumAfter": -0.12,
+    "mapControlAfter": 0
+   },
+   {
+    "type": "scuttle",
+    "minutes": 3.9116048756986856,
+    "time": "3:55",
+    "side": "blue",
+    "description": "MasterYi fights for top side scuttler — wins the crab",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "jungle": 80
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.48810224636969457,
+    "goldLeadAfter": -908,
+    "momentumAfter": -0.023999999999999994,
     "mapControlAfter": 0
    },
    {
@@ -6088,7 +6319,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
     "minutes": 4.200106174801476,
     "time": "4:12",
     "side": "red",
-    "description": "Vi tower-dives Gangplank in the enemy jungle",
+    "description": "Vi tower-dives Gangplank post-back",
     "kills": {
      "blue": 0,
      "red": 1
@@ -6120,9 +6351,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
       }
      }
     },
-    "winProbAfter": 0.39431738035274494,
-    "goldLeadAfter": -1455,
-    "momentumAfter": -0.242,
+    "winProbAfter": 0.4015622366887949,
+    "goldLeadAfter": -1375,
+    "momentumAfter": -0.2168,
     "mapControlAfter": 0
    },
    {
@@ -6130,10 +6361,10 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
     "minutes": 5.350974672008306,
     "time": "5:21",
     "side": "red",
-    "description": "Ahri dominates mid (2 solo kills)",
+    "description": "Ahri dominates mid (3 solo kills)",
     "kills": {
      "blue": 0,
-     "red": 2
+     "red": 3
     },
     "towers": {
      "blue": 0,
@@ -6144,57 +6375,27 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "red": 0
     },
     "laneGoldDelta": {
-     "middle": -840
+     "middle": -1260
     },
     "kdaDelta": {
      "blue": {
       "middle": {
        "k": 0,
-       "d": 2,
+       "d": 3,
        "a": 0
       }
      },
      "red": {
       "middle": {
-       "k": 2,
+       "k": 3,
        "d": 0,
        "a": 0
       }
      }
     },
-    "winProbAfter": 0.2927469373023767,
-    "goldLeadAfter": -2562,
-    "momentumAfter": -0.4194,
-    "mapControlAfter": 0
-   },
-   {
-    "type": "counter-jungle",
-    "minutes": 7.071087439544499,
-    "time": "7:04",
-    "side": "red",
-    "description": "Vi invades and clears the enemy jungle — their jungler falls behind",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "jungle": -200
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.30621758273620886,
-    "goldLeadAfter": -3162,
-    "momentumAfter": -0.37357999999999997,
+    "winProbAfter": 0.2609740612363436,
+    "goldLeadAfter": -2902,
+    "momentumAfter": -0.45176000000000005,
     "mapControlAfter": 0
    },
    {
@@ -6202,7 +6403,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
     "minutes": 7.255956351524219,
     "time": "7:15",
     "side": "red",
-    "description": "Red secures Ocean Drake (first)",
+    "description": "Red secures Chemtech Drake (first)",
     "kills": {
      "blue": 0,
      "red": 0
@@ -6226,9 +6427,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.28786415742906646,
-    "goldLeadAfter": -3355,
-    "momentumAfter": -0.38150599999999996,
+    "winProbAfter": 0.25202483899851896,
+    "goldLeadAfter": -3495,
+    "momentumAfter": -0.436232,
     "mapControlAfter": 0
    },
    {
@@ -6260,19 +6461,19 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.34879106840862667,
-    "goldLeadAfter": -3147,
-    "momentumAfter": -0.14705419999999997,
+    "winProbAfter": 0.3128795267886503,
+    "goldLeadAfter": -3287,
+    "momentumAfter": -0.18536239999999998,
     "mapControlAfter": 0
    },
    {
-    "type": "counter-gank",
-    "minutes": 8.226114348508418,
-    "time": "8:14",
+    "type": "wave-crash",
+    "minutes": 8.637407236499712,
+    "time": "8:38",
     "side": "blue",
-    "description": "MasterYi counter-ganks the play",
+    "description": "Gangplank crashes the wave mid, freezes the bounce",
     "kills": {
-     "blue": 1,
+     "blue": 0,
      "red": 0
     },
     "towers": {
@@ -6284,122 +6485,56 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "red": 0
     },
     "laneGoldDelta": {
-     "middle": 160,
-     "jungle": 340
-    },
-    "kdaDelta": {
-     "blue": {
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.4418809553261871,
-    "goldLeadAfter": -2870,
-    "momentumAfter": 0.07706206000000002,
-    "mapControlAfter": 0
-   },
-   {
-    "type": "dive",
-    "minutes": 9.764888683799654,
-    "time": "9:46",
-    "side": "blue",
-    "description": "MasterYi collapses top — clean tower dive",
-    "kills": {
-     "blue": 2,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": 220,
-     "jungle": 600
-    },
-    "kdaDelta": {
-     "blue": {
-      "jungle": {
-       "k": 2,
-       "d": 0,
-       "a": 0
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "top": {
-       "k": 0,
-       "d": 2,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.5394011694629377,
-    "goldLeadAfter": -2407,
-    "momentumAfter": 0.213943442,
-    "mapControlAfter": 0
-   },
-   {
-    "type": "tower",
-    "minutes": 11.791245877044275,
-    "time": "11:47",
-    "side": "red",
-    "description": "Red takes the outer middle tower",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 1
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "middle": -500
+     "middle": 220
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.428352014258853,
-    "goldLeadAfter": -3378,
-    "momentumAfter": -0.00023959060000000587,
-    "mapControlAfter": -1
+    "winProbAfter": 0.3470142660884484,
+    "goldLeadAfter": -3386,
+    "momentumAfter": -0.06975367999999998,
+    "mapControlAfter": 0
    },
    {
-    "type": "dragon",
-    "minutes": 12.389310412853956,
-    "time": "12:23",
+    "type": "tower",
+    "minutes": 11.729616251308471,
+    "time": "11:44",
     "side": "blue",
-    "description": "Blue secures Infernal Drake (first)",
+    "description": "Blue takes the outer middle tower",
     "kills": {
      "blue": 0,
      "red": 0
+    },
+    "towers": {
+     "blue": 1,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "bottom": 500
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.44974026299219666,
+    "goldLeadAfter": -3603,
+    "momentumAfter": 0.10117242400000001,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "dragon",
+    "minutes": 13.244701047986746,
+    "time": "13:15",
+    "side": "blue",
+    "description": "STOLEN! Blue smites Chemtech Drake away (first)",
+    "kills": {
+     "blue": 0,
+     "red": 1
     },
     "towers": {
      "blue": 0,
@@ -6411,26 +6546,43 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
     },
     "laneGoldDelta": {
      "top": 40,
-     "jungle": 40,
+     "jungle": -260,
      "middle": 40,
      "bottom": 40,
      "support": 40
     },
     "kdaDelta": {
-     "blue": {},
-     "red": {}
+     "blue": {
+      "top": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "jungle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     },
+     "red": {
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 1
+      }
+     }
     },
-    "winProbAfter": 0.49066581060374287,
-    "goldLeadAfter": -3178,
-    "momentumAfter": 0.13983228658000002,
-    "mapControlAfter": -1
+    "winProbAfter": 0.5220129709641288,
+    "goldLeadAfter": -3703,
+    "momentumAfter": 0.35082069680000005,
+    "mapControlAfter": 1
    },
    {
     "type": "power-spike",
     "minutes": 14.537609023042023,
     "time": "14:32",
     "side": "red",
-    "description": "POWER SPIKE — Ahri powers up with Luden's Companion",
+    "description": "POWER SPIKE — Jhin powers up with Kraken Slayer",
     "kills": {
      "blue": 0,
      "red": 0
@@ -6444,27 +6596,27 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -35,
-     "jungle": -35,
-     "middle": -35,
-     "bottom": -35,
-     "support": -35
+     "top": -51.4,
+     "jungle": -51.4,
+     "middle": -51.4,
+     "bottom": -51.4,
+     "support": -51.4
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.45045956130183806,
-    "goldLeadAfter": -3353,
-    "momentumAfter": -0.004159899393999994,
-    "mapControlAfter": -1
+    "winProbAfter": 0.44858447408117436,
+    "goldLeadAfter": -3960,
+    "momentumAfter": 0.09559948775999999,
+    "mapControlAfter": 1
    },
    {
     "type": "power-spike",
     "minutes": 14.610769625287503,
     "time": "14:37",
-    "side": "red",
-    "description": "POWER SPIKE — Jhin completes Kraken Slayer",
+    "side": "blue",
+    "description": "POWER SPIKE — Gangplank powers up with Liandry's Torment",
     "kills": {
      "blue": 0,
      "red": 0
@@ -6478,287 +6630,27 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -50,
-     "jungle": -50,
-     "middle": -50,
-     "bottom": -50,
-     "support": -50
+     "top": 33.6,
+     "jungle": 33.6,
+     "middle": 33.6,
+     "bottom": 33.6,
+     "support": 33.6
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.40809139917866927,
-    "goldLeadAfter": -3603,
-    "momentumAfter": -0.14868692957580001,
-    "mapControlAfter": -1
+    "winProbAfter": 0.4694028474085529,
+    "goldLeadAfter": -3792,
+    "momentumAfter": 0.164919641432,
+    "mapControlAfter": 1
    },
    {
-    "type": "atakhan",
-    "minutes": 15.153077500872314,
-    "time": "15:09",
-    "side": "red",
-    "description": "Red kills Voracious Atakhan — extra gold from kills",
-    "kills": {
-     "blue": 1,
-     "red": 2
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -50,
-     "jungle": -50,
-     "middle": 150,
-     "bottom": -450,
-     "support": -350
-    },
-    "kdaDelta": {
-     "blue": {
-      "middle": {
-       "k": 1,
-       "d": 1,
-       "a": 0
-      },
-      "top": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "bottom": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "bottom": {
-       "k": 1,
-       "d": 0,
-       "a": 2
-      },
-      "support": {
-       "k": 1,
-       "d": 1,
-       "a": 0
-      },
-      "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     }
-    },
-    "winProbAfter": 0.30044602389108854,
-    "goldLeadAfter": -4353,
-    "momentumAfter": -0.28408085070306,
-    "mapControlAfter": -1,
-    "atakhanVariant": "Voracious"
-   },
-   {
-    "type": "dragon",
-    "minutes": 17.380877160816453,
-    "time": "17:23",
-    "side": "red",
-    "description": "STOLEN! Red smites Cloud Drake away (second)",
-    "kills": {
-     "blue": 2,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -44,
-     "jungle": 156,
-     "middle": 56,
-     "bottom": 356,
-     "support": 56
-    },
-    "kdaDelta": {
-     "blue": {
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "bottom": {
-       "k": 1,
-       "d": 0,
-       "a": 1
-      },
-      "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "support": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "top": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 1
-      }
-     }
-    },
-    "winProbAfter": 0.2708775416498082,
-    "goldLeadAfter": -3773,
-    "momentumAfter": -0.498856595492142,
-    "mapControlAfter": -1
-   },
-   {
-    "type": "skirmish",
-    "minutes": 17.680876309983432,
-    "time": "17:41",
-    "side": "red",
-    "description": "Vi wins a 3v2 in the river (1-1)",
-    "kills": {
-     "blue": 1,
-     "red": 1
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -106,
-     "jungle": 94,
-     "middle": -6,
-     "bottom": -6,
-     "support": -6
-    },
-    "kdaDelta": {
-     "blue": {
-      "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 1
-      }
-     },
-     "red": {
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "top": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "support": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.26388594429365186,
-    "goldLeadAfter": -3803,
-    "momentumAfter": -0.5291996168444995,
-    "mapControlAfter": -1
-   },
-   {
-    "type": "baron",
-    "minutes": 20.767203161958605,
-    "time": "20:46",
+    "type": "power-spike",
+    "minutes": 14.68850074429065,
+    "time": "14:41",
     "side": "blue",
-    "description": "MOMENTUM SHIFT! Blue takes Baron Nashor (3-1)",
-    "kills": {
-     "blue": 3,
-     "red": 1
-    },
-    "towers": {
-     "blue": 3,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": 680,
-     "jungle": 280,
-     "middle": 780,
-     "bottom": -120,
-     "support": 180
-    },
-    "kdaDelta": {
-     "blue": {
-      "top": {
-       "k": 1,
-       "d": 0,
-       "a": 2
-      },
-      "middle": {
-       "k": 2,
-       "d": 0,
-       "a": 0
-      },
-      "jungle": {
-       "k": 0,
-       "d": 0,
-       "a": 1
-      },
-      "support": {
-       "k": 0,
-       "d": 1,
-       "a": 1
-      }
-     },
-     "red": {
-      "support": {
-       "k": 0,
-       "d": 1,
-       "a": 1
-      },
-      "bottom": {
-       "k": 1,
-       "d": 2,
-       "a": 0
-      }
-     }
-    },
-    "winProbAfter": 0.5875328782187493,
-    "goldLeadAfter": -2003,
-    "momentumAfter": 0.12956026820885042,
-    "mapControlAfter": 2
-   },
-   {
-    "type": "dragon",
-    "minutes": 21.10166597738862,
-    "time": "21:06",
-    "side": "blue",
-    "description": "Blue secures Cloud Drake (second)",
+    "description": "POWER SPIKE — Caitlyn finishes Kraken Slayer",
     "kills": {
      "blue": 0,
      "red": 0
@@ -6782,57 +6674,23 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.6449070654974824,
-    "goldLeadAfter": -1763,
-    "momentumAfter": 0.2706921877461953,
-    "mapControlAfter": 2
+    "winProbAfter": 0.49669867963690206,
+    "goldLeadAfter": -3552,
+    "momentumAfter": 0.2554437490024,
+    "mapControlAfter": 1
    },
    {
-    "type": "objective-trade",
-    "minutes": 21.874121670611203,
-    "time": "21:52",
-    "side": "blue",
-    "description": "Cross-map: Blue trades tower for tower",
+    "type": "atakhan",
+    "minutes": 14.836834252811968,
+    "time": "14:50",
+    "side": "red",
+    "description": "Red kills Ruinous Atakhan — Blood Roses for revives",
     "kills": {
      "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 0,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 0,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "top": -164,
-     "jungle": 36,
-     "middle": 36,
-     "bottom": 36,
-     "support": 36
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.6328538446209179,
-    "goldLeadAfter": -1783,
-    "momentumAfter": 0.23948453142233672,
-    "mapControlAfter": 2
-   },
-   {
-    "type": "teamfight",
-    "minutes": 22.70455214055255,
-    "time": "22:42",
-    "side": "blue",
-    "description": "Baron buff — 5v5 at mid lane, MasterYi pops off 4-2 — 1-3-1 / Splitpush hits",
-    "kills": {
-     "blue": 4,
      "red": 2
     },
     "towers": {
-     "blue": 2,
+     "blue": 0,
      "red": 0
     },
     "inhibs": {
@@ -6840,74 +6698,150 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "red": 0
     },
     "laneGoldDelta": {
-     "bottom": 40,
-     "top": 100,
-     "jungle": 500,
-     "middle": 400,
-     "support": 200
+     "top": -350,
+     "jungle": -50,
+     "middle": -350,
+     "bottom": -150,
+     "support": -250
     },
     "kdaDelta": {
      "blue": {
-      "jungle": {
-       "k": 2,
-       "d": 0,
-       "a": 2
-      },
-      "support": {
+      "top": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      }
+     },
+     "red": {
+      "top": {
        "k": 1,
-       "d": 1,
+       "d": 0,
        "a": 0
       },
       "middle": {
        "k": 1,
        "d": 0,
-       "a": 1
+       "a": 0
       },
       "bottom": {
-       "k": 0,
-       "d": 1,
-       "a": 2
-      },
-      "top": {
        "k": 0,
        "d": 0,
        "a": 1
-      }
-     },
-     "red": {
-      "top": {
-       "k": 0,
-       "d": 3,
-       "a": 0
       },
       "support": {
        "k": 0,
-       "d": 1,
-       "a": 1
-      },
+       "d": 0,
+       "a": 2
+      }
+     }
+    },
+    "winProbAfter": 0.32540783380834026,
+    "goldLeadAfter": -4702,
+    "momentumAfter": -0.0011893756983199777,
+    "mapControlAfter": 1,
+    "atakhanVariant": "Ruinous"
+   },
+   {
+    "type": "skirmish",
+    "minutes": 16.380877160816453,
+    "time": "16:23",
+    "side": "red",
+    "description": "Jhin wins a 3v3 in mid lane (2-0)",
+    "kills": {
+     "blue": 0,
+     "red": 2
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -112,
+     "jungle": -112,
+     "middle": -312,
+     "bottom": -412,
+     "support": -12
+    },
+    "kdaDelta": {
+     "blue": {
+      "bottom": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      }
+     },
+     "red": {
       "bottom": {
        "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "middle": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "top": {
+       "k": 0,
        "d": 0,
        "a": 1
       },
       "jungle": {
-       "k": 1,
+       "k": 0,
        "d": 0,
-       "a": 0
+       "a": 1
       }
      }
     },
-    "winProbAfter": 0.77758145137626,
-    "goldLeadAfter": -543,
-    "momentumAfter": 0.5020391719956357,
-    "mapControlAfter": 4
+    "winProbAfter": 0.24936222686122622,
+    "goldLeadAfter": -5662,
+    "momentumAfter": -0.18083256298882397,
+    "mapControlAfter": 1
    },
    {
-    "type": "skirmish",
-    "minutes": 23.43551450315863,
-    "time": "23:26",
+    "type": "dragon",
+    "minutes": 16.696817379212007,
+    "time": "16:42",
     "side": "red",
-    "description": "Malphite Teleports behind — the flank turns the fight",
+    "description": "Red secures Ocean Drake (second)",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -44,
+     "jungle": -44,
+     "middle": -44,
+     "bottom": -44,
+     "support": -44
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.2157833393608596,
+    "goldLeadAfter": -5882,
+    "momentumAfter": -0.2765827940921768,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "vision",
+    "minutes": 16.879200355615467,
+    "time": "16:53",
+    "side": "red",
+    "description": "Ahri drops a control ward in the lane brush — Gangplank steps on it",
     "kills": {
      "blue": 0,
      "red": 1
@@ -6921,25 +6855,96 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -108,
-     "jungle": -308,
-     "middle": -8,
-     "bottom": -8,
-     "support": -8
+     "top": -30,
+     "jungle": -130,
+     "middle": -330,
+     "bottom": -30,
+     "support": -130
     },
     "kdaDelta": {
      "blue": {
-      "support": {
+      "middle": {
        "k": 0,
        "d": 1,
        "a": 0
       }
      },
      "red": {
-      "jungle": {
+      "middle": {
        "k": 1,
        "d": 0,
        "a": 0
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      },
+      "jungle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     }
+    },
+    "winProbAfter": 0.1836483163992262,
+    "goldLeadAfter": -6532,
+    "momentumAfter": -0.3736079558645237,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "dragon",
+    "minutes": 21.306881264783442,
+    "time": "21:18",
+    "side": "blue",
+    "description": "STOLEN! Blue smites Mountain Drake away (second)",
+    "kills": {
+     "blue": 0,
+     "red": 2
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -52,
+     "jungle": 148,
+     "middle": -352,
+     "bottom": -352,
+     "support": 48
+    },
+    "kdaDelta": {
+     "blue": {
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "top": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "jungle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     },
+     "red": {
+      "middle": {
+       "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "bottom": {
+       "k": 1,
+       "d": 0,
+       "a": 1
       },
       "top": {
        "k": 0,
@@ -6948,15 +6953,265 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
       }
      }
     },
-    "winProbAfter": 0.6811560511180328,
-    "goldLeadAfter": -983,
-    "momentumAfter": 0.17142742039694503,
-    "mapControlAfter": 4
+    "winProbAfter": 0.2757889629729,
+    "goldLeadAfter": -7092,
+    "momentumAfter": 0.03847443089483338,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "outplay",
+    "minutes": 21.981013576500118,
+    "time": "21:59",
+    "side": "blue",
+    "description": "OUTPLAY! Caitlyn wins a 1v2 in their own jungle",
+    "kills": {
+     "blue": 2,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "bottom": 800
+    },
+    "kdaDelta": {
+     "blue": {
+      "bottom": {
+       "k": 2,
+       "d": 0,
+       "a": 0
+      }
+     },
+     "red": {
+      "support": {
+       "k": 0,
+       "d": 2,
+       "a": 0
+      }
+     }
+    },
+    "winProbAfter": 0.3664566685781386,
+    "goldLeadAfter": -6292,
+    "momentumAfter": 0.24693210162638335,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "objective-trade",
+    "minutes": 22.036702884361148,
+    "time": "22:02",
+    "side": "red",
+    "description": "Cross-map: Red trades Drake for tower",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -36,
+     "jungle": -36,
+     "middle": 164,
+     "bottom": -36,
+     "support": -36
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.33291355357385105,
+    "goldLeadAfter": -6272,
+    "momentumAfter": 0.12285247113846832,
+    "mapControlAfter": 1
+   },
+   {
+    "type": "teamfight",
+    "minutes": 23.88834925345145,
+    "time": "23:53",
+    "side": "blue",
+    "description": "MASSIVE fight at mid lane, Blue wins 4-0 — 1-3-1 / Splitpush hits",
+    "kills": {
+     "blue": 4,
+     "red": 0
+    },
+    "towers": {
+     "blue": 1,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "bottom": 340,
+     "jungle": 900,
+     "middle": 500,
+     "support": 300
+    },
+    "kdaDelta": {
+     "blue": {
+      "jungle": {
+       "k": 2,
+       "d": 0,
+       "a": 3
+      },
+      "middle": {
+       "k": 1,
+       "d": 0,
+       "a": 2
+      },
+      "support": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "bottom": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     },
+     "red": {
+      "bottom": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      },
+      "top": {
+       "k": 0,
+       "d": 3,
+       "a": 0
+      }
+     }
+    },
+    "winProbAfter": 0.5220699287780322,
+    "goldLeadAfter": -4232,
+    "momentumAfter": 0.4059967297969278,
+    "mapControlAfter": 2
+   },
+   {
+    "type": "backdoor",
+    "minutes": 24.25416494347155,
+    "time": "24:15",
+    "side": "blue",
+    "description": "BACKDOOR! Fiora sneaks in alone, smashes the Nexus",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 1,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": 250
+    },
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.5617985263620758,
+    "goldLeadAfter": -3982,
+    "momentumAfter": 0.4341977108578494,
+    "mapControlAfter": 3
+   },
+   {
+    "type": "objective-trade",
+    "minutes": 25.288965274812654,
+    "time": "25:17",
+    "side": "red",
+    "description": "Both teams dance around Baron — neither commits, the tension builds",
+    "kills": {
+     "blue": 0,
+     "red": 0
+    },
+    "towers": {
+     "blue": 0,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {},
+    "kdaDelta": {
+     "blue": {},
+     "red": {}
+    },
+    "winProbAfter": 0.5144060386125042,
+    "goldLeadAfter": -3982,
+    "momentumAfter": 0.27393839760049454,
+    "mapControlAfter": 3
+   },
+   {
+    "type": "baron",
+    "minutes": 28.413109912071377,
+    "time": "28:25",
+    "side": "red",
+    "description": "Red takes Baron Nashor (1-0)",
+    "kills": {
+     "blue": 0,
+     "red": 1
+    },
+    "towers": {
+     "blue": 0,
+     "red": 2
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": -480,
+     "jungle": -280,
+     "middle": -180,
+     "bottom": -180,
+     "support": -180
+    },
+    "kdaDelta": {
+     "blue": {
+      "top": {
+       "k": 0,
+       "d": 1,
+       "a": 0
+      }
+     },
+     "red": {
+      "top": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "jungle": {
+       "k": 0,
+       "d": 0,
+       "a": 1
+      }
+     }
+    },
+    "winProbAfter": 0.2898875895044203,
+    "goldLeadAfter": -5282,
+    "momentumAfter": -0.30824312167965384,
+    "mapControlAfter": 1
    },
    {
     "type": "tower",
-    "minutes": 37.0498935531592,
-    "time": "37:03",
+    "minutes": 31.304224068811166,
+    "time": "31:18",
     "side": "red",
     "description": "Red takes the inner middle tower",
     "kills": {
@@ -6972,129 +7227,129 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -400
+     "middle": -400
     },
     "kdaDelta": {
      "blue": {},
      "red": {}
     },
-    "winProbAfter": 0.5015775308266399,
-    "goldLeadAfter": -1383,
-    "momentumAfter": -0.03000080572213848,
-    "mapControlAfter": 2
-   },
-   {
-    "type": "inhibitor",
-    "minutes": 38.716895688138905,
-    "time": "38:43",
-    "side": "blue",
-    "description": "Blue breaks the middle inhibitor (×2)",
-    "kills": {
-     "blue": 0,
-     "red": 0
-    },
-    "towers": {
-     "blue": 3,
-     "red": 0
-    },
-    "inhibs": {
-     "blue": 2,
-     "red": 0
-    },
-    "laneGoldDelta": {
-     "middle": 550
-    },
-    "kdaDelta": {
-     "blue": {},
-     "red": {}
-    },
-    "winProbAfter": 0.75,
-    "goldLeadAfter": -833,
-    "momentumAfter": 0.3089994359945031,
-    "mapControlAfter": 7
+    "winProbAfter": 0.2505983714828299,
+    "goldLeadAfter": -5682,
+    "momentumAfter": -0.36577018517575766,
+    "mapControlAfter": -1
    },
    {
     "type": "teamfight",
-    "minutes": 39.82889440483414,
-    "time": "39:50",
+    "minutes": 39.71943004135974,
+    "time": "39:43",
     "side": "blue",
-    "description": "5v5 at Baron pit, Blue wins 3-2 — 1-3-1 / Splitpush hits",
+    "description": "5v5 at tri-bush, MasterYi pops off 4-1 — 1-3-1 / Splitpush hits",
     "kills": {
-     "blue": 3,
-     "red": 2
+     "blue": 4,
+     "red": 1
+    },
+    "towers": {
+     "blue": 2,
+     "red": 0
+    },
+    "inhibs": {
+     "blue": 0,
+     "red": 0
+    },
+    "laneGoldDelta": {
+     "top": 296,
+     "jungle": 196,
+     "middle": 496,
+     "bottom": 396,
+     "support": 496
+    },
+    "kdaDelta": {
+     "blue": {
+      "top": {
+       "k": 1,
+       "d": 1,
+       "a": 0
+      },
+      "middle": {
+       "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "bottom": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      },
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 1
+      },
+      "support": {
+       "k": 0,
+       "d": 0,
+       "a": 4
+      }
+     },
+     "red": {
+      "middle": {
+       "k": 0,
+       "d": 3,
+       "a": 0
+      },
+      "top": {
+       "k": 0,
+       "d": 1,
+       "a": 1
+      },
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 0
+      }
+     }
+    },
+    "winProbAfter": 0.75,
+    "goldLeadAfter": -3802,
+    "momentumAfter": 0.4457726092638788,
+    "mapControlAfter": 3
+   },
+   {
+    "type": "inhibitor",
+    "minutes": 40.22780724829063,
+    "time": "40:14",
+    "side": "blue",
+    "description": "MOMENTUM SHIFT! Fiora cracks the top inhibitor — super minions inbound",
+    "kills": {
+     "blue": 0,
+     "red": 0
     },
     "towers": {
      "blue": 1,
      "red": 0
     },
     "inhibs": {
-     "blue": 0,
+     "blue": 1,
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -228,
-     "jungle": 72,
-     "middle": 472,
-     "bottom": 372,
-     "support": 172
+     "middle": 350
     },
     "kdaDelta": {
-     "blue": {
-      "bottom": {
-       "k": 2,
-       "d": 0,
-       "a": 0
-      },
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 3
-      },
-      "support": {
-       "k": 0,
-       "d": 1,
-       "a": 1
-      },
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      }
-     },
-     "red": {
-      "top": {
-       "k": 1,
-       "d": 2,
-       "a": 0
-      },
-      "jungle": {
-       "k": 0,
-       "d": 1,
-       "a": 0
-      },
-      "bottom": {
-       "k": 1,
-       "d": 0,
-       "a": 0
-      },
-      "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 2
-      }
-     }
+     "blue": {},
+     "red": {}
     },
-    "winProbAfter": 0.7929798612459195,
-    "goldLeadAfter": 27,
-    "momentumAfter": 0.6662996051961522,
-    "mapControlAfter": 8
+    "winProbAfter": 0.75,
+    "goldLeadAfter": -3452,
+    "momentumAfter": -0.006039129623030326,
+    "mapControlAfter": 1
    },
    {
     "type": "nexus",
     "minutes": 42.7,
     "time": "42:42",
     "side": "blue",
-    "description": "BASE RACE! both Nexuses crumbling — Blue hits home first",
+    "description": "Blue destroys the Nexus at 42:42",
     "kills": {
      "blue": 0,
      "red": 0
@@ -7119,9 +7374,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "red": {}
     },
     "winProbAfter": 0.99,
-    "goldLeadAfter": 527,
-    "momentumAfter": 0.4664097236373065,
-    "mapControlAfter": 10
+    "goldLeadAfter": -2952,
+    "momentumAfter": 0.31204082648471515,
+    "mapControlAfter": 5
    }
   ]
  },
@@ -7137,15 +7392,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
 
 exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strategies: result hashes across 10 seeds 1`] = `
 [
-  "11:a4a7a60c",
-  "42:a9d9ed99",
-  "101:d5d51e35",
-  "777:9c37e9c0",
-  "1234:396df411",
-  "5150:c59a44d4",
-  "9001:a850331d",
-  "31337:895f32e5",
-  "65535:1d0183ab",
-  "999983:ee3cd8e2",
+  "11:a027e2c1",
+  "42:53d48192",
+  "101:9af128f2",
+  "777:d98be2a7",
+  "1234:ad6273b0",
+  "5150:cd5ba022",
+  "9001:6e3a1f86",
+  "31337:3a01e4a6",
+  "65535:6adb38e2",
+  "999983:2f5583a9",
 ]
 `;

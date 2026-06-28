@@ -100,4 +100,22 @@ describe("offseasonEvolveRoster", () => {
       expect(typeof p.age).toBe("number");
     }
   });
+
+  it("reports each retirement→rookie swap into the debuts sink", () => {
+    // Build aged players directly (seedRosterCareers would randomize age low) so
+    // retirement is near-certain — age 40 with id set, ready for agePlayer.
+    const roster = LANES.map((lane, i) =>
+      player({ lane, tier: "D", age: 40, id: `vet-${i}`, name: `vet-${lane}` }),
+    );
+    const debuts: import("./playerLifecycle").RookieDebut[] = [];
+    const next = offseasonEvolveRoster(roster, [6, 6, 6, 6, 6], champions, rng(9), new Set(), debuts);
+    // Each retired slot logs a debut event naming the retiree and the rookie.
+    expect(debuts.length).toBeGreaterThan(0);
+    expect(debuts.length).toBe(next.filter((p) => (p.age ?? 99) <= 19).length);
+    for (const d of debuts) {
+      expect(d.retiredName).toMatch(/^vet-/);
+      expect(d.rookieName).toBeTruthy();
+      expect(LANES).toContain(d.lane);
+    }
+  });
 });

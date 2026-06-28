@@ -23,6 +23,7 @@ import {
   describeInvade,
   describePlates,
   describeRoam,
+  describeSupportRoam,
   describeScuttle,
   describeSoloKill,
   describeWaveCrash,
@@ -38,6 +39,7 @@ import {
   sideLaneGoldSplit,
   singleLaneGold,
   spreadLaneGold,
+  supportRoamLaneGold,
 } from "../descriptions";
 import { BALANCE } from "./balance";
 import {
@@ -486,6 +488,48 @@ export function phaseMidRoam(tl: TimelineContext): void {
     bumpLaneLead(tl, side, targetLane);
     // The roam opened the side lane — a touch of tower pressure there (the
     // roam → collapse → tower chain).
+    tl.state.towerPressure[side] += BALANCE.ROAM_TOWER_PRESSURE;
+  });
+}
+
+// 7b-ii. Support roam (8-13) — the bot-lane support rotates to help secure a
+// kill in another lane (mid/top). The CAUSAL COUNTERPART: the ADC is left alone
+// in bot and bleeds ground there. The kill is a net gain for the roaming side,
+// but the bottom-lane cost is modeled explicitly — gold AND a half-snowball for
+// the enemy bot lane — so the play is a genuine trade, not free value.
+export function phaseSupportRoam(tl: TimelineContext): void {
+  const t = jitter(8, 13, tl.rng);
+  tl.schedule(t, () => {
+    if (tl.rng() >= clampChance(0.28 + tl.mods.roamChanceDelta)) return;
+    const side = rollEventSide(tl, t, tl.laneBias * 0.9 + tl.mods.roamBias);
+    // Roam AWAY from bot — to mid (most common) or top.
+    const targetLane = pickRandom(["middle", "top"] as Lane[], tl.rng);
+    const oppSide: Side = side === "blue" ? "red" : "blue";
+    addEvent(
+      tl,
+      "roam",
+      t,
+      side,
+      describeSupportRoam(
+        side,
+        picksOf(tl.ctx, side),
+        targetLane,
+        tl.ctx.blueName,
+        tl.ctx.redName,
+      ),
+      {
+        kills: killsForSide(side, 1, 0),
+        // Target laner gets the kill (60%), support the assist (40%); the ADC
+        // left alone in bot bleeds the counterpart penalty.
+        laneGoldDelta: supportRoamLaneGold(targetLane, 100, 50, side),
+        // Laner kills, roaming support assists, enemy in the target lane dies.
+        kdaDelta: gankKDA(side, targetLane, "support", targetLane),
+      },
+      0.13,
+    );
+    bumpLaneLead(tl, side, targetLane);
+    // The counterpart: the enemy ADC, now 1v2-free, snowballs bot a little.
+    bumpLaneLead(tl, oppSide, "bottom", 0.5);
     tl.state.towerPressure[side] += BALANCE.ROAM_TOWER_PRESSURE;
   });
 }

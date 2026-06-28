@@ -42,6 +42,40 @@ export function coachMotivationFactor(coach: Coach | undefined): number {
   return 0.6 + 0.8 * (coach?.motivation ?? 0.5);
 }
 
+/** The team's meta-adaptation trait, in [-1, +1], driven by the coach: an
+ *  adaptable coach (→1) helps the team ride balance patches, a rigid one (→0)
+ *  gets punished. Centered so a neutral/absent coach is 0. Feeds the
+ *  patch-shift form swing (teamAdaptability). */
+export function coachAdaptabilityTrait(coach: Coach | undefined): number {
+  if (!coach) return 0;
+  return Math.round(((coach.adaptability ?? 0.5) - 0.5) * 2 * 100) / 100;
+}
+
+// In-season coach development. A coach's reputation isn't fixed: over- or
+// under-performing the team's seed moves their rating, with regression toward
+// the mean (3) so ratings never all pile at the ceiling — there are always
+// rising and falling coaches.
+export const COACH_LEARN = 0.25; // how far a result moves the rating
+export const COACH_REGRESS = 0.12; // pull back toward the mean each event
+
+/** Next coach rating after a result. `perf` is finish-vs-seed in [-1, +1]
+ *  (>0 = over-performed expectations). Clamped to 1..5, one decimal. */
+export function nextCoachRating(rating: number, perf: number): number {
+  const r = Number.isFinite(rating) ? rating : 3;
+  const drift = perf * COACH_LEARN - COACH_REGRESS * ((r - 3) / 2);
+  return Math.round(clamp(r + drift, 1, 5) * 10) / 10;
+}
+
+/** How much the coach tilts player development. A top coach (5) nudges players
+ *  to grow and shields decline; a poor one (1) the reverse; neutral/absent
+ *  is 0. Added directly to a player's per-step tier-up probability. */
+export const COACH_DEV_TILT = 0.08;
+export function coachDevTilt(coach: Coach | undefined): number {
+  if (!coach) return 0;
+  const r = Number.isFinite(coach.rating) ? coach.rating : 3;
+  return ((r - 3) / 2) * COACH_DEV_TILT;
+}
+
 /** Offseason coach market (user-driven): swap the coaches of two teams so the
  *  user can hire away a rival's coach while every team stays staffed. Pure —
  *  returns a new teams array (only the two affected teams get new refs). */

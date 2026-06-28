@@ -20,6 +20,7 @@ import TeamName from "./TeamName";
 
 // Per-tier styling for the small player-tier badge on a locked pick slot.
 const TIER_BADGE: Record<PlayerTier, string> = {
+  "S+": "text-rift-goldbright border-rift-goldbright bg-rift-gold/25",
   S: "text-rift-goldbright border-rift-gold/60 bg-rift-gold/10",
   A: "text-rift-bluebright border-rift-blue/50 bg-rift-blue/10",
   B: "text-rift-mutedbright border-rift-line",

@@ -4,7 +4,12 @@ import type { Champion, Lane } from "../types";
 import { LANE_ORDER } from "../players";
 import { generateSeasonTeams } from "./teamGen";
 import { createSeason } from "./engine";
-import { seedFranchise, startNextSeason } from "./franchise";
+import {
+  seedFranchise,
+  startNextSeason,
+  continuityFormBonus,
+  CONTINUITY_FORM_BONUS,
+} from "./franchise";
 import {
   LEAGUE_IDS,
   type SeasonConfig,
@@ -75,6 +80,34 @@ describe("seedFranchise", () => {
         expect(p.potential).toBeTruthy();
         expect(p.id).toBeTruthy();
       }
+    }
+  });
+});
+
+describe("continuityFormBonus", () => {
+  it("rewards keeping the majority, scaling up to full retention", () => {
+    expect(continuityFormBonus(5)).toBeCloseTo(CONTINUITY_FORM_BONUS); // kept all
+    expect(continuityFormBonus(3)).toBeGreaterThan(0); // kept the majority
+    expect(continuityFormBonus(4)).toBeGreaterThan(continuityFormBonus(3));
+    expect(continuityFormBonus(2)).toBe(0); // below majority → nothing
+    expect(continuityFormBonus(0)).toBe(0);
+  });
+
+  it("seeds a starting form bonus on year rollover when form is tracked", () => {
+    // Form must be enabled (formDrift) for teamForm to exist and be seeded.
+    const cfg = { ...makeConfig(), formDrift: true };
+    const teams = generateSeasonTeams(champions, rngFrom(3));
+    const base = createSeason({ config: cfg, teams, activeMeta: meta });
+    const y1 = seedFranchise(base, "Alpha", true, rngFrom(9));
+    const y2 = startNextSeason(y1, champions, rngFrom(11));
+    const forms = Object.values(y2.teamForm ?? {});
+    // Most rosters survive an offseason largely intact → at least one team
+    // carries a positive continuity bonus, and every seeded value is a valid
+    // bonus (0 < f ≤ CONTINUITY_FORM_BONUS).
+    expect(forms.some((f) => f > 0)).toBe(true);
+    for (const f of forms) {
+      expect(f).toBeGreaterThanOrEqual(0);
+      expect(f).toBeLessThanOrEqual(CONTINUITY_FORM_BONUS);
     }
   });
 });

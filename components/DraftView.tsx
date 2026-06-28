@@ -6,6 +6,7 @@ import { useDraftStore } from "@/store/draftStore";
 import { currentGame, fearlessLockedSet } from "@/lib/series";
 import {
   computeTournamentChampionWR,
+  computeTeamChampionWR,
   effectiveLockedSet,
 } from "@/lib/tournament";
 import { currentAction } from "@/lib/draftEngine";
@@ -44,6 +45,7 @@ export default function DraftView({ champions }: Props) {
   const completeAIDraft = useDraftStore((s) => s.completeAIDraft);
   const selectChampion = useDraftStore((s) => s.selectChampion);
   const setAIRationale = useDraftStore((s) => s.setAIRationale);
+  const playerForms = useDraftStore((s) => s.playerForms);
 
   const game = currentGame(series);
   const action = currentAction(game);
@@ -72,7 +74,19 @@ export default function DraftView({ champions }: Props) {
       game,
       champions,
       effectiveLockedSet(tournament, fearlessLockedSet(series)),
-      seriesAIContextFrom(series, action.side, champions, tournamentWR),
+      seriesAIContextFrom(
+        series,
+        action.side,
+        champions,
+        tournamentWR,
+        {
+          map: playerForms,
+          keyFor: tournament
+            ? (n) => tournament.teams.find((t) => t.name === n)?.id ?? n
+            : undefined,
+        },
+        tournament ? computeTeamChampionWR(tournament) : undefined,
+      ),
       Math.random,
       personality,
     );
@@ -89,6 +103,7 @@ export default function DraftView({ champions }: Props) {
     series,
     champions,
     tournament,
+    playerForms,
     selectChampion,
     setAIRationale,
   ]);

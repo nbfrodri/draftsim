@@ -18,6 +18,7 @@ import {
   type SpecialAward,
 } from "../awards";
 import type { Lane } from "../types";
+import { playerForLane } from "../players";
 import { tournamentPlacements } from "./engine";
 import {
   LEAGUE_IDS,
@@ -206,6 +207,14 @@ export interface PlayerSeasonLine {
   deaths: number;
   assists: number;
   avgRating: number | null;
+  // Raw rating accumulators kept alongside the average so careers can
+  // re-average correctly across seasons (a plain mean-of-means would be wrong).
+  ratingSum: number;
+  ratingGames: number;
+  // End-of-game lane gold differential, summed from each player's own
+  // perspective (+ ahead of their lane opponent), and the games it covers.
+  goldDiffSum: number;
+  goldDiffGames: number;
   mvps: number;
   pentakills: number;
 }
@@ -217,11 +226,35 @@ export interface PlayerLeaders {
   byPentakills: PlayerSeasonLine[];
 }
 
+/** Resolve a GAME's side to the actual team id. Sides swap between games of a
+ *  series (the loser-blue rule), so a game's blue side is NOT necessarily the
+ *  match's nominal blue team — match the game's blue-side team NAME back to the
+ *  match to find the real team. Used by every per-game, side-keyed stat (player
+ *  lines, MVPs, records); without it, swapped games credit the wrong team. */
+export function gameSideTeamId(
+  matchBlueTeamId: string,
+  matchRedTeamId: string,
+  matchBlueTeamName: string,
+  matchRedTeamName: string,
+  gameBlueTeamName: string,
+  side: "blue" | "red",
+): string {
+  // Swap ONLY when the game's blue side positively matches the match's red
+  // team. If the game name matches the blue team (normal) — or matches neither
+  // (corrupt/renamed data) — keep the nominal sides, the safer default.
+  const swapped =
+    gameBlueTeamName === matchRedTeamName &&
+    gameBlueTeamName !== matchBlueTeamName;
+  const blueId = swapped ? matchRedTeamId : matchBlueTeamId;
+  const redId = swapped ? matchBlueTeamId : matchRedTeamId;
+  return side === "blue" ? blueId : redId;
+}
+
 /** Aggregate every completed game's recap by player id. Returns one line per
  *  player who has at least one rated/recorded game this season. */
 export function computePlayerSeasonLines(season: SeasonState): PlayerSeasonLine[] {
   const teamNameById = new Map(season.teams.map((t) => [t.id, t.name]));
-  type Agg = Omit<PlayerSeasonLine, "avgRating"> & { ratingSum: number; ratingCount: number };
+  type Agg = Omit<PlayerSeasonLine, "avgRating">;
   const rows = new Map<string, Agg>();
   const ensure = (id: string, name: string, teamId: string, lane: Lane): Agg => {
     let r = rows.get(id);
@@ -237,7 +270,9 @@ export function computePlayerSeasonLines(season: SeasonState): PlayerSeasonLine[
         deaths: 0,
         assists: 0,
         ratingSum: 0,
-        ratingCount: 0,
+        ratingGames: 0,
+        goldDiffSum: 0,
+        goldDiffGames: 0,
         mvps: 0,
         pentakills: 0,
       };
@@ -257,9 +292,21 @@ export function computePlayerSeasonLines(season: SeasonState): PlayerSeasonLine[
       for (const g of m.series.games) {
         const recap = g.recap;
         if (!recap?.perPickIds) continue;
+        if (!m.blueTeamId || !m.redTeamId) continue;
+        // Sides swap between games of a series (loser-blue), so resolve the
+        // GAME's side to the actual team — a swapped game would otherwise credit
+        // every player to the wrong team. See gameSideTeamId.
+        const matchBlueName = teamNameById.get(m.blueTeamId) ?? m.blueTeamId;
+        const matchRedName = teamNameById.get(m.redTeamId) ?? m.redTeamId;
         for (const side of ["blue", "red"] as const) {
-          const teamId = side === "blue" ? m.blueTeamId : m.redTeamId;
-          if (!teamId) continue;
+          const teamId = gameSideTeamId(
+            m.blueTeamId,
+            m.redTeamId,
+            matchBlueName,
+            matchRedName,
+            g.blueTeam,
+            side,
+          );
           const ids = recap.perPickIds[side];
           const names = recap.perPickNames?.[side];
           const kda = recap.perPickKDA?.[side];
@@ -277,7 +324,14 @@ export function computePlayerSeasonLines(season: SeasonState): PlayerSeasonLine[
             const r = ratings?.[li];
             if (typeof r === "number" && Number.isFinite(r)) {
               row.ratingSum += r;
-              row.ratingCount += 1;
+              row.ratingGames += 1;
+            }
+            // Lane gold diff is stored blue-positive; flip for the red side so
+            // it reads from THIS player's perspective (+ = ahead of their lane).
+            const gd = recap.laneGoldDiff?.[POS_LANES[li]];
+            if (typeof gd === "number" && Number.isFinite(gd)) {
+              row.goldDiffSum += side === "blue" ? gd : -gd;
+              row.goldDiffGames += 1;
             }
           }
         }
@@ -296,9 +350,9 @@ export function computePlayerSeasonLines(season: SeasonState): PlayerSeasonLine[
     }
   }
 
-  return [...rows.values()].map(({ ratingSum, ratingCount, ...rest }) => ({
-    ...rest,
-    avgRating: ratingCount > 0 ? Math.round((ratingSum / ratingCount) * 10) / 10 : null,
+  return [...rows.values()].map((r) => ({
+    ...r,
+    avgRating: r.ratingGames > 0 ? Math.round((r.ratingSum / r.ratingGames) * 10) / 10 : null,
   }));
 }
 
@@ -334,6 +388,15 @@ export interface PlayerSeasonRecord {
   splitTitles: number;
   intlAppearances: number;
   intlTitles: number;
+  // Richer per-game stats for the Hall's career profiles. Optional so archives
+  // saved before this existed stay valid (the career view shows "—" for them).
+  deaths?: number;
+  assists?: number;
+  pentakills?: number;
+  ratingSum?: number;
+  ratingGames?: number;
+  goldDiffSum?: number;
+  goldDiffGames?: number;
 }
 
 // Attribute titles/appearances to the players who were ON the champion's
@@ -419,6 +482,13 @@ export function computePlayerCareerRecords(season: SeasonState): PlayerSeasonRec
       splitTitles: a.split,
       intlAppearances: a.intlApps,
       intlTitles: a.intlTitles,
+      deaths: l.deaths,
+      assists: l.assists,
+      pentakills: l.pentakills,
+      ratingSum: l.ratingSum,
+      ratingGames: l.ratingGames,
+      goldDiffSum: l.goldDiffSum,
+      goldDiffGames: l.goldDiffGames,
     };
   });
 }
@@ -462,6 +532,10 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
       lane: Lane;
       count: number;
       champCounts: Map<number, number>;
+      // Who actually earned the MVPs in this slot (by recap name), so a player
+      // who transferred away still gets credited rather than the slot's current
+      // occupant.
+      nameCounts: Map<string, number>;
       kills: number;
       deaths: number;
       assists: number;
@@ -475,13 +549,11 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
   const LANE_ORDER: Lane[] = ["top", "jungle", "middle", "bottom", "support"];
   const tierOf = (teamId: string, lane: Lane): string | null => {
     const team = season.teams.find((t) => t.id === teamId);
-    const player = team?.players[LANE_ORDER.indexOf(lane)];
-    return player?.tier ?? null;
+    return playerForLane(team?.players, lane)?.tier ?? null;
   };
   const playerNameOf = (teamId: string, lane: Lane): string | null => {
     const team = season.teams.find((t) => t.id === teamId);
-    const player = team?.players[LANE_ORDER.indexOf(lane)];
-    return player?.name ?? null;
+    return playerForLane(team?.players, lane)?.name ?? null;
   };
 
   const ensureTeam = (teamId: string): SeasonTeamLine => {
@@ -526,6 +598,13 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
       for (const g of m.series?.games ?? []) {
         const recap = g.recap;
         if (!recap) continue;
+        if (!m.blueTeamId || !m.redTeamId) continue;
+        // blueName/redName are match-level; the g* values are the correct
+        // per-game attribution once side-swaps (loser-blue) are accounted for.
+        const gBlueId = gameSideTeamId(m.blueTeamId, m.redTeamId, blueName, redName, g.blueTeam, "blue");
+        const gRedId = gameSideTeamId(m.blueTeamId, m.redTeamId, blueName, redName, g.blueTeam, "red");
+        const gBlueName = nameOf(gBlueId);
+        const gRedName = nameOf(gRedId);
         for (const p of recap.pentakills ?? []) {
           const key = `${p.championId}:${p.teamName}`;
           const pentaName =
@@ -568,8 +647,8 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
           if (gap > 0 && (!records.biggestStomp || gap > records.biggestStomp.goldLead)) {
             records.biggestStomp = {
               goldLead: Math.round(gap),
-              winnerTeam: net > 0 ? blueName : redName,
-              loserTeam: net > 0 ? redName : blueName,
+              winnerTeam: net > 0 ? gBlueName : gRedName,
+              loserTeam: net > 0 ? gRedName : gBlueName,
             };
           }
         }
@@ -577,17 +656,17 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
         const mins = recap.durationMinutes;
         if (typeof mins === "number" && mins > 0) {
           if (!records.longestGame || mins > records.longestGame.minutes) {
-            records.longestGame = { minutes: mins, blueTeam: blueName, redTeam: redName };
+            records.longestGame = { minutes: mins, blueTeam: gBlueName, redTeam: gRedName };
           }
           if (!records.shortestGame || mins < records.shortestGame.minutes) {
-            records.shortestGame = { minutes: mins, blueTeam: blueName, redTeam: redName };
+            records.shortestGame = { minutes: mins, blueTeam: gBlueName, redTeam: gRedName };
           }
         }
         const mvp = recap.mvp;
         if (mvp && (!records.bestMvp || mvp.kills > records.bestMvp.kills)) {
           records.bestMvp = {
             championId: mvp.championId,
-            teamName: mvp.side === "blue" ? blueName : redName,
+            teamName: mvp.side === "blue" ? gBlueName : gRedName,
             ...(mvp.playerName ? { playerName: mvp.playerName } : {}),
             lane: mvp.lane,
             kills: mvp.kills,
@@ -598,8 +677,8 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
         // MVP leaderboard: credit the roster slot (team + lane) that earned it.
         const mvpTeamId = mvp
           ? mvp.side === "blue"
-            ? m.blueTeamId
-            : m.redTeamId
+            ? gBlueId
+            : gRedId
           : null;
         if (mvp && mvpTeamId) {
           const key = `${mvpTeamId}:${mvp.lane}`;
@@ -610,6 +689,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
               lane: mvp.lane,
               count: 0,
               champCounts: new Map<number, number>(),
+              nameCounts: new Map<string, number>(),
               kills: 0,
               deaths: 0,
               assists: 0,
@@ -622,6 +702,12 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
             mvp.championId,
             (row.champCounts.get(mvp.championId) ?? 0) + 1,
           );
+          if (mvp.playerName) {
+            row.nameCounts.set(
+              mvp.playerName,
+              (row.nameCounts.get(mvp.playerName) ?? 0) + 1,
+            );
+          }
           mvpRows.set(key, row);
         }
         const swing = recap.biggestSwing;
@@ -633,7 +719,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
           records.biggestSwing = {
             minute: swing.minute,
             description: swing.description,
-            teamName: swing.side === "blue" ? blueName : redName,
+            teamName: swing.side === "blue" ? gBlueName : gRedName,
             probDelta: swing.probDelta,
           };
         }
@@ -704,6 +790,16 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
           topChampionId = cid;
         }
       }
+      // The actual MVP earner for this slot (most-frequent recap name), falling
+      // back to the current roster occupant only when no name was recorded.
+      let earner: string | null = null;
+      let earnerBest = 0;
+      for (const [name, c] of r.nameCounts) {
+        if (c > earnerBest) {
+          earnerBest = c;
+          earner = name;
+        }
+      }
       return {
         teamId: r.teamId,
         teamName: nameOf(r.teamId),
@@ -714,7 +810,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
         deaths: r.deaths,
         assists: r.assists,
         tier: tierOf(r.teamId, r.lane),
-        playerName: playerNameOf(r.teamId, r.lane),
+        playerName: earner ?? playerNameOf(r.teamId, r.lane),
       };
     })
     .sort((a, b) => b.count - a.count);
@@ -837,11 +933,29 @@ export function teamSeasonGrades(
   season: SeasonState,
   teamId: string,
 ): TeamGrades {
-  const sums = [0, 0, 0, 0, 0];
-  const counts = [0, 0, 0, 0, 0];
-  // Per-lane note totals for the most recent rated match (averaged at the end).
-  let lastMatchSums: number[] | null = null;
-  let lastMatchCounts: number[] | null = null;
+  const team = season.teams.find((t) => t.id === teamId);
+  const roster = team?.players ?? [];
+  const teamName = team?.name ?? "";
+  // The player id currently in each lane slot (positional roster order). Notes
+  // are attributed to the PLAYER who actually played (recap.perPickIds), then
+  // mapped back to whoever holds the slot NOW — so a transferred-in player
+  // shows THEIR own note, never the departed player's accumulated slot history.
+  const idAt: (string | null)[] = [0, 1, 2, 3, 4].map((i) => roster[i]?.id ?? null);
+
+  const pSum = new Map<string, number>();
+  const pCnt = new Map<string, number>();
+  const pLastSum = new Map<string, number>();
+  const pLastCnt = new Map<string, number>();
+  // Team-level totals (a team stat — independent of roster turnover).
+  let totalSum = 0;
+  let totalCount = 0;
+  let lastTeamSum: number | null = null;
+  let lastTeamCount: number | null = null;
+
+  const bump = (id: string | null, m: Map<string, number>, by: number) => {
+    if (id == null) return;
+    m.set(id, (m.get(id) ?? 0) + by);
+  };
 
   const tids: string[] = [];
   for (const phase of season.phases) for (const id of phase.tournamentIds) tids.push(id);
@@ -852,10 +966,10 @@ export function teamSeasonGrades(
     for (const match of t.matches) {
       if (match.isBye || !match.series) continue;
       if (match.blueTeamId !== teamId && match.redTeamId !== teamId) continue;
-      const side: "blue" | "red" =
-        match.blueTeamId === teamId ? "blue" : "red";
-      const matchSums = [0, 0, 0, 0, 0];
-      const matchCounts = [0, 0, 0, 0, 0];
+      const matchSum = new Map<string, number>();
+      const matchCnt = new Map<string, number>();
+      let matchTeamSum = 0;
+      let matchTeamCount = 0;
       let matchHadRatings = false;
       for (const game of match.series.games) {
         if (game.status !== "complete" || game.winner == null) continue;
@@ -866,45 +980,59 @@ export function teamSeasonGrades(
           ratings = computeGameRatings(recap, game.winner);
         }
         if (!ratings) continue;
-        const notes = side === "blue" ? ratings.blue : ratings.red;
+        // Sides swap between games of a series, so resolve the team's side IN
+        // THIS GAME by name (else swapped games read the opponent's notes).
+        const gSide: "blue" | "red" =
+          game.blueTeam === teamName
+            ? "blue"
+            : game.redTeam === teamName
+              ? "red"
+              : match.blueTeamId === teamId
+                ? "blue"
+                : "red";
+        const notes = gSide === "blue" ? ratings.blue : ratings.red;
+        const ids = recap.perPickIds?.[gSide];
         for (let i = 0; i < 5; i++) {
           const v = notes[i];
           if (typeof v !== "number" || !Number.isFinite(v)) continue;
-          sums[i] += v;
-          counts[i] += 1;
-          matchSums[i] += v;
-          matchCounts[i] += 1;
+          // Attribute to the actual player; fall back to the current slot only
+          // for legacy recaps without perPickIds.
+          const pid = ids?.[i] ?? idAt[i];
+          bump(pid, pSum, v);
+          bump(pid, pCnt, 1);
+          bump(pid, matchSum, v);
+          bump(pid, matchCnt, 1);
+          totalSum += v;
+          totalCount += 1;
+          matchTeamSum += v;
+          matchTeamCount += 1;
           matchHadRatings = true;
         }
       }
-      // Overwrite each match so the final value is the LAST rated match.
+      // The LAST rated match overwrites each participating player's "last note".
       if (matchHadRatings) {
-        lastMatchSums = matchSums;
-        lastMatchCounts = matchCounts;
+        for (const [pid, s] of matchSum) {
+          pLastSum.set(pid, s);
+          pLastCnt.set(pid, matchCnt.get(pid) ?? 0);
+        }
+        lastTeamSum = matchTeamSum;
+        lastTeamCount = matchTeamCount;
       }
     }
   }
 
-  const avg = sums.map((s, i) => (counts[i] > 0 ? round1(s / counts[i]) : null));
-  const last: (number | null)[] = [null, null, null, null, null];
-  if (lastMatchSums && lastMatchCounts) {
-    for (let i = 0; i < 5; i++) {
-      last[i] =
-        lastMatchCounts[i] > 0
-          ? round1(lastMatchSums[i] / lastMatchCounts[i])
-          : null;
-    }
-  }
-  const totalSum = sums.reduce((a, b) => a + b, 0);
-  const totalCount = counts.reduce((a, b) => a + b, 0);
+  const avg = idAt.map((id) => {
+    const c = id != null ? pCnt.get(id) ?? 0 : 0;
+    return c > 0 ? round1((pSum.get(id!) ?? 0) / c) : null;
+  });
+  const last = idAt.map((id) => {
+    const c = id != null ? pLastCnt.get(id) ?? 0 : 0;
+    return c > 0 ? round1((pLastSum.get(id!) ?? 0) / c) : null;
+  });
   const teamAvg = totalCount > 0 ? round1(totalSum / totalCount) : null;
   const lastMatchAvg =
-    lastMatchSums && lastMatchCounts
-      ? (() => {
-          const s = lastMatchSums.reduce((a, b) => a + b, 0);
-          const c = lastMatchCounts.reduce((a, b) => a + b, 0);
-          return c > 0 ? round1(s / c) : null;
-        })()
+    lastTeamSum != null && lastTeamCount != null && lastTeamCount > 0
+      ? round1(lastTeamSum / lastTeamCount)
       : null;
 
   return { avg, last, teamAvg, lastMatchAvg };

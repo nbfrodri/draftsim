@@ -75,6 +75,7 @@ import type {
 import {
   appendMatchPicks,
   computeTournamentChampionWR,
+  computeTeamChampionWR,
   createTournament,
   crossMatchFearlessLocked,
   decodeTournament,
@@ -121,6 +122,9 @@ import {
   resolveTransfer as resolveSeasonTransfer,
   executeUserTransfer,
   executeOffseasonUserTransfer,
+  aiResolveUserTransferWindow,
+  aiResolveUserOffseason,
+  bestCoachHire,
 } from "@/lib/season/transfers";
 import { advanceTransferWindow } from "@/lib/season/engine";
 import { swapCoaches } from "@/lib/season/coach";
@@ -603,6 +607,11 @@ interface DraftStore {
   // season.proposedTransfers). Accepting swaps the players; either way the
   // proposal is cleared.
   resolveSeasonTransfer: (index: number, accept: boolean) => void;
+  // Hand the open window to the AI: it accepts the proposals that improve the
+  // roster, declines the rest, and shops the best upgrade per lane (offseason
+  // also hires a clearly better coach). For users who'd rather not micro-manage.
+  aiDecideSeasonTransfers: () => void;
+  aiDecideOffseason: () => void;
   // Close the open transfer window and move on to the next split. Any
   // proposals left undecided are treated as declined.
   advanceSeasonTransfers: () => void;
@@ -846,6 +855,7 @@ function autoPlayMatch(
     const perSeriesLocked = fearlessLockedSet(series);
     const locked = new Set<number>([...perSeriesLocked, ...crossLocked]);
     const tournamentWR = computeTournamentChampionWR(workingTournament);
+    const teamWR = computeTeamChampionWR(workingTournament);
     let game = currentGame(series);
     while (currentAction(game)) {
       const action = currentAction(game)!;
@@ -857,7 +867,18 @@ function autoPlayMatch(
         game,
         champions,
         locked,
-        seriesAIContextFrom(series, action.side, champions, tournamentWR),
+        seriesAIContextFrom(
+          series,
+          action.side,
+          champions,
+          tournamentWR,
+          {
+            map: currentForms,
+            keyFor: (n) =>
+              workingTournament.teams.find((t) => t.name === n)?.id ?? n,
+          },
+          teamWR,
+        ),
         Math.random,
         personality,
       );
@@ -1820,6 +1841,22 @@ export const useDraftStore = create<DraftStore>()(
     const season = get().season;
     if (!season) return;
     set({ season: resolveSeasonTransfer(season, index, accept) });
+  },
+
+  aiDecideSeasonTransfers: () => {
+    const { season, champions } = get();
+    if (!season) return;
+    set({ season: aiResolveUserTransferWindow(season, champions) });
+  },
+
+  aiDecideOffseason: () => {
+    const { season, champions } = get();
+    if (!season?.franchise || season.status !== "complete") return;
+    let next = aiResolveUserOffseason(season, champions);
+    const me = next.config.controlledTeamId;
+    const hire = bestCoachHire(next);
+    if (me && hire) next = { ...next, teams: swapCoaches(next.teams, me, hire) };
+    set({ season: next });
   },
 
   advanceSeasonTransfers: () => {
@@ -2945,10 +2982,12 @@ export const useDraftStore = create<DraftStore>()(
     playActionSound(action.kind, action.side);
 
     const tournament = get().tournament;
+    const playerForms = get().playerForms;
     const locked = effectiveLockedSet(tournament, fearlessLockedSet(series));
     const tournamentWR = tournament
       ? computeTournamentChampionWR(tournament)
       : undefined;
+    const teamWR = tournament ? computeTeamChampionWR(tournament) : undefined;
     const personality = getPersonality(
       action.side === "blue" ? series.bluePersonalityId : series.redPersonalityId,
     );
@@ -2958,7 +2997,19 @@ export const useDraftStore = create<DraftStore>()(
         game,
         champions,
         locked,
-        seriesAIContextFrom(series, action.side, champions, tournamentWR),
+        seriesAIContextFrom(
+          series,
+          action.side,
+          champions,
+          tournamentWR,
+          {
+            map: playerForms,
+            keyFor: tournament
+              ? (n) => tournament.teams.find((t) => t.name === n)?.id ?? n
+              : undefined,
+          },
+          teamWR,
+        ),
         Math.random,
         personality,
       );
@@ -3008,10 +3059,12 @@ export const useDraftStore = create<DraftStore>()(
     // Fearless locks come from prior completed games only — the current
     // game's picks never affect them — so we compute once and reuse.
     const tournament = get().tournament;
+    const playerForms = get().playerForms;
     const locked = effectiveLockedSet(tournament, fearlessLockedSet(series));
     const tournamentWR = tournament
       ? computeTournamentChampionWR(tournament)
       : undefined;
+    const teamWR = tournament ? computeTeamChampionWR(tournament) : undefined;
     const allIds = allChampionIds(champions);
     let game = currentGame(series);
     let action = currentAction(game);
@@ -3028,6 +3081,13 @@ export const useDraftStore = create<DraftStore>()(
         action.side,
         champions,
         tournamentWR,
+        {
+          map: playerForms,
+          keyFor: tournament
+            ? (n) => tournament.teams.find((t) => t.name === n)?.id ?? n
+            : undefined,
+        },
+        teamWR,
       );
       const personality = getPersonality(
         action.side === "blue" ? series.bluePersonalityId : series.redPersonalityId,

@@ -131,7 +131,7 @@ function toBase64(s: string): string {
 // dark SVG with the champion's first letter. Embedded as a data URL so it
 // never 404s. Used for pending-release champions until CDragon ships the
 // real icon.
-function placeholderIconFor(name: string): string {
+export function placeholderIconFor(name: string): string {
   const initial = (name[0] ?? "?").toUpperCase();
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#1a1a1f"/><rect x="2" y="2" width="60" height="60" fill="none" stroke="#c89b3c" stroke-width="2"/><text x="32" y="42" font-family="serif" font-size="32" fill="#c89b3c" text-anchor="middle" font-weight="bold">${initial}</text></svg>`;
   return `data:image/svg+xml;base64,${toBase64(svg)}`;

@@ -36,7 +36,17 @@ import {
   type MetaOverride,
   type MetaTier,
 } from "@/lib/championMeta";
-import type { Lane } from "@/lib/types";
+import type { Lane, PlayerTier } from "@/lib/types";
+import { LANE_ORDER } from "@/lib/players";
+import {
+  listPlayers,
+  listTeams,
+  listCoachesRich,
+  teamStars,
+  playerProfile,
+  teamProfile,
+  coachProfile,
+} from "@/lib/season/historySearch";
 import {
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
@@ -304,6 +314,39 @@ function MetaStory({ entry }: { entry: SeasonHistoryEntry }) {
   );
 }
 
+// The roster the international champion fielded at that event, pulled from the
+// archived phase snapshot (matched by team name) and lane-ordered. null when
+// the snapshot doesn't cover the event (older saves).
+function intlChampRoster(entry: SeasonHistoryEntry, event: InternationalId) {
+  const champ = entry.intlChampions[event];
+  if (!champ) return null;
+  const phase = (entry.phaseRosters ?? []).find(
+    (p) => p.kind === "international" && p.event === event,
+  );
+  const team = phase?.teams.find((t) => t.teamName === champ.name && t.leagueId === champ.leagueId);
+  if (!team) return null;
+  return {
+    players: [...team.players].sort(
+      (a, b) => LANE_ORDER.indexOf(a.lane) - LANE_ORDER.indexOf(b.lane),
+    ),
+    coach: team.coach?.name,
+  };
+}
+
+// The split champion's roster (lane-ordered) + coach for a region, from the
+// archived phase snapshot. null when the snapshot doesn't cover it.
+function splitChampRoster(entry: SeasonHistoryEntry, split: SplitId, league: LeagueId) {
+  const champ = entry.splitChampions[split]?.[league];
+  if (!champ) return null;
+  const phase = (entry.phaseRosters ?? []).find((p) => p.kind === "split" && p.split === split);
+  const team = phase?.teams.find((t) => t.teamName === champ.name && t.leagueId === league);
+  if (!team) return null;
+  return {
+    players: [...team.players].sort((a, b) => LANE_ORDER.indexOf(a.lane) - LANE_ORDER.indexOf(b.lane)),
+    coach: team.coach?.name,
+  };
+}
+
 // One season's full résumé panel.
 function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
   const intls = INTL_ORDER.filter((e) => entry.intlChampions[e]);
@@ -342,22 +385,49 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
         )}
       </div>
 
-      {/* International title holders */}
+      {/* International title holders — with the winning roster that lifted it */}
       {intls.length > 0 && (
         <div>
           <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
             International Champions
           </div>
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px]">
-            {intls.map((event) => (
-              <span key={event} className="inline-flex items-center gap-1.5">
-                <LeagueIcon league={event} size={14} />
-                <span className="text-rift-muted/80">
-                  {INTERNATIONAL_LABELS[event]}:
-                </span>
-                <TeamRef team={entry.intlChampions[event]!} size={12} />
-              </span>
-            ))}
+          <div className="space-y-2">
+            {intls.map((event) => {
+              const roster = intlChampRoster(entry, event);
+              return (
+                <div key={event} className="border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5">
+                  <div className="inline-flex items-center gap-1.5 text-[11px] flex-wrap">
+                    <LeagueIcon league={event} size={14} />
+                    <span className="text-rift-muted/80">{INTERNATIONAL_LABELS[event]}:</span>
+                    <TeamRef team={entry.intlChampions[event]!} size={12} />
+                    {entry.intlRunnersUp?.[event] && (
+                      <>
+                        <span className="text-rift-muted/50 text-[9px] uppercase tracking-[0.2em]">def.</span>
+                        <TeamRef team={entry.intlRunnersUp[event]!} size={11} muted />
+                      </>
+                    )}
+                    {roster?.coach && (
+                      <span className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/70">
+                        coach {roster.coach}
+                      </span>
+                    )}
+                  </div>
+                  {roster && roster.players.length > 0 && (
+                    <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 mt-1">
+                      {roster.players.map((p, i) => (
+                        <span key={i} className="inline-flex items-center gap-1 text-[9px]">
+                          <LaneIcon lane={p.lane} size="xs" />
+                          <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>
+                            {p.tier}
+                          </span>
+                          <span className="text-rift-mutedbright truncate max-w-[80px]">{p.name ?? "—"}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -378,6 +448,7 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
                   {LEAGUE_IDS.map((league) => {
                     const team = entry.splitChampions[split]?.[league];
                     if (!team) return null;
+                    const ru = entry.splitRunnersUp?.[split]?.[league];
                     return (
                       <div
                         key={league}
@@ -395,6 +466,13 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
                         <span className="truncate text-rift-mutedbright">
                           {team.name}
                         </span>
+                        {ru && (
+                          <span className="inline-flex items-center gap-1 text-rift-muted/50 truncate">
+                            <span className="text-[8px] uppercase tracking-[0.15em]">def.</span>
+                            <TeamIcon iconKey={ru.iconKey} logoUrl={ru.logoUrl ?? logoForTeamName(ru.name)} size={9} color={ru.color} />
+                            <span className="truncate">{ru.name}</span>
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -435,6 +513,7 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
 // stage's champion flagged. Rosters shift between stages via transfer windows,
 // so each stage shows who actually played it.
 const STAGE_TIER_CLS: Record<string, string> = {
+  "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
   S: "border-rift-gold text-rift-goldbright bg-rift-gold/10",
   A: "border-rift-blue/70 text-rift-bluebright bg-rift-blue/10",
   B: "border-rift-line text-rift-mutedbright",
@@ -1311,35 +1390,503 @@ function OverallTimeline({ entries }: { entries: SeasonHistoryEntry[] }) {
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                  {rows.map((row) => (
-                    <div
-                      key={row.key}
-                      className="flex items-center gap-1.5 border border-rift-line/30 bg-rift-bg/30 px-2 py-1 text-[10px] min-w-0"
-                    >
-                      {filter === "intl" && (
-                        <LeagueIcon
-                          league={row.key as InternationalId}
-                          size={13}
-                        />
-                      )}
-                      <span className="text-[7px] uppercase tracking-[0.2em] text-rift-gold/60 w-12 flex-shrink-0">
-                        {row.label}
-                      </span>
-                      {row.team ? (
-                        <span className="min-w-0 flex-1">
-                          <TeamRef team={row.team} size={12} />
-                        </span>
-                      ) : (
-                        <span className="italic text-rift-muted/60">—</span>
-                      )}
-                    </div>
-                  ))}
+                  {rows.map((row) => {
+                    const roster = !row.team
+                      ? null
+                      : filter === "intl"
+                        ? intlChampRoster(entry, row.key as InternationalId)
+                        : splitChampRoster(entry, row.key as SplitId, filter);
+                    return (
+                      <div
+                        key={row.key}
+                        className="border border-rift-line/30 bg-rift-bg/30 px-2 py-1 text-[10px] min-w-0"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          {filter === "intl" && (
+                            <LeagueIcon league={row.key as InternationalId} size={13} />
+                          )}
+                          <span className="text-[7px] uppercase tracking-[0.2em] text-rift-gold/60 w-12 flex-shrink-0">
+                            {row.label}
+                          </span>
+                          {row.team ? (
+                            <span className="min-w-0 flex-1">
+                              <TeamRef team={row.team} size={12} />
+                            </span>
+                          ) : (
+                            <span className="italic text-rift-muted/60">—</span>
+                          )}
+                        </div>
+                        {roster && roster.players.length > 0 && (
+                          <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1 pl-1">
+                            {roster.players.map((p, i) => (
+                              <span key={i} className="inline-flex items-center gap-0.5 text-[8px]">
+                                <LaneIcon lane={p.lane} size="xs" />
+                                <span className="text-rift-mutedbright truncate max-w-[64px]">{p.name ?? "—"}</span>
+                              </span>
+                            ))}
+                            {roster.coach && (
+                              <span className="text-[7px] uppercase tracking-[0.15em] text-rift-blue/70 w-full">
+                                coach {roster.coach}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </li>
             );
           })}
         </ol>
       )}
+    </div>
+  );
+}
+
+// ─── Search (Liquipedia-style profiles) ──────────────────────────────────────
+
+function StatChip({ label, value, tone }: { label: string; value: number | string; tone?: string }) {
+  return (
+    <div className="border border-rift-line/40 bg-rift-bg/30 px-2 py-1 text-center">
+      <div className={`text-[12px] font-display tabular-nums ${tone ?? "text-rift-goldbright"}`}>{value}</div>
+      <div className="text-[7px] uppercase tracking-[0.2em] text-rift-muted/60">{label}</div>
+    </div>
+  );
+}
+
+// Career-average formatting from the summed PlayerCareerLine accumulators.
+const avg1 = (sum: number, n: number) => (n > 0 ? (sum / n).toFixed(1) : "—");
+const perGame = (total: number, games: number) => (games > 0 ? (total / games).toFixed(1) : "—");
+const kdaOf = (k: number, d: number, a: number) => (k + a === 0 && d === 0 ? "—" : (d > 0 ? (k + a) / d : k + a).toFixed(2));
+const goldDiff = (sum: number, n: number) => {
+  if (n <= 0) return { text: "—", tone: "text-rift-muted/60" };
+  const v = Math.round(sum / n);
+  return { text: `${v >= 0 ? "+" : ""}${v}`, tone: v > 50 ? "text-emerald-400" : v < -50 ? "text-rift-redbright" : "text-rift-mutedbright" };
+};
+
+function RosterChips({ roster }: { roster: Array<{ name?: string; tier: PlayerTier; lane: Lane }> }) {
+  return (
+    <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+      {[...roster]
+        .sort((a, b) => LANE_ORDER.indexOf(a.lane) - LANE_ORDER.indexOf(b.lane))
+        .map((p, i) => (
+          <span key={i} className="inline-flex items-center gap-1 text-[9px]">
+            <LaneIcon lane={p.lane} size="xs" />
+            <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>
+            <span className="text-rift-mutedbright truncate max-w-[80px]">{p.name ?? "—"}</span>
+          </span>
+        ))}
+    </div>
+  );
+}
+
+// Titles broken out as Splits + each international (First Stand / MSI / Worlds).
+function IntlTitleChips({ splitTitles, intl }: { splitTitles: number; intl: Partial<Record<InternationalId, number>> }) {
+  return (
+    <div>
+      <div className="text-[8px] uppercase tracking-[0.25em] text-rift-gold/55 mb-1">Titles</div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="text-[8px] uppercase tracking-[0.2em] text-rift-blue/70">Splits</span>
+          <span className="font-display text-rift-goldbright tabular-nums">{splitTitles}</span>
+        </span>
+        {INTL_ORDER.map((e) => (
+          <span key={e} className="inline-flex items-center gap-1.5" title={INTERNATIONAL_LABELS[e]}>
+            <LeagueIcon league={e} size={13} />
+            <span className="text-[8px] uppercase tracking-[0.2em] text-rift-gold/60">{INTERNATIONAL_LABELS[e]}</span>
+            <span className="font-display text-rift-goldbright tabular-nums">{intl[e] ?? 0}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Inline title tally for a tenure row: 🏆 + intl event icons + split labels.
+function TitleTallyInline({ titles }: { titles: { splits: SplitId[]; intl: InternationalId[] } }) {
+  if (titles.splits.length === 0 && titles.intl.length === 0) return null;
+  return (
+    <span className="ml-auto inline-flex flex-wrap items-center gap-1.5 text-[8px] uppercase tracking-[0.15em] text-rift-goldbright">
+      🏆
+      {titles.intl.map((e) => (
+        <span key={e} className="inline-flex items-center gap-0.5">
+          <LeagueIcon league={e} size={10} />
+          {INTERNATIONAL_LABELS[e]}
+        </span>
+      ))}
+      {titles.splits.map((s) => (
+        <span key={s} className="text-rift-blue/80">{SPLIT_LABELS[s]}</span>
+      ))}
+    </span>
+  );
+}
+
+function PlayerProfileView({ entries, id }: { entries: SeasonHistoryEntry[]; id: string }) {
+  const p = useMemo(() => playerProfile(entries, id), [entries, id]);
+  if (!p) return <p className="text-[11px] italic text-rift-muted">No data.</p>;
+  const c = p.career;
+  const gd = c ? goldDiff(c.goldDiffSum, c.goldDiffGames) : null;
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        {p.lane && <LaneIcon lane={p.lane} size="sm" />}
+        {p.tier && <span className={`w-5 text-center border font-display text-[10px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>}
+        <span className="font-display text-lg tracking-wide text-rift-goldbright">{p.name}</span>
+      </div>
+      {c && (
+        <>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+            <StatChip label="Seasons" value={c.seasons} />
+            <StatChip label="Games" value={c.games} />
+            <StatChip label="Avg grade" value={avg1(c.ratingSum, c.ratingGames)} />
+            <StatChip label="Avg gold ±" value={gd!.text} tone={gd!.tone} />
+            <StatChip label="Kills/game" value={perGame(c.kills, c.games)} />
+            <StatChip label="KDA" value={kdaOf(c.kills, c.deaths, c.assists)} />
+          </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            <StatChip label="Kills" value={c.kills} />
+            <StatChip label="Pentas" value={c.pentakills} />
+            <StatChip label="MVPs" value={c.mvps} />
+            <StatChip label="All-Pro" value={c.allPro} />
+          </div>
+        </>
+      )}
+      <IntlTitleChips splitTitles={p.splitTitles} intl={p.intlTitles} />
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Team History</div>
+        <div className="space-y-1.5">
+          {p.tenures.map((t, i) => (
+            <div key={i} className="border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5 text-[10px]">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-16 flex-shrink-0">{t.season}</span>
+                {/* Each stint = a team across some stages; >1 = transferred mid-year. */}
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 min-w-0">
+                  {t.stints.map((st, j) => (
+                    <span key={j} className="inline-flex items-center gap-1">
+                      {j > 0 && <span className="text-rift-muted/40">→</span>}
+                      <TeamRef team={st.team} size={12} />
+                      <LaneIcon lane={st.lane} size="xs" />
+                      <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[st.tier] ?? ""}`}>{st.tier}</span>
+                      <span className="text-[7px] uppercase tracking-[0.15em] text-rift-muted/45">{st.stages.join(", ")}</span>
+                    </span>
+                  ))}
+                </div>
+                <TitleTallyInline titles={t.titles} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamProfileView({ entries, teamKey }: { entries: SeasonHistoryEntry[]; teamKey: string }) {
+  const t = useMemo(() => teamProfile(entries, teamKey), [entries, teamKey]);
+  if (!t) return <p className="text-[11px] italic text-rift-muted">No data.</p>;
+  const r = t.record;
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <TeamRef team={t.team} size={20} />
+        <span className="text-[9px] uppercase tracking-[0.2em] text-rift-muted/60">{t.team.leagueId}</span>
+        {t.star != null && (
+          <span className="ml-auto text-[11px] text-rift-gold/85 tabular-nums" title="Most-recent roster rating">
+            {t.star}★
+          </span>
+        )}
+      </div>
+      {r && (
+        <>
+          <IntlTitleChips splitTitles={r.splitTitles} intl={r.intlTitles} />
+          <div className="grid grid-cols-3 gap-1.5">
+            <StatChip label="Intl titles" value={r.intlTotal} />
+            <StatChip label="Total titles" value={r.totalTitles} />
+            <StatChip label="Dynasty" value={r.dynasty.tier === "none" ? "—" : r.dynasty.tier} />
+          </div>
+        </>
+      )}
+      {/* Results history — a trophy line per season across all years */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Results History</div>
+        <div className="space-y-1">
+          {t.seasons.map((s, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border border-rift-line/25 bg-rift-bg/15 px-2.5 py-1 text-[10px]">
+              <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-16 flex-shrink-0">{s.season}</span>
+              {s.worlds === "champion" && <span className="text-[8px] uppercase tracking-[0.15em] text-rift-goldbright">🏆 World Champion</span>}
+              {s.worlds === "finalist" && <span className="text-[8px] uppercase tracking-[0.15em] text-rift-mutedbright">Worlds Finalist</span>}
+              {s.intlTitles.map((e) => (
+                <span key={e} className="inline-flex items-center gap-1 text-[8px] uppercase tracking-[0.15em] text-rift-gold/80">
+                  <LeagueIcon league={e} size={11} />
+                  {INTERNATIONAL_LABELS[e]}
+                </span>
+              ))}
+              {s.splitTitles.map((sp) => (
+                <span key={sp} className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/70">🏅 {SPLIT_LABELS[sp]}</span>
+              ))}
+              {!s.worlds && s.intlTitles.length === 0 && s.splitTitles.length === 0 && (
+                <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/40">no titles</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* All stage rosters across the years */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Stage Rosters</div>
+        <div className="space-y-2">
+          {t.seasons.filter((s) => s.stages.length > 0).map((s, i) => (
+            <div key={i} className="border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5">
+              <div className="text-[8px] uppercase tracking-[0.2em] text-rift-gold/55 mb-1">{s.season}</div>
+              <div className="space-y-1">
+                {s.stages.map((stage, j) => (
+                  <div key={j}>
+                    <div className="flex flex-wrap items-center gap-x-2 text-[9px] mb-0.5">
+                      <span className="uppercase tracking-[0.15em] text-rift-mutedbright/70 w-28 flex-shrink-0">{stage.label}</span>
+                      {stage.coach && <span className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/70">coach {stage.coach}</span>}
+                    </div>
+                    <RosterChips roster={stage.roster} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CoachProfileView({ entries, name }: { entries: SeasonHistoryEntry[]; name: string }) {
+  const c = useMemo(() => coachProfile(entries, name), [entries, name]);
+  if (!c) return <p className="text-[11px] italic text-rift-muted">No data.</p>;
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-display text-lg tracking-wide text-rift-bluebright">{c.name}</span>
+        <span className="text-[8px] uppercase tracking-[0.2em] text-rift-blue/60 border border-rift-blue/40 px-1">Coach</span>
+        {c.team && (
+          <span className="inline-flex items-center gap-1 text-[9px] text-rift-muted/70">
+            <TeamIcon iconKey={c.team.iconKey} logoUrl={c.team.logoUrl ?? logoForTeamName(c.team.name)} size={14} color={c.team.color} />
+            {c.team.name}
+          </span>
+        )}
+        {c.tenures[0] && (
+          <span className="text-[10px] text-rift-gold/85 tabular-nums" title="Most-recent rating">★{c.tenures[0].rating.toFixed(1)}</span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <StatChip label="Seasons" value={c.tenures.length} />
+        <StatChip label="Total titles" value={c.splitTitles + Object.values(c.intlTitles).reduce((s, n) => s + (n ?? 0), 0)} />
+      </div>
+      <IntlTitleChips splitTitles={c.splitTitles} intl={c.intlTitles} />
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Coaching History</div>
+        <div className="space-y-1.5">
+          {c.tenures.map((t, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5 text-[10px]">
+              <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-16 flex-shrink-0">{t.season}</span>
+              <TeamRef team={t.team} size={13} />
+              <span className="text-rift-gold/80 tabular-nums text-[9px]">★{t.rating.toFixed(1)}</span>
+              <TitleTallyInline titles={t.titles} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
+  const [kind, setKind] = useState<"players" | "teams" | "coaches">("players");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [laneFilter, setLaneFilter] = useState<Lane | null>(null); // players
+  const [regionFilter, setRegionFilter] = useState<LeagueId | null>(null); // teams
+
+  const players = useMemo(() => listPlayers(entries), [entries]);
+  const teams = useMemo(() => listTeams(entries), [entries]);
+  const stars = useMemo(() => teamStars(entries), [entries]);
+  const coaches = useMemo(() => listCoachesRich(entries), [entries]);
+
+  const q = query.normalize("NFKD").toLowerCase().trim();
+  // Result rows carry icon + rating data: lane/tier (players), team ref + star
+  // (teams), rating + team (coaches). regionFilter applies to teams AND coaches.
+  const results = useMemo(() => {
+    if (kind === "players") {
+      return players
+        .filter(
+          (p) =>
+            (!laneFilter || p.lane === laneFilter) &&
+            (!regionFilter || p.leagueId === regionFilter) &&
+            (!q ||
+              p.name.toLowerCase().includes(q) ||
+              p.team?.name.toLowerCase().includes(q) ||
+              p.leagueId?.toLowerCase().includes(q)),
+        )
+        .map((p) => ({
+          id: p.id,
+          label: p.name,
+          sub: p.leagueId ?? "",
+          lane: p.lane,
+          tier: p.tier,
+          team: p.team,
+          star: null as number | null,
+          rating: null as number | null,
+        }));
+    }
+    if (kind === "teams") {
+      return teams
+        .filter((t) => (!regionFilter || t.leagueId === regionFilter) && (!q || t.name.toLowerCase().includes(q) || t.leagueId.toLowerCase().includes(q)))
+        .map((t) => ({
+          id: `${t.leagueId}:${t.name}`,
+          label: t.name,
+          sub: t.leagueId,
+          lane: null as Lane | null,
+          tier: null as PlayerTier | null,
+          team: t,
+          star: stars.get(`${t.leagueId}:${t.name}`) ?? null,
+          rating: null as number | null,
+        }));
+    }
+    return coaches
+      .filter((c) => (!regionFilter || c.team?.leagueId === regionFilter) && (!q || c.name.toLowerCase().includes(q) || c.team?.name.toLowerCase().includes(q)))
+      .map((c) => ({
+        id: c.name,
+        label: c.name,
+        sub: c.team ? c.team.name : "Coach",
+        lane: null as Lane | null,
+        tier: null as PlayerTier | null,
+        team: c.team,
+        star: null as number | null,
+        rating: c.rating,
+      }));
+  }, [kind, q, laneFilter, regionFilter, players, teams, stars, coaches]);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-5 items-start">
+      <div>
+        {/* Entity type */}
+        <div className="flex items-center gap-1 mb-2">
+          {(
+            [
+              { id: "players", label: "Players" },
+              { id: "teams", label: "Teams" },
+              { id: "coaches", label: "Coaches" },
+            ] as const
+          ).map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                setKind(id);
+                setSelected(null);
+              }}
+              className={`px-2.5 py-1 border text-[9px] uppercase tracking-[0.2em] transition-all ${
+                kind === id ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={kind === "players" ? "Search by player, team or region…" : kind === "teams" ? "Search by team or region…" : "Search coach…"}
+          className="w-full mb-2 px-2.5 py-1.5 border border-rift-line/60 bg-rift-bg/40 text-[11px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 focus:outline-none"
+        />
+        {/* Position filter (players) */}
+        {kind === "players" && (
+          <div className="flex flex-wrap gap-1 mb-2">
+            <button
+              type="button"
+              onClick={() => setLaneFilter(null)}
+              className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${laneFilter == null ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"}`}
+            >
+              All
+            </button>
+            {LANE_ORDER.map((lane) => (
+              <button
+                key={lane}
+                type="button"
+                onClick={() => setLaneFilter(lane)}
+                className={`inline-flex items-center px-1.5 py-0.5 border transition-all ${laneFilter === lane ? "border-rift-gold/70 bg-rift-gold/10" : "border-rift-line/50 hover:border-rift-gold/40"}`}
+                title={lane}
+              >
+                <LaneIcon lane={lane} size="xs" />
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Region filter (all entity types) */}
+        <div className="flex flex-wrap gap-1 mb-2">
+          <button
+            type="button"
+            onClick={() => setRegionFilter(null)}
+            className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${regionFilter == null ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"}`}
+          >
+            All
+          </button>
+          {LEAGUE_IDS.map((lg) => (
+            <button
+              key={lg}
+              type="button"
+              onClick={() => setRegionFilter(lg)}
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${regionFilter === lg ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"}`}
+            >
+              <LeagueIcon league={lg} size={11} />
+              {lg}
+            </button>
+          ))}
+        </div>
+        <div className="space-y-1 lg:max-h-[60vh] lg:overflow-y-auto lg:pr-1">
+          {results.length === 0 ? (
+            <p className="text-[10px] italic text-rift-muted px-1">No matches.</p>
+          ) : (
+            results.slice(0, 200).map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setSelected(r.id)}
+                className={`w-full text-left px-2.5 py-1.5 border transition-colors flex items-center gap-1.5 ${
+                  selected === r.id ? "border-rift-gold/70 bg-rift-gold/[0.07]" : "border-rift-line/50 bg-rift-bg/30 hover:border-rift-gold/40"
+                }`}
+              >
+                {r.lane && <LaneIcon lane={r.lane} size="xs" />}
+                {r.tier && (
+                  <span className={`w-4 text-center border font-display text-[8px] shrink-0 ${STAGE_TIER_CLS[r.tier] ?? ""}`}>{r.tier}</span>
+                )}
+                {r.team && <TeamIcon iconKey={r.team.iconKey} logoUrl={r.team.logoUrl ?? logoForTeamName(r.team.name)} size={14} color={r.team.color} />}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11px] text-rift-mutedbright truncate">{r.label}</span>
+                  {/* Players: team logo's region; teams/coaches: the sub line. */}
+                  <span className="flex items-center gap-1 text-[8px] uppercase tracking-[0.15em] text-rift-muted/50 truncate">
+                    {kind === "players" && r.team && <LeagueIcon league={r.team.leagueId} size={9} />}
+                    {r.sub}
+                  </span>
+                </span>
+                {r.star != null && <span className="text-[9px] text-rift-gold/85 tabular-nums shrink-0">{r.star}★</span>}
+                {r.rating != null && <span className="text-[9px] text-rift-gold/85 tabular-nums shrink-0">★{r.rating.toFixed(1)}</span>}
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+      <div className="min-w-0">
+        {selected == null ? (
+          <p className="text-[11px] italic text-rift-muted">Pick a {kind.slice(0, -1)} to see their full history.</p>
+        ) : kind === "players" ? (
+          <PlayerProfileView entries={entries} id={selected} />
+        ) : kind === "teams" ? (
+          <TeamProfileView entries={entries} teamKey={selected} />
+        ) : (
+          <CoachProfileView entries={entries} name={selected} />
+        )}
+      </div>
     </div>
   );
 }
@@ -1365,7 +1912,7 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
   const importSeasonHistory = useDraftStore((s) => s.importSeasonHistory);
   const champions = useDraftStore((s) => s.champions);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"timeline" | "records">("timeline");
+  const [tab, setTab] = useState<"timeline" | "records" | "search">("timeline");
   // Within the Timeline tab: "seasons" = the list + selected-season résumé;
   // "overall" = a single chronological timeline across all seasons.
   const [timelineView, setTimelineView] = useState<"seasons" | "overall">(
@@ -1619,6 +2166,7 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
               [
                 { id: "timeline", label: "Timeline" },
                 { id: "records", label: "Records & Dynasties" },
+                { id: "search", label: "Search" },
               ] as const
             ).map(({ id, label }) => (
               <button
@@ -1647,6 +2195,8 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
           </p>
         ) : tab === "records" ? (
           <RecordsPanel entries={seasonHistory} />
+        ) : tab === "search" ? (
+          <SearchPanel entries={seasonHistory} />
         ) : (
           <>
             {/* Timeline sub-views: per-season résumé, or one overall timeline */}

@@ -32,7 +32,10 @@ export interface Champion {
 // tier, and champion pools — is fixed for the life of a series, and in
 // tournament mode persists across every match. A team's star rating is DERIVED
 // from its roster (see `deriveStar` in lib/players.ts), not stored separately.
-export type PlayerTier = "S" | "A" | "B" | "C" | "D";
+// "S+" is a very rare, generational ceiling above S — only reachable by
+// development (a prospect with S+ potential climbing into it), never produced by
+// ordinary roster generation. See lib/players.ts valueToTier / playerLifecycle.
+export type PlayerTier = "S+" | "S" | "A" | "B" | "C" | "D";
 
 export interface Player {
   // Stable, permanent identity — survives transfers AND seasons, so a player's
@@ -72,6 +75,12 @@ export interface Player {
   // Up to 3 champions this player plays badly — a penalty. Disjoint from
   // goodChamps. Champion ids.
   badChamps: number[];
+  // Signed teammate chemistry: teammate player id → value in roughly [-1,+1].
+  // Some duos click (+), some clash (−). Rolled once and STORED when a roster
+  // first enters play (assignSynergies) and mirrored on both players, so it
+  // survives transfers. Optional; absent ⇒ chemistry falls back to same-region
+  // + bot-lane-duo signals only. See lib/chemistry.ts.
+  synergy?: Record<string, number>;
 }
 
 // Exactly 5 players in positional lane order [top, jungle, middle, bottom,

@@ -184,23 +184,25 @@ describe("computeGameRatings", () => {
 
   it("flips the blue-signed lane gold for red players", () => {
     const line: KDA = { k: 3, d: 3, a: 3 };
-    const mk = (winner: Side) =>
+    const rate = (laneGoldDiff: Partial<Record<Lane, number>>) =>
       computeGameRatings(
         recapInput({
           blue: side5(line, line, line, line, line),
           red: side5(line, line, line, line, line),
-          laneGoldDiff: { top: 1500 },
+          laneGoldDiff,
         }),
-        winner,
+        "blue",
       )!;
     // Blue top is +1500, red top is -1500; with the same KDA and a shared
-    // winner-side bonus held fixed per side, blue top out-rates red top by
-    // more than the win/loss gap alone would explain.
-    const r = mk("blue");
-    expect(r.blue[0]).toBeGreaterThan(r.red[0]);
-    // Pure gold component within a side: +1500 vs 0 lane gold ≈ +0.75.
-    expect(r.blue[0] - r.blue[1]).toBeGreaterThanOrEqual(0.6);
-    expect(r.blue[0] - r.blue[1]).toBeLessThanOrEqual(0.9);
+    // winner-side bonus held fixed per side, blue top out-rates red top.
+    const withGold = rate({ top: 1500 });
+    expect(withGold.blue[0]).toBeGreaterThan(withGold.red[0]);
+    // Pure gold component for the SAME role: top +1500 vs top 0 ≈ +0.75 (top
+    // goldWeight 1.0). Compared within the role so per-role criteria don't skew
+    // the isolation.
+    const noGold = rate({});
+    expect(withGold.blue[0] - noGold.blue[0]).toBeGreaterThanOrEqual(0.6);
+    expect(withGold.blue[0] - noGold.blue[0]).toBeLessThanOrEqual(0.9);
   });
 });
 
@@ -350,17 +352,41 @@ describe("simulateMatch playerForms seam", () => {
     ).toBe(base);
   });
 
-  it("shifts the lane advantage by formTierBias × k for a hot player", () => {
+  it("shifts every lane advantage by formTierBias × k for a uniformly hot team", () => {
     const seed = 1234;
+    const lanes = ["top", "jungle", "middle", "bottom", "support"] as const;
     const base = simulateMatch(GAME, CHAMPIONS, { rng: createRng(seed) });
+    // Uniform max form across all lanes → +4 g/min each, and NO carry funnel
+    // (equal forms = no hot/cold gap to redistribute), so the form bias is
+    // observable in isolation.
     const hot = simulateMatch(GAME, CHAMPIONS, {
+      rng: createRng(seed),
+      playerForms: {
+        blue: { top: 1, jungle: 1, middle: 1, bottom: 1, support: 1 },
+      },
+    });
+    for (const lane of lanes) {
+      expect(hot.laneAdvantages[lane] - base.laneAdvantages[lane]).toBeCloseTo(4, 9);
+    }
+  });
+
+  it("funnels lane gold into the hottest in-form lane, net-zero per team", () => {
+    const seed = 1234;
+    const lanes = ["top", "jungle", "middle", "bottom", "support"] as const;
+    const base = simulateMatch(GAME, CHAMPIONS, { rng: createRng(seed) });
+    // Only top is hot → the team concentrates resources there at the expense of
+    // its coldest lane. Top gains MORE than the bare form bias; across all five
+    // lanes the funnel cancels, leaving just the +4 form bias on net.
+    const carry = simulateMatch(GAME, CHAMPIONS, {
       rng: createRng(seed),
       playerForms: { blue: { top: 1 } },
     });
-    // Same seed → same lane noise/strategy adjustments; the only delta in
-    // top is the form bias (+4 g/min at max form). Other lanes unchanged.
-    expect(hot.laneAdvantages.top - base.laneAdvantages.top).toBeCloseTo(4, 9);
-    expect(hot.laneAdvantages.middle).toBeCloseTo(base.laneAdvantages.middle, 9);
-    expect(hot.laneAdvantages.bottom).toBeCloseTo(base.laneAdvantages.bottom, 9);
+    const dTop = carry.laneAdvantages.top - base.laneAdvantages.top;
+    const total = lanes.reduce(
+      (s, l) => s + (carry.laneAdvantages[l] - base.laneAdvantages[l]),
+      0,
+    );
+    expect(dTop).toBeGreaterThan(4); // funnel piled extra into the hot lane
+    expect(total).toBeCloseTo(4, 9); // funnel nets to zero; only form bias remains
   });
 });

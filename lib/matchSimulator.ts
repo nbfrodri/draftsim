@@ -14,6 +14,7 @@ import { buildStatsAt, getKeyPowerSpike } from "./championBuilds";
 import { hardCounterValue } from "./draftAI/helpers";
 import { PLAYER_TIER_VALUE, playerForLane, poolBias } from "./players";
 import { formTierBias, type SideForms } from "./playerForm";
+import { laneChemistryBias } from "./chemistry";
 import type { RNG } from "./rng";
 import {
   applyCarryFocusToLaneAdv,
@@ -61,6 +62,7 @@ import {
   phaseLevelOneInvade,
   phaseLevelSpikeGank,
   phaseMidRoam,
+  phaseSupportRoam,
   phasePlates,
   phaseSoloKills,
   phaseWaveCrash,
@@ -1773,6 +1775,10 @@ function computeLaneAdvantages(
     const formLaneBias = playerLaneFormBias(blueForms, redForms, lane);
     // Language barrier: unacclimated cross-region imports under-perform.
     const cohesionLaneBias = playerLaneCohesionBias(bluePlayers, redPlayers, lane);
+    // Teammate chemistry: a well-gelled laner (explicit duo, same-region
+    // settled pair, or the bot-lane duo) out-performs. 0 when no roster supplies
+    // it, so default sims stay unchanged (see lib/chemistry.ts).
+    const chemistryLaneBias = laneChemistryBias(bluePlayers, redPlayers, lane);
     adv[lane] =
       phaseDiff * 50 +
       ccDiff * 5 +
@@ -1784,7 +1790,8 @@ function computeLaneAdvantages(
       playerBias +
       poolLaneBias +
       formLaneBias +
-      cohesionLaneBias;
+      cohesionLaneBias +
+      chemistryLaneBias;
   }
   // Apply weakside redistributions. The weak side bleeds ~25 g/min while
   // the strong side gets +15 g/min — net negative for the team, but the
@@ -1803,7 +1810,48 @@ function computeLaneAdvantages(
     adv[redWS.weakLane] += 25;
     adv[redWS.strongLane] -= 15;
   }
+  // Carry funnel: a team plays through the player who's in form, concentrating
+  // resources into the hot lane at the cost of the coldest. NET-ZERO within
+  // each team (shift from coldest- to hottest-form lane), so it only changes
+  // WHICH lane snowballs — team-total gold and the sim's calibration are
+  // untouched. Fires only when a laner is genuinely hot and meaningfully
+  // hotter than a teammate; 0 when no forms supplied (default sims unchanged).
+  applyCarryFunnel(adv, bluePicks, redPicks, blueForms, +1);
+  applyCarryFunnel(adv, bluePicks, redPicks, redForms, -1);
   return adv;
+}
+
+// Hottest-form lane gains, coldest loses, net zero. `sign` is +1 for blue
+// (adv is blue-positive) and −1 for red (its gains reduce blue's advantage).
+// Only lanes with a pick on BOTH sides are eligible (others have no gold to
+// move). See computeLaneAdvantages.
+const CARRY_FUNNEL_K = 12; // max g/min shifted into the hot lane
+const CARRY_FUNNEL_MIN_FORM = 0.25; // hot lane must clear this to funnel
+function applyCarryFunnel(
+  adv: Record<Lane, number>,
+  bluePicks: (Champion | null)[],
+  redPicks: (Champion | null)[],
+  forms: SideForms | undefined,
+  sign: 1 | -1,
+): void {
+  if (!forms) return;
+  let hot: Lane | null = null;
+  let cold: Lane | null = null;
+  let hi = -Infinity;
+  let lo = Infinity;
+  for (let i = 0; i < POSITIONAL_LANES.length; i++) {
+    if (!bluePicks[i] || !redPicks[i]) continue; // no gold in this lane
+    const lane = POSITIONAL_LANES[i];
+    const f = forms[lane] ?? 0;
+    if (f > hi) { hi = f; hot = lane; }
+    if (f < lo) { lo = f; cold = lane; }
+  }
+  if (!hot || !cold || hot === cold) return;
+  if (hi < CARRY_FUNNEL_MIN_FORM) return; // nobody hot enough to funnel to
+  const amount = Math.min(1, hi - Math.max(0, lo)) * CARRY_FUNNEL_K;
+  if (amount <= 0) return;
+  adv[hot] += sign * amount;
+  adv[cold] -= sign * amount;
 }
 
 // Per-game lane variance: ±10 g/min of uniform noise per lane (players have
@@ -1990,6 +2038,7 @@ function generateTimeline(
   phaseBuffSteal(tl);
   phasePlates(tl);
   phaseMidRoam(tl);
+  phaseSupportRoam(tl);
   phaseWaveCrash(tl);
   phaseTowerDive(tl);
   phaseFirstTower(tl);
@@ -2268,11 +2317,33 @@ export function simulateMatch(
 const RATING_BASE = 5.0;
 const RATING_KDA_SCALE = 2.4;
 const RATING_KDA_DIVISOR = 7;
-const RATING_ASSIST_WEIGHT = 0.7;
-const RATING_INVOLVEMENT_CENTER = 0.45;
 const RATING_INVOLVEMENT_SCALE = 1.2;
 const RATING_GOLD_SATURATION = 2000;
 const RATING_RESULT_BONUS = 0.45;
+
+// Per-role rating criteria. A flat formula over-rates junglers and supports:
+// they roam/gank, so they're involved in most of the team's kills and rack
+// assists — inflating both the assist-weighted KDA and the kill-participation
+// term every game. We judge each role against its OWN baseline instead:
+//   • invCenter — the EXPECTED kill participation for the role. Jungle/support
+//     sit high (≈0.58), so their natural involvement nets to ~0; a solo laner
+//     or ADC with the same participation reads as genuinely impactful.
+//   • assistWeight — how much an assist counts toward KDA. Lower for jungle/
+//     support (assists are their bread and butter), full for carries/solos.
+//   • goldWeight — how much the lane-gold lead matters. Carries are farm-
+//     dependent (≥1.0); support gold is low-signal (0.7).
+// top/middle keep the original calibration; jungle/support are pulled back to
+// neutral so the highest rating reflects who actually carried, role-adjusted.
+const ROLE_RATING: Record<
+  Lane,
+  { invCenter: number; assistWeight: number; goldWeight: number }
+> = {
+  top: { invCenter: 0.45, assistWeight: 0.7, goldWeight: 1.0 },
+  jungle: { invCenter: 0.58, assistWeight: 0.5, goldWeight: 0.8 },
+  middle: { invCenter: 0.45, assistWeight: 0.7, goldWeight: 1.0 },
+  bottom: { invCenter: 0.47, assistWeight: 0.7, goldWeight: 1.1 },
+  support: { invCenter: 0.58, assistWeight: 0.5, goldWeight: 0.7 },
+};
 
 function ratePlayerGame(
   k: number,
@@ -2281,17 +2352,17 @@ function ratePlayerGame(
   laneGoldDiff: number,
   won: boolean,
   teamKills: number,
+  lane: Lane,
 ): number {
-  const killPoints = k + a * RATING_ASSIST_WEIGHT;
+  const role = ROLE_RATING[lane];
+  const killPoints = k + a * role.assistWeight;
   const kdaScore =
     RATING_KDA_SCALE * Math.tanh((killPoints - d) / RATING_KDA_DIVISOR);
   const participation = Math.min(1, (k + a) / Math.max(1, teamKills));
-  const involvement =
-    (participation - RATING_INVOLVEMENT_CENTER) * RATING_INVOLVEMENT_SCALE;
-  const goldScore = Math.max(
-    -1,
-    Math.min(1, laneGoldDiff / RATING_GOLD_SATURATION),
-  );
+  const involvement = (participation - role.invCenter) * RATING_INVOLVEMENT_SCALE;
+  const goldScore =
+    role.goldWeight *
+    Math.max(-1, Math.min(1, laneGoldDiff / RATING_GOLD_SATURATION));
   const result = won ? RATING_RESULT_BONUS : -RATING_RESULT_BONUS;
   const raw = RATING_BASE + kdaScore + involvement + goldScore + result;
   return Math.round(Math.max(1, Math.min(10, raw)) * 10) / 10;
@@ -2339,6 +2410,7 @@ export function computeGameRatings(
         gold,
         winner === side,
         side === "blue" ? blueKills : redKills,
+        lane,
       );
     });
   return { blue: rate("blue"), red: rate("red") };

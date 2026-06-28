@@ -1505,6 +1505,22 @@ describe("season realism features", () => {
     expect(tiersD.some((tier) => tier !== "D")).toBe(true);
   });
 
+  it("never develops an S+ player — the elite tier is owned by the offseason refresh", () => {
+    // One S+ per team; development must leave them all S+ (its [-2,2] clamp
+    // would otherwise silently strip S+ down to S each split it touches them).
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(4)).map((t) => ({
+      ...t,
+      players: t.players.map((p, i) => ({ ...p, tier: (i === 2 ? "S+" : "B") as const })),
+    }));
+    const s = createSeason({ config: { ...makeConfig(), playerDevelopment: true }, teams, activeMeta: META });
+    // Many passes, rng forced to always develop, so any unguarded S+ would drop.
+    let dev = s;
+    for (let i = 0; i < 20; i++) dev = applyPlayerDevelopment(dev, () => 0);
+    const mids = dev.teams.map((t) => t.players[2].tier);
+    expect(mids.every((tier) => tier === "S+")).toBe(true);
+  });
+
   it("runs a full season with every realism feature enabled", () => {
     const champions = championPool();
     let s = createSeason({
@@ -1710,6 +1726,28 @@ describe("transfer windows as phases", () => {
     for (const p of done.phases.filter((p) => p.kind === "transfer")) {
       expect(p.status).toBe("complete");
     }
+    expect(done.transfersByEvent?.worlds).toBeUndefined();
+  });
+
+  it("clears a carried-forward post-Worlds recap at completion (offseason cap resets yearly)", () => {
+    // Simulate last year's offseason carried into this season's "worlds" bucket
+    // (startNextSeason does this for the in-season recap). It must be dropped at
+    // completion so this year's offseason per-team cap counts from zero instead
+    // of accumulating across years.
+    const move = {
+      event: "worlds" as const,
+      lane: "middle" as const,
+      fromTeamId: teams[0].id,
+      toTeamId: teams[1].id,
+      star: { tier: "B" as const, grade: null, goodChamps: [] },
+      swap: { tier: "B" as const, grade: null, goodChamps: [] },
+    };
+    const seeded = {
+      ...createSeason({ config: { ...makeConfig(), playerTransfers: true }, teams, activeMeta: meta }),
+      transfersByEvent: { worlds: [move] },
+    };
+    const done = runSeason(seeded, champions);
+    expect(done.status).toBe("complete");
     expect(done.transfersByEvent?.worlds).toBeUndefined();
   });
 });

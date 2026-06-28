@@ -351,17 +351,23 @@ export function formatLaneGold(g: number): string {
   return Math.round(g).toLocaleString("en-US");
 }
 
-// Replace champion names in event descriptions with player handles.
-// Sorted by name length descending so "Miss Fortune" replaces before "Miss".
-// ponytail: plain split/join; champion names are proper nouns, never substrings of each other.
+// Replace champion names in event descriptions with player handles, in a
+// SINGLE left-to-right pass. The previous version replaced each name with a
+// separate split/join, which let an already-inserted handle be re-scanned by a
+// later, shorter champion name — e.g. inserting a handle for "Viktor" and then
+// having champion "Vi" mangle it. One regex pass means every position is
+// rewritten at most once. Alternation is sorted by length descending so a
+// longer name wins over a shorter one that is its prefix ("Miss Fortune"
+// before "Miss"); names with regex-special chars (Kai'Sa, Dr. Mundo,
+// Nunu & Willump) are escaped.
 export function applyChampHandles(desc: string, map: Map<string, string>): string {
   if (map.size === 0) return desc;
-  let result = desc;
-  const entries = [...map.entries()].sort((a, b) => b[0].length - a[0].length);
-  for (const [champName, handle] of entries) {
-    result = result.split(champName).join(handle);
-  }
-  return result;
+  const names = [...map.keys()].sort((a, b) => b.length - a.length);
+  const pattern = names
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const re = new RegExp(pattern, "g");
+  return desc.replace(re, (m) => map.get(m) ?? m);
 }
 
 export function formatClock(min: number): string {

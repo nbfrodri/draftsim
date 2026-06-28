@@ -3927,6 +3927,28 @@ export interface TournamentChampionWREntry {
   games: number;
   wins: number;
   winRate: number;
+  // Recency-weighted win rate: the most recent game counts full, each older one
+  // decays (RECENCY_DECAY per game back). So a champ that won early then lost
+  // its last few reads colder than its flat winRate, and vice-versa. Lets the
+  // draft AI value "recent wins" over "wins from a long time ago". Only set by
+  // computeTeamChampionWR (the per-team signal the AI drafts on).
+  recentWinRate?: number;
+}
+
+// Each game further back counts this much less toward the recency-weighted WR.
+const RECENCY_DECAY = 0.8;
+
+// Recency-weighted win rate over a chronological win/loss sequence (last entry
+// = most recent, full weight). Empty → 0.
+function recencyWeightedWR(seq: readonly boolean[]): number {
+  let weightSum = 0;
+  let winSum = 0;
+  for (let i = 0; i < seq.length; i++) {
+    const w = Math.pow(RECENCY_DECAY, seq.length - 1 - i);
+    weightSum += w;
+    if (seq[i]) winSum += w;
+  }
+  return weightSum > 0 ? winSum / weightSum : 0;
 }
 
 export function computeTournamentChampionWR(
@@ -3952,6 +3974,61 @@ export function computeTournamentChampionWR(
       for (const id of game.redPicks) {
         if (id != null) bumpGame(id, !blueWon);
       }
+    }
+  }
+  return out;
+}
+
+// Per-TEAM champion win rate: how each team has performed on each champion they
+// piloted, keyed by team NAME → (championId → record). Unlike the global
+// computeTournamentChampionWR this attributes each game's picks to the team that
+// actually played them — matched by the GAME's side names, so series side-swaps
+// (loser-blue) credit the right team. Lets the draft AI lean toward champions a
+// team wins on and away from ones it loses on.
+export function computeTeamChampionWR(
+  tournament: TournamentState,
+): Map<string, Map<number, TournamentChampionWREntry>> {
+  const out = new Map<string, Map<number, TournamentChampionWREntry>>();
+  // Chronological win/loss sequence per (team, champ), for the recency weight.
+  const seq = new Map<string, Map<number, boolean[]>>();
+  function bump(team: string, id: number, won: boolean) {
+    let byChamp = out.get(team);
+    if (!byChamp) {
+      byChamp = new Map();
+      out.set(team, byChamp);
+    }
+    const cur = byChamp.get(id) ?? { games: 0, wins: 0, winRate: 0 };
+    cur.games++;
+    if (won) cur.wins++;
+    cur.winRate = cur.wins / cur.games;
+    byChamp.set(id, cur);
+    let s = seq.get(team);
+    if (!s) seq.set(team, (s = new Map()));
+    const arr = s.get(id) ?? [];
+    arr.push(won);
+    s.set(id, arr);
+  }
+  for (const match of tournament.matches) {
+    if (!match.series) continue;
+    for (const game of match.series.games) {
+      if (game.winner == null) continue;
+      // Attribute by the GAME's own side names (swap-safe).
+      const blueWon = game.winner === "blue";
+      for (const id of game.bluePicks) {
+        if (id != null) bump(game.blueTeam, id, blueWon);
+      }
+      for (const id of game.redPicks) {
+        if (id != null) bump(game.redTeam, id, !blueWon);
+      }
+    }
+  }
+  // Attach the recency-weighted rate (games iterate in play order, so each
+  // champ's sequence is oldest→newest).
+  for (const [team, byChamp] of out) {
+    const s = seq.get(team);
+    for (const [id, entry] of byChamp) {
+      const arr = s?.get(id);
+      if (arr) entry.recentWinRate = recencyWeightedWR(arr);
     }
   }
   return out;

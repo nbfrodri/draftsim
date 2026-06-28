@@ -15,6 +15,7 @@
 
 import { currentAction, usedChampionsInGame } from "../draftEngine";
 import { difficultyForSide, maxGames, requiredWins, winsByTeamName } from "../series";
+import { sideFormsFor, type PlayerFormMap, type SideForms } from "../playerForm";
 import type { RNG } from "../rng";
 import type { Archetype } from "../championMeta";
 import type {
@@ -126,6 +127,19 @@ export interface SeriesAIContext {
   // picks first, and avoid wasting bans on champions the enemy is weak on.
   // Undefined outside roster-configured series.
   oppPlayers?: Roster;
+  // THIS AI's per-lane player form (hot/cold across the series — see
+  // lib/playerForm.ts). Lets scoring prioritize comfort picks for an in-form
+  // player so the team drafts around whoever's carrying. Undefined in game 1 /
+  // when the caller supplies no form map; absent ⇒ no carry nudge.
+  myForms?: SideForms;
+  // THIS team's own per-champion win rate so far (computeTeamChampionWR →
+  // myTeamName). Lets scoring lean toward champions the team wins on and away
+  // from ones it loses on. `recentWinRate` weights recent games over old ones.
+  // Undefined outside tournament/season context.
+  myChampionWR?: ReadonlyMap<
+    number,
+    { games: number; wins: number; winRate: number; recentWinRate?: number }
+  >;
 }
 
 export function seriesAIContextFrom(
@@ -139,6 +153,17 @@ export function seriesAIContextFrom(
   tournamentChampionWR?: ReadonlyMap<
     number,
     { games: number; wins: number; winRate: number }
+  >,
+  // Optional player-form source for the carry nudge. `map` is the store's flat
+  // PlayerFormMap; `keyFor` resolves a team NAME to the map's team key (team id
+  // in tournaments, the name itself in standalone series — default identity).
+  // The function projects only THIS AI's side, keyed by its own team name.
+  forms?: { map: PlayerFormMap; keyFor?: (teamName: string) => string },
+  // Optional per-team champion win rate (computeTeamChampionWR, keyed by team
+  // NAME). seriesAIContextFrom selects THIS side's entry into myChampionWR.
+  teamChampionWR?: ReadonlyMap<
+    string,
+    ReadonlyMap<number, { games: number; wins: number; winRate: number; recentWinRate?: number }>
   >,
 ): SeriesAIContext {
   // Walk all previous games (not the current one) and accumulate picks
@@ -242,6 +267,12 @@ export function seriesAIContextFrom(
     myPlayers: mySide === "blue" ? series.bluePlayers : series.redPlayers,
     // The opponent's roster — the OTHER side.
     oppPlayers: mySide === "blue" ? series.redPlayers : series.bluePlayers,
+    // Project this side's lane forms, if a form source was supplied.
+    myForms: forms
+      ? sideFormsFor(forms.map, (forms.keyFor ?? ((n) => n))(myTeamName))
+      : undefined,
+    // This side's own champion win rate, selected by team name.
+    myChampionWR: teamChampionWR?.get(myTeamName),
   };
 }
 

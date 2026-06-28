@@ -14,6 +14,7 @@ import type {
   Lane,
 } from "../types";
 import type { MetaOverride, Synergy, CounterPair } from "../championMeta";
+import type { RookieDebut } from "./playerLifecycle";
 import type { Coach } from "./coach";
 import type { TournamentFormat, TournamentState } from "../tournament";
 
@@ -345,6 +346,10 @@ export interface SeasonState {
   // ever changes by the user's call. Cleared as each window is resolved or a
   // new one opens. [playerTransfers + controlledTeamId]
   proposedTransfers?: ProposedTransfer[];
+  // Retirements + rookie debuts from THIS year's offseason (aging on), tagged by
+  // team. Surfaced to the user for their followed team at the start of the year.
+  // Regenerated each offseason; absent when aging is off or nobody retired.
+  rosterNews?: Array<RookieDebut & { teamId: string }>;
 }
 
 // A snapshot of a moving player at transfer time, so each record renders its

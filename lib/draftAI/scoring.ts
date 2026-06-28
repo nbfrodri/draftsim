@@ -12,6 +12,7 @@
 
 import { TIER_VALUE, getMetaEnabled, getMetaTier } from "../championMeta";
 import type { Archetype } from "../championMeta";
+import { playerChemistry } from "../chemistry";
 import type { Champion, GameDraft, Lane, Side } from "../types";
 import {
   PLAYER_SKILL_WEIGHT,
@@ -135,6 +136,14 @@ export interface PickContext {
   personality?: DraftPersonality;
 }
 
+// Extra weight (on top of the base comfort × 4) for prioritizing a liked
+// champion when the lane's player is in form (carry) or has high teammate
+// chemistry (synergy core). Sized to roughly match the base comfort term at
+// full form / chemistry, so a hot or well-gelled player's signature pick reads
+// as clearly higher priority without ever overriding meta tier / matchup.
+const CARRY_DRAFT_K = 6;
+const CHEM_DRAFT_K = 5;
+
 export function scorePick(
   candidate: Champion,
   ctx: PickContext,
@@ -183,8 +192,25 @@ export function scorePick(
       playerForLane(ctx.series.myPlayers, bestLane),
       candidate.id,
     );
-    if (comfort > 0) add("Player comfort pick", comfort * 4, "playerComfort");
-    else if (comfort < 0)
+    if (comfort > 0) {
+      add("Player comfort pick", comfort * 4, "playerComfort");
+      // Carry priority: when this is one of the lane player's liked champs,
+      // give it EXTRA weight if that player is in form (hot across the series)
+      // — the team drafts around whoever's carrying. Only positive form
+      // amplifies; a cold player's comfort pick isn't punished here (the sim
+      // already handles cold lanes). Form is 0 in game 1 / without a form map,
+      // so this is a no-op there.
+      const form = ctx.series.myForms?.[bestLane] ?? 0;
+      if (form > 0)
+        add("Carry priority (in form)", comfort * form * CARRY_DRAFT_K, "playerComfort");
+      // Synergy core: also prioritize comfort picks for a high-chemistry laner
+      // (gelled duos, settled same-region pair, bot-lane duo) so the team
+      // builds around its most cohesive players. Only POSITIVE chemistry boosts
+      // — a clashing laner isn't punished in draft (the sim handles that lane).
+      const chem = playerChemistry(ctx.series.myPlayers, bestLane);
+      if (chem > 0)
+        add("Synergy core priority", comfort * chem * CHEM_DRAFT_K, "playerComfort");
+    } else if (comfort < 0)
       add("Player off-pool pick", comfort * 4, "playerComfort");
     // Pocket-pick affinity (personality flavor knob): comfort/cheese
     // drafters reach for a player's signature champ even when it sits
@@ -817,6 +843,37 @@ export function scorePick(
           bonus > 0
             ? `Tournament hot streak (${entry.wins}-${entry.games - entry.wins})`
             : `Tournament cold streak (${entry.wins}-${entry.games - entry.wins})`;
+        add(label, bonus, "metaTier");
+      }
+    }
+  }
+
+  // ─── This team's own champion win rate ────────────────────────────────────
+  // Lean toward champions THIS team actually wins on, and away from ones it
+  // loses on ("drop bad-WR champs"). Three signals combine, not raw WR alone:
+  //   • games played → confidence: Bayesian shrinkage toward 0.5 with a 2-game
+  //     prior, so a 1-0 champ barely moves while a 6-1 champ moves a lot.
+  //   • recency → the observed rate weights recent games over old ones
+  //     (recentWinRate), so a champ they used to win on but keep losing now
+  //     cools off, and a fresh hot streak heats up.
+  // A touch stronger than the field-wide tournament-WR term — a team's own
+  // track record is a sharper signal. Capped so tier/matchup still dominate.
+  // Easy AI ignores it.
+  if (ctx.series?.myChampionWR && ctx.series.difficulty !== "easy") {
+    const entry = ctx.series.myChampionWR.get(candidate.id);
+    if (entry && entry.games > 0) {
+      const PRIOR_GAMES = 2;
+      // Recency-weighted observed rate (falls back to flat WR if unavailable),
+      // then shrunk by the RAW game count so confidence still scales with games.
+      const observed = entry.recentWinRate ?? entry.wins / entry.games;
+      const shrunkWR = (observed * entry.games + 0.5 * PRIOR_GAMES) / (entry.games + PRIOR_GAMES);
+      const bonus = Math.max(-2.5, Math.min(2.5, (shrunkWR - 0.5) * 9));
+      if (Math.abs(bonus) >= 0.15) {
+        const losses = entry.games - entry.wins;
+        const label =
+          bonus > 0
+            ? `Team wins on this (${entry.wins}-${losses})`
+            : `Team loses on this (${entry.wins}-${losses})`;
         add(label, bonus, "metaTier");
       }
     }

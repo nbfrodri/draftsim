@@ -265,6 +265,43 @@ export function gankLaneGold(
   };
 }
 
+// Support roam: the laner who got the kill takes 60% of the bounty, the roaming
+// support 40% (assist gold), and — the counterpart — the ADC left alone in bot
+// bleeds `adcPenalty` gold. Net is positive for the roaming side (a good roam
+// is worth it) but the ADC pays a real cost. Blue-positive signs, like the
+// other lane-gold helpers. `targetLane` is never "bottom" (the support roams
+// AWAY from bot), so the keys never collide.
+export function supportRoamLaneGold(
+  targetLane: Lane,
+  killGold: number,
+  adcPenalty: number,
+  side: Side,
+): Partial<Record<Lane, number>> {
+  const sign = side === "blue" ? 1 : -1;
+  return {
+    [targetLane]: sign * killGold * 0.6,
+    support: sign * killGold * 0.4,
+    bottom: -sign * adcPenalty,
+  };
+}
+
+export function describeSupportRoam(
+  side: Side,
+  picks: (Champion | null)[],
+  targetLane: Lane,
+  blueName: string,
+  redName: string,
+): string {
+  const sup = laneOf(picks, "support");
+  const adc = laneOf(picks, "bottom");
+  const laner = laneOf(picks, targetLane);
+  const laneShort = targetLane === "middle" ? "mid" : targetLane;
+  const who = sup?.name ?? `${teamName(side, blueName, redName)}'s support`;
+  const helped = laner ? ` with ${laner.name}` : "";
+  const left = adc ? `, leaving ${adc.name} alone bot` : "";
+  return `${who} roams ${laneShort} for a kill${helped}${left}`;
+}
+
 export function sideLaneGoldSplit(
   amount: number,
   side: Side,

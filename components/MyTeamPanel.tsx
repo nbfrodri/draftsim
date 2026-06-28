@@ -1,14 +1,19 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import { deriveStar } from "@/lib/players";
 import { sideFormsFor } from "@/lib/playerForm";
 import { teamSeasonGrades } from "@/lib/season/stats";
 import { seasonTeam, type SeasonState } from "@/lib/season/types";
-import type { TournamentMatch, TournamentState } from "@/lib/tournament";
-import type { Lane, PlayerTier } from "@/lib/types";
+import {
+  computeTeamChampionWR,
+  type TournamentChampionWREntry,
+  type TournamentMatch,
+  type TournamentState,
+} from "@/lib/tournament";
+import type { Champion, Lane, PlayerTier } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
 import LaneIcon from "./LaneIcon";
 
@@ -25,8 +30,9 @@ const LANE_LABEL: Record<Lane, string> = {
   bottom: "Bot",
   support: "Sup",
 };
-const TIER_VALUE: Record<PlayerTier, number> = { S: 2, A: 1, B: 0, C: -1, D: -2 };
+const TIER_VALUE: Record<PlayerTier, number> = { "S+": 3, S: 2, A: 1, B: 0, C: -1, D: -2 };
 const TIER_CLS: Record<PlayerTier, string> = {
+  "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
   S: "border-rift-gold text-rift-goldbright bg-rift-gold/10",
   A: "border-rift-blue/70 text-rift-bluebright bg-rift-blue/10",
   B: "border-rift-line text-rift-mutedbright",
@@ -90,11 +96,110 @@ function findNextMatch(
   return null;
 }
 
+// ≥2 games on a champ before it counts as a real best/worst signal.
+const MIN_CHAMP_GAMES = 2;
+interface ChampWRItem {
+  champ: Champion;
+  rec: TournamentChampionWREntry;
+}
+interface ChampWR {
+  all: ChampWRItem[]; // every champion the team has played, most-played first
+  best: ChampWRItem[]; // top 3 by win rate (≥2 games)
+  worst: ChampWRItem[]; // bottom 3 by win rate (≥2 games), excl. best
+  champCount: number;
+  totalPicks: number; // champion-games summed (5 per game played)
+  overallWR: number; // team game win rate
+}
+
+const wrTone = (wr: number) =>
+  wr >= 0.6 ? "text-emerald-400" : wr <= 0.4 ? "text-rift-redbright" : "text-rift-mutedbright";
+
+// A team's champion win rates across EVERY tournament this season (all splits +
+// internationals), merged by champion. Recomputed whenever a game resolves
+// (season.tournaments changes), so it tracks the whole season live. null until
+// the team has played a game.
+function teamChampionWR(
+  season: SeasonState,
+  teamName: string,
+  champions: Champion[],
+): ChampWR | null {
+  const byId = new Map(champions.map((c) => [c.id, c] as const));
+  const merged = new Map<number, TournamentChampionWREntry>();
+  for (const t of Object.values(season.tournaments)) {
+    const byTeam = computeTeamChampionWR(t).get(teamName);
+    if (!byTeam) continue;
+    for (const [id, rec] of byTeam) {
+      const cur = merged.get(id) ?? { games: 0, wins: 0, winRate: 0 };
+      cur.games += rec.games;
+      cur.wins += rec.wins;
+      cur.winRate = cur.wins / cur.games;
+      merged.set(id, cur);
+    }
+  }
+  const items: ChampWRItem[] = [];
+  for (const [id, rec] of merged) {
+    const champ = byId.get(id);
+    if (champ) items.push({ champ, rec });
+  }
+  if (items.length === 0) return null;
+  const all = [...items].sort(
+    (a, b) => b.rec.games - a.rec.games || b.rec.winRate - a.rec.winRate || a.champ.name.localeCompare(b.champ.name),
+  );
+  const ranked = items.filter((i) => i.rec.games >= MIN_CHAMP_GAMES);
+  const best = [...ranked].sort((a, b) => b.rec.winRate - a.rec.winRate || b.rec.games - a.rec.games).slice(0, 3);
+  const bestIds = new Set(best.map((i) => i.champ.id));
+  const worst = [...ranked]
+    .sort((a, b) => a.rec.winRate - b.rec.winRate || b.rec.games - a.rec.games)
+    .filter((i) => !bestIds.has(i.champ.id))
+    .slice(0, 3);
+  const totalWins = items.reduce((s, i) => s + i.rec.wins, 0);
+  const totalPicks = items.reduce((s, i) => s + i.rec.games, 0);
+  return { all, best, worst, champCount: items.length, totalPicks, overallWR: totalPicks ? totalWins / totalPicks : 0 };
+}
+
+function ChampWRChip({ champ, rec }: ChampWRItem) {
+  const pct = Math.round(rec.winRate * 100);
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px]"
+      title={`${champ.name}: ${rec.wins}-${rec.games - rec.wins} (${pct}% over ${rec.games} games)`}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={champ.iconUrl} alt={champ.name} className="w-4 h-4 object-cover border border-rift-line/40" />
+      <span className="text-rift-mutedbright max-w-[64px] truncate">{champ.name}</span>
+      <span className={`tabular-nums ${wrTone(rec.winRate)}`}>{pct}%</span>
+    </span>
+  );
+}
+
+// A full-table row: icon, name, W-L record, a win-rate bar, and games played.
+function ChampWRRow({ champ, rec }: ChampWRItem) {
+  const pct = Math.round(rec.winRate * 100);
+  const losses = rec.games - rec.wins;
+  return (
+    <div className="flex items-center gap-2 text-[10px] py-0.5">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={champ.iconUrl} alt={champ.name} className="w-4 h-4 object-cover border border-rift-line/40 shrink-0" />
+      <span className="text-rift-mutedbright truncate w-20 shrink-0">{champ.name}</span>
+      <span className="tabular-nums text-rift-muted/70 w-10 shrink-0 text-right">
+        <span className="text-emerald-400/80">{rec.wins}</span>-<span className="text-rift-redbright/80">{losses}</span>
+      </span>
+      <span className="flex-1 h-1.5 bg-rift-redbright/20 overflow-hidden min-w-[40px]" title={`${pct}% win rate`}>
+        <span className="block h-full bg-emerald-400/70" style={{ width: `${pct}%` }} />
+      </span>
+      <span className={`tabular-nums w-8 text-right shrink-0 ${wrTone(rec.winRate)}`}>{pct}%</span>
+      <span className="tabular-nums text-rift-muted/50 w-8 text-right shrink-0 text-[8px]">{rec.games}g</span>
+    </div>
+  );
+}
+
 export default function MyTeamPanel() {
   const season = useDraftStore((s) => s.season);
+  const champions = useDraftStore((s) => s.champions);
   const playerForms = useDraftStore((s) => s.playerForms);
   const openSeasonTournament = useDraftStore((s) => s.openSeasonTournament);
   const startMatch = useDraftStore((s) => s.startMatch);
+  const [champOpen, setChampOpen] = useState(false);
 
   const controlled = season
     ? seasonTeam(season, season.config.controlledTeamId)
@@ -108,8 +213,20 @@ export default function MyTeamPanel() {
     () => (season && controlled ? teamSeasonGrades(season, controlled.id) : null),
     [season, controlled],
   );
+  // This team's best/worst champions by win rate, merged across every split's
+  // tournament this season. Best = green, worst = red. ≥2 games to be signal.
+  const champWR = useMemo(
+    () =>
+      season && controlled
+        ? teamChampionWR(season, controlled.name, champions)
+        : null,
+    [season, controlled, champions],
+  );
 
   if (!season || !controlled) return null;
+
+  // This year's retirements + rookie debuts on the followed team — warn the user.
+  const news = (season.rosterNews ?? []).filter((n) => n.teamId === controlled.id);
 
   const forms = sideFormsFor(playerForms, controlled.id);
   const prev = season.prevPlayerTiers?.[controlled.id];
@@ -203,6 +320,38 @@ export default function MyTeamPanel() {
           </div>
         )}
       </div>
+      {news.length > 0 && (
+        <div className="px-3 py-2 border-b border-amber-500/25 bg-amber-500/[0.06]">
+          <div className="text-[8px] uppercase tracking-[0.3em] text-amber-300/80 mb-1">
+            Offseason roster news
+          </div>
+          <div className="space-y-0.5">
+            {news.map((n, i) => (
+              <div key={`${n.lane}-${i}`} className="flex flex-wrap items-center gap-x-2 text-[10px]">
+                <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
+                {n.retiredName ? (
+                  <span className="text-rift-mutedbright">
+                    <span className="text-rift-redbright/80">{n.retiredName}</span>{" "}
+                    <span className="text-rift-muted/60">
+                      ({n.retiredTier}) retired{n.retiredAge != null ? ` at ${n.retiredAge}` : ""}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-rift-muted/60">Slot opened</span>
+                )}
+                <span className="text-rift-muted/40">→</span>
+                <span className="text-rift-mutedbright">
+                  rookie <span className="text-emerald-400/90">{n.rookieName}</span>
+                </span>
+                <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">
+                  {n.rookieTier}
+                  {n.rookiePotential !== n.rookieTier ? ` ↗${n.rookiePotential}` : ""} debuts
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="grid md:grid-cols-2 gap-3 p-3">
         {/* Roster — tiers + shift arrows + form */}
         <div className="space-y-1">
@@ -348,6 +497,62 @@ export default function MyTeamPanel() {
           )}
         </div>
       </div>
+      {champWR && (
+        <div className="px-3 pb-3 -mt-1 border-t border-rift-line/15 pt-2">
+          <div className="flex items-baseline justify-between gap-2 mb-1.5">
+            <span className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/55">
+              Champion win rates
+            </span>
+            <span className="text-[8px] text-rift-muted/55 tabular-nums" title="Champions played · total picks · overall game win rate this season">
+              {champWR.champCount} champs · {champWR.totalPicks} picks ·{" "}
+              <span className={wrTone(champWR.overallWR)}>{Math.round(champWR.overallWR * 100)}% WR</span>
+            </span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {champWR.best.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="text-[8px] uppercase tracking-[0.2em] text-emerald-400/70 w-12 shrink-0">
+                  Best
+                </span>
+                {champWR.best.map((i) => (
+                  <ChampWRChip key={i.champ.id} champ={i.champ} rec={i.rec} />
+                ))}
+              </div>
+            )}
+            {champWR.worst.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="text-[8px] uppercase tracking-[0.2em] text-rift-redbright/70 w-12 shrink-0">
+                  Worst
+                </span>
+                {champWR.worst.map((i) => (
+                  <ChampWRChip key={i.champ.id} champ={i.champ} rec={i.rec} />
+                ))}
+              </div>
+            )}
+            {champWR.best.length === 0 && (
+              <div className="text-[9px] italic text-rift-muted/60">
+                Best/worst appear once a champion has 2+ games — full table below.
+              </div>
+            )}
+          </div>
+          {/* Full per-champion table — every champion played this season */}
+          <button
+            type="button"
+            onClick={() => setChampOpen((v) => !v)}
+            className="mt-2 w-full flex items-center justify-between px-2 py-1 border border-rift-line/40 bg-rift-bg/30 text-[8px] uppercase tracking-[0.2em] text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/40 transition-all"
+          >
+            <span>{champOpen ? "Hide" : "All champions"} ({champWR.all.length})</span>
+            <span>{champOpen ? "▴" : "▾"}</span>
+          </button>
+          {champOpen && (
+            <div className="mt-1 border border-t-0 border-rift-line/30 px-2 py-1 max-h-56 overflow-y-auto divide-y divide-rift-line/10">
+              {champWR.all.map((i) => (
+                <ChampWRRow key={i.champ.id} champ={i.champ} rec={i.rec} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

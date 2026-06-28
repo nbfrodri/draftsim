@@ -19,6 +19,7 @@ import {
 import type { Champion, Lane, PlayerTier } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
 import LaneIcon from "./LaneIcon";
+import { ChemScore, ProjectedChemScore } from "./ChemistryRow";
 
 // Transfer-window UI: the league-wide recap of roster moves at each window
 // (after First Stand and MSI), plus the followed team's pending decisions with
@@ -26,6 +27,7 @@ import LaneIcon from "./LaneIcon";
 // season pauses on a transfer phase only while the user has decisions to make.
 
 const TIER_CLS: Record<PlayerTier, string> = {
+  "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
   S: "border-rift-gold text-rift-goldbright bg-rift-gold/10",
   A: "border-rift-blue/70 text-rift-bluebright bg-rift-blue/10",
   B: "border-rift-line text-rift-mutedbright",
@@ -126,6 +128,7 @@ export default function TransferWindowPanel() {
   const season = useDraftStore((s) => s.season);
   const champions = useDraftStore((s) => s.champions);
   const resolveSeasonTransfer = useDraftStore((s) => s.resolveSeasonTransfer);
+  const aiDecideSeasonTransfers = useDraftStore((s) => s.aiDecideSeasonTransfers);
   const advanceSeasonTransfers = useDraftStore((s) => s.advanceSeasonTransfers);
   const shopSeasonTransfer = useDraftStore((s) => s.shopSeasonTransfer);
   const [openEvent, setOpenEvent] = useState<string | null>(null);
@@ -193,8 +196,20 @@ export default function TransferWindowPanel() {
       {/* Followed team's pending decisions */}
       {atWindow && (
         <div className="px-3 py-2 border-b border-rift-gold/20 bg-rift-gold/[0.04]">
-          <div className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/70 mb-1">
-            Your decisions{phase?.event ? ` — post ${INTERNATIONAL_LABELS[phase.event]}${yr}` : ""}
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/70">
+              Your decisions{phase?.event ? ` — post ${INTERNATIONAL_LABELS[phase.event]}${yr}` : ""}
+            </span>
+            {!capReached && (
+              <button
+                type="button"
+                onClick={() => aiDecideSeasonTransfers()}
+                className="ml-auto px-2 py-0.5 border border-rift-blue/50 text-rift-bluebright text-[8px] uppercase tracking-[0.2em] hover:bg-rift-blue/10 transition-all"
+                title="Let the AI resolve your proposals and shop the best upgrades for you"
+              >
+                Let AI decide
+              </button>
+            )}
           </div>
           {proposals.length === 0 ? (
             <div className="text-[10px] italic text-rift-muted mb-2">
@@ -273,6 +288,7 @@ export default function TransferWindowPanel() {
                           p={{ name: p.name, tier: p.tier, grade: null, goodChamps: p.goodChamps }}
                           byId={byId}
                         />
+                        <ChemScore me={p} roster={controlled.players} />
                         {movedLanes.has(lane) ? (
                           <span className="ml-auto text-[8px] uppercase tracking-[0.2em] text-emerald-400/80">
                             ✓ signed this window
@@ -300,6 +316,7 @@ export default function TransferWindowPanel() {
                           ) : (
                             willing.slice(0, 6).map((c) => {
                               const other = seasonTeam(season, c.otherTeamId);
+                              const incoming = other?.players[li];
                               return (
                                 <div
                                   key={c.otherTeamId}
@@ -315,6 +332,13 @@ export default function TransferWindowPanel() {
                                     <span className="truncate max-w-[96px]">{other?.name ?? "—"}</span>
                                   </span>
                                   <PlayerChip p={c.theirs} byId={byId} />
+                                  {incoming && (
+                                    <ProjectedChemScore
+                                      roster={controlled.players}
+                                      incoming={incoming}
+                                      lane={lane}
+                                    />
+                                  )}
                                   <span
                                     className={`text-[9px] tabular-nums ${c.upgrade > 0.05 ? "text-emerald-400" : c.upgrade < -0.05 ? "text-rift-redbright" : "text-rift-muted/60"}`}
                                     title="Value change for your team"

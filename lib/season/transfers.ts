@@ -66,6 +66,20 @@ const OFFSEASON_WILLING_TOL = 1.3;
 const OFFSEASON_GAP_MIN = 0.35;
 const OFFSEASON_MAX_MOVES = 10;
 
+// Cross-region moves are HARD: top players don't get poached abroad, they stay
+// franchise cornerstones in their own region — so the best talent doesn't all
+// funnel into the strongest regions. Only players AT OR BELOW this tier cross
+// regions in the auto market; anyone better stays home (they can still move
+// WITHIN their region). ponytail: dial down to "B" for even stricter borders.
+const CROSS_REGION_TIER_CAP = PLAYER_TIER_VALUE.A; // S / S+ never cross
+function crossRegionBlocked(
+  star: { tier: PlayerTier },
+  fromLeague: string,
+  toLeague: string,
+): boolean {
+  return fromLeague !== toLeague && PLAYER_TIER_VALUE[star.tier] > CROSS_REGION_TIER_CAP;
+}
+
 // Champion's meta tier in a lane under this snapshot: the split's full,
 // patch-shifted override first, then the baseline dataset. Null = untiered
 // there (skipped from pool fit). Mirrors applyPatchShift's source order.
@@ -120,14 +134,30 @@ export function transferValue(
   return v;
 }
 
+// A fresh cross-region import starts behind the language barrier. An IN-SEASON
+// move is the cold-start case (mid-split disruption); an OFFSEASON move gets a
+// full preseason to adjust, so it lands far more settled — an offseason rebuild
+// integrates much faster than a panic trade.
+export const IMPORT_ACC_INSEASON = 0.15;
+export const IMPORT_ACC_OFFSEASON = 0.5;
+
 // Re-settle a player after a transfer to `toLeague` (they came from
 // `fromLeague`). Coming home → fully acclimated; lateral within a region →
-// unchanged; a fresh cross-region move → resets acclimation low (the barrier).
-export function settle(player: Player, fromLeague: string, toLeague: string): Player {
+// unchanged; a fresh cross-region move → resets acclimation low (the barrier),
+// higher when `preseason` (offseason window — time to adjust before the year).
+export function settle(
+  player: Player,
+  fromLeague: string,
+  toLeague: string,
+  preseason = false,
+): Player {
   if (!player.homeRegion) return player;
   if (toLeague === player.homeRegion) return { ...player, acclimation: 1 };
   if (toLeague === fromLeague) return player;
-  return { ...player, acclimation: 0.15 };
+  return {
+    ...player,
+    acclimation: preseason ? IMPORT_ACC_OFFSEASON : IMPORT_ACC_INSEASON,
+  };
 }
 
 // ── Split grades (per team, per lane slot) ─────────────────────────────────
@@ -190,8 +220,14 @@ function splitLaneGrades(
 // top team in a top region is the most desirable seat; winning a weaker region
 // rates near a mid-table strong-region team. ponytail: fixed prestige order;
 // wire leagueStrength in here if regionTides should sway the market too.
+// How strongly region PRESTIGE (vs. the team's own finish/strength) pulls
+// transfers. At 1.0 a top region's pull rivals a team's whole finish, so good
+// players funnel into LCK/LPL and minor regions hollow out over the years.
+// Scaling it down lets team strength dominate, spreading talent to strong teams
+// in ANY region. ponytail: tune here — 0 = region-blind, 1 = original behavior.
+export const TRANSFER_PRESTIGE_WEIGHT = 0.5;
 function regionBonus(league: LeagueId): number {
-  return LEAGUE_IDS.length - LEAGUE_IDS.indexOf(league); // LCK 6 .. LCP 1
+  return (LEAGUE_IDS.length - LEAGUE_IDS.indexOf(league)) * TRANSFER_PRESTIGE_WEIGHT; // LCK .. LCP
 }
 
 function destScores(season: SeasonState, split: SplitId): Map<string, number> {
@@ -268,6 +304,26 @@ function snapshot(player: Player, grade: number | null): TransferPlayer {
   };
 }
 
+// Roster-stability reward: in a transfer window that saw real movement, teams
+// that made NO transfer (kept their roster between splits) carry a small form
+// edge into the next split over the teams that reshuffled. Form is relative
+// (starRatingBias uses the blue−red difference), so this is a genuine in-season
+// compensation for stability, and it decays like any form.
+export const STABILITY_FORM_BONUS = 0.15;
+export function rewardRosterStability(
+  teamForm: Record<string, number>,
+  teamIds: readonly string[],
+  involved: ReadonlySet<string>,
+  bonus = STABILITY_FORM_BONUS,
+): Record<string, number> {
+  const next = { ...teamForm };
+  for (const id of teamIds) {
+    if (involved.has(id)) continue; // a team that moved someone gets no bonus
+    next[id] = Math.max(-1, Math.min(1, (next[id] ?? 0) + bonus));
+  }
+  return next;
+}
+
 // ── Entry point ────────────────────────────────────────────────────────────
 // Runs as a transfer window opens — i.e. when the FIRST STAND / MSI
 // international that precedes it completes. Performance is read across the
@@ -296,6 +352,13 @@ export function applyTransfers(
   const controlledId = season.config.controlledTeamId;
   const gradeOf = (teamId: string, li: number) => grades.get(teamId)?.[li] ?? null;
 
+  // Per-team window cap — the SAME limit the user has applies to every team, so
+  // no AI side overhauls more than its allotment across lanes this window.
+  const cap = maxUserTransfers(event);
+  const teamMoves = new Map<string, number>();
+  const atCap = (id: string) => (teamMoves.get(id) ?? 0) >= cap;
+  const bump = (id: string) => teamMoves.set(id, (teamMoves.get(id) ?? 0) + 1);
+
   for (let li = 0; li < LANE_ORDER.length; li++) {
     const lane = LANE_ORDER[li];
     const entries: LaneEntry[] = [];
@@ -309,10 +372,21 @@ export function applyTransfers(
       });
     }
     for (const { aTeamId, bTeamId } of planLaneSwaps(entries)) {
+      // Either side already used its window allotment → skip (don't even propose
+      // a move to a team that's full, since accepting would exceed its cap).
+      if (atCap(aTeamId) || atCap(bTeamId)) continue;
       const a = teams.get(aTeamId)!;
       const b = teams.get(bTeamId)!;
       const pa = a.players[li]; // stuck star → goes to b (better seat)
       const pb = b.players[li]; // weak link → goes to a (the poacher's old slot)
+      // Neither side of a cross-region swap may be elite — value (not tier)
+      // ranks the pair, so a slumping S-tier can land as the weak-link `pb`;
+      // keep top talent home so it doesn't funnel into the strongest regions.
+      if (
+        crossRegionBlocked(pa, a.leagueId, b.leagueId) ||
+        crossRegionBlocked(pb, b.leagueId, a.leagueId)
+      )
+        continue;
       const starSnap = snapshot(pa, gradeOf(aTeamId, li));
       const swapSnap = snapshot(pb, gradeOf(bTeamId, li));
       // A move touching the followed team is the user's call — propose it, but
@@ -334,15 +408,49 @@ export function applyTransfers(
       a.players[li] = settle(pb, b.leagueId, a.leagueId);
       b.players[li] = settle(pa, a.leagueId, b.leagueId);
       transfers.push({ event, lane, fromTeamId: aTeamId, toTeamId: bTeamId, star: starSnap, swap: swapSnap });
+      bump(aTeamId);
+      bump(bTeamId);
     }
   }
 
   if (transfers.length === 0 && proposals.length === 0) return season;
+  // NOTE: the roster-stability form bonus is NOT applied here — it's awarded
+  // when the window CLOSES (awardStabilityBonus, called from the engine), using
+  // the FINAL transfersByEvent[event]. That way a followed team that DECLINES a
+  // proposal (so it never lands in transfersByEvent) correctly counts as having
+  // sat the window out, with no double-counting.
   return {
     ...season,
     teams: [...teams.values()],
     transfersByEvent: { ...season.transfersByEvent, [event]: transfers },
     proposedTransfers: proposals,
+  };
+}
+
+// Award the roster-stability bonus for a CLOSED transfer window: every team
+// that made no move this window (not in the final transfersByEvent[event]) gets
+// a small form edge over the teams that reshuffled. Idempotent per window only
+// if called once at close. No-op when form isn't tracked or the window saw no
+// churn (a relative bonus is meaningless if nobody moved).
+export function awardStabilityBonus(
+  season: SeasonState,
+  event: InternationalId,
+): SeasonState {
+  if (!season.teamForm) return season;
+  const moves = season.transfersByEvent?.[event] ?? [];
+  if (moves.length === 0) return season;
+  const involved = new Set<string>();
+  for (const m of moves) {
+    involved.add(m.fromTeamId);
+    involved.add(m.toTeamId);
+  }
+  return {
+    ...season,
+    teamForm: rewardRosterStability(
+      season.teamForm,
+      season.teams.map((t) => t.id),
+      involved,
+    ),
   };
 }
 
@@ -359,6 +467,16 @@ export function resolveTransfer(
   if (!props || index < 0 || index >= props.length) return season;
   const prop = props[index];
   const remaining = props.filter((_, i) => i !== index);
+  // Accepting counts toward the followed team's per-window cap (and the
+  // one-move-per-role rule) — drop the proposal as if declined once either is
+  // hit, so accepting proposals can't exceed the limit the shop path enforces.
+  if (
+    accept &&
+    (userTransferCapReached(season, prop.event, prop.controlledTeamId) ||
+      teamMovedAtLane(season, prop.event, prop.controlledTeamId, prop.lane))
+  ) {
+    return { ...season, proposedTransfers: remaining };
+  }
   if (!accept) return { ...season, proposedTransfers: remaining };
   const teams = season.teams.map((t) =>
     t.id === prop.controlledTeamId || t.id === prop.otherTeamId
@@ -425,7 +543,17 @@ export function teamMovedAtLane(
 
 // The followed team may make at most this many transfers per window — on
 // distinct roles (the 1-per-role cap already guarantees distinct positions).
-export const USER_MAX_TRANSFERS_PER_WINDOW = 3;
+// In-season windows (First Stand, MSI) are tighter; the post-Worlds offseason
+// is the big window of the year.
+export const USER_MAX_TRANSFERS_PER_WINDOW = 2;
+export const USER_MAX_TRANSFERS_OFFSEASON = 4;
+
+// Per-window cap, by event — the offseason ("worlds") allows more.
+export function maxUserTransfers(event: InternationalId): number {
+  return event === "worlds"
+    ? USER_MAX_TRANSFERS_OFFSEASON
+    : USER_MAX_TRANSFERS_PER_WINDOW;
+}
 
 // How many transfers the followed team has already made this window.
 export function userTransferCount(
@@ -443,7 +571,7 @@ export function userTransferCapReached(
   event: InternationalId,
   teamId: string,
 ): boolean {
-  return userTransferCount(season, event, teamId) >= USER_MAX_TRANSFERS_PER_WINDOW;
+  return userTransferCount(season, event, teamId) >= maxUserTransfers(event);
 }
 
 // One other team's player as a possible swap for a followed-team roster slot.
@@ -585,10 +713,26 @@ export function offseasonTransferPass(
   // market leaves it (and any lane it already moved) alone.
   skipTeamId?: string | null,
   movedLanes?: (teamId: string, laneIndex: number) => boolean,
+  // Moves already made this window (the user's interactive offseason signings) —
+  // seed each involved team's count so the auto market respects the per-team
+  // cap including swaps the user already triggered with them.
+  priorMoves: readonly PlayerTransfer[] = [],
 ): { teams: SeasonTeam[]; moves: PlayerTransfer[] } {
   const map = new Map(teams.map((t) => [t.id, { ...t, players: [...t.players] }]));
   const moves: PlayerTransfer[] = [];
-  const prestige = (lg: LeagueId) => LEAGUE_IDS.length - LEAGUE_IDS.indexOf(lg);
+  // Scaled-down region prestige (see TRANSFER_PRESTIGE_WEIGHT) so a strong TEAM
+  // in a minor region is a real destination, not always out-pulled by region.
+  const prestige = (lg: LeagueId) =>
+    (LEAGUE_IDS.length - LEAGUE_IDS.indexOf(lg)) * TRANSFER_PRESTIGE_WEIGHT;
+  // Per-team offseason cap — every team, same limit the user has.
+  const cap = maxUserTransfers("worlds");
+  const teamMoves = new Map<string, number>();
+  for (const m of priorMoves) {
+    teamMoves.set(m.fromTeamId, (teamMoves.get(m.fromTeamId) ?? 0) + 1);
+    teamMoves.set(m.toTeamId, (teamMoves.get(m.toTeamId) ?? 0) + 1);
+  }
+  const atCap = (id: string) => (teamMoves.get(id) ?? 0) >= cap;
+  const bump = (id: string) => teamMoves.set(id, (teamMoves.get(id) ?? 0) + 1);
   for (let li = 0; li < LANE_ORDER.length; li++) {
     const lane = LANE_ORDER[li];
     const entries: LaneEntry[] = [];
@@ -607,12 +751,21 @@ export function offseasonTransferPass(
       gapMin: OFFSEASON_GAP_MIN,
       maxMoves: OFFSEASON_MAX_MOVES,
     })) {
+      if (atCap(aTeamId) || atCap(bTeamId)) continue; // either side full this window
       const a = map.get(aTeamId)!;
       const b = map.get(bTeamId)!;
       const pa = a.players[li];
       const pb = b.players[li];
-      a.players[li] = settle(pb, b.leagueId, a.leagueId);
-      b.players[li] = settle(pa, a.leagueId, b.leagueId);
+      // Elite players (either side) stay in their region even in the big window.
+      if (
+        crossRegionBlocked(pa, a.leagueId, b.leagueId) ||
+        crossRegionBlocked(pb, b.leagueId, a.leagueId)
+      )
+        continue;
+      a.players[li] = settle(pb, b.leagueId, a.leagueId, true); // offseason: preseason to adjust
+      b.players[li] = settle(pa, a.leagueId, b.leagueId, true);
+      bump(aTeamId);
+      bump(bTeamId);
       moves.push({
         event: "worlds",
         lane,
@@ -707,8 +860,8 @@ export function executeOffseasonUserTransfer(
   );
   const m2 = teams.find((t) => t.id === controlledId)!;
   const o2 = teams.find((t) => t.id === otherTeamId)!;
-  m2.players[li] = settle(o2.players[li], o2.leagueId, m2.leagueId);
-  o2.players[li] = settle(pMine, m2.leagueId, o2.leagueId);
+  m2.players[li] = settle(o2.players[li], o2.leagueId, m2.leagueId, true); // offseason: preseason to adjust
+  o2.players[li] = settle(pMine, m2.leagueId, o2.leagueId, true);
   const mineSnap = snapshot(pMine, myGrade);
   const themSnap = snapshot(pThem, theirGrade);
   const themBetter = vThem >= vMine;
@@ -722,4 +875,83 @@ export function executeOffseasonUserTransfer(
   };
   const log = [...(season.transfersByEvent?.[OFFSEASON] ?? []), record];
   return { ...season, teams, transfersByEvent: { ...season.transfersByEvent, [OFFSEASON]: log } };
+}
+
+// ─── AI auto-decision for the followed team ──────────────────────────────────
+// A user who follows a team can hand the window to the AI: accept the proposals
+// that improve the roster, decline the rest, then shop the best available
+// upgrade on each free lane (respecting the per-window cap). Pure — composes the
+// same resolve/execute helpers the manual UI calls, so the result is identical
+// to the user clicking through them.
+
+const AI_UPGRADE_MIN = 0.1; // only swap for a real improvement
+
+function snapValue(
+  tp: TransferPlayer,
+  lane: Lane,
+  byId: Map<number, Champion>,
+  meta: SeasonMetaSnapshot,
+): number {
+  const p: Player = { lane, tier: tp.tier, goodChamps: tp.goodChamps, badChamps: [] };
+  return transferValue(p, tp.grade, byId, meta);
+}
+
+/** In-season window: resolve the followed team's pending proposals (accept
+ *  upgrades, decline the rest) then shop the best willing upgrade per lane. */
+export function aiResolveUserTransferWindow(
+  season: SeasonState,
+  champions: readonly Champion[],
+): SeasonState {
+  let s = season;
+  const byId = new Map(champions.map((c) => [c.id, c]));
+  // resolveTransfer removes proposal 0 each call, so loop on the head.
+  while ((s.proposedTransfers?.length ?? 0) > 0) {
+    const p = s.proposedTransfers![0];
+    const accept =
+      snapValue(p.theirs, p.lane, byId, s.currentMeta) >
+      snapValue(p.mine, p.lane, byId, s.currentMeta);
+    s = resolveTransfer(s, 0, accept);
+  }
+  // executeUserTransfer no-ops once the cap / one-per-role limit is hit.
+  for (const lane of LANE_ORDER) {
+    const best = transferCandidates(s, champions, lane).find(
+      (c) => c.willing && c.upgrade > AI_UPGRADE_MIN,
+    );
+    if (best) s = executeUserTransfer(s, champions, lane, best.otherTeamId);
+  }
+  return s;
+}
+
+/** Offseason window: shop the best willing upgrade per lane for the followed
+ *  team (coach is decided separately by bestCoachHire). */
+export function aiResolveUserOffseason(
+  season: SeasonState,
+  champions: readonly Champion[],
+): SeasonState {
+  let s = season;
+  for (const lane of LANE_ORDER) {
+    const best = offseasonCandidates(s, champions, lane).find(
+      (c) => c.willing && c.upgrade > AI_UPGRADE_MIN,
+    );
+    if (best) s = executeOffseasonUserTransfer(s, champions, lane, best.otherTeamId);
+  }
+  return s;
+}
+
+/** The team whose coach is the biggest CLEAR upgrade over the followed team's
+ *  (≥ 0.3★), or null. The caller performs the swap (offseason only). */
+export function bestCoachHire(season: SeasonState): string | null {
+  const me = season.config.controlledTeamId;
+  const mine = season.teams.find((t) => t.id === me);
+  if (!mine) return null;
+  let bestId: string | null = null;
+  let bestRating = (mine.coach?.rating ?? 0) + 0.3;
+  for (const t of season.teams) {
+    if (t.id === me || !t.coach) continue;
+    if (t.coach.rating > bestRating) {
+      bestRating = t.coach.rating;
+      bestId = t.id;
+    }
+  }
+  return bestId;
 }

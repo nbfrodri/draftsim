@@ -486,6 +486,15 @@ export interface PlayerCareerLine {
   splitTitles: number;
   intlAppearances: number;
   intlTitles: number;
+  // Summed richer stats (only from seasons archived after they existed). Use
+  // the *Games denominators to average correctly; 0 → unknown, render "—".
+  deaths: number;
+  assists: number;
+  pentakills: number;
+  ratingSum: number;
+  ratingGames: number;
+  goldDiffSum: number;
+  goldDiffGames: number;
 }
 
 /** Aggregate per-season player records into true careers, keyed by stable
@@ -506,6 +515,13 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
         cur.splitTitles += r.splitTitles;
         cur.intlAppearances += r.intlAppearances;
         cur.intlTitles += r.intlTitles;
+        cur.deaths += r.deaths ?? 0;
+        cur.assists += r.assists ?? 0;
+        cur.pentakills += r.pentakills ?? 0;
+        cur.ratingSum += r.ratingSum ?? 0;
+        cur.ratingGames += r.ratingGames ?? 0;
+        cur.goldDiffSum += r.goldDiffSum ?? 0;
+        cur.goldDiffGames += r.goldDiffGames ?? 0;
       } else {
         byId.set(r.playerId, {
           playerId: r.playerId,
@@ -520,6 +536,13 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
           splitTitles: r.splitTitles,
           intlAppearances: r.intlAppearances,
           intlTitles: r.intlTitles,
+          deaths: r.deaths ?? 0,
+          assists: r.assists ?? 0,
+          pentakills: r.pentakills ?? 0,
+          ratingSum: r.ratingSum ?? 0,
+          ratingGames: r.ratingGames ?? 0,
+          goldDiffSum: r.goldDiffSum ?? 0,
+          goldDiffGames: r.goldDiffGames ?? 0,
         });
       }
     }

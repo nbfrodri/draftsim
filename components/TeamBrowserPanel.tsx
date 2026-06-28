@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
-import { deriveStar, MAIN_POOL } from "@/lib/players";
+import { deriveStar, MAIN_POOL, playerForLane } from "@/lib/players";
 import { computePlayerSeasonLines, type PlayerSeasonLine } from "@/lib/season/stats";
 import { coachPlaystyle } from "@/lib/season/coach";
 import {
@@ -11,7 +11,8 @@ import {
   LEAGUE_NAMES,
   type LeagueId,
 } from "@/lib/season/types";
-import type { Champion, Lane, Player, PlayerTier } from "@/lib/types";
+import type { Champion, Lane, Player, PlayerTier, Roster } from "@/lib/types";
+import { ChemistryBreakdown } from "./ChemistryRow";
 import TeamIcon from "./TeamIcon";
 import LeagueIcon from "./LeagueIcon";
 import LaneIcon from "./LaneIcon";
@@ -29,6 +30,7 @@ const LANE_LABEL: Record<Lane, string> = {
 };
 const LANE_ORDER: Lane[] = ["top", "jungle", "middle", "bottom", "support"];
 const TIER_CLS: Record<PlayerTier, string> = {
+  "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
   S: "border-rift-gold text-rift-goldbright bg-rift-gold/10",
   A: "border-rift-blue/70 text-rift-bluebright bg-rift-blue/10",
   B: "border-rift-line text-rift-mutedbright",
@@ -139,8 +141,11 @@ export default function TeamBrowserPanel() {
                           </span>
                         </div>
                       )}
-                      {LANE_ORDER.map((lane, li) => {
-                        const p = team.players[li];
+                      {LANE_ORDER.map((lane) => {
+                        // Resolve by lane (not array position) so the player
+                        // shown always matches the lane label, regardless of
+                        // roster order after transfers/roster ops.
+                        const p = playerForLane(team.players, lane);
                         if (!p) return null;
                         const pkey = `${team.id}:${lane}`;
                         const playerOpen = openPlayer === pkey;
@@ -187,6 +192,7 @@ export default function TeamBrowserPanel() {
                             {playerOpen && (
                               <PlayerDetail
                                 p={p}
+                                roster={team.players}
                                 line={p.id ? statsById.get(p.id) : undefined}
                                 byId={byId}
                               />
@@ -246,10 +252,12 @@ function PoolRow({
 // Expanded inspector for one player: identity, full champion pool, season stats.
 function PlayerDetail({
   p,
+  roster,
   line,
   byId,
 }: {
   p: Player;
+  roster: Roster;
   line: PlayerSeasonLine | undefined;
   byId: Map<number, Champion>;
 }) {
@@ -298,6 +306,8 @@ function PlayerDetail({
           <PoolRow ids={p.badChamps} byId={byId} tone="bad" />
         </div>
       )}
+
+      <ChemistryBreakdown me={p} roster={roster} />
 
       <div>
         <div className="text-[8px] uppercase tracking-[0.25em] text-rift-gold/55 mb-0.5">

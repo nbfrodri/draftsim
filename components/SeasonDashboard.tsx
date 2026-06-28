@@ -842,6 +842,10 @@ function PowerRankRow({
           style={{ width: `${pct}%` }}
         />
       </div>
+      {/* Numeric team score (star-equivalent units). */}
+      <span className="w-7 text-right tabular-nums text-rift-gold/80 flex-shrink-0">
+        {row.score.toFixed(1)}
+      </span>
       {row.tags
         .filter((t) => t !== "team-of-split" || row.rank === 1)
         .map((t) => (
@@ -868,8 +872,10 @@ function PowerRankingsPanel({
   champions: readonly Champion[];
 }) {
   const [open, setOpen] = useState(true);
+  // Every team in the season, ranked — scrollable rather than capped, so the
+  // whole field is visible with each team's blended score.
   const rows = useMemo(
-    () => computePowerRankings(season, champions).slice(0, 10),
+    () => computePowerRankings(season, champions),
     [season, champions],
   );
   if (rows.length === 0) return null;
@@ -882,19 +888,21 @@ function PowerRankingsPanel({
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2 hover:text-rift-goldbright transition-colors"
       >
-        <span>Power Rankings · Top 10</span>
+        <span>Power Rankings · {rows.length} Teams</span>
         <span>{open ? "▴" : "▾"}</span>
       </button>
       {open && (
-        <div className="space-y-1 border border-rift-line/40 bg-rift-bg/30 px-3 py-2">
-          {rows.map((row) => (
-            <PowerRankRow
-              key={row.team.id}
-              row={row}
-              spread={spread}
-              min={min}
-            />
-          ))}
+        <div className="border border-rift-line/40 bg-rift-bg/30 px-3 py-2">
+          <div className="space-y-1 max-h-80 overflow-y-auto pr-1">
+            {rows.map((row) => (
+              <PowerRankRow
+                key={row.team.id}
+                row={row}
+                spread={spread}
+                min={min}
+              />
+            ))}
+          </div>
           <div className="text-[8px] text-rift-muted/60 italic pt-1">
             Blends roster strength, recent form &amp; results, and meta fit.
           </div>
@@ -1997,10 +2005,13 @@ function SeasonRecapPanel({
           transferred player's numbers follow them across teams. */}
       {(() => {
         const pl = stats.playerLeaders;
+        // "Most MVPs" intentionally omitted here — it has its own richer card
+        // above (champion + K/D/A). Keeping both duplicated the same stat with
+        // different groupings (per team+lane slot vs per player), which read as
+        // conflicting totals.
         const boards: Array<{ label: string; rows: PlayerSeasonLine[]; val: (l: PlayerSeasonLine) => string }> = [
           { label: "Most Kills", rows: pl.byKills, val: (l: PlayerSeasonLine) => `${l.kills}` },
           { label: "Best Rating", rows: pl.byRating, val: (l: PlayerSeasonLine) => (l.avgRating ?? 0).toFixed(1) },
-          { label: "Most MVPs", rows: pl.byMVP, val: (l: PlayerSeasonLine) => `×${l.mvps}` },
           { label: "Most Pentakills", rows: pl.byPentakills, val: (l: PlayerSeasonLine) => `×${l.pentakills}` },
         ].filter((b) => b.rows.length > 0);
         if (boards.length === 0) return null;

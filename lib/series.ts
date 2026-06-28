@@ -1,5 +1,6 @@
 import { createGame } from "./draftEngine";
 import { deriveStar } from "./players";
+import { assignSynergies } from "./chemistry";
 import type { RNG } from "./rng";
 import type {
   AIDifficulty,
@@ -105,6 +106,16 @@ export function createSeries(params: {
   // omitted ⇒ classic bias model.
   variancePreset?: VariancePreset;
 }): SeriesState {
+  // Roll-and-store teammate chemistry the first time these rosters enter play
+  // (idempotent — season/tournament rosters that already carry it are
+  // untouched, so it never re-rolls between games). Seeded by team name so
+  // blue and red get independent chemistry. See lib/chemistry.ts.
+  const bluePlayers = params.bluePlayers
+    ? assignSynergies(params.bluePlayers, params.blueTeam)
+    : undefined;
+  const redPlayers = params.redPlayers
+    ? assignSynergies(params.redPlayers, params.redTeam)
+    : undefined;
   return {
     id: `series-${Date.now()}`,
     format: params.format,
@@ -137,8 +148,8 @@ export function createSeries(params: {
     redForm: params.redForm,
     blueClutch: params.blueClutch,
     redClutch: params.redClutch,
-    bluePlayers: params.bluePlayers,
-    redPlayers: params.redPlayers,
+    bluePlayers,
+    redPlayers,
     // Only persist the rule when explicitly set — keeps the default state
     // shape byte-identical to pre-feature series.
     ...(params.sideRule ? { sideRule: params.sideRule } : {}),

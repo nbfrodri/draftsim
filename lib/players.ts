@@ -28,11 +28,13 @@ export const LANE_ORDER: readonly Lane[] = [
   "support",
 ];
 
-export const PLAYER_TIERS: readonly PlayerTier[] = ["S", "A", "B", "C", "D"];
+export const PLAYER_TIERS: readonly PlayerTier[] = ["S+", "S", "A", "B", "C", "D"];
 
 // Tier → numeric value, centered on B = 0 so the mean maps cleanly onto a
-// 1..5 star rating (see deriveStar). Range [-2, 2].
+// 1..5 star rating (see deriveStar). Normal range [-2, 2]; S+ = 3 is the rare
+// generational ceiling above S (deriveStar still caps team stars at 5).
 export const PLAYER_TIER_VALUE: Record<PlayerTier, number> = {
+  "S+": 3,
   S: 2,
   A: 1,
   B: 0,
@@ -93,10 +95,12 @@ export function tierValue(t: PlayerTier): number {
 }
 
 // Inverse of PLAYER_TIER_VALUE: nearest tier for a numeric value.
-//   value -2 → D, -1 → C, 0 → B, 1 → A, 2 → S
+//   value -2 → D, -1 → C, 0 → B, 1 → A, 2 → S, 3 → S+
+// Callers that clamp their input to [-2, 2] (ordinary roster/star generation)
+// never reach S+; only a deliberate value of 3 (a generational ceiling) does.
 export function valueToTier(v: number): PlayerTier {
-  const idx = clamp(Math.round(v), -2, 2) + 2; // -2..2 → 0..4
-  return (["D", "C", "B", "A", "S"] as PlayerTier[])[idx];
+  const idx = clamp(Math.round(v), -2, 3) + 2; // -2..3 → 0..5
+  return (["D", "C", "B", "A", "S", "S+"] as PlayerTier[])[idx];
 }
 
 // Derive a 1..5 star rating from a roster: rounded mean tier-value recentred
@@ -155,6 +159,7 @@ export function poolBias(
 // scarier signature pick than one a D-tier player dabbles in, so the weight
 // scales hard with skill. Range (0, 1].
 export const PLAYER_SKILL_WEIGHT: Record<PlayerTier, number> = {
+  "S+": 1.0,
   S: 1.0,
   A: 0.75,
   B: 0.5,
@@ -263,6 +268,7 @@ const MAIN_TIER_WEIGHT: Record<MetaTier, number> = {
 // main strong/meta champs; weaker players draft noisier, flatter pools. Applied
 // as an exponent so S concentrates on top tiers and D nearly flattens out.
 const POOL_SKILL_SKEW: Record<PlayerTier, number> = {
+  "S+": 2.2,
   S: 2,
   A: 1.5,
   B: 1,
@@ -412,11 +418,33 @@ export function normalizeRoster(
       const potential = PLAYER_TIERS.includes(rawPot as PlayerTier)
         ? (rawPot as PlayerTier)
         : undefined;
+      // Region + acclimation drive chemistry (same-region nudge) and the
+      // language-barrier penalty — keep them through import/round-trip.
+      const rawHome = (entry as { homeRegion?: unknown }).homeRegion;
+      const homeRegion =
+        typeof rawHome === "string" && rawHome ? rawHome : undefined;
+      const rawAcc = (entry as { acclimation?: unknown }).acclimation;
+      const acclimation =
+        typeof rawAcc === "number" && Number.isFinite(rawAcc) ? rawAcc : undefined;
+      // Stored teammate chemistry (id → signed value). Keep only finite-number
+      // entries so a corrupt/partial save can't poison the lane model.
+      const rawSyn = (entry as { synergy?: unknown }).synergy;
+      let synergy: Record<string, number> | undefined;
+      if (rawSyn && typeof rawSyn === "object" && !Array.isArray(rawSyn)) {
+        const clean: Record<string, number> = {};
+        for (const [k, v] of Object.entries(rawSyn as Record<string, unknown>)) {
+          if (typeof v === "number" && Number.isFinite(v)) clean[k] = v;
+        }
+        if (Object.keys(clean).length > 0) synergy = clean;
+      }
       byLane.set(lane, {
         ...(id ? { id } : {}),
         ...(name ? { name } : {}),
         ...(age != null ? { age } : {}),
         ...(potential ? { potential } : {}),
+        ...(homeRegion ? { homeRegion } : {}),
+        ...(acclimation != null ? { acclimation } : {}),
+        ...(synergy ? { synergy } : {}),
         lane,
         tier,
         goodChamps: good,

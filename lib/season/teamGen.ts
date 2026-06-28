@@ -5,9 +5,10 @@
 // distribution (major regions field stronger rosters on average) so
 // internationals feel realistic.
 
-import type { Champion } from "../types";
+import type { Champion, Lane, PlayerTier } from "../types";
 import { makeTeamId, TEAM_COLORS, TEAM_ICON_KEYS } from "../tournament";
-import { randomizeRoster, type RNG } from "../players";
+import { randomizeRoster, deriveStar, PLAYER_TIER_VALUE, LANE_ORDER, type RNG } from "../players";
+import { assignSynergies } from "../chemistry";
 import { nameRoster } from "./playerNames";
 import { makeCoach } from "./coach";
 import { PERSONALITY_LIST } from "../draftAI";
@@ -174,19 +175,75 @@ export function generateSeasonTeams(
         // Generated handles now (teams are fictional-named); the "Real Names"
         // button overlays real handles where the snapshot has them. Each player
         // is native to this league (homeRegion) and fully acclimated.
-        players: nameRoster(
-          randomizeRoster({ champions, star: stars[i], rng }),
+        players: assignSynergies(
+          nameRoster(
+            randomizeRoster({ champions, star: stars[i], rng }),
+            name,
+            rng,
+            takenHandles,
+          ).map((p) => ({ ...p, homeRegion: league, acclimation: 1 })),
           name,
-          rng,
-          takenHandles,
-        ).map((p) => ({ ...p, homeRegion: league, acclimation: 1 })),
+        ),
         personalityId: randomPersonalityId(rng),
         coach: makeCoach(stars[i], rng, takenHandles),
       });
       cosmeticIdx++;
     }
   }
-  return teams;
+  return assignRoleElites(teams);
+}
+
+// ─── Elite "S+" tier ─────────────────────────────────────────────────────────
+// S+ is the clear elite: the best SPLUS_PER_ROLE players AT EACH ROLE across the
+// whole world — a recognizable "top 5 per role", visible from the start and
+// spread across regions/positions. It's a RELATIVE marker, recomputed at world
+// generation AND every offseason (so it tracks who's actually elite as players
+// develop and transfer): per role, the S-caliber field is ranked by team
+// strength (a stable name hash tiebreak), the top N get S+, the rest drop to S.
+// Incumbents get a half-star edge so the set doesn't yo-yo year to year.
+export const SPLUS_PER_ROLE = 5;
+const SPLUS_INCUMBENT_EDGE = 500; // ~half a star of hysteresis (star scaled ×1000)
+
+function hashStr(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/** Recompute the S+ elite (top SPLUS_PER_ROLE per role). Pure — returns evolved
+ *  teams. At generation no one is S+ yet so it acts as initial promotion; run
+ *  again each offseason to demote the slipped and promote risers. */
+export function assignRoleElites(teams: readonly SeasonTeam[]): SeasonTeam[] {
+  const out = teams.map((t) => ({ ...t, players: [...t.players] }));
+  for (const lane of LANE_ORDER) {
+    const field: Array<{ ti: number; pi: number; score: number }> = [];
+    out.forEach((team, ti) => {
+      const pi = team.players.findIndex((p) => p.lane === lane);
+      if (pi < 0) return;
+      const p = team.players[pi];
+      const isPlus = p.tier === "S+";
+      // Eligible = the S-caliber field (S or S+); lower tiers can't be elite.
+      if (!isPlus && PLAYER_TIER_VALUE[p.tier] < PLAYER_TIER_VALUE.S) return;
+      // Team strength is the skill proxy; name hash (rng-seeded, stable) breaks
+      // ties deterministically; incumbents carry a half-star edge.
+      const score =
+        deriveStar(team.players) * 1000 +
+        (isPlus ? SPLUS_INCUMBENT_EDGE : 0) +
+        (hashStr(p.name ?? `${ti}-${lane}`) % 1000);
+      field.push({ ti, pi, score });
+    });
+    field.sort((a, b) => b.score - a.score);
+    field.forEach((f, rank) => {
+      const want: PlayerTier = rank < SPLUS_PER_ROLE ? "S+" : "S";
+      if (out[f.ti].players[f.pi].tier !== want) {
+        out[f.ti].players[f.pi] = { ...out[f.ti].players[f.pi], tier: want };
+      }
+    });
+  }
+  return out;
 }
 
 /** Backfill missing cosmetic identity (icon/color/personality) on

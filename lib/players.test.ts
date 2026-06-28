@@ -81,9 +81,10 @@ describe("deriveStar", () => {
 describe("valueToTier", () => {
   it("inverts PLAYER_TIER_VALUE and clamps out-of-range", () => {
     expect(valueToTier(2)).toBe("S");
+    expect(valueToTier(3)).toBe("S+"); // generational ceiling
     expect(valueToTier(0)).toBe("B");
     expect(valueToTier(-2)).toBe("D");
-    expect(valueToTier(99)).toBe("S");
+    expect(valueToTier(99)).toBe("S+"); // clamps to the top tier
     expect(valueToTier(-99)).toBe("D");
   });
 });

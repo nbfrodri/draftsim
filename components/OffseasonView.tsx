@@ -7,7 +7,7 @@ import { MAIN_POOL } from "@/lib/players";
 import {
   offseasonCandidates,
   userTransferCount,
-  USER_MAX_TRANSFERS_PER_WINDOW,
+  USER_MAX_TRANSFERS_OFFSEASON,
 } from "@/lib/season/transfers";
 import { coachPlaystyle } from "@/lib/season/coach";
 import { computeSeasonStats } from "@/lib/season/stats";
@@ -23,6 +23,7 @@ import {
 import type { Champion, Lane, PlayerTier } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
 import LaneIcon from "./LaneIcon";
+import { ProjectedChemScore } from "./ChemistryRow";
 import { LeagueConfigCard, IntlConfigCard, INTL_IDS } from "./season/configCards";
 
 // The post-Worlds OFFSEASON for a reality: the year is decided, and before
@@ -32,6 +33,7 @@ import { LeagueConfigCard, IntlConfigCard, INTL_IDS } from "./season/configCards
 
 const LANE_ORDER: Lane[] = ["top", "jungle", "middle", "bottom", "support"];
 const TIER_CLS: Record<PlayerTier, string> = {
+  "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
   S: "border-rift-gold text-rift-goldbright bg-rift-gold/10",
   A: "border-rift-blue/70 text-rift-bluebright bg-rift-blue/10",
   B: "border-rift-line text-rift-mutedbright",
@@ -44,6 +46,7 @@ export default function OffseasonView() {
   const champions = useDraftStore((s) => s.champions);
   const shopOffseasonTransfer = useDraftStore((s) => s.shopOffseasonTransfer);
   const shopOffseasonCoach = useDraftStore((s) => s.shopOffseasonCoach);
+  const aiDecideOffseason = useDraftStore((s) => s.aiDecideOffseason);
   const updateSeasonConfig = useDraftStore((s) => s.updateSeasonConfig);
   const continueSeasonToNextYear = useDraftStore((s) => s.continueSeasonToNextYear);
   const [shopLane, setShopLane] = useState<Lane | null>(null);
@@ -75,7 +78,7 @@ export default function OffseasonView() {
   }
   // Per-window transfer cap ("worlds" is the offseason window key).
   const usedCount = controlled ? userTransferCount(season, "worlds", controlled.id) : 0;
-  const capReached = usedCount >= USER_MAX_TRANSFERS_PER_WINDOW;
+  const capReached = usedCount >= USER_MAX_TRANSFERS_OFFSEASON;
   const leaders = stats?.playerLeaders;
 
   return (
@@ -124,11 +127,19 @@ export default function OffseasonView() {
             <span className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/70">
               Shop your roster — biggest window of the year
             </span>
-            <span
-              className={`ml-auto text-[8px] uppercase tracking-[0.2em] tabular-nums ${capReached ? "text-rift-redbright/80" : "text-rift-muted/60"}`}
-              title={`Up to ${USER_MAX_TRANSFERS_PER_WINDOW} transfers, one per role`}
+            <button
+              type="button"
+              onClick={() => aiDecideOffseason()}
+              className="ml-auto px-2 py-0.5 border border-rift-blue/50 text-rift-bluebright text-[8px] uppercase tracking-[0.2em] hover:bg-rift-blue/10 transition-all"
+              title="Let the AI shop the best upgrades and hire a better coach for you"
             >
-              {usedCount}/{USER_MAX_TRANSFERS_PER_WINDOW} signed
+              Let AI decide
+            </button>
+            <span
+              className={`text-[8px] uppercase tracking-[0.2em] tabular-nums ${capReached ? "text-rift-redbright/80" : "text-rift-muted/60"}`}
+              title={`Up to ${USER_MAX_TRANSFERS_OFFSEASON} transfers, one per role`}
+            >
+              {usedCount}/{USER_MAX_TRANSFERS_OFFSEASON} signed
             </span>
           </div>
           <div className="space-y-1">
@@ -179,6 +190,7 @@ export default function OffseasonView() {
                       ) : (
                         willing.slice(0, 6).map((c) => {
                           const other = seasonTeam(season, c.otherTeamId);
+                          const incoming = other?.players[li];
                           return (
                             <div key={c.otherTeamId} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
                               <span className="inline-flex items-center gap-1 text-rift-mutedbright">
@@ -187,6 +199,9 @@ export default function OffseasonView() {
                               </span>
                               <span className={`w-5 text-center border font-display ${TIER_CLS[c.theirs.tier]}`}>{c.theirs.tier}</span>
                               {c.theirs.name && <span className="truncate max-w-[88px] text-rift-mutedbright">{c.theirs.name}</span>}
+                              {incoming && (
+                                <ProjectedChemScore roster={controlled.players} incoming={incoming} lane={lane} />
+                              )}
                               <span className={`text-[9px] tabular-nums ${c.upgrade > 0.05 ? "text-emerald-400" : c.upgrade < -0.05 ? "text-rift-redbright" : "text-rift-muted/60"}`}>
                                 {c.upgrade >= 0 ? "+" : ""}
                                 {c.upgrade.toFixed(1)}

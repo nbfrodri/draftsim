@@ -10,12 +10,64 @@ import {
   USER_MAX_TRANSFERS_PER_WINDOW,
   settle,
   transferValue,
+  rewardRosterStability,
+  awardStabilityBonus,
+  STABILITY_FORM_BONUS,
+  bestCoachHire,
   type LaneEntry,
 } from "./transfers";
 import { playerLaneCohesionBias } from "../matchSimulator";
-import type { Champion, Player } from "../types";
+import type { Champion, Lane, Player } from "../types";
 import type { ProposedTransfer, SeasonPhase, SeasonState } from "./types";
 import type { SeasonMetaSnapshot } from "./types";
+
+describe("rewardRosterStability", () => {
+  it("bonuses only the teams that made no move; involved teams unchanged", () => {
+    const form = { A: 0, B: 0, C: 0.1 };
+    const involved = new Set(["A"]); // A transferred
+    const out = rewardRosterStability(form, ["A", "B", "C"], involved);
+    expect(out.A).toBe(0); // involved → no bonus
+    expect(out.B).toBeCloseTo(STABILITY_FORM_BONUS); // sat out → bonus
+    expect(out.C).toBeCloseTo(0.1 + STABILITY_FORM_BONUS);
+    expect(form.B).toBe(0); // input not mutated
+  });
+
+  it("clamps the bonus to the form ceiling", () => {
+    const out = rewardRosterStability({ A: 0.95 }, ["A"], new Set());
+    expect(out.A).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("awardStabilityBonus (window close)", () => {
+  const seasonWith = (
+    moves: Array<{ fromTeamId: string; toTeamId: string }>,
+    teamForm: Record<string, number> | undefined = {},
+  ) =>
+    ({
+      teams: [{ id: "A" }, { id: "B" }, { id: "C" }],
+      teamForm,
+      transfersByEvent: { "first-stand": moves },
+    }) as unknown as SeasonState;
+
+  it("bonuses teams not in the final transfer record (a declined proposal counts as sitting out)", () => {
+    // A↔B moved; C was proposed a swap but DECLINED, so it never landed in
+    // transfersByEvent → it correctly gets the stability bonus.
+    const out = awardStabilityBonus(seasonWith([{ fromTeamId: "A", toTeamId: "B" }]), "first-stand");
+    expect(out.teamForm!.C).toBeCloseTo(STABILITY_FORM_BONUS);
+    expect(out.teamForm!.A ?? 0).toBe(0);
+    expect(out.teamForm!.B ?? 0).toBe(0);
+  });
+
+  it("is a no-op when form isn't tracked or the window saw no churn", () => {
+    const noForm = {
+      teams: [{ id: "A" }, { id: "B" }],
+      transfersByEvent: { "first-stand": [{ fromTeamId: "A", toTeamId: "B" }] },
+    } as unknown as SeasonState; // no teamForm field
+    expect(awardStabilityBonus(noForm, "first-stand")).toBe(noForm);
+    const quiet = awardStabilityBonus(seasonWith([]), "first-stand");
+    expect(quiet.teamForm).toEqual({}); // nobody moved → no relative bonus
+  });
+});
 
 // ── planLaneSwaps: a stuck star (high value, weak seat) swaps with a weak
 //    link (low value, strong seat); nothing moves without a real gap. ──
@@ -120,6 +172,29 @@ describe("resolveTransfer", () => {
     // Still just the one auto move — the declined one is NOT recorded.
     expect(out.transfersByEvent?.["first-stand"]).toHaveLength(1);
   });
+
+  it("refuses to accept once the followed team's per-window cap is reached", () => {
+    // Two moves already involve "mine" this window (in-season cap is 2), on
+    // OTHER lanes so the one-per-role rule doesn't fire instead.
+    const mineMove = (lane: string) => ({
+      event: "first-stand" as const,
+      lane,
+      fromTeamId: "mine",
+      toTeamId: "z",
+      star: { tier: "B", grade: null, goodChamps: [] },
+      swap: { tier: "B", grade: null, goodChamps: [] },
+    });
+    const atCap = {
+      ...season(),
+      transfersByEvent: { "first-stand": [mineMove("top"), mineMove("jungle")] },
+    } as unknown as SeasonState;
+    const out = resolveTransfer(atCap, 0, true); // try to ACCEPT past the cap
+    // Treated as declined: rosters untouched, proposal cleared, no new move.
+    expect(out.teams[0].players[2].tier).toBe("C");
+    expect(out.teams[1].players[2].tier).toBe("S");
+    expect(out.proposedTransfers).toHaveLength(0);
+    expect(out.transfersByEvent?.["first-stand"]).toHaveLength(2);
+  });
 });
 
 // ── User-initiated shopping: willingness + execution ────────────────────────
@@ -178,7 +253,7 @@ describe("transferCandidates / executeUserTransfer", () => {
     expect(transferCandidates(first, [], "middle")).toHaveLength(0); // shop closed
   });
 
-  it("caps the followed team at 3 transfers per window", () => {
+  it("caps the followed team at the per-window transfer limit", () => {
     const move = (lane: string) => ({
       event: "first-stand" as const,
       lane,
@@ -187,19 +262,23 @@ describe("transferCandidates / executeUserTransfer", () => {
       star: { tier: "B", grade: null, goodChamps: [] },
       swap: { tier: "B", grade: null, goodChamps: [] },
     });
-    const withThree = {
+    // Fill exactly the per-window cap (in-season = 2) on distinct lanes.
+    const lanes: Lane[] = ["top", "jungle", "bottom"];
+    const atCap = {
       ...season(),
-      transfersByEvent: { "first-stand": [move("top"), move("jungle"), move("bottom")] },
+      transfersByEvent: {
+        "first-stand": lanes.slice(0, USER_MAX_TRANSFERS_PER_WINDOW).map(move),
+      },
     } as unknown as SeasonState;
-    expect(userTransferCount(withThree, "first-stand", "mine")).toBe(
+    expect(userTransferCount(atCap, "first-stand", "mine")).toBe(
       USER_MAX_TRANSFERS_PER_WINDOW,
     );
-    expect(userTransferCapReached(withThree, "first-stand", "mine")).toBe(true);
-    // A 4th transfer on a fresh lane is refused despite a willing rival …
-    const blocked = executeUserTransfer(withThree, [], "middle", "rivalB");
-    expect(blocked).toBe(withThree); // no-op
+    expect(userTransferCapReached(atCap, "first-stand", "mine")).toBe(true);
+    // One more transfer on a fresh lane is refused despite a willing rival …
+    const blocked = executeUserTransfer(atCap, [], "middle", "rivalB");
+    expect(blocked).toBe(atCap); // no-op
     // … and the shop closes on every remaining lane.
-    expect(transferCandidates(withThree, [], "middle")).toHaveLength(0);
+    expect(transferCandidates(atCap, [], "middle")).toHaveLength(0);
   });
 });
 
@@ -216,8 +295,10 @@ describe("language barrier", () => {
     // Lateral within a foreign region keeps current acclimation.
     const imp = mid({ homeRegion: "LCK", acclimation: 0.5 });
     expect(settle(imp, "LEC", "LEC").acclimation).toBe(0.5);
-    // A fresh cross-region move resets low.
+    // A fresh cross-region move resets low in-season …
     expect(settle(mid({ homeRegion: "LCK", acclimation: 1 }), "LCK", "LEC").acclimation).toBe(0.15);
+    // … but an OFFSEASON move lands far more settled (preseason to adjust).
+    expect(settle(mid({ homeRegion: "LCK", acclimation: 1 }), "LCK", "LEC", true).acclimation).toBe(0.5);
   });
 
   it("transfer value discounts an un-acclimated import", () => {
@@ -235,5 +316,55 @@ describe("language barrier", () => {
     expect(playerLaneCohesionBias(blue as never, red as never, "middle")).toBeLessThan(0);
     // Symmetric: swap sides → positive.
     expect(playerLaneCohesionBias(red as never, blue as never, "middle")).toBeGreaterThan(0);
+  });
+});
+
+describe("bestCoachHire", () => {
+  const season = (coaches: Record<string, number | null>): SeasonState =>
+    ({
+      config: { controlledTeamId: "mine" },
+      teams: Object.entries(coaches).map(([id, rating]) => ({
+        id,
+        coach: rating == null ? undefined : { name: id, rating },
+      })),
+    }) as unknown as SeasonState;
+
+  it("picks the clearly-better coach, ignores ties/own team", () => {
+    // mine 3.0; rivalA 4.2 (clear upgrade), rivalB 3.1 (under the 0.3 margin).
+    expect(bestCoachHire(season({ mine: 3.0, rivalA: 4.2, rivalB: 3.1 }))).toBe("rivalA");
+    // Nobody clearly better → null.
+    expect(bestCoachHire(season({ mine: 4.5, rivalA: 4.4, rivalB: 4.0 }))).toBeNull();
+    // No coach of our own → still hires the best available.
+    expect(bestCoachHire(season({ mine: null, rivalA: 2.0, rivalB: 3.5 }))).toBe("rivalB");
+  });
+});
+
+import { offseasonTransferPass } from "./transfers";
+import { generateSeasonTeams } from "./teamGen";
+import { LANE_ORDER as LANES2 } from "../players";
+
+describe("cross-region resistance (auto market)", () => {
+  let cid = 5000;
+  const champs = () =>
+    LANES2.flatMap((lane) => Array.from({ length: 8 }, () => ({ id: cid++, name: `c${cid}`, alias: `c${cid}`, roles: [], iconUrl: "", lanes: [lane] }))) as never;
+
+  it("never moves an S/S+ player to a different region", () => {
+    const champions = champs();
+    const teams = generateSeasonTeams(champions, (() => { let a = 11 >>> 0; return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; })());
+    const origRegion = new Map<string, string>();
+    for (const t of teams) for (const p of t.players) if (p.name) origRegion.set(p.name, t.leagueId);
+    const byId = new Map(champions.map((c: never) => [(c as { id: number }).id, c]));
+    const meta = { metaOverride: null, metaEnabled: true, synergyOverride: null, counterOverride: null };
+    const { teams: after, moves } = offseasonTransferPass(teams, () => null, byId as never, meta as never);
+    // Some movement happened (lower tiers still cross / move) ...
+    expect(moves.length).toBeGreaterThan(0);
+    // ... but no elite ended up in a different region than they started.
+    for (const t of after) {
+      for (const p of t.players) {
+        if (p.name && (p.tier === "S" || p.tier === "S+")) {
+          expect(t.leagueId).toBe(origRegion.get(p.name));
+        }
+      }
+    }
   });
 });

@@ -55,9 +55,20 @@ import {
   type SplitId,
 } from "./types";
 import type { SeasonHistoryEntry } from "./history";
-import { applyTransfers } from "./transfers";
-import { coachDifficulty, coachMotivationFactor } from "./coach";
+import { applyTransfers, awardStabilityBonus } from "./transfers";
+import {
+  coachDifficulty,
+  coachMotivationFactor,
+  coachAdaptabilityTrait,
+  coachDevTilt,
+  nextCoachRating,
+} from "./coach";
 import { applyPoolDrift } from "./poolDrift";
+import {
+  driftSynergiesFromResult,
+  driftSynergiesOverTime,
+  assignSynergies,
+} from "../chemistry";
 
 export function makeSeasonId(): string {
   return `season-${Date.now().toString(36)}-${Math.random()
@@ -1314,7 +1325,13 @@ function initRealismState(
   }
   if (config.metaAdaptability) {
     const m: Record<string, number> = {};
-    for (const t of teams) m[t.id] = traitHash(`${t.id}:adapt`);
+    // The coach drives how well a team rides balance patches; fall back to a
+    // stable per-team hash when a team has no coach.
+    for (const t of teams) {
+      m[t.id] = t.coach
+        ? coachAdaptabilityTrait(t.coach)
+        : traitHash(`${t.id}:adapt`);
+    }
     out.teamAdaptability = m;
   }
   if (config.regionTides) {
@@ -1353,6 +1370,83 @@ function updateFormFromTournament(
   return { ...season, teamForm: form };
 }
 
+// [A2] Teammate chemistry drifts on results — but only in a realities/franchise
+// timeline (season.franchise set), where rosters persist across years so the
+// drift has time to matter. Winning the event gels a roster (every current pair
+// nudges up), finishing last frays it. Pairs are stored on the players; this
+// writes the updated rosters back into season.teams (the franchise source of
+// truth that next year's tournaments are built from). Time-based familiarity is
+// handled separately at the offseason (franchise.startNextSeason).
+function updateChemistryFromTournament(
+  season: SeasonState,
+  t: TournamentState,
+): SeasonState {
+  if (!season.franchise) return season;
+  // Skip the Play-In so a team that also plays the main event doesn't get its
+  // familiarity gel + result drift applied twice in one phase (mirrors the
+  // coach + league-strength Play-In gates). The main event's result is the one
+  // that should move chemistry.
+  if (t.name.includes("Play-In")) return season;
+  const placements = tournamentPlacements(t);
+  const n = placements.length;
+  if (n < 2) return season;
+  // Normalized finish in [-1, +1]: +1 won the event, -1 finished last.
+  const finishById = new Map<string, number>();
+  placements.forEach((id, idx) => {
+    finishById.set(id, ((n - 1 - idx) / (n - 1)) * 2 - 1);
+  });
+  const teams = season.teams.map((team) => {
+    const finish = finishById.get(team.id);
+    if (finish == null) return team; // didn't play this tournament
+    // Roll innate chemistry for any pair that doesn't have it yet (new
+    // transfers/rookies) into the PERSISTENT roster BEFORE drifting — otherwise
+    // drift would skip them and they'd never get an innate roll persisted here.
+    const rolled = assignSynergies(team.players, team.name);
+    // Familiarity: a tournament played together gels the roster toward the
+    // time-together ceiling, REGARDLESS of placement — even a mid-table or
+    // last-place team grows from sharing reps through a split.
+    let players = driftSynergiesOverTime(rolled);
+    // Results stack on top: a strong finish lifts further, a weak one frays
+    // below the familiarity gain (mid-table finish === 0 leaves it untouched).
+    if (finish !== 0) players = driftSynergiesFromResult(players, finish);
+    return { ...team, players };
+  });
+  return { ...season, teams };
+}
+
+// [A3] Coach reputations evolve on results: over- or under-performing the
+// team's seed moves the coach's rating, with regression toward the mean so
+// ratings never all pile at the ceiling (there are always rising and falling
+// coaches). Gated like the other results-driven realism (formEnabled). Writes
+// the updated coaches back into season.teams (the source of truth).
+function evolveCoachesFromTournament(
+  season: SeasonState,
+  t: TournamentState,
+): SeasonState {
+  if (!formEnabled(season.config)) return season;
+  // Skip the Play-In so a team that also plays the international main event
+  // doesn't get its coach evolved twice in one phase (mirrors the Play-In gate
+  // on league-strength tides). Coach rating has no decay, so double-counting
+  // would compound.
+  if (t.name.includes("Play-In")) return season;
+  const placements = tournamentPlacements(t);
+  const n = placements.length;
+  if (n < 2) return season;
+  let changed = false;
+  const teams = season.teams.map((team) => {
+    if (!team.coach) return team;
+    const idx = placements.indexOf(team.id);
+    if (idx < 0) return team;
+    const seed = t.teams.find((x) => x.id === team.id)?.seed ?? (n + 1) / 2;
+    const perf = (seed - (idx + 1)) / Math.max(1, n - 1); // >0 = beat seed
+    const rating = nextCoachRating(team.coach.rating, perf);
+    if (rating === team.coach.rating) return team;
+    changed = true;
+    return { ...team, coach: { ...team.coach, rating } };
+  });
+  return changed ? { ...season, teams } : season;
+}
+
 // [D] A balance patch rewards teams that adapt and punishes the rigid —
 // expressed as a one-off form swing scaled by each team's adaptability.
 function applyMetaAdaptability(season: SeasonState): SeasonState {
@@ -1384,14 +1478,23 @@ export function applyPlayerDevelopment(
   }
   const teams = season.teams.map((team) => {
     const teamForm = form[team.id] ?? 0;
+    // A strong coach helps players grow and shields decline; a poor one drags
+    // them down. 0 for a neutral/absent coach (development unchanged).
+    const coachTilt = coachDevTilt(team.coach);
     let changed = false;
     const players = team.players.map((p) => {
+      // S+ is the elite marker owned by the offseason refresh (assignRoleElites),
+      // NOT a developable skill — leave it alone so mid-split development can't
+      // silently strip it (its value 3 would clamp to S below). It can still
+      // drop to S at the next offseason re-rank if the player slips.
+      if (p.tier === "S+") return p;
       if (rng() >= DEV_RATE) return p;
       const val = PLAYER_TIER_VALUE[p.tier]; // -2 (D) .. +2 (S)
       let pUp =
         0.5 -
         DEV_REGRESS * (val / 2) +
-        DEV_FORM * Math.sign(teamForm) * Math.min(1, Math.abs(teamForm));
+        DEV_FORM * Math.sign(teamForm) * Math.min(1, Math.abs(teamForm)) +
+        coachTilt;
       pUp = Math.max(0.1, Math.min(0.9, pUp));
       const dir = rng() < pUp ? 1 : -1;
       const nextVal = Math.max(-2, Math.min(2, val + dir));
@@ -1590,7 +1693,11 @@ function startPhase(season: SeasonState, index: number): SeasonState {
         ? { ...p, status: (pending ? "in-progress" : "complete") as SeasonPhase["status"] }
         : p,
     );
-    const s = { ...season, phases, phaseIndex: index, updatedAt: Date.now() };
+    let s = { ...season, phases, phaseIndex: index, updatedAt: Date.now() };
+    // No followed team → the window closes immediately, so award the
+    // roster-stability bonus now. With a followed team it's deferred to
+    // advanceTransferWindow (after they accept/decline their proposals).
+    if (!pending && phase.event) s = awardStabilityBonus(s, phase.event);
     return pending ? s : startPhase(s, index + 1);
   }
   const created: TournamentState[] = [];
@@ -1689,9 +1796,23 @@ function recordTournamentResult(
     // swiss field forced one).
     const isPlayIn = t.name.includes("Play-In");
     if (!isPlayIn) {
+      // Teams eliminated in this event's Play-In still PLACED at the event —
+      // append them below the main-event finishers (in their Play-In order) so
+      // every participating team gets a placement, not just the main bracket.
+      const playIn = phase.tournamentIds
+        .map((id) => next.tournaments[id])
+        .find((x) => x && x.name.includes("Play-In") && x.status === "complete");
+      let full = placements;
+      if (playIn) {
+        const inMain = new Set(t.teams.map((tt) => tt.id));
+        const playInExits = tournamentPlacements(playIn).filter(
+          (id) => !inMain.has(id) && !placements.includes(id),
+        );
+        full = [...placements, ...playInExits];
+      }
       next = {
         ...next,
-        intlResults: { ...next.intlResults, [phase.event]: placements },
+        intlResults: { ...next.intlResults, [phase.event]: full },
       };
     }
   }
@@ -1718,6 +1839,10 @@ function recordTournamentResult(
   }
   // [A] Hot/cold form drifts on every completed tournament's results.
   next = updateFormFromTournament(next, t);
+  // [A2] Teammate chemistry drifts on results (realities/franchise only).
+  next = updateChemistryFromTournament(next, t);
+  // [A3] Coach reputations rise/fall with results (mean-reverting).
+  next = evolveCoachesFromTournament(next, t);
   // [F] Region strength tides on the international RESULT (not the play-in
   // qualifier) — the event that actually measures a region's showing.
   if (
@@ -1829,10 +1954,17 @@ export function applyTournamentUpdate(
 
   const isLastPhase = next.phaseIndex >= next.phases.length - 1;
   if (isLastPhase) {
+    // The post-Worlds offseason is a FRESH window each year. startNextSeason
+    // carried last year's offseason moves into "worlds" for the in-season recap;
+    // drop them now so this year's offseason per-team cap counts from zero
+    // (otherwise it accumulates across years and stays perma-capped).
+    const events = { ...(next.transfersByEvent ?? {}) };
+    delete events.worlds;
     return {
       ...next,
       status: "complete",
       champion: next.intlResults.worlds?.[0] ?? null,
+      transfersByEvent: events,
       updatedAt: Date.now(),
     };
   }
@@ -1900,8 +2032,10 @@ export function advanceTransferWindow(season: SeasonState): SeasonState {
   const phases = season.phases.map((p, i) =>
     i === season.phaseIndex ? { ...p, status: "complete" as const } : p,
   );
-  return startPhase(
-    { ...season, phases, proposedTransfers: [], updatedAt: Date.now() },
-    season.phaseIndex + 1,
-  );
+  // The followed team's decisions are final now (unresolved proposals were
+  // declined by default) — award the roster-stability bonus from the final
+  // transfer record, so a declined proposal correctly counts as sitting out.
+  let s: SeasonState = { ...season, phases, proposedTransfers: [], updatedAt: Date.now() };
+  if (phase.event) s = awardStabilityBonus(s, phase.event);
+  return startPhase(s, season.phaseIndex + 1);
 }
