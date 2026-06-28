@@ -9,6 +9,10 @@ import {
   type HistoryTransfer,
   type SeasonHistoryEntry,
   type SeasonHistoryTeamRef,
+  type SeasonHistoryAllProTeam,
+  type SeasonHistoryAllProMember,
+  type SeasonHistoryIntlMvp,
+  type SeasonHistorySplitMvp,
 } from "@/lib/season/history";
 import {
   exportAllSeasonsXlsx,
@@ -36,7 +40,8 @@ import {
   type MetaOverride,
   type MetaTier,
 } from "@/lib/championMeta";
-import type { Lane, PlayerTier } from "@/lib/types";
+import type { Champion, Lane, PlayerTier } from "@/lib/types";
+import type { PlayerChampStat } from "@/lib/season/stats";
 import { LANE_ORDER } from "@/lib/players";
 import {
   listPlayers,
@@ -483,6 +488,21 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
         </div>
       )}
 
+      {/* International event MVPs — a player from each event's champion team */}
+      {entry.intlMvps && entry.intlMvps.length > 0 && (
+        <IntlMvpsPanel mvps={entry.intlMvps} />
+      )}
+
+      {/* Split MVPs — a player from each split champion, per league */}
+      {entry.splitMvps && entry.splitMvps.length > 0 && (
+        <SplitMvpsPanel mvps={entry.splitMvps} />
+      )}
+
+      {/* All-Pro teams — season of the year, per-split global, per-league */}
+      {entry.allProTeams && entry.allProTeams.length > 0 && (
+        <AllProTeamsPanel entry={entry} />
+      )}
+
       {/* Narrative story recap (archived seasons that carry one). */}
       {entry.story && (
         <SeasonStoryCard story={entry.story} title="Story of the Season" />
@@ -504,6 +524,183 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
           The Meta · Start → Finish
         </div>
         <MetaStory entry={entry} />
+      </div>
+    </div>
+  );
+}
+
+// ─── All-Pro teams ───────────────────────────────────────────────────────────
+// One All-Pro team's five members, on a single wrapping row.
+function AllProMembers({ members }: { members: SeasonHistoryAllProMember[] }) {
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1">
+      {members.map((m, i) => (
+        <span key={i} className="inline-flex items-center gap-1 text-[9px]">
+          <LaneIcon lane={m.lane} size="xs" />
+          <TeamIcon
+            iconKey={m.team.iconKey}
+            logoUrl={m.team.logoUrl ?? logoForTeamName(m.team.name)}
+            size={11}
+            color={m.team.color}
+          />
+          <span className="text-rift-mutedbright truncate max-w-[90px]">
+            {m.playerName ?? m.team.name}
+          </span>
+          <span className="text-rift-gold/70 tabular-nums" title={`${m.games} games`}>
+            ★{m.avgRating.toFixed(1)}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// Season-of-the-year team, each split's global team, and every league's
+// per-split team — all derived from per-game performance ratings.
+function AllProTeamsPanel({ entry }: { entry: SeasonHistoryEntry }) {
+  const teams = entry.allProTeams ?? [];
+  const season = teams.find((t) => t.scope === "season-global");
+  const splitGlobal = (split: SplitId) =>
+    teams.find((t) => t.scope === "split-global" && t.split === split);
+  const splitLeague = (split: SplitId) =>
+    teams
+      .filter((t) => t.scope === "split-league" && t.split === split)
+      .sort((a, b) => (a.leagueId ?? "").localeCompare(b.leagueId ?? ""));
+  const splits = SPLIT_ORDER.filter(
+    (s) => splitGlobal(s) || splitLeague(s).length > 0,
+  );
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+        All-Pro Teams
+      </div>
+      {season && (
+        <div className="border-2 border-rift-gold/50 bg-rift-gold/[0.06] px-3 py-2 mb-2">
+          <div className="text-[8px] uppercase tracking-[0.3em] text-rift-goldbright mb-1">
+            ★ All-Pro Team of the Year
+          </div>
+          <AllProMembers members={season.members} />
+        </div>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-x-5 gap-y-2">
+        {splits.map((split) => {
+          const global = splitGlobal(split);
+          const leagues = splitLeague(split);
+          return (
+            <div key={split} className="border border-rift-line/40 bg-rift-bg/30 px-3 py-2">
+              <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1">
+                {SPLIT_LABELS[split]}
+              </div>
+              {global && (
+                <div className="mb-1.5">
+                  <div className="text-[7px] uppercase tracking-[0.25em] text-rift-mutedbright/60 mb-0.5">
+                    Global
+                  </div>
+                  <AllProMembers members={global.members} />
+                </div>
+              )}
+              {leagues.length > 0 && (
+                <details className="group">
+                  <summary className="cursor-pointer text-[7px] uppercase tracking-[0.25em] text-rift-blue/70 hover:text-rift-bluebright">
+                    Per-league ({leagues.length})
+                  </summary>
+                  <div className="space-y-1 mt-1">
+                    {leagues.map((t, i) => (
+                      <div key={i}>
+                        <div className="flex items-center gap-1 text-[7px] uppercase tracking-[0.2em] text-rift-muted/60">
+                          {t.leagueId && <LeagueIcon league={t.leagueId} size={11} />}
+                          {t.leagueId ? LEAGUE_NAMES[t.leagueId] : "—"}
+                        </div>
+                        <AllProMembers members={t.members} />
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// International event MVPs — the finals MVP (a player from the champion team)
+// of each international, in event order.
+function IntlMvpsPanel({ mvps }: { mvps: SeasonHistoryIntlMvp[] }) {
+  const ordered = INTL_ORDER.map((ev) => mvps.find((m) => m.event === ev)).filter(
+    (m): m is SeasonHistoryIntlMvp => !!m,
+  );
+  if (ordered.length === 0) return null;
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+        International Event MVPs
+      </div>
+      <div className="space-y-1">
+        {ordered.map((m) => (
+          <div
+            key={m.event}
+            className="flex flex-wrap items-center gap-1.5 border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5 text-[10px]"
+          >
+            <LeagueIcon league={m.event} size={14} />
+            <span className="text-rift-muted/80">{INTERNATIONAL_LABELS[m.event]}:</span>
+            <LaneIcon lane={m.lane} size="xs" />
+            <TeamRef team={m.team} size={12} />
+            <span className="font-display tracking-wide text-rift-goldbright">
+              {m.playerName ?? `${m.team.name} ${m.lane}`}
+            </span>
+            <span className="ml-auto text-rift-gold/70 tabular-nums" title={`${m.games} games in the final`}>
+              ★{m.avgRating.toFixed(1)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Split MVPs — the finals MVP (a player from the split champion) of each
+// domestic split, grouped by split then league.
+function SplitMvpsPanel({ mvps }: { mvps: SeasonHistorySplitMvp[] }) {
+  const splits = SPLIT_ORDER.filter((s) => mvps.some((m) => m.split === s));
+  if (splits.length === 0) return null;
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+        Split MVPs
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-x-5 gap-y-2">
+        {splits.map((split) => (
+          <div key={split} className="border border-rift-line/40 bg-rift-bg/30 px-3 py-2">
+            <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1">
+              {SPLIT_LABELS[split]}
+            </div>
+            <div className="space-y-0.5">
+              {mvps
+                .filter((m) => m.split === split)
+                .sort((a, b) => a.leagueId.localeCompare(b.leagueId))
+                .map((m, i) => (
+                  <div key={i} className="flex items-center gap-1.5 text-[10px]">
+                    <LeagueIcon league={m.leagueId} size={11} />
+                    <LaneIcon lane={m.lane} size="xs" />
+                    <span className="text-rift-goldbright truncate">
+                      {m.playerName ?? `${m.team.name} ${m.lane}`}
+                    </span>
+                    <TeamIcon
+                      iconKey={m.team.iconKey}
+                      logoUrl={m.team.logoUrl ?? logoForTeamName(m.team.name)}
+                      size={10}
+                      color={m.team.color}
+                    />
+                    <span className="ml-auto text-rift-gold/70 tabular-nums" title={`${m.games} games in the final`}>
+                      ★{m.avgRating.toFixed(1)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -823,6 +1020,8 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
       [...careers].filter((p) => key(p) > 0).sort((a, b) => key(b) - key(a)).slice(0, 5);
     return [
       { label: "Most MVPs", rows: top((p) => p.mvps), val: (p: PlayerCareerLine) => `${p.mvps}` },
+      { label: "Most Intl MVPs", rows: top((p) => p.intlMvps), val: (p: PlayerCareerLine) => `${p.intlMvps}` },
+      { label: "Most Split MVPs", rows: top((p) => p.splitMvps), val: (p: PlayerCareerLine) => `${p.splitMvps}` },
       { label: "Most Kills", rows: top((p) => p.kills), val: (p: PlayerCareerLine) => `${p.kills}` },
       { label: "Most All-Pro", rows: top((p) => p.allPro), val: (p: PlayerCareerLine) => `${p.allPro}` },
       { label: "Region Titles", rows: top((p) => p.splitTitles), val: (p: PlayerCareerLine) => `${p.splitTitles}` },
@@ -1431,6 +1630,22 @@ function OverallTimeline({ entries }: { entries: SeasonHistoryEntry[] }) {
                             )}
                           </div>
                         )}
+                        {(() => {
+                          const mvp =
+                            filter === "intl"
+                              ? entry.intlMvps?.find((m) => m.event === row.key)
+                              : entry.splitMvps?.find(
+                                  (m) => m.split === row.key && m.leagueId === filter,
+                                );
+                          return mvp ? (
+                            <div className="mt-0.5 pl-1 flex items-center gap-1 text-[8px] text-rift-goldbright">
+                              <span className="uppercase tracking-[0.15em] text-rift-gold/55">MVP</span>
+                              <LaneIcon lane={mvp.lane} size="xs" />
+                              <span className="truncate max-w-[90px]">{mvp.playerName ?? `${mvp.team.name} ${mvp.lane}`}</span>
+                              <span className="text-rift-gold/60 tabular-nums">★{mvp.avgRating.toFixed(1)}</span>
+                            </div>
+                          ) : null;
+                        })()}
                       </div>
                     );
                   })}
@@ -1522,17 +1737,70 @@ function TitleTallyInline({ titles }: { titles: { splits: SplitId[]; intl: Inter
   );
 }
 
+// A scrollable champion pool: every champion the player has been recorded on,
+// with games played and win rate. Most-played first.
+function ChampPool({
+  champs,
+  champById,
+}: {
+  champs: PlayerChampStat[];
+  champById: Map<number, Champion>;
+}) {
+  if (champs.length === 0)
+    return <p className="text-[10px] italic text-rift-muted/70">No champion data recorded.</p>;
+  return (
+    <div className="max-h-44 overflow-y-auto pr-1 space-y-0.5">
+      {champs.map((cs) => {
+        const champ = champById.get(cs.championId);
+        const wr = cs.games > 0 ? Math.round((cs.wins / cs.games) * 100) : 0;
+        return (
+          <div key={cs.championId} className="flex items-center gap-2 text-[10px]">
+            {champ?.iconUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={champ.iconUrl} alt="" className="w-4 h-4 rounded-sm flex-shrink-0" />
+            )}
+            <span className="truncate flex-1 text-rift-mutedbright">
+              {champ?.name ?? `#${cs.championId}`}
+            </span>
+            <span className="tabular-nums text-rift-muted/70 w-8 text-right">{cs.games}g</span>
+            <span
+              className={`tabular-nums w-9 text-right ${wr >= 50 ? "text-rift-bluebright" : "text-rift-redbright/80"}`}
+            >
+              {wr}%
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PlayerProfileView({ entries, id }: { entries: SeasonHistoryEntry[]; id: string }) {
   const p = useMemo(() => playerProfile(entries, id), [entries, id]);
+  const champions = useDraftStore((s) => s.champions);
+  const champById = useMemo(
+    () => new Map(champions.map((ch) => [ch.id, ch])),
+    [champions],
+  );
   if (!p) return <p className="text-[11px] italic text-rift-muted">No data.</p>;
   const c = p.career;
   const gd = c ? goldDiff(c.goldDiffSum, c.goldDiffGames) : null;
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         {p.lane && <LaneIcon lane={p.lane} size="sm" />}
         {p.tier && <span className={`w-5 text-center border font-display text-[10px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>}
         <span className="font-display text-lg tracking-wide text-rift-goldbright">{p.name}</span>
+        {p.age != null && (
+          <span className="text-[9px] uppercase tracking-[0.2em] text-rift-muted/70 border border-rift-line/40 px-1.5 py-0.5">
+            Age {p.age}
+          </span>
+        )}
+        {p.retired && (
+          <span className="text-[9px] uppercase tracking-[0.2em] text-rift-redbright/80 border border-rift-red/40 bg-rift-red/10 px-1.5 py-0.5">
+            Retired
+          </span>
+        )}
       </div>
       {c && (
         <>
@@ -1544,15 +1812,67 @@ function PlayerProfileView({ entries, id }: { entries: SeasonHistoryEntry[]; id:
             <StatChip label="Kills/game" value={perGame(c.kills, c.games)} />
             <StatChip label="KDA" value={kdaOf(c.kills, c.deaths, c.assists)} />
           </div>
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
             <StatChip label="Kills" value={c.kills} />
             <StatChip label="Pentas" value={c.pentakills} />
             <StatChip label="MVPs" value={c.mvps} />
             <StatChip label="All-Pro" value={c.allPro} />
+            <StatChip label="All-Pro Split" value={c.allProSplit} />
+            <StatChip label="All-Pro Season" value={c.allProSeason} />
+            <StatChip label="Intl MVPs" value={c.intlMvps} />
+            <StatChip label="Split MVPs" value={c.splitMvps} />
           </div>
         </>
       )}
       <IntlTitleChips splitTitles={p.splitTitles} intl={p.intlTitles} />
+      {c && c.champs.length > 0 && (
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+            Champion Pool · Career
+          </div>
+          <ChampPool champs={c.champs} champById={champById} />
+        </div>
+      )}
+      {p.seasons.length > 0 && (
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+            By Season
+          </div>
+          <div className="space-y-1.5">
+            {p.seasons.map((s, i) => (
+              <details key={i} className="border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5">
+                <summary className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] cursor-pointer">
+                  <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-16 flex-shrink-0">{s.season}</span>
+                  {s.age != null && <span className="text-rift-muted/70">Age {s.age}</span>}
+                  {s.allProSeason > 0 && (
+                    <span className="text-[8px] uppercase tracking-[0.15em] text-rift-goldbright">★ Team of the Year</span>
+                  )}
+                  {s.intlMvpEvents.map((ev) => (
+                    <span key={ev} className="inline-flex items-center gap-0.5 text-[8px] uppercase tracking-[0.15em] text-rift-goldbright">
+                      <LeagueIcon league={ev} size={10} /> {INTERNATIONAL_LABELS[ev]} MVP
+                    </span>
+                  ))}
+                  {s.splitMvps.map((sp, k) => (
+                    <span key={`sm${k}`} className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/80">
+                      {SPLIT_LABELS[sp]} MVP
+                    </span>
+                  ))}
+                  {s.allProSplit > 0 && (
+                    <span className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/80">{s.allProSplit}× Split All-Pro</span>
+                  )}
+                  {s.allPro > 0 && (
+                    <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">{s.allPro} All-Pro picks</span>
+                  )}
+                  <span className="ml-auto text-rift-muted/40 text-[8px]">{s.champs.length} champs</span>
+                </summary>
+                <div className="mt-1.5">
+                  <ChampPool champs={s.champs} champById={champById} />
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+      )}
       <div>
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Team History</div>
         <div className="space-y-1.5">
@@ -1667,6 +1987,11 @@ function CoachProfileView({ entries, name }: { entries: SeasonHistoryEntry[]; na
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-display text-lg tracking-wide text-rift-bluebright">{c.name}</span>
         <span className="text-[8px] uppercase tracking-[0.2em] text-rift-blue/60 border border-rift-blue/40 px-1">Coach</span>
+        {c.playstyle && (
+          <span className="text-[8px] uppercase tracking-[0.2em] text-rift-gold/70 border border-rift-gold/40 px-1" title="Drafting playstyle">
+            {c.playstyle}
+          </span>
+        )}
         {c.team && (
           <span className="inline-flex items-center gap-1 text-[9px] text-rift-muted/70">
             <TeamIcon iconKey={c.team.iconKey} logoUrl={c.team.logoUrl ?? logoForTeamName(c.team.name)} size={14} color={c.team.color} />
@@ -1690,6 +2015,7 @@ function CoachProfileView({ entries, name }: { entries: SeasonHistoryEntry[]; na
               <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-16 flex-shrink-0">{t.season}</span>
               <TeamRef team={t.team} size={13} />
               <span className="text-rift-gold/80 tabular-nums text-[9px]">★{t.rating.toFixed(1)}</span>
+              {t.playstyle && <span className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/70">{t.playstyle}</span>}
               <TitleTallyInline titles={t.titles} />
             </div>
           ))}
@@ -1705,6 +2031,7 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [laneFilter, setLaneFilter] = useState<Lane | null>(null); // players
   const [regionFilter, setRegionFilter] = useState<LeagueId | null>(null); // teams
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "retired">("all"); // players
 
   const players = useMemo(() => listPlayers(entries), [entries]);
   const teams = useMemo(() => listTeams(entries), [entries]);
@@ -1721,6 +2048,7 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
           (p) =>
             (!laneFilter || p.lane === laneFilter) &&
             (!regionFilter || p.leagueId === regionFilter) &&
+            (statusFilter === "all" || (statusFilter === "retired" ? p.retired : !p.retired)) &&
             (!q ||
               p.name.toLowerCase().includes(q) ||
               p.team?.name.toLowerCase().includes(q) ||
@@ -1735,6 +2063,7 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
           team: p.team,
           star: null as number | null,
           rating: null as number | null,
+          retired: p.retired,
         }));
     }
     if (kind === "teams") {
@@ -1749,21 +2078,24 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
           team: t,
           star: stars.get(`${t.leagueId}:${t.name}`) ?? null,
           rating: null as number | null,
+          retired: false,
         }));
     }
     return coaches
-      .filter((c) => (!regionFilter || c.team?.leagueId === regionFilter) && (!q || c.name.toLowerCase().includes(q) || c.team?.name.toLowerCase().includes(q)))
+      .filter((c) => (!regionFilter || c.team?.leagueId === regionFilter) && (!q || c.name.toLowerCase().includes(q) || c.team?.name.toLowerCase().includes(q) || (c.playstyle?.toLowerCase().includes(q) ?? false)))
       .map((c) => ({
         id: c.name,
         label: c.name,
-        sub: c.team ? c.team.name : "Coach",
+        // Fold the playstyle into the sub line so it shows in the list.
+        sub: [c.team ? c.team.name : "Coach", c.playstyle].filter(Boolean).join(" · "),
         lane: null as Lane | null,
         tier: null as PlayerTier | null,
         team: c.team,
         star: null as number | null,
         rating: c.rating,
+        retired: false,
       }));
-  }, [kind, q, laneFilter, regionFilter, players, teams, stars, coaches]);
+  }, [kind, q, laneFilter, regionFilter, statusFilter, players, teams, stars, coaches]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-5 items-start">
@@ -1822,6 +2154,27 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
             ))}
           </div>
         )}
+        {/* Active / retired filter (players) */}
+        {kind === "players" && (
+          <div className="flex flex-wrap gap-1 mb-2">
+            {(
+              [
+                { id: "all", label: "All" },
+                { id: "active", label: "Active" },
+                { id: "retired", label: "Retired" },
+              ] as const
+            ).map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setStatusFilter(id)}
+                className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${statusFilter === id ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         {/* Region filter (all entity types) */}
         <div className="flex flex-wrap gap-1 mb-2">
           <button
@@ -1869,6 +2222,11 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                     {r.sub}
                   </span>
                 </span>
+                {r.retired && (
+                  <span className="text-[7px] uppercase tracking-[0.15em] text-rift-redbright/70 border border-rift-red/40 px-1 shrink-0" title="Retired">
+                    Ret
+                  </span>
+                )}
                 {r.star != null && <span className="text-[9px] text-rift-gold/85 tabular-nums shrink-0">{r.star}★</span>}
                 {r.rating != null && <span className="text-[9px] text-rift-gold/85 tabular-nums shrink-0">★{r.rating.toFixed(1)}</span>}
               </button>

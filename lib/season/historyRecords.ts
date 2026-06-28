@@ -10,6 +10,7 @@ import type {
   SeasonHistoryTeamRef,
 } from "./history";
 import type { Lane } from "../types";
+import type { PlayerChampStat } from "./stats";
 import {
   LEAGUE_IDS,
   SPLIT_LABELS,
@@ -483,6 +484,20 @@ export interface PlayerCareerLine {
   kills: number;
   mvps: number;
   allPro: number;
+  // Split (per-league) and season-of-the-year All-Pro selections, summed across
+  // seasons. 0 on careers built only from pre-expansion archives.
+  allProSplit: number;
+  allProSeason: number;
+  // International-event finals MVPs (First Stand / MSI / Worlds), summed.
+  intlMvps: number;
+  // Domestic split finals MVPs (per region league), summed.
+  splitMvps: number;
+  // Most-recent known age (newest archived season carrying one). Undefined when
+  // no archived season recorded an age.
+  age?: number;
+  // Career champion pool: every champion the player has been recorded on,
+  // summed across seasons, sorted by games. Empty on pre-expansion archives.
+  champs: PlayerChampStat[];
   splitTitles: number;
   intlAppearances: number;
   intlTitles: number;
@@ -503,8 +518,25 @@ export interface PlayerCareerLine {
 export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCareerLine[] {
   const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
   const byId = new Map<string, PlayerCareerLine>();
+  // playerId → championId → summed {games, wins}, finalized into champs at the end.
+  const champAcc = new Map<string, Map<number, { games: number; wins: number }>>();
+  const mergeChamps = (playerId: string, champs: PlayerChampStat[] | undefined) => {
+    if (!champs?.length) return;
+    let m = champAcc.get(playerId);
+    if (!m) {
+      m = new Map();
+      champAcc.set(playerId, m);
+    }
+    for (const c of champs) {
+      const cur = m.get(c.championId) ?? { games: 0, wins: 0 };
+      cur.games += c.games;
+      cur.wins += c.wins;
+      m.set(c.championId, cur);
+    }
+  };
   for (const e of ordered) {
     for (const r of e.playerCareers ?? []) {
+      mergeChamps(r.playerId, r.champs);
       const cur = byId.get(r.playerId);
       if (cur) {
         cur.seasons += 1;
@@ -512,6 +544,10 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
         cur.kills += r.kills;
         cur.mvps += r.mvps;
         cur.allPro += r.allPro;
+        cur.allProSplit += r.allProSplit ?? 0;
+        cur.allProSeason += r.allProSeason ?? 0;
+        cur.intlMvps += r.intlMvps ?? 0;
+        cur.splitMvps += r.splitMvps ?? 0;
         cur.splitTitles += r.splitTitles;
         cur.intlAppearances += r.intlAppearances;
         cur.intlTitles += r.intlTitles;
@@ -528,11 +564,18 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
           playerName: r.playerName,
           leagueId: r.leagueId,
           teamName: r.teamName,
+          // Newest archived season is seen first, so it sets the displayed age.
+          ...(r.age != null ? { age: r.age } : {}),
           seasons: 1,
           games: r.games,
           kills: r.kills,
           mvps: r.mvps,
           allPro: r.allPro,
+          allProSplit: r.allProSplit ?? 0,
+          allProSeason: r.allProSeason ?? 0,
+          intlMvps: r.intlMvps ?? 0,
+          splitMvps: r.splitMvps ?? 0,
+          champs: [],
           splitTitles: r.splitTitles,
           intlAppearances: r.intlAppearances,
           intlTitles: r.intlTitles,
@@ -546,6 +589,14 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
         });
       }
     }
+  }
+  // Finalize career champion pools: sort each player's merged champs by games.
+  for (const [playerId, m] of champAcc) {
+    const line = byId.get(playerId);
+    if (!line) continue;
+    line.champs = [...m.entries()]
+      .map(([championId, v]) => ({ championId, games: v.games, wins: v.wins }))
+      .sort((a, b) => b.games - a.games || b.wins - a.wins || a.championId - b.championId);
   }
   return [...byId.values()];
 }

@@ -113,6 +113,7 @@ function makeTl(opts: TlOptions = {}): TimelineContext {
     baronSide: null,
     elderSide: null,
     pickAdvantage: null,
+    cooldownEdge: null,
     towerPressure: { blue: 0, red: 0 },
     mapControl: { blue: 0, red: 0 },
     grubCount: { blue: 0, red: 0 },

@@ -62,6 +62,7 @@ import {
   coachAdaptabilityTrait,
   coachDevTilt,
   nextCoachRating,
+  coachPlaystyle,
 } from "./coach";
 import { applyPoolDrift } from "./poolDrift";
 import {
@@ -1939,12 +1940,21 @@ export function applyTournamentUpdate(
             teamName: t.name,
             leagueId: t.leagueId,
             ...(t.logoUrl ? { logoUrl: t.logoUrl } : {}),
-            ...(t.coach ? { coach: { name: t.coach.name, rating: t.coach.rating } } : {}),
+            ...(t.coach
+              ? {
+                  coach: {
+                    name: t.coach.name,
+                    rating: t.coach.rating,
+                    ...(coachPlaystyle(t.coach) ? { playstyle: coachPlaystyle(t.coach) } : {}),
+                  },
+                }
+              : {}),
             players: t.players.map((p) => ({
               ...(p.id ? { id: p.id } : {}),
               ...(p.name ? { name: p.name } : {}),
               tier: p.tier,
               lane: p.lane,
+              ...(p.age != null ? { age: p.age } : {}),
             })),
           })),
         },

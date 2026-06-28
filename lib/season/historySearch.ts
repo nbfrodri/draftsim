@@ -21,6 +21,7 @@ import {
   type PlayerCareerLine,
   type TeamRecord,
 } from "./historyRecords";
+import type { PlayerChampStat } from "./stats";
 
 const teamKey = (t: { name: string; leagueId: LeagueId }) => `${t.leagueId}:${t.name}`;
 function yearOf(entry: SeasonHistoryEntry): string {
@@ -74,6 +75,30 @@ export interface PlayerHit {
   team: SeasonHistoryTeamRef | null; // most-recent team, for a logo
   lane: Lane | null; // primary (most-recent) position, for the lane filter/icon
   tier: PlayerTier | null; // most-recent skill tier
+  retired: boolean; // no longer on a roster in the latest archived season
+}
+
+// Players who appeared in an earlier archived season but are absent from the
+// latest roster-bearing one — i.e. they've stopped playing (retired/aged out).
+// Needs ≥2 archived seasons to call anyone retired (a single season has no
+// "later" roster to be missing from). Pure over the archive — realities carry
+// rosters across years, so this is meaningful there; one-off season Halls
+// rarely reuse player ids, so few (if any) get flagged.
+function retiredPlayerIds(entries: SeasonHistoryEntry[]): Set<string> {
+  const withRosters = entries.filter((e) => (e.phaseRosters?.length ?? 0) > 0);
+  if (withRosters.length < 2) return new Set();
+  const latest = withRosters.reduce((a, b) => (b.archivedAt > a.archivedAt ? b : a));
+  const active = new Set<string>();
+  for (const ph of latest.phaseRosters ?? [])
+    for (const t of ph.teams) for (const p of t.players) if (p.id) active.add(p.id);
+  const retired = new Set<string>();
+  for (const e of withRosters) {
+    if (e.id === latest.id) continue;
+    for (const ph of e.phaseRosters ?? [])
+      for (const t of ph.teams)
+        for (const p of t.players) if (p.id && !active.has(p.id)) retired.add(p.id);
+  }
+  return retired;
 }
 
 // Each player's most-recent lane + tier + team, from the newest roster appearance.
@@ -97,6 +122,7 @@ function playerMeta(
 export function listPlayers(entries: SeasonHistoryEntry[]): PlayerHit[] {
   const identity = buildTeamIdentity(entries);
   const meta = playerMeta(entries);
+  const retired = retiredPlayerIds(entries);
   return computePlayerCareers(entries)
     .map((c) => {
       const m = meta.get(c.playerId);
@@ -107,6 +133,7 @@ export function listPlayers(entries: SeasonHistoryEntry[]): PlayerHit[] {
         team: m ? refFor(identity, m.teamName, m.leagueId, m.logoUrl) : null,
         lane: m?.lane ?? null,
         tier: m?.tier ?? null,
+        retired: retired.has(c.playerId),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -139,6 +166,7 @@ export interface CoachHit {
   name: string;
   rating: number; // most-recent rating
   team: SeasonHistoryTeamRef | null; // most-recent team, for a logo
+  playstyle?: string; // most-recent drafting playstyle label
 }
 
 /** Every distinct coach, with their latest rating + team. */
@@ -150,7 +178,12 @@ export function listCoachesRich(entries: SeasonHistoryEntry[]): CoachHit[] {
     for (const phase of [...(e.phaseRosters ?? [])].sort((a, b) => b.phaseIndex - a.phaseIndex)) {
       for (const t of phase.teams) {
         if (!t.coach?.name || out.has(t.coach.name)) continue;
-        out.set(t.coach.name, { name: t.coach.name, rating: t.coach.rating, team: refFor(identity, t.teamName, t.leagueId, t.logoUrl) });
+        out.set(t.coach.name, {
+          name: t.coach.name,
+          rating: t.coach.rating,
+          team: refFor(identity, t.teamName, t.leagueId, t.logoUrl),
+          ...(t.coach.playstyle ? { playstyle: t.coach.playstyle } : {}),
+        });
       }
     }
   }
@@ -230,15 +263,32 @@ export interface PlayerTenure {
   titles: TitleTally; // titles won while rostered for that stage
 }
 
+// One season's per-player numbers, for the profile's season-by-season readout
+// (age over the years, All-Pro splits/season, champion pool that season).
+export interface PlayerSeasonStat {
+  season: string;
+  archivedAt: number;
+  age?: number;
+  allPro: number; // total per-tournament All-Pro picks that season
+  allProSplit: number;
+  allProSeason: number;
+  intlMvpEvents: InternationalId[]; // international events this player was finals MVP
+  splitMvps: SplitId[]; // domestic splits this player was finals MVP
+  champs: PlayerChampStat[];
+}
+
 export interface PlayerProfile {
   id: string;
   name: string;
   lane: Lane | null; // primary (most-recent) position
   tier: PlayerTier | null; // most-recent skill tier
+  age?: number; // most-recent known age
+  retired: boolean; // absent from the latest archived season's rosters
   splitTitles: number;
   intlTitles: Partial<Record<InternationalId, number>>; // by event
   career: PlayerCareerLine | null;
   tenures: PlayerTenure[]; // newest first
+  seasons: PlayerSeasonStat[]; // newest first, only seasons with recorded stats
 }
 
 export function playerProfile(entries: SeasonHistoryEntry[], playerId: string): PlayerProfile | null {
@@ -282,9 +332,43 @@ export function playerProfile(entries: SeasonHistoryEntry[], playerId: string): 
     if (stints.length) tenures.push({ season: yearOf(e), archivedAt: e.archivedAt, stints, titles });
   }
   if (!career && tenures.length === 0) return null;
+  // Per-season stat lines (age, All-Pro splits/season, champion pool), newest
+  // first, from the archived per-season records.
+  const seasons: PlayerSeasonStat[] = [];
+  for (const e of ordered) {
+    const r = e.playerCareers?.find((pc) => pc.playerId === playerId);
+    if (!r) continue;
+    seasons.push({
+      season: yearOf(e),
+      archivedAt: e.archivedAt,
+      ...(r.age != null ? { age: r.age } : {}),
+      allPro: r.allPro,
+      allProSplit: r.allProSplit ?? 0,
+      allProSeason: r.allProSeason ?? 0,
+      intlMvpEvents: (e.intlMvps ?? [])
+        .filter((m) => m.playerId === playerId)
+        .map((m) => m.event),
+      splitMvps: (e.splitMvps ?? [])
+        .filter((m) => m.playerId === playerId)
+        .map((m) => m.split),
+      champs: r.champs ?? [],
+    });
+  }
   // Most-recent stint = last stint of the newest season (stages are play-order).
   const recent = tenures[0]?.stints.at(-1);
-  return { id: playerId, name, lane: recent?.lane ?? null, tier: recent?.tier ?? null, splitTitles, intlTitles, career, tenures };
+  return {
+    id: playerId,
+    name,
+    lane: recent?.lane ?? null,
+    tier: recent?.tier ?? null,
+    ...(career?.age != null ? { age: career.age } : {}),
+    retired: retiredPlayerIds(entries).has(playerId),
+    splitTitles,
+    intlTitles,
+    career,
+    tenures,
+    seasons,
+  };
 }
 
 // ─── Team profile ────────────────────────────────────────────────────────────
@@ -360,12 +444,14 @@ export interface CoachTenure {
   archivedAt: number;
   team: SeasonHistoryTeamRef;
   rating: number;
+  playstyle?: string; // drafting playstyle that season
   titles: TitleTally;
 }
 
 export interface CoachProfile {
   name: string;
   team: SeasonHistoryTeamRef | null; // most recent team, for a logo
+  playstyle?: string; // most-recent drafting playstyle
   tenures: CoachTenure[]; // newest first
   splitTitles: number;
   intlTitles: Partial<Record<InternationalId, number>>; // by event
@@ -379,11 +465,15 @@ export function coachProfile(entries: SeasonHistoryEntry[], coachName: string): 
   let splitTitles = 0;
   for (const e of ordered) {
     const phases = [...(e.phaseRosters ?? [])].sort((a, b) => b.phaseIndex - a.phaseIndex);
-    let found: { ref: SeasonHistoryTeamRef; rating: number } | null = null;
+    let found: { ref: SeasonHistoryTeamRef; rating: number; playstyle?: string } | null = null;
     for (const phase of phases) {
       const t = phase.teams.find((x) => x.coach?.name === coachName);
       if (t) {
-        found = { ref: refFor(identity, t.teamName, t.leagueId, t.logoUrl), rating: t.coach!.rating };
+        found = {
+          ref: refFor(identity, t.teamName, t.leagueId, t.logoUrl),
+          rating: t.coach!.rating,
+          ...(t.coach!.playstyle ? { playstyle: t.coach!.playstyle } : {}),
+        };
         break;
       }
     }
@@ -391,7 +481,16 @@ export function coachProfile(entries: SeasonHistoryEntry[], coachName: string): 
     const seasonTitles = teamSeasonTitles(e, { name: found.ref.name, leagueId: found.ref.leagueId });
     splitTitles += seasonTitles.splits.length;
     for (const ev of seasonTitles.intl) intlTitles[ev] = (intlTitles[ev] ?? 0) + 1;
-    tenures.push({ season: yearOf(e), archivedAt: e.archivedAt, team: found.ref, rating: found.rating, titles: seasonTitles });
+    tenures.push({ season: yearOf(e), archivedAt: e.archivedAt, team: found.ref, rating: found.rating, ...(found.playstyle ? { playstyle: found.playstyle } : {}), titles: seasonTitles });
   }
-  return tenures.length > 0 ? { name: coachName, team: tenures[0].team, tenures, intlTitles, splitTitles } : null;
+  return tenures.length > 0
+    ? {
+        name: coachName,
+        team: tenures[0].team,
+        ...(tenures[0].playstyle ? { playstyle: tenures[0].playstyle } : {}),
+        tenures,
+        intlTitles,
+        splitTitles,
+      }
+    : null;
 }

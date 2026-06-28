@@ -5,8 +5,9 @@
 // TournamentTeam.players has no name field, so display names are
 // synthesized as "<TeamName> <Lane>" (e.g. "Dragons Top").
 
-import type { Lane } from "./types";
+import type { Lane, Side } from "./types";
 import type { TournamentState, TournamentTeam } from "./tournament";
+import { tournamentChampion } from "./tournament";
 import type { PlayerFormMap } from "./playerForm";
 import { computeGameRatings } from "./matchSimulator";
 import { LANE_ORDER } from "./players";
@@ -393,4 +394,97 @@ export function computeTournamentAwards(
   }
 
   return { mvp, allPro, awards };
+}
+
+// ─── Finals MVP (splits & international events) ──────────────────────────────
+//
+// A finals MVP is decided differently from the volume-based tournament MVP: it
+// must be a player FROM THE WINNING TEAM, judged on the FINAL they won (the
+// decisive series), not season-long average. This mirrors real Finals MVP
+// awards — the best player on the champion side in the deciding series — and is
+// used for both domestic split champions and international event winners.
+
+/**
+ * The finals MVP: the best-rated player on the tournament CHAMPION across the
+ * deciding series the champion won (their highest-round won match). Anchored on
+ * tournamentChampion so the MVP is GUARANTEED to be from the winning team.
+ * Returns null until the tournament is complete or when the final carries no
+ * rated games (fully manual resolution).
+ */
+export function computeFinalsMvp(
+  tournament: TournamentState,
+): PlayerAward | null {
+  const champTeam = tournamentChampion(tournament);
+  if (!champTeam) return null;
+  const champId = champTeam.id;
+  // The champion's decisive series = their highest-round completed, non-bye
+  // match — the final they lifted the trophy in.
+  const wonSeries = tournament.matches.filter(
+    (m) => !m.isBye && m.series && m.winner?.teamId === champId,
+  );
+  if (wonSeries.length === 0) return null;
+  const final = wonSeries.reduce((a, b) => (b.round > a.round ? b : a));
+  if (!final.series) return null;
+  const champ = tournament.teams.find((t) => t.id === champId);
+  if (!champ) return null;
+
+  // Accumulate the champion side's per-lane ratings across the final's games.
+  const acc = new Map<
+    string,
+    { lane: Lane; name?: string; id?: string; ratings: number[] }
+  >();
+  for (const game of final.series.games) {
+    if (game.status !== "complete" || game.winner == null) continue;
+    const recap = game.recap;
+    if (!recap) continue;
+    let ratings = recap.ratings ?? null;
+    if (!ratings && recap.perPickKDA) ratings = computeGameRatings(recap, game.winner);
+    if (!ratings) continue;
+    // Sides swap between games (loser-blue); resolve the champion's side by name.
+    const side: Side =
+      game.blueTeam === champ.name
+        ? "blue"
+        : game.redTeam === champ.name
+          ? "red"
+          : final.blueTeamId === champId
+            ? "blue"
+            : "red";
+    const sideRatings = side === "blue" ? ratings.blue : ratings.red;
+    const ids = recap.perPickIds?.[side];
+    const names = recap.perPickNames?.[side];
+    for (let li = 0; li < LANES.length; li++) {
+      const r = sideRatings[li];
+      if (typeof r !== "number" || !Number.isFinite(r)) continue;
+      const lane = LANES[li];
+      const key = ids?.[li] ?? `${champId}:${lane}`;
+      let e = acc.get(key);
+      if (!e) {
+        e = {
+          lane,
+          name: names?.[li] ?? champ.players?.[li]?.name,
+          id: ids?.[li] ?? champ.players?.[li]?.id,
+          ratings: [],
+        };
+        acc.set(key, e);
+      }
+      e.ratings.push(r);
+    }
+  }
+  if (acc.size === 0) return null;
+
+  let best: { lane: Lane; name?: string; id?: string; ratings: number[] } | null = null;
+  for (const e of acc.values()) {
+    if (!best || avg(e.ratings) > avg(best.ratings)) best = e;
+  }
+  if (!best) return null;
+  return {
+    teamId: champId,
+    lane: best.lane,
+    displayName: `${champ.name} ${LANE_LABEL[best.lane]}`,
+    teamName: champ.name,
+    ...(best.name ? { playerName: best.name } : {}),
+    ...(best.id ? { playerId: best.id } : {}),
+    avgRating: round1(avg(best.ratings)),
+    gamesPlayed: best.ratings.length,
+  };
 }

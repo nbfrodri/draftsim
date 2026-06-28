@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import type { SeasonMatchdayResult } from "@/store/draftStore";
@@ -23,6 +23,11 @@ import {
   computeStageStats,
   type PlayerSeasonLine,
 } from "@/lib/season/stats";
+import {
+  computeAllProTeams,
+  type RawAllProTeam,
+} from "@/lib/season/allPro";
+import { computeFinalsMvp } from "@/lib/awards";
 import {
   computePowerRankings,
   type PowerRankingRow,
@@ -469,6 +474,9 @@ export default function SeasonDashboard() {
 
         {/* The season's narrative recap, once it's over. */}
         {season.status === "complete" && <SeasonStoryCard story={seasonStory} />}
+
+        {/* All-Pro Team of the Year — best per lane across the whole season. */}
+        {season.status === "complete" && <SeasonOfTheYear season={season} />}
 
         {/* Season-wide recap — the year in numbers, once it's over. */}
         {season.status === "complete" && (
@@ -1222,6 +1230,69 @@ function TournamentCard({
   );
 }
 
+// ─── All-Pro teams (live) ──────────────────────────────────────────────────
+// A split's global team or the season's Team of the Year, rendered as a lane
+// strip from the raw (live) selections. Team identity is resolved live.
+function AllProTeamStrip({
+  season,
+  team,
+  label,
+  highlight = false,
+}: {
+  season: SeasonState;
+  team: RawAllProTeam;
+  label: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={
+        highlight
+          ? "border-2 border-rift-gold/50 bg-rift-gold/[0.06] px-3 py-2"
+          : "px-3 py-1.5 bg-rift-bg/40 border border-rift-line/40"
+      }
+    >
+      <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1">
+        {label}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {LANE_ORDER.map((lane) => {
+          const m = team.members.find((x) => x.lane === lane);
+          if (!m) return null;
+          const t = seasonTeam(season, m.teamId);
+          return (
+            <span key={lane} className="inline-flex items-center gap-1 text-[10px]">
+              <LaneIcon lane={lane} size="xs" />
+              {t && (
+                <TeamIcon iconKey={t.iconKey} logoUrl={t.logoUrl} size={11} color={t.color} />
+              )}
+              <span className="text-rift-bluebright">{m.playerName ?? m.teamName}</span>
+              <span className="text-rift-muted/60 tabular-nums" title={`${m.games} games`}>
+                {m.avgRating.toFixed(1)}
+              </span>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// The season's All-Pro Team of the Year — shown once the season is complete.
+function SeasonOfTheYear({ season }: { season: SeasonState }) {
+  const teams = useMemo(() => computeAllProTeams(season), [season]);
+  const soty = teams.find((t) => t.scope === "season-global");
+  if (!soty) return null;
+  return (
+    <AllProTeamStrip
+      season={season}
+      team={soty}
+      label="★ All-Pro Team of the Year"
+      highlight
+    />
+  );
+}
+
 // ─── Past results (with expandable stage stats) ────────────────────────────
 
 function PastResults({
@@ -1235,6 +1306,7 @@ function PastResults({
 }) {
   const [statsFor, setStatsFor] = useState<string | null>(null);
   const [resultsFor, setResultsFor] = useState<string | null>(null);
+  const allProTeams = useMemo(() => computeAllProTeams(season), [season]);
   const past = season.phases.filter(
     (p, i) =>
       p.kind !== "transfer" && (p.status === "complete" || i < season.phaseIndex),
@@ -1318,6 +1390,21 @@ function PastResults({
               {resultsOpen && <PhasePlacements season={season} phase={p} />}
               {statsOpen && (
                 <div className="mt-2 space-y-1.5 border-t border-rift-line/30 pt-2">
+                  {/* Split's cross-region All-Pro team (the per-league picks
+                      appear in each tournament's row below). */}
+                  {p.kind === "split" &&
+                    (() => {
+                      const g = allProTeams.find(
+                        (t) => t.scope === "split-global" && t.split === p.split,
+                      );
+                      return g ? (
+                        <AllProTeamStrip
+                          season={season}
+                          team={g}
+                          label={`${p.label} · All-Pro (Global)`}
+                        />
+                      ) : null;
+                    })()}
                   {p.tournamentIds.map((id) => {
                     const t = season.tournaments[id];
                     if (!t || t.status !== "complete") return null;
@@ -1513,24 +1600,34 @@ function StageStatCell({
   label,
   value,
   sub,
+  icon,
 }: {
   label: string;
   value: string;
   sub?: string;
+  icon?: ReactNode;
 }) {
   return (
     <div className="bg-rift-bg/60 px-2.5 py-2 min-w-0">
       <div className="text-[8px] uppercase tracking-[0.3em] text-rift-muted mb-0.5">
         {label}
       </div>
-      <div className="text-[11px] font-display tracking-wider text-rift-goldbright truncate">
-        {value}
+      <div className="flex items-center gap-1 text-[11px] font-display tracking-wider text-rift-goldbright min-w-0">
+        {icon}
+        <span className="truncate">{value}</span>
       </div>
       {sub && (
         <div className="text-[9px] text-rift-mutedbright/60 truncate">{sub}</div>
       )}
     </div>
   );
+}
+
+// Small team crest for a player award, resolved from the live season roster.
+function AwardTeamIcon({ season, teamId }: { season: SeasonState; teamId: string }) {
+  const t = seasonTeam(season, teamId);
+  if (!t) return null;
+  return <TeamIcon iconKey={t.iconKey} logoUrl={t.logoUrl} size={13} color={t.color} />;
 }
 
 function StageStatsRow({
@@ -1543,6 +1640,12 @@ function StageStatsRow({
   championsById: Map<number, Champion>;
 }) {
   const stats = useMemo(() => computeStageStats(tournament), [tournament]);
+  // The stage MVP is the FINALS MVP — a player from the team that WON the
+  // split / event, judged on the final they lifted (real Finals MVP rule).
+  // Falls back to the volume-based tournament MVP only when the final has no
+  // rated games (manual resolution).
+  const finalsMvp = useMemo(() => computeFinalsMvp(tournament), [tournament]);
+  const mvp = finalsMvp ?? stats.mvp;
   const champion = seasonTeam(season, stats.championTeamId);
   const runnerUp = seasonTeam(season, stats.runnerUpTeamId);
   const s = stats.summary;
@@ -1581,13 +1684,16 @@ function StageStatsRow({
 
       {/* Award cells */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-rift-line/20">
-        {stats.mvp && (
+        {mvp && (
           <StageStatCell
             label="MVP"
-            value={stats.mvp.playerName ?? stats.mvp.displayName}
-            sub={stats.mvp.playerName
-              ? `${stats.mvp.displayName} · ${stats.mvp.avgRating.toFixed(1)} rating`
-              : `${stats.mvp.teamName} · ${stats.mvp.avgRating.toFixed(1)} rating`}
+            value={mvp.playerName ?? mvp.displayName}
+            sub={
+              finalsMvp
+                ? `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} in the final`
+                : `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} rating`
+            }
+            icon={<AwardTeamIcon season={season} teamId={mvp.teamId} />}
           />
         )}
         {contested && (
@@ -1624,9 +1730,10 @@ function StageStatsRow({
             return (
               <span
                 key={lane}
-                className="inline-flex items-baseline gap-1 text-[10px]"
+                className="inline-flex items-center gap-1 text-[10px]"
               >
                 <LaneIcon lane={lane} size="xs" />
+                <AwardTeamIcon season={season} teamId={p.teamId} />
                 <span className="text-rift-bluebright">{p.playerName ?? p.displayName}</span>
                 <span className="text-rift-muted/60 tabular-nums">
                   {p.avgRating.toFixed(1)}
@@ -1641,10 +1748,11 @@ function StageStatsRow({
       {stats.specials.length > 0 && (
         <div className="px-3 py-1.5 border-t border-rift-line/30 flex flex-wrap gap-x-4 gap-y-1">
           {stats.specials.map((a) => (
-            <span key={a.kind} className="inline-flex items-baseline gap-1 text-[10px]">
+            <span key={a.kind} className="inline-flex items-center gap-1 text-[10px]">
               <span className="text-rift-gold/70">{a.title}:</span>
+              <AwardTeamIcon season={season} teamId={a.player.teamId} />
               <span className="text-rift-bluebright">
-                {a.player.displayName}
+                {a.player.playerName ?? a.player.displayName}
               </span>
               <span className="text-rift-muted/60">({a.context})</span>
             </span>

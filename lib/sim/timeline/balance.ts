@@ -205,6 +205,17 @@ export const BALANCE = {
   PICK_ADVANTAGE_WINDOW: 3,
   PICK_ADVANTAGE_LATE_MULT: 2,
 
+  // Summoner/ultimate cooldown edge: a catch (pick) burns the victim's Flash/
+  // ult, and a punished throw / caught backdoor burns the AGGRESSOR's — leaving
+  // one side a key cooldown down for the next teamfight or objective. A transient
+  // tilt on those rolls (logit), decaying on its own. Symmetric (either side can
+  // force or waste cooldowns) so it cancels in the calibration mirror. Modelled
+  // on PICK_ADVANTAGE — slightly smaller, same window + late-game scaling (death
+  // timers grow, so a flash-down late is far more punishing).
+  COOLDOWN_EDGE_BIAS: 0.35,
+  COOLDOWN_EDGE_WINDOW: 3,
+  COOLDOWN_EDGE_LATE_MULT: 2,
+
   // Map state: each enemy tower a side cracks opens the map for them — more
   // vision and more picks. Tower-take advantage (net towers) tilts the next
   // vision/pick roll by this per-tower logit, and total towers down raises the

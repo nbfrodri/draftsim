@@ -33,6 +33,7 @@ import {
   addEvent,
   bumpLaneLead,
   consumeTowerPressure,
+  cooldownEdgeBias,
   objectivePrioBias,
   pickAdvantageBias,
   picksOf,
@@ -101,7 +102,7 @@ function contestDrake(
   const contestSide = rollEventSide(
     tl,
     t,
-    sideBias + pickAdvantageBias(tl, t),
+    sideBias + pickAdvantageBias(tl, t) + cooldownEdgeBias(tl, t),
     false,
   );
   const stolen = tl.rng() < stealChance(tl, stealBase, contestSide);
@@ -333,7 +334,7 @@ export function phaseFirstBaron(tl: TimelineContext): void {
     const contestSide = rollEventSide(
       tl,
       t,
-      0.05 + tl.mods.baronBias + pickAdvantageBias(tl, t),
+      0.05 + tl.mods.baronBias + pickAdvantageBias(tl, t) + cooldownEdgeBias(tl, t),
       false, // Baron is game-deciding — macro-pure, no anti-streak
     );
     const stolen = tl.rng() < stealChance(tl, 0.15, contestSide);

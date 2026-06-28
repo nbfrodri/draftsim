@@ -11,6 +11,82 @@ import {
   coachProfile,
 } from "./historySearch";
 
+// ─── Retired detection + coach playstyle ────────────────────────────────────
+const LANES5 = ["top", "jungle", "middle", "bottom", "support"] as const;
+function retiredFixture(ids: string[][]): SeasonHistoryEntry[] {
+  return ids.map(
+    (seasonIds, si) =>
+      ({
+        id: `S${si}`,
+        archivedAt: si + 1,
+        name: `S${si}`,
+        complete: true,
+        champion: null,
+        runnerUp: null,
+        intlChampions: {},
+        splitChampions: {},
+        phaseRosters: [
+          {
+            phaseIndex: 0,
+            label: "Winter Split",
+            kind: "split",
+            split: "winter",
+            teams: [
+              {
+                teamId: "T1",
+                teamName: "T1",
+                leagueId: "LCK",
+                coach: { name: "Kim", rating: 4, playstyle: "Aggressive" },
+                players: seasonIds.map((pid, i) => ({ id: pid, name: pid, tier: "A", lane: LANES5[i] })),
+              },
+            ],
+          },
+        ],
+        playerCareers: seasonIds.map((pid) => ({
+          playerId: pid,
+          playerName: pid,
+          leagueId: "LCK",
+          teamName: "T1",
+          games: 10,
+          kills: 10,
+          mvps: 0,
+          allPro: 0,
+          splitTitles: 0,
+          intlAppearances: 0,
+          intlTitles: 0,
+        })),
+      }) as unknown as SeasonHistoryEntry,
+  );
+}
+
+describe("retired detection", () => {
+  it("flags players absent from the latest season but not those still rostered", () => {
+    // S1 has 'vet'; S2 (later) replaces them with 'rookie' → vet retired.
+    const hits = listPlayers(
+      retiredFixture([
+        ["vet", "b", "c", "d", "e"],
+        ["rookie", "b", "c", "d", "e"],
+      ]),
+    );
+    const by = new Map(hits.map((h) => [h.id, h.retired]));
+    expect(by.get("vet")).toBe(true);
+    expect(by.get("rookie")).toBe(false);
+    expect(by.get("b")).toBe(false); // still on the latest roster
+  });
+
+  it("never flags anyone with only one archived season", () => {
+    const hits = listPlayers(retiredFixture([["vet", "b", "c", "d", "e"]]));
+    expect(hits.every((h) => !h.retired)).toBe(true);
+  });
+});
+
+describe("coach playstyle", () => {
+  it("surfaces the most-recent playstyle on the profile", () => {
+    const c = coachProfile(retiredFixture([["a", "b", "c", "d", "e"]]), "Kim");
+    expect(c?.playstyle).toBe("Aggressive");
+  });
+});
+
 // Two seasons: a player moves T1→GEN, T1 wins Worlds in S1, GEN wins it in S2.
 function entries(): SeasonHistoryEntry[] {
   const t1 = { name: "T1", leagueId: "LCK" as const, color: "#e00", iconKey: "sword" };

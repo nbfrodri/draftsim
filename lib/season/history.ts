@@ -27,8 +27,15 @@ import {
   computeSeasonStats,
   computeStageStats,
   computePlayerCareerRecords,
+  computeSeasonIntlMvps,
+  computeSeasonSplitMvps,
   type PlayerSeasonRecord,
 } from "./stats";
+import {
+  computeAllProTeams,
+  computeAllProCounts,
+  type AllProScope,
+} from "./allPro";
 import { buildSeasonStory, type SeasonStory } from "./seasonStory";
 
 /** A roster move frozen for the Hall: team names (not ids — teams regenerate)
@@ -81,6 +88,51 @@ export interface SeasonHistoryAwardTally {
   playerName?: string;
 }
 
+/** One member (by lane) of an archived All-Pro team. Team identity is frozen
+ *  as a ref (teams regenerate every season). */
+export interface SeasonHistoryAllProMember {
+  lane: Lane;
+  playerId?: string;
+  playerName?: string;
+  team: SeasonHistoryTeamRef;
+  avgRating: number;
+  games: number;
+}
+
+/** An archived All-Pro team selection — the season-of-the-year team, a
+ *  per-split global team, or a per-league split team. */
+export interface SeasonHistoryAllProTeam {
+  scope: AllProScope;
+  split?: SplitId;
+  leagueId?: LeagueId;
+  members: SeasonHistoryAllProMember[];
+}
+
+/** The finals MVP of one international event — a player from the champion team,
+ *  frozen with team identity. */
+export interface SeasonHistoryIntlMvp {
+  event: InternationalId;
+  lane: Lane;
+  playerName?: string;
+  playerId?: string;
+  team: SeasonHistoryTeamRef;
+  avgRating: number;
+  games: number;
+}
+
+/** The finals MVP of one domestic split, per league — a player from the split
+ *  champion, frozen with team identity. */
+export interface SeasonHistorySplitMvp {
+  split: SplitId;
+  leagueId: LeagueId;
+  lane: Lane;
+  playerName?: string;
+  playerId?: string;
+  team: SeasonHistoryTeamRef;
+  avgRating: number;
+  games: number;
+}
+
 export interface SeasonHistoryEntry {
   /** Mirrors season.id — archiving the same season upserts its entry. */
   id: string;
@@ -118,6 +170,16 @@ export interface SeasonHistoryEntry {
    *  player boards. Optional — only on seasons archived after the stats
    *  expansion. */
   awardTally?: SeasonHistoryAwardTally[];
+  /** All-Pro team selections this season: the season-of-the-year team, each
+   *  split's global team, and each league's per-split team. Optional — only on
+   *  seasons archived after the All-Pro-team expansion. */
+  allProTeams?: SeasonHistoryAllProTeam[];
+  /** Finals MVP of each international event (a player from the champion team).
+   *  Optional — only on seasons archived after the intl-MVP expansion. */
+  intlMvps?: SeasonHistoryIntlMvp[];
+  /** Finals MVP of each domestic split, per league (a player from the split
+   *  champion). Optional — only on seasons archived after the split-MVP expansion. */
+  splitMvps?: SeasonHistorySplitMvp[];
   /** Per-player season records (by stable id) for the all-time CAREER boards —
    *  kills, MVPs, all-pro, split titles, international appearances/titles.
    *  Optional — only on seasons archived after player ids existed. */
@@ -310,8 +372,99 @@ export function buildSeasonHistoryEntry(
     }
   }
   const awardTally = [...tallyMap.values()];
-  const playerCareers =
-    tournaments.length > 0 ? computePlayerCareerRecords(season) : [];
+  // All-Pro teams (split per-league, split global, season-of-the-year), with
+  // each member's team frozen as a ref. Drop members whose team can't be
+  // resolved, and teams that end up empty.
+  const allProTeams: SeasonHistoryAllProTeam[] = [];
+  if (tournaments.length > 0) {
+    for (const team of computeAllProTeams(season)) {
+      const members = team.members
+        .map((m) => {
+          const ref = teamRef(season, m.teamId);
+          if (!ref) return null;
+          return {
+            lane: m.lane,
+            ...(m.playerId ? { playerId: m.playerId } : {}),
+            ...(m.playerName ? { playerName: m.playerName } : {}),
+            team: ref,
+            avgRating: m.avgRating,
+            games: m.games,
+          } satisfies SeasonHistoryAllProMember;
+        })
+        .filter((m): m is SeasonHistoryAllProMember => m !== null);
+      if (members.length > 0) {
+        allProTeams.push({
+          scope: team.scope,
+          ...(team.split ? { split: team.split } : {}),
+          ...(team.leagueId ? { leagueId: team.leagueId } : {}),
+          members,
+        });
+      }
+    }
+  }
+  // International finals MVPs (a player from each event's champion team), frozen
+  // with team refs, plus a per-player tally to merge onto the career records.
+  const intlMvps: SeasonHistoryIntlMvp[] = [];
+  const intlMvpCount = new Map<string, number>();
+  if (tournaments.length > 0) {
+    for (const { event, mvp } of computeSeasonIntlMvps(season)) {
+      const ref = teamRef(season, mvp.teamId);
+      if (!ref) continue;
+      intlMvps.push({
+        event,
+        lane: mvp.lane,
+        ...(mvp.playerName ? { playerName: mvp.playerName } : {}),
+        ...(mvp.playerId ? { playerId: mvp.playerId } : {}),
+        team: ref,
+        avgRating: mvp.avgRating,
+        games: mvp.gamesPlayed,
+      });
+      if (mvp.playerId)
+        intlMvpCount.set(mvp.playerId, (intlMvpCount.get(mvp.playerId) ?? 0) + 1);
+    }
+  }
+  // Domestic split finals MVPs (a player from each split champion), frozen with
+  // team refs, plus a per-player tally.
+  const splitMvps: SeasonHistorySplitMvp[] = [];
+  const splitMvpCount = new Map<string, number>();
+  if (tournaments.length > 0) {
+    for (const { split, leagueId, mvp } of computeSeasonSplitMvps(season)) {
+      const ref = teamRef(season, mvp.teamId);
+      if (!ref) continue;
+      splitMvps.push({
+        split,
+        leagueId,
+        lane: mvp.lane,
+        ...(mvp.playerName ? { playerName: mvp.playerName } : {}),
+        ...(mvp.playerId ? { playerId: mvp.playerId } : {}),
+        team: ref,
+        avgRating: mvp.avgRating,
+        games: mvp.gamesPlayed,
+      });
+      if (mvp.playerId)
+        splitMvpCount.set(mvp.playerId, (splitMvpCount.get(mvp.playerId) ?? 0) + 1);
+    }
+  }
+  // Per-player split / season All-Pro selection counts, merged onto the career
+  // records (which already carry the per-tournament `allPro` total).
+  const allProCounts =
+    tournaments.length > 0
+      ? computeAllProCounts(season)
+      : new Map<string, { split: number; season: number }>();
+  const playerCareers = (
+    tournaments.length > 0 ? computePlayerCareerRecords(season) : []
+  ).map((r) => {
+    const c = allProCounts.get(r.playerId);
+    const im = intlMvpCount.get(r.playerId) ?? 0;
+    const sm = splitMvpCount.get(r.playerId) ?? 0;
+    return {
+      ...r,
+      ...(c && c.split > 0 ? { allProSplit: c.split } : {}),
+      ...(c && c.season > 0 ? { allProSeason: c.season } : {}),
+      ...(im > 0 ? { intlMvps: im } : {}),
+      ...(sm > 0 ? { splitMvps: sm } : {}),
+    };
+  });
   // Freeze the year's roster moves with team names so they recap forever.
   const transfers: HistoryTransfer[] = [];
   for (const [event, moves] of Object.entries(season.transfersByEvent ?? {}) as Array<
@@ -348,6 +501,9 @@ export function buildSeasonHistoryEntry(
     ...(hasStory ? { story } : {}),
     ...(Object.keys(leagueBestTeams).length > 0 ? { leagueBestTeams } : {}),
     ...(awardTally.length > 0 ? { awardTally } : {}),
+    ...(allProTeams.length > 0 ? { allProTeams } : {}),
+    ...(intlMvps.length > 0 ? { intlMvps } : {}),
+    ...(splitMvps.length > 0 ? { splitMvps } : {}),
     ...(playerCareers.length > 0 ? { playerCareers } : {}),
     ...(season.phaseRosters?.length ? { phaseRosters: season.phaseRosters } : {}),
     ...(transfers.length > 0 ? { transfers } : {}),

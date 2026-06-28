@@ -57,6 +57,7 @@ import {
   bumpLaneLead,
   clampChance,
   comebackBias,
+  cooldownEdgeBias,
   formEdge,
   formWeightedLane,
   macroEventBias,
@@ -280,7 +281,9 @@ export function phaseMidPickOrSkirmish(tl: TimelineContext): void {
         c != null &&
         ["Thresh", "Blitzcrank", "Pyke", "Nautilus"].includes(c.alias),
     );
-    const pickDesc = (hooker ? championSignature(hooker) : null) ?? basePick;
+    const pickDesc =
+      ((hooker ? championSignature(hooker) : null) ?? basePick) +
+      " (Flash down)";
     addEvent(
       tl,
       "pick",
@@ -299,6 +302,12 @@ export function phaseMidPickOrSkirmish(tl: TimelineContext): void {
     tl.state.pickAdvantage = {
       side,
       expiresAt: t + BALANCE.PICK_ADVANTAGE_WINDOW,
+    };
+    // The caught player Flashed and died — their summoners/ult are down, so the
+    // next teamfight or objective tips to the catching side (cooldownEdgeBias).
+    tl.state.cooldownEdge = {
+      side,
+      expiresAt: t + BALANCE.COOLDOWN_EDGE_WINDOW,
     };
   } else {
     const wk = rollInt(1, 2, tl.rng);
@@ -357,7 +366,10 @@ export function phaseMidTeamfight(tl: TimelineContext): void {
   const side = rollEventSide(
     tl,
     t,
-    macroEventBias(tl, "teamfight") + mapControlBias(tl) + splitDamp,
+    macroEventBias(tl, "teamfight") +
+      mapControlBias(tl) +
+      splitDamp +
+      cooldownEdgeBias(tl, t), // a side fighting with Flash/ult up tips the 5v5
     false, // the mid teamfight is game-deciding — macro-pure, no anti-streak
   );
   const wp = picksOf(tl.ctx, side);
@@ -887,7 +899,8 @@ export function phaseThrownLead(tl: TimelineContext): void {
       "throw",
       t,
       side,
-      describeThrow(side, tl.ctx.blueName, tl.ctx.redName, what, tl.rng),
+      describeThrow(side, tl.ctx.blueName, tl.ctx.redName, what, tl.rng) +
+        " — flashes blown on the face-check",
       {
         kills: killsForSide(side, wk, 0),
         laneGoldDelta: spreadLaneGold(wk * 100, side),
@@ -895,6 +908,12 @@ export function phaseThrownLead(tl: TimelineContext): void {
       },
       0.4, // big momentum swing to the underdog
     );
+    // The thrower over-committed key cooldowns to the greedy play — the
+    // punishing side fights the next one with summoners up (negative feedback).
+    tl.state.cooldownEdge = {
+      side,
+      expiresAt: t + BALANCE.COOLDOWN_EDGE_WINDOW,
+    };
   });
 }
 
@@ -937,6 +956,12 @@ export function phaseBackdoorAttempt(tl: TimelineContext): void {
         },
         0.12,
       );
+      // The splitter Flashed to escape and died anyway — defenders have their
+      // cooldowns up for the next play.
+      tl.state.cooldownEdge = {
+        side: defender,
+        expiresAt: t + BALANCE.COOLDOWN_EDGE_WINDOW,
+      };
     } else {
       addEvent(
         tl,

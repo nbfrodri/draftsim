@@ -98,6 +98,13 @@ export interface MatchState {
   // this side until `expiresAt`. Read by rollEventSide; modest, decays on its
   // own. Models the pick → free-objective causal chain real games show.
   pickAdvantage: { side: Side; expiresAt: number } | null;
+  // Transient "their Flash / ultimate is down" edge. A catch (pick) burns the
+  // victim's summoners; a punished throw or caught backdoor burns the
+  // aggressor's. Whoever holds the cooldowns is favoured on the NEXT teamfight /
+  // objective until `expiresAt`. Read by rollEventSide via cooldownEdgeBias;
+  // decays on its own, so default games are unaffected. Symmetric — cancels in
+  // the mirror.
+  cooldownEdge: { side: Side; expiresAt: number } | null;
   // Pressure on enemy turrets accumulated from grubs/herald — biases the side
   // selection of subsequent tower events. Decays as towers fall.
   towerPressure: { blue: number; red: number };
@@ -464,6 +471,20 @@ export function pickAdvantageBias(tl: TimelineContext, time: number): number {
   return (
     (pa.side === "blue" ? 1 : -1) * BALANCE.PICK_ADVANTAGE_BIAS * timeScale
   );
+}
+
+// Summoner/ultimate cooldown tilt: the side whose opponent just burned a key
+// Flash/ult is favoured on the next teamfight/objective until the window lapses.
+// Zero once expired (or never set), so default games are unaffected. Scales up
+// with game time like the pick edge — a flash-down at 30 min is a death sentence.
+export function cooldownEdgeBias(tl: TimelineContext, time: number): number {
+  const ce = tl.state.cooldownEdge;
+  if (!ce || time > ce.expiresAt) return 0;
+  const timeScale = Math.min(
+    BALANCE.COOLDOWN_EDGE_LATE_MULT,
+    1 + Math.max(0, time - 15) / 20,
+  );
+  return (ce.side === "blue" ? 1 : -1) * BALANCE.COOLDOWN_EDGE_BIAS * timeScale;
 }
 
 // Lane-priority tilt for a neutral objective: only the lanes ADJACENT to it

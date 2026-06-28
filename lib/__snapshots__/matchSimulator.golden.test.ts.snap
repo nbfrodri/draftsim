@@ -2353,9 +2353,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: resu
   "42:c16ff1c4",
   "101:82d8b06c",
   "777:cddd201e",
-  "1234:d09c09fb",
+  "1234:c4a1a165",
   "5150:0442d766",
-  "9001:d4718562",
+  "9001:f64b5c78",
   "31337:ebeab187",
   "65535:95446aed",
   "999983:af8f31c9",
@@ -6168,15 +6168,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
 exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategies: result hashes across 10 seeds 1`] = `
 [
   "11:17b1de54",
-  "42:c2b21bb7",
-  "101:aa418631",
-  "777:3bb25363",
+  "42:7e2bfd7a",
+  "101:b041fd7c",
+  "777:853002b4",
   "1234:b3c0eb1b",
-  "5150:4df2358f",
-  "9001:3e29e500",
+  "5150:ee6124ea",
+  "9001:127d03c7",
   "31337:7629b195",
   "65535:f37f6df6",
-  "999983:0979d446",
+  "999983:9ff713ab",
 ]
 `;
 

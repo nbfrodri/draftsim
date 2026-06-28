@@ -13,6 +13,7 @@ import {
 import { computeGameRatings } from "../matchSimulator";
 import {
   computeTournamentAwards,
+  computeFinalsMvp,
   type AllProPlayer,
   type PlayerAward,
   type SpecialAward,
@@ -57,6 +58,78 @@ export function computeStageStats(t: TournamentState): StageStats {
     allPro: awards.allPro,
     specials: awards.awards,
   };
+}
+
+// ─── International event MVPs ───────────────────────────────────────────────
+// Per international event (First Stand / MSI / Worlds), the finals MVP — the
+// best player on the CHAMPION team across the grand final. Computed from the
+// event's MAIN tournament (the one whose champion is the event champion).
+
+export interface SeasonIntlMvp {
+  event: InternationalId;
+  mvp: PlayerAward;
+}
+
+export function computeSeasonIntlMvps(season: SeasonState): SeasonIntlMvp[] {
+  const out: SeasonIntlMvp[] = [];
+  for (const phase of season.phases) {
+    if (phase.kind !== "international" || !phase.event) continue;
+    const event = phase.event;
+    const champId = season.intlResults[event]?.[0] ?? null;
+    let chosen: PlayerAward | null = null;
+    // Prefer the tournament whose champion IS the event champion (skips play-ins).
+    for (const tid of phase.tournamentIds) {
+      const t = season.tournaments[tid];
+      if (!t) continue;
+      if (champId && tournamentChampion(t)?.id === champId) {
+        chosen = computeFinalsMvp(t);
+        if (chosen) break;
+      }
+    }
+    // Fall back to the last tournament in the phase with a decided final.
+    if (!chosen) {
+      for (const tid of [...phase.tournamentIds].reverse()) {
+        const t = season.tournaments[tid];
+        if (!t) continue;
+        const mvp = computeFinalsMvp(t);
+        if (mvp) {
+          chosen = mvp;
+          break;
+        }
+      }
+    }
+    if (chosen) out.push({ event, mvp: chosen });
+  }
+  return out;
+}
+
+// ─── Split MVPs (per region league) ─────────────────────────────────────────
+// The finals MVP of each domestic split, per league — a player from the split
+// CHAMPION, judged on the split final. Same rule as the international MVP.
+
+export interface SeasonSplitMvp {
+  split: SplitId;
+  leagueId: LeagueId;
+  mvp: PlayerAward;
+}
+
+export function computeSeasonSplitMvps(season: SeasonState): SeasonSplitMvp[] {
+  const leagueOfTeam = new Map(season.teams.map((t) => [t.id, t.leagueId]));
+  const out: SeasonSplitMvp[] = [];
+  for (const phase of season.phases) {
+    if (phase.kind !== "split" || !phase.split) continue;
+    const split = phase.split;
+    for (const tid of phase.tournamentIds) {
+      const t = season.tournaments[tid];
+      if (!t) continue;
+      const mvp = computeFinalsMvp(t);
+      if (!mvp) continue;
+      const leagueId = leagueOfTeam.get(mvp.teamId);
+      if (!leagueId) continue;
+      out.push({ split, leagueId, mvp });
+    }
+  }
+  return out;
 }
 
 // ─── Season-wide stats ─────────────────────────────────────────────────────
@@ -360,6 +433,76 @@ function topN<T>(arr: T[], key: (x: T) => number, n = 10): T[] {
   return [...arr].sort((a, b) => key(b) - key(a)).slice(0, n);
 }
 
+// ─── Per-player champion pools ──────────────────────────────────────────────
+// One player's record on one champion. Champion picks live on the GameDraft
+// (bluePicks/redPicks + roles), joined to the player by lane via the recap's
+// perPickIds. Within a single game the draft's blue/red and the recap's
+// blue/red share the same frame (the loser-blue side swap is between GAMES, not
+// within one), so no swap resolution is needed here.
+export interface PlayerChampStat {
+  championId: number;
+  games: number;
+  wins: number;
+}
+
+/** Cap on champions stored per player per season (most-played first). Keeps the
+ *  archived Hall entry from ballooning while still giving a full scrollable
+ *  pool. */
+export const CHAMP_POOL_CAP = 12;
+
+/** Per-player champion pools for the season: championId → {games, wins},
+ *  truncated to the CHAMP_POOL_CAP most-played champions per player. */
+export function computePlayerChampStats(
+  season: SeasonState,
+): Map<string, PlayerChampStat[]> {
+  // playerId → championId → [games, wins]
+  const byPlayer = new Map<string, Map<number, { games: number; wins: number }>>();
+  const bump = (pid: string, champ: number, won: boolean) => {
+    let champs = byPlayer.get(pid);
+    if (!champs) {
+      champs = new Map();
+      byPlayer.set(pid, champs);
+    }
+    const cur = champs.get(champ) ?? { games: 0, wins: 0 };
+    cur.games += 1;
+    if (won) cur.wins += 1;
+    champs.set(champ, cur);
+  };
+  for (const t of Object.values(season.tournaments)) {
+    for (const m of t.matches) {
+      if (m.isBye || !m.series) continue;
+      for (const g of m.series.games) {
+        if (g.status !== "complete" || g.winner == null) continue;
+        const ids = g.recap?.perPickIds;
+        if (!ids) continue;
+        for (const side of ["blue", "red"] as const) {
+          const picks = side === "blue" ? g.bluePicks : g.redPicks;
+          const roles = side === "blue" ? g.blueRoles : g.redRoles;
+          const sideIds = ids[side];
+          const won = g.winner === side;
+          for (let i = 0; i < picks.length; i++) {
+            const champ = picks[i];
+            const lane = roles[i];
+            if (champ == null || lane == null) continue;
+            const pid = sideIds[POS_LANES.indexOf(lane)];
+            if (!pid) continue;
+            bump(pid, champ, won);
+          }
+        }
+      }
+    }
+  }
+  const out = new Map<string, PlayerChampStat[]>();
+  for (const [pid, champs] of byPlayer) {
+    const rows = [...champs.entries()]
+      .map(([championId, v]) => ({ championId, games: v.games, wins: v.wins }))
+      .sort((a, b) => b.games - a.games || b.wins - a.wins || a.championId - b.championId)
+      .slice(0, CHAMP_POOL_CAP);
+    out.set(pid, rows);
+  }
+  return out;
+}
+
 export function computePlayerLeaders(season: SeasonState): PlayerLeaders {
   const lines = computePlayerSeasonLines(season);
   return {
@@ -384,7 +527,25 @@ export interface PlayerSeasonRecord {
   games: number;
   kills: number;
   mvps: number;
+  // Total per-tournament All-Pro selections this season (splits + internationals).
   allPro: number;
+  // Per-league split All-Pro selections this season (a subset of `allPro`,
+  // counting only the domestic-split team picks). Optional — only on seasons
+  // archived after the All-Pro-team expansion.
+  allProSplit?: number;
+  // 1 if the player made this season's GLOBAL All-Pro Team of the Year, else 0.
+  // Optional, as above.
+  allProSeason?: number;
+  // International-event finals MVPs this season (First Stand / MSI / Worlds).
+  // Optional — only on seasons archived after the intl-MVP expansion.
+  intlMvps?: number;
+  // Domestic split finals MVPs this season (per region league). Optional, as above.
+  splitMvps?: number;
+  // The player's age that season (end-of-season roster). Optional — only when
+  // the roster carried an age.
+  age?: number;
+  // The player's champion pool this season (most-played first, capped). Optional.
+  champs?: PlayerChampStat[];
   splitTitles: number;
   intlAppearances: number;
   intlTitles: number;
@@ -467,9 +628,16 @@ export function computePlayerCareerRecords(season: SeasonState): PlayerSeasonRec
   }
   const leagueOf = new Map(season.teams.map((t) => [t.id, t.leagueId]));
   const nameOfTeam = new Map(season.teams.map((t) => [t.id, t.name]));
+  const ageOf = new Map<string, number>();
+  for (const t of season.teams) {
+    for (const p of t.players) if (p.id && p.age != null) ageOf.set(p.id, p.age);
+  }
+  const champStats = computePlayerChampStats(season);
   return lines.map((l) => {
     const teamId = teamOfPlayer.get(l.playerId) ?? l.teamId;
     const a = achv.get(l.playerId) ?? { split: 0, intlTitles: 0, intlApps: 0 };
+    const age = ageOf.get(l.playerId);
+    const champs = champStats.get(l.playerId);
     return {
       playerId: l.playerId,
       playerName: l.playerName,
@@ -479,6 +647,8 @@ export function computePlayerCareerRecords(season: SeasonState): PlayerSeasonRec
       kills: l.kills,
       mvps: l.mvps,
       allPro: allProById.get(l.playerId) ?? 0,
+      ...(age != null ? { age } : {}),
+      ...(champs && champs.length > 0 ? { champs } : {}),
       splitTitles: a.split,
       intlAppearances: a.intlApps,
       intlTitles: a.intlTitles,
