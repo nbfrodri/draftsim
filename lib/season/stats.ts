@@ -524,6 +524,10 @@ export interface PlayerSeasonRecord {
   playerName: string;
   leagueId: LeagueId | null;
   teamName?: string; // end-of-season team, for a logo in the career boards
+  // The lane the player occupied this season — fixed per player, so the Hall
+  // can rank all-time bests per role. Optional: archives saved before this
+  // existed have no lane (those careers fall out of the per-role boards).
+  lane?: Lane;
   games: number;
   kills: number;
   mvps: number;
@@ -643,6 +647,7 @@ export function computePlayerCareerRecords(season: SeasonState): PlayerSeasonRec
       playerName: l.playerName,
       leagueId: leagueOf.get(teamId) ?? null,
       teamName: nameOfTeam.get(teamId) ?? l.teamName,
+      lane: l.lane,
       games: l.games,
       kills: l.kills,
       mvps: l.mvps,

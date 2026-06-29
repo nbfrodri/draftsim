@@ -37,8 +37,8 @@ function rookieName(rng: RNG, taken: Set<string>): string {
 const DEBUT_AGE_MIN = 17;
 const PRIME_FROM = 20; //   growth window: young & below potential climb
 const GROWTH_UNTIL = 23; // past this, no more youth growth bonus
-const DECLINE_FROM = 26; // veterans start sliding
-const RETIRE_FROM = 29; //  retirement risk begins
+const DECLINE_FROM = 29; // veterans start sliding (prime holds through 28)
+const RETIRE_FROM = 32; //  retirement risk begins (careers run into the mid-30s)
 // Very rare generational ceiling: the chance an elite young prospect carries
 // S+ upside (a once-in-a-generation talent). Reaching S+ still requires them to
 // actually develop into it, so true S+ players are rarer than this.
@@ -53,7 +53,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 // Retirement chance ramps with age; weaker players fade a touch sooner.
 function retireChance(age: number, tierVal: number): number {
   if (age < RETIRE_FROM) return 0;
-  const base = (age - (RETIRE_FROM - 1)) * 0.12; // 29→.12 … 35→.84
+  const base = (age - (RETIRE_FROM - 1)) * 0.12; // 32→.12, 35→.48, 38→.84
   const weak = tierVal <= -1 ? 0.08 : 0;
   return clamp(base + weak, 0, 0.95);
 }
@@ -61,7 +61,9 @@ function retireChance(age: number, tierVal: number): number {
 // A starting age + potential for an EXISTING player when a reality begins.
 // Younger players get more headroom above their current tier.
 export function initCareer(player: Player, rng: RNG): Player {
-  const age = 18 + Math.floor(rng() * 8); // 18–25, the bulk of a real field
+  // Respect an age the creator set by hand (reality setup); otherwise roll one
+  // in 18–25, the bulk of a real field.
+  const age = player.age ?? 18 + Math.floor(rng() * 8);
   const tierVal = PLAYER_TIER_VALUE[player.tier];
   const headroom = age <= GROWTH_UNTIL ? Math.floor(rng() * 3) : Math.floor(rng() * 2);
   let potVal = clamp(tierVal + headroom, -2, 2);
@@ -162,12 +164,15 @@ export function offseasonEvolveRoster(
   rng: RNG,
   taken: Set<string>,
   debuts?: RookieDebut[],
+  debutYear?: number,
 ): Player[] {
   return roster.map((p, i) => {
     if (p.name) taken.add(p.name);
     const aged = agePlayer(p, gradesByLane[i] ?? null, rng);
     if (aged) return aged;
     const rookie = makeRookie(p.lane, champions, rng, taken);
+    // Stamp the debut year so the Hall can badge them as a rookie of this year.
+    if (debutYear != null) rookie.debutYear = debutYear;
     debuts?.push({
       lane: p.lane,
       ...(p.name ? { retiredName: p.name } : {}),

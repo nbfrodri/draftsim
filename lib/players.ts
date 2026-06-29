@@ -254,8 +254,9 @@ export function randomizeTiersForStar(
 }
 
 // Meta-tier → base draft weight for the liked pool. Higher tier = more likely
-// to be one of a player's mains.
-const MAIN_TIER_WEIGHT: Record<MetaTier, number> = {
+// to be one of a player's mains. Exported so champion-pool drift can lean new
+// picks toward the current meta the same way.
+export const MAIN_TIER_WEIGHT: Record<MetaTier, number> = {
   "S+": 6,
   S: 5,
   A: 4,

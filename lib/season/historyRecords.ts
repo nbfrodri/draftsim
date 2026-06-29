@@ -283,6 +283,18 @@ export function splitWinnersByRegion(
  *  internationals then Worlds break ties). Leagues with no titled team
  *  are omitted. `records` is assumed pre-sorted by computeTeamRecords,
  *  but we don't rely on it. */
+// Weighted prestige score: internationals count far more than domestic splits
+// (Worlds most of all), matching the Hall of Fame ladder. Used to rank a
+// region's "most decorated" franchise rather than a flat title count.
+export function teamPrestigeScore(r: TeamRecord): number {
+  return (
+    r.splitTitles +
+    (r.intlTitles["first-stand"] ?? 0) * 4 +
+    (r.intlTitles.msi ?? 0) * 6 +
+    (r.intlTitles.worlds ?? 0) * 10
+  );
+}
+
 export function bestTeamPerRegion(
   records: TeamRecord[],
 ): Partial<Record<LeagueId, TeamRecord>> {
@@ -292,7 +304,7 @@ export function bestTeamPerRegion(
       .filter((r) => r.team.leagueId === league && r.totalTitles > 0)
       .sort(
         (a, b) =>
-          b.totalTitles - a.totalTitles ||
+          teamPrestigeScore(b) - teamPrestigeScore(a) ||
           b.worldsTitles - a.worldsTitles ||
           b.intlTotal - a.intlTotal ||
           a.team.name.localeCompare(b.team.name),
@@ -479,6 +491,7 @@ export interface PlayerCareerLine {
   playerName: string;
   leagueId: LeagueId | null; // most recent
   teamName?: string; // most recent team, for a logo
+  lane?: Lane; // most-recent lane — drives the all-time per-role boards
   seasons: number;
   games: number;
   kills: number;
@@ -564,6 +577,7 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
           playerName: r.playerName,
           leagueId: r.leagueId,
           teamName: r.teamName,
+          ...(r.lane ? { lane: r.lane } : {}),
           // Newest archived season is seen first, so it sets the displayed age.
           ...(r.age != null ? { age: r.age } : {}),
           seasons: 1,
@@ -599,4 +613,72 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
       .sort((a, b) => b.games - a.games || b.wins - a.wins || a.championId - b.championId);
   }
   return [...byId.values()];
+}
+
+// ─── Player titles split by event (Hall of Fame) ────────────────────────────
+
+/** Career title counts per player, broken out by event — domestic splits and
+ *  each international (First Stand / MSI / Worlds). Attribution mirrors the
+ *  player career boards: a player is credited only if they were ROSTERED for
+ *  the champion team at that stage (via phaseRosters), de-duplicated within a
+ *  season so play-in + main stages of the same event count once. */
+export interface PlayerTitleTotals {
+  splits: number;
+  firstStand: number;
+  msi: number;
+  worlds: number;
+}
+const INTL_FIELD: Record<InternationalId, keyof PlayerTitleTotals> = {
+  "first-stand": "firstStand",
+  msi: "msi",
+  worlds: "worlds",
+};
+export function computePlayerTitlesByEvent(
+  entries: SeasonHistoryEntry[],
+): Map<string, PlayerTitleTotals> {
+  const out = new Map<string, PlayerTitleTotals>();
+  const ensure = (id: string) => {
+    let t = out.get(id);
+    if (!t) {
+      t = { splits: 0, firstStand: 0, msi: 0, worlds: 0 };
+      out.set(id, t);
+    }
+    return t;
+  };
+  for (const e of entries) {
+    const seen = new Set<string>(); // `${playerId}:${titleKey}` — once per season
+    for (const phase of e.phaseRosters ?? []) {
+      if (phase.kind === "split" && phase.split) {
+        const byLeague = e.splitChampions[phase.split] ?? {};
+        for (const [league, champ] of Object.entries(byLeague)) {
+          if (!champ) continue;
+          const team = phase.teams.find(
+            (t) => t.teamName === champ.name && t.leagueId === league,
+          );
+          for (const p of team?.players ?? []) {
+            if (!p.id) continue;
+            const k = `${p.id}:split:${phase.split}:${league}`;
+            if (seen.has(k)) continue;
+            seen.add(k);
+            ensure(p.id).splits += 1;
+          }
+        }
+      } else if (phase.kind === "international" && phase.event) {
+        const champ = e.intlChampions[phase.event];
+        if (!champ) continue;
+        const team = phase.teams.find(
+          (t) => t.teamName === champ.name && t.leagueId === champ.leagueId,
+        );
+        const field = INTL_FIELD[phase.event];
+        for (const p of team?.players ?? []) {
+          if (!p.id) continue;
+          const k = `${p.id}:${phase.event}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          ensure(p.id)[field] += 1;
+        }
+      }
+    }
+  }
+  return out;
 }

@@ -332,7 +332,7 @@ function damageDealerCountSim(team: TeamMember[]): number {
       n++;
       continue;
     }
-    const roles = m.champ.roles.map((r) => r.toLowerCase());
+    const roles = lowerRoles(m.champ);
     if (roles.includes("marksman")) {
       n++;
       continue;
@@ -888,14 +888,28 @@ function damageBaseFor(
   return 0.7;
 }
 
+// Cached lowercased role list per champion (roles are immutable). Avoids
+// re-allocating + re-lowercasing on every per-game / per-fight role check.
+// Returns the same array reference; callers only read it (or copy into a Set).
+const lowerRolesCache = new WeakMap<Champion, string[]>();
+function lowerRoles(c: Champion): string[] {
+  let r = lowerRolesCache.get(c);
+  if (!r) {
+    r = c.roles.map((s) => s.toLowerCase());
+    lowerRolesCache.set(c, r);
+  }
+  return r;
+}
+
 // Damage type split — what fraction of a champion's damage is AD vs AP vs
 // true. Marksmen are pure AD; mages are pure AP; hybrids split; some
 // champs (Vayne W, Briar) deal small true. Default uses isAP / isAD with
 // AP_BUILDERS_OVERRIDE for misclassified assassins.
 function damageTypeSplit(c: Champion): { ad: number; ap: number; tr: number } {
-  const isMark = c.roles.some((r) => r.toLowerCase() === "marksman");
-  const isMage = c.roles.some((r) => r.toLowerCase() === "mage");
-  const isFighter = c.roles.some((r) => r.toLowerCase() === "fighter");
+  const roles = lowerRoles(c);
+  const isMark = roles.includes("marksman");
+  const isMage = roles.includes("mage");
+  const isFighter = roles.includes("fighter");
   // True-damage champions (Vayne W, Briar, Camille passive). Small fraction.
   const TRUE_DAMAGE = new Set([
     "Vayne",
@@ -993,7 +1007,7 @@ function champCombatProfile(
   gameTime: number,
 ): ChampCombatProfile {
   const meta = metaFor(champ);
-  const isMark = champ.roles.some((r) => r.toLowerCase() === "marksman");
+  const isMark = lowerRoles(champ).includes("marksman");
   // When the meta master switch is off, every champion gets the same
   // damage multiplier (1.0 = neutral) so comp differentiation in combat
   // comes from items + archetype + identity, not tier.
@@ -1224,9 +1238,7 @@ function carryGoldLeadBonus(
       const isCarryArch = meta.archetypes.some((a) =>
         CARRY_GOLD_ARCHETYPES.has(a),
       );
-      const isMarksman = champ.roles.some(
-        (r) => r.toLowerCase() === "marksman",
-      );
+      const isMarksman = lowerRoles(champ).includes("marksman");
       const weight = isCarryArch || isMarksman ? 1.0 : 0.5;
       blueBonus += baseBonus * weight;
     } else {
@@ -1236,9 +1248,7 @@ function carryGoldLeadBonus(
       const isCarryArch = meta.archetypes.some((a) =>
         CARRY_GOLD_ARCHETYPES.has(a),
       );
-      const isMarksman = champ.roles.some(
-        (r) => r.toLowerCase() === "marksman",
-      );
+      const isMarksman = lowerRoles(champ).includes("marksman");
       const weight = isCarryArch || isMarksman ? 1.0 : 0.5;
       redBonus += baseBonus * weight;
     }
@@ -1479,7 +1489,7 @@ const RANGED_SUPPORTS: ReadonlySet<string> = new Set([
 const MELEE_MARKSMEN: ReadonlySet<string> = new Set(["MasterYi", "Nilah"]);
 
 function isRanged(champ: Champion): boolean {
-  const r = new Set(champ.roles.map((s) => s.toLowerCase()));
+  const r = new Set(lowerRoles(champ));
   if (r.has("marksman")) return !MELEE_MARKSMEN.has(champ.alias);
   if (r.has("mage")) return !MELEE_MAGES.has(champ.alias);
   if (RANGED_BRUISERS.has(champ.alias)) return true;

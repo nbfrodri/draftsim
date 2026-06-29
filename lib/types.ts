@@ -51,6 +51,10 @@ export interface Player {
   // and eventual retirement in franchise mode. Optional — only stamped on
   // franchise/reality rosters; one-off seasons leave it unset.
   age?: number;
+  // Franchise year this player DEBUTED as a rookie (entered the league via the
+  // offseason rookie system). Only set on rookies; founding/Year-1 rosters and
+  // one-off seasons leave it unset, so its presence marks a true rookie.
+  debutYear?: number;
   // Hidden ceiling tier a player can grow toward while young; once reached,
   // age + performance govern whether they hold it or decline. Optional, like
   // age. Defaults to the current tier when absent (no headroom).

@@ -171,8 +171,13 @@ export default function TransferWindowPanel() {
     (e) => (byEvent[e]?.length ?? 0) > 0,
   );
 
+  // Retirements + rookie debuts from this year's post-Worlds offseason (aging
+  // on), league-wide — surfaced here so the user sees who hung it up and who
+  // broke in, not just on their own team.
+  const rosterNews = season.rosterNews ?? [];
+
   // Nothing to show yet.
-  if (!atWindow && windows.length === 0) return null;
+  if (!atWindow && windows.length === 0 && rosterNews.length === 0) return null;
 
   // Next split label for the proceed button.
   const nextPhase = season.phases[season.phaseIndex + 1];
@@ -384,16 +389,23 @@ export default function TransferWindowPanel() {
         <div className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/55 mb-1">
           Around the leagues
         </div>
-        <p className="text-[9px] text-rift-muted/60 mb-2 leading-relaxed">
-          Players are valued by skill tier, their grades over the{" "}
-          {WINDOW_SPLIT[(phase?.event as string) ?? windows[0] ?? "first-stand"] ?? "recent split"},
-          and how well their champion pool fits the new patch. The most underrated
-          players move up to the best-finishing teams; weak links drop down. Cross-region.
-        </p>
+        {(atWindow || windows.length > 0) && (
+          <p className="text-[9px] text-rift-muted/60 mb-2 leading-relaxed">
+            Players are valued by skill tier, their grades over the{" "}
+            {WINDOW_SPLIT[(phase?.event as string) ?? windows[0] ?? "first-stand"] ?? "recent split"},
+            and how well their champion pool fits the new patch. The most underrated
+            players move up to the best-finishing teams; weak links drop down. Cross-region.
+          </p>
+        )}
         {windows.length === 0 ? (
-          <div className="text-[10px] italic text-rift-muted">
-            No completed transfers yet.
-          </div>
+          // Only an "empty" note when we're actually at a transfer window — when
+          // the panel is up solely for offseason retirements, the block below
+          // speaks for itself.
+          atWindow ? (
+            <div className="text-[10px] italic text-rift-muted">
+              No completed transfers yet.
+            </div>
+          ) : null
         ) : (
           windows.map((e) => {
             const moves = byEvent[e] ?? [];
@@ -420,6 +432,54 @@ export default function TransferWindowPanel() {
               </div>
             );
           })
+        )}
+
+        {/* Post-Worlds offseason: who retired and the rookies who took their
+            slots, across every team. Shown at the year-start (pre-season)
+            context only — not repeated during the later in-season windows. */}
+        {rosterNews.length > 0 && !atWindow && (
+          <div className="mt-2">
+            <div className="text-[9px] uppercase tracking-[0.25em] text-emerald-300/70 mb-1">
+              Retirements &amp; Rookie Debuts{yr}
+            </div>
+            <div className="border border-emerald-500/25 bg-emerald-500/[0.04] divide-y divide-rift-line/15">
+              {rosterNews.map((n, i) => {
+                const team = seasonTeam(season, n.teamId);
+                return (
+                  <div
+                    key={`${n.teamId}-${n.lane}-${i}`}
+                    className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 text-[10px]"
+                  >
+                    <TeamIcon
+                      iconKey={team?.iconKey ?? "shield"}
+                      logoUrl={team?.logoUrl}
+                      size={13}
+                      color={team?.color}
+                    />
+                    <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
+                    {n.retiredName ? (
+                      <span className="text-rift-mutedbright">
+                        <span className="text-rift-redbright/80">{n.retiredName}</span>{" "}
+                        <span className="text-rift-muted/60">
+                          ({n.retiredTier}) retired{n.retiredAge != null ? ` at ${n.retiredAge}` : ""}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-rift-muted/60">Slot opened</span>
+                    )}
+                    <span className="text-rift-muted/40">→</span>
+                    <span className="text-rift-mutedbright">
+                      rookie <span className="text-emerald-400/90">{n.rookieName}</span>
+                    </span>
+                    <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">
+                      {n.rookieTier}
+                      {n.rookiePotential !== n.rookieTier ? ` ↗${n.rookiePotential}` : ""} debuts
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
     </div>

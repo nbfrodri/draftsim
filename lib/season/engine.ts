@@ -1955,6 +1955,7 @@ export function applyTournamentUpdate(
               tier: p.tier,
               lane: p.lane,
               ...(p.age != null ? { age: p.age } : {}),
+              ...(p.debutYear != null ? { debutYear: p.debutYear } : {}),
             })),
           })),
         },
@@ -1999,11 +2000,10 @@ export function applyTournamentUpdate(
   // the next event sees the updated rosters.
   if (phase.kind === "split") {
     next = applyPlayerDevelopment(next);
-    // [B] Pools drift a little too — same cadence and realism flag, so rosters
-    // track the meta instead of carrying the same champs all year.
-    if (next.config.playerDevelopment) {
-      next = applyPoolDrift(next, champions);
-    }
+    // [B] Pools always drift with the meta each split — rosters track the patch
+    // instead of carrying the same champs all year. Auto-driven (living sim),
+    // independent of the playerDevelopment skill-growth toggle.
+    next = applyPoolDrift(next, champions);
   }
   // [T] Free-agency window: opens as First Stand / MSI wrap (the transfer
   // phase that follows). Standouts move up, weak links down; pool fit under

@@ -45,6 +45,18 @@ describe("makeRookie", () => {
   });
 });
 
+describe("seedRosterCareers", () => {
+  it("preserves a hand-set age (reality setup) but fills missing ones", () => {
+    const [withAge, noAge] = seedRosterCareers(
+      [player({ lane: "top", age: 27 }), player({ lane: "mid" as Lane })],
+      rng(3),
+    );
+    expect(withAge.age).toBe(27); // creator's edit survives
+    expect(noAge.age).toBeGreaterThanOrEqual(18); // rolled when absent
+    expect(noAge.age).toBeLessThanOrEqual(25);
+  });
+});
+
 describe("agePlayer growth vs decline", () => {
   // Aggregate over many seeds: a young, below-potential player who keeps
   // performing should trend UP; an old one should trend DOWN / retire.
@@ -117,5 +129,15 @@ describe("offseasonEvolveRoster", () => {
       expect(d.rookieName).toBeTruthy();
       expect(LANES).toContain(d.lane);
     }
+  });
+
+  it("stamps the debut year on rookies (for the Hall's rookie badge)", () => {
+    const roster = LANES.map((lane, i) =>
+      player({ lane, tier: "D", age: 40, id: `vet-${i}`, name: `vet-${lane}` }),
+    );
+    const next = offseasonEvolveRoster(roster, [6, 6, 6, 6, 6], champions, rng(9), new Set(), undefined, 4);
+    const rookies = next.filter((p) => (p.age ?? 99) <= 19);
+    expect(rookies.length).toBeGreaterThan(0);
+    for (const r of rookies) expect(r.debutYear).toBe(4); // entered the league in Year 4
   });
 });

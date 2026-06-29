@@ -25,8 +25,8 @@ import {
   bestTeamPerRegion,
   computeRegionStrength,
   computeTitleStreaks,
-  computePlayerAllTime,
   computePlayerCareers,
+  computePlayerTitlesByEvent,
   DYNASTY_WINDOW,
   type TeamRecord,
   type DynastyTier,
@@ -47,6 +47,9 @@ import {
   listPlayers,
   listTeams,
   listCoachesRich,
+  computeCoachRecords,
+  retiredPlayerIds,
+  type CoachRecord,
   teamStars,
   playerProfile,
   teamProfile,
@@ -84,6 +87,20 @@ const LANES: readonly { lane: Lane; label: string }[] = [
   { lane: "bottom", label: "Bot" },
   { lane: "support", label: "Support" },
 ];
+
+// All-time per-role ranking: TITLES lead (internationals weighted far above
+// splits), then MVP/All-Pro accolades, with career average grade only as a
+// light tiebreak — so a decorated winner outranks a stat-padder.
+const careerAvg = (p: PlayerCareerLine): number =>
+  p.ratingGames > 0 ? p.ratingSum / p.ratingGames : 0;
+const careerScore = (p: PlayerCareerLine): number =>
+  p.intlTitles * 12 +
+  p.splitTitles * 3 +
+  p.intlMvps * 5 +
+  p.mvps * 3 +
+  p.allPro * 3 +
+  p.splitMvps * 1.5 +
+  careerAvg(p) * 2;
 
 // Tier pill styling, gold-to-dim with tier strength.
 const TIER_CLS: Record<MetaTier, string> = {
@@ -996,28 +1013,11 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
         .sort((a, b) => b.at - a.at),
     [entries],
   );
-  const players = useMemo(() => computePlayerAllTime(entries), [entries]);
-  const topMVP = useMemo(
-    () =>
-      [...players]
-        .filter((p) => p.mvp > 0)
-        .sort((a, b) => b.mvp - a.mvp || b.allPro - a.allPro)
-        .slice(0, 5),
-    [players],
-  );
-  const topAllPro = useMemo(
-    () =>
-      [...players]
-        .filter((p) => p.allPro > 0)
-        .sort((a, b) => b.allPro - a.allPro || b.mvp - a.mvp)
-        .slice(0, 5),
-    [players],
-  );
   // Career boards — by stable player id, following a player across teams/years.
   const careers = useMemo(() => computePlayerCareers(entries), [entries]);
   const careerBoards = useMemo(() => {
     const top = (key: (p: PlayerCareerLine) => number) =>
-      [...careers].filter((p) => key(p) > 0).sort((a, b) => key(b) - key(a)).slice(0, 5);
+      [...careers].filter((p) => key(p) > 0).sort((a, b) => key(b) - key(a));
     return [
       { label: "Most MVPs", rows: top((p) => p.mvps), val: (p: PlayerCareerLine) => `${p.mvps}` },
       { label: "Most Intl MVPs", rows: top((p) => p.intlMvps), val: (p: PlayerCareerLine) => `${p.intlMvps}` },
@@ -1029,6 +1029,103 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
       { label: "Intl Titles", rows: top((p) => p.intlTitles), val: (p: PlayerCareerLine) => `${p.intlTitles}` },
     ].filter((b) => b.rows.length > 0);
   }, [careers]);
+  // Retired players (absent from the latest archived roster) — so the boards
+  // can flag them while still counting their careers.
+  const retired = useMemo(() => retiredPlayerIds(entries), [entries]);
+  // Each player's lane from the roster snapshots (newest appearance wins) — the
+  // authoritative position source, used as a fallback when a career line carries
+  // no lane. That happens for careers built only from seasons archived BEFORE
+  // the per-lane career field existed, and for retired subs who never logged a
+  // rated game; the snapshots have always stored lane, so this recovers them.
+  const laneById = useMemo(() => {
+    const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
+    const m = new Map<string, Lane>();
+    for (const e of ordered)
+      for (const ph of [...(e.phaseRosters ?? [])].sort((a, b) => b.phaseIndex - a.phaseIndex))
+        for (const t of ph.teams)
+          for (const p of t.players)
+            if (p.id && !m.has(p.id)) m.set(p.id, p.lane);
+    return m;
+  }, [entries]);
+  // All-time best player PER ROLE — every career with a known lane, title-led
+  // (see careerScore); the board scrolls. RETIRED players are included and
+  // counted, and a player's lane falls back to the roster snapshots (laneById)
+  // so careers from pre-per-lane archives still bucket. The only floor: enough
+  // of a sample to rank, OR any accolade (so a decorated veteran with few games
+  // still features).
+  const roleBoards = useMemo(() => {
+    const MIN_GAMES = 10;
+    const laneOf = (p: PlayerCareerLine): Lane | null =>
+      p.lane ?? laneById.get(p.playerId) ?? null;
+    const eligible = careers
+      .map((p) => ({ p, lane: laneOf(p) }))
+      .filter(
+        ({ p, lane }) =>
+          lane &&
+          (p.games >= MIN_GAMES ||
+            p.intlTitles + p.splitTitles > 0 ||
+            p.mvps > 0 ||
+            p.allPro > 0),
+      );
+    return LANES.map(({ lane, label }) => ({
+      lane,
+      label,
+      rows: eligible
+        .filter((x) => x.lane === lane)
+        .map((x) => x.p)
+        .sort((a, b) => careerScore(b) - careerScore(a)),
+    })).filter((b) => b.rows.length > 0);
+  }, [careers, laneById]);
+  // Hall of Fame — players ranked by a weighted sum of every title they won.
+  // Internationals count more than splits (and Worlds most of all), but the
+  // ranking is a total across everything; the row shows the full breakdown.
+  const legends = useMemo(() => {
+    const byEvent = computePlayerTitlesByEvent(entries);
+    const careerById = new Map(careers.map((c) => [c.playerId, c]));
+    return [...byEvent.entries()]
+      .map(([playerId, t]) => {
+        const c = careerById.get(playerId);
+        const total = t.splits + t.firstStand + t.msi + t.worlds;
+        // Internationals are worth far more than a domestic split: a single
+        // First Stand outweighs several splits, MSI more, Worlds most of all.
+        // ponytail: tweak here if the ladder feels off.
+        const score = t.splits + t.firstStand * 4 + t.msi * 6 + t.worlds * 10;
+        return {
+          playerId,
+          name: c?.playerName ?? "—",
+          leagueId: c?.leagueId ?? null,
+          teamName: c?.teamName,
+          lane: c?.lane ?? laneById.get(playerId) ?? null,
+          ...t,
+          total,
+          score,
+        };
+      })
+      .filter((x) => x.total > 0)
+      .sort((a, b) => b.score - a.score || b.total - a.total);
+  }, [entries, careers, laneById]);
+  // Top coaches by titles (intl weighted over splits), overall and per region.
+  const coachScore = (c: CoachRecord) =>
+    c.splitTitles + c.firstStand * 4 + c.msi * 6 + c.worlds * 10;
+  const coachRecords = useMemo(
+    () => computeCoachRecords(entries).filter((c) => c.total > 0),
+    [entries],
+  );
+  const topCoaches = useMemo(
+    () => [...coachRecords].sort((a, b) => coachScore(b) - coachScore(a) || b.total - a.total),
+    [coachRecords],
+  );
+  const coachesByRegion = useMemo(
+    () =>
+      LEAGUE_IDS.map((league) => ({
+        league,
+        rows: coachRecords
+          .filter((c) => c.leagueId === league)
+          .sort((a, b) => coachScore(b) - coachScore(a) || b.total - a.total)
+          .slice(0, 5),
+      })).filter((g) => g.rows.length > 0),
+    [coachRecords],
+  );
   const intlDetail = (r: TeamRecord) =>
     INTL_ORDER.filter((e) => (r.intlTitles[e] ?? 0) > 0)
       .map((e) => `${r.intlTitles[e]}× ${INTERNATIONAL_LABELS[e]}`)
@@ -1332,104 +1429,28 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
         </p>
       </div>
 
-      {/* Player all-time (team-position MVP / All-Pro tallies) */}
+      {/* Player careers — aggregated by stable id across every archived season,
+          so a player's record follows them across teams and years (a retiree's
+          awards never merge with the rookie who later fills their slot). */}
       <div>
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
-          Player All-Time
+          Player Careers
         </div>
-        {topMVP.length === 0 && topAllPro.length === 0 ? (
+        {careerBoards.length === 0 ? (
           <p className="text-[10px] italic text-rift-muted">
-            MVP and All-Pro tallies are recorded for seasons archived from now
-            on — finish and archive a season to start the all-time boards.
-            Players are tracked by team &amp; position (e.g. T1 · MID).
+            Career boards are recorded for seasons archived from now on — finish
+            and archive a season to start them. Players are tracked individually
+            across every team and year they played.
           </p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="border border-rift-line/40 bg-rift-bg/30">
-              <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.35em] text-rift-gold/70">
-                Most MVPs
-              </div>
-              <div className="divide-y divide-rift-line/15">
-                {topMVP.map((p, i) => (
-                  <div
-                    key={`mvp:${p.team.leagueId}:${p.team.name}:${p.lane}`}
-                    className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
-                  >
-                    <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
-                      {i + 1}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <TeamRef team={p.team} size={13} muted={i > 0} />
-                    </span>
-                    {p.playerName && (
-                      <span
-                        className="text-[10px] font-medium text-rift-mutedbright truncate max-w-[84px] flex-shrink-0"
-                        title={p.playerName}
-                      >
-                        {p.playerName}
-                      </span>
-                    )}
-                    <LaneIcon lane={p.lane} size="xs" className="flex-shrink-0" />
-                    <span
-                      className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}
-                    >
-                      {p.mvp}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="border border-rift-line/40 bg-rift-bg/30">
-              <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.35em] text-rift-gold/70">
-                Most All-Pro Selections
-              </div>
-              <div className="divide-y divide-rift-line/15">
-                {topAllPro.map((p, i) => (
-                  <div
-                    key={`ap:${p.team.leagueId}:${p.team.name}:${p.lane}`}
-                    className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
-                  >
-                    <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
-                      {i + 1}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <TeamRef team={p.team} size={13} muted={i > 0} />
-                    </span>
-                    {p.playerName && (
-                      <span
-                        className="text-[10px] font-medium text-rift-mutedbright truncate max-w-[84px] flex-shrink-0"
-                        title={p.playerName}
-                      >
-                        {p.playerName}
-                      </span>
-                    )}
-                    <LaneIcon lane={p.lane} size="xs" className="flex-shrink-0" />
-                    <span
-                      className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}
-                    >
-                      {p.allPro}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Player careers — aggregated by stable id across every archived
-            season, so a player's record follows them across teams and years. */}
-        {careerBoards.length > 0 && (
-          <div className="mt-4">
-            <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/70 mb-1.5">
-              Player Careers
-            </div>
+          <div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {careerBoards.map((b) => (
                 <div key={b.label} className="border border-rift-line/40 bg-rift-bg/30">
                   <div className="px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
                     {b.label}
                   </div>
-                  <div className="divide-y divide-rift-line/15">
+                  <div className="divide-y divide-rift-line/15 max-h-64 overflow-y-auto">
                     {b.rows.map((p, i) => (
                       <div key={p.playerId} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
                         <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
@@ -1458,6 +1479,188 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
           </div>
         )}
       </div>
+
+      {/* Hall of Fame — players ranked by total titles (intl weighted over
+          splits), with the full First Stand / MSI / Worlds breakdown. */}
+      {legends.length > 0 && (
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+            Hall of Fame · Most Decorated
+          </div>
+          <div className="border border-rift-gold/30 bg-rift-bg/30">
+            <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_repeat(5,2rem)] gap-x-1 px-3 py-1 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">
+              <span />
+              <span>Player</span>
+              <span className="text-center" title="Domestic split titles">Spl</span>
+              <span className="text-center" title="First Stand titles">FS</span>
+              <span className="text-center" title="MSI titles">MSI</span>
+              <span className="text-center" title="Worlds titles">Wld</span>
+              <span className="text-center text-rift-gold/70" title="Ranked by weighted titles — Worlds ≫ MSI ≫ First Stand ≫ split">Tot</span>
+            </div>
+            <div className="divide-y divide-rift-line/15 max-h-72 overflow-y-auto">
+              {legends.map((p, i) => (
+                <div
+                  key={p.playerId}
+                  className="grid grid-cols-[1.25rem_minmax(0,1fr)_repeat(5,2rem)] gap-x-1 items-center px-3 py-1.5 text-[11px]"
+                >
+                  <span className="text-right text-[9px] tabular-nums text-rift-muted/70">{i + 1}</span>
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    {p.lane && <LaneIcon lane={p.lane} size="xs" className="flex-shrink-0" />}
+                    {p.teamName && (
+                      <TeamIcon iconKey="shield" logoUrl={logoForTeamName(p.teamName)} size={13} />
+                    )}
+                    <span className="truncate text-rift-mutedbright font-medium">{p.name}</span>
+                    {p.leagueId && (
+                      <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/60 flex-shrink-0">
+                        {p.leagueId}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-center tabular-nums text-rift-mutedbright">{p.splits || "·"}</span>
+                  <span className="text-center tabular-nums text-rift-mutedbright">{p.firstStand || "·"}</span>
+                  <span className="text-center tabular-nums text-rift-mutedbright">{p.msi || "·"}</span>
+                  <span className="text-center tabular-nums text-rift-mutedbright">{p.worlds || "·"}</span>
+                  <span className={`text-center tabular-nums font-semibold ${i === 0 ? "text-rift-goldbright" : "text-rift-gold/80"}`}>
+                    {p.total}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* All-time best player per role — top 10 by career score (avg grade led,
+          accolades layered on). */}
+      {roleBoards.length > 0 && (
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+            All-Time by Role
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {roleBoards.map((b) => (
+              <div key={b.lane} className="border border-rift-line/40 bg-rift-bg/30">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
+                  <LaneIcon lane={b.lane} size="xs" />
+                  {b.label}
+                </div>
+                <div className="divide-y divide-rift-line/15 max-h-64 overflow-y-auto">
+                  {b.rows.map((p, i) => (
+                    <div key={p.playerId} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
+                      <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
+                        {i + 1}
+                      </span>
+                      {p.teamName && (
+                        <TeamIcon iconKey="shield" logoUrl={logoForTeamName(p.teamName)} size={13} />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="truncate text-rift-mutedbright font-medium leading-tight">
+                            {p.playerName || "—"}
+                          </span>
+                          {retired.has(p.playerId) && (
+                            <span className="text-[7px] uppercase tracking-[0.15em] text-rift-redbright/70 border border-rift-red/40 px-1 shrink-0" title="Retired">
+                              Ret
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          className="text-[8px] tabular-nums text-rift-muted/60 leading-tight"
+                          title="Titles · All-Pro selections · MVPs · Games played · avg grade"
+                        >
+                          {p.intlTitles + p.splitTitles}T · {p.allPro}AP · {p.mvps}MVP · {p.games}G · {p.ratingGames > 0 ? `★${careerAvg(p).toFixed(1)}` : "—"}
+                        </div>
+                      </div>
+                      {p.leagueId && (
+                        <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 flex-shrink-0">
+                          {p.leagueId}
+                        </span>
+                      )}
+                      <span
+                        className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}
+                        title="Career titles — internationals weighted heaviest in the ranking"
+                      >
+                        {p.intlTitles + p.splitTitles}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Top coaches — overall, by titles (intl weighted over splits). */}
+      {topCoaches.length > 0 && (
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+            Top Coaches · Most Decorated
+          </div>
+          <div className="border border-rift-gold/30 bg-rift-bg/30">
+            <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_repeat(5,2rem)] gap-x-1 px-3 py-1 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">
+              <span />
+              <span>Coach</span>
+              <span className="text-center" title="Domestic split titles">Spl</span>
+              <span className="text-center" title="First Stand titles">FS</span>
+              <span className="text-center" title="MSI titles">MSI</span>
+              <span className="text-center" title="Worlds titles">Wld</span>
+              <span className="text-center text-rift-gold/70" title="Ranked by weighted titles — Worlds ≫ MSI ≫ First Stand ≫ split">Tot</span>
+            </div>
+            <div className="divide-y divide-rift-line/15 max-h-72 overflow-y-auto">
+              {topCoaches.map((c, i) => (
+                <div key={c.name} className="grid grid-cols-[1.25rem_minmax(0,1fr)_repeat(5,2rem)] gap-x-1 items-center px-3 py-1.5 text-[11px]">
+                  <span className="text-right text-[9px] tabular-nums text-rift-muted/70">{i + 1}</span>
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    {c.team && <TeamIcon iconKey={c.team.iconKey} logoUrl={c.team.logoUrl ?? logoForTeamName(c.team.name)} size={13} color={c.team.color} />}
+                    <span className="truncate text-rift-mutedbright font-medium">{c.name}</span>
+                    {c.leagueId && (
+                      <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/60 flex-shrink-0">{c.leagueId}</span>
+                    )}
+                  </span>
+                  <span className="text-center tabular-nums text-rift-mutedbright">{c.splitTitles || "·"}</span>
+                  <span className="text-center tabular-nums text-rift-mutedbright">{c.firstStand || "·"}</span>
+                  <span className="text-center tabular-nums text-rift-mutedbright">{c.msi || "·"}</span>
+                  <span className="text-center tabular-nums text-rift-mutedbright">{c.worlds || "·"}</span>
+                  <span className={`text-center tabular-nums font-semibold ${i === 0 ? "text-rift-goldbright" : "text-rift-gold/80"}`}>{c.total}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Top coaches by region */}
+      {coachesByRegion.length > 0 && (
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+            Top Coaches by Region
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {coachesByRegion.map((g) => (
+              <div key={g.league} className="border border-rift-line/40 bg-rift-bg/30">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
+                  <LeagueIcon league={g.league} size={12} />
+                  {g.league}
+                </div>
+                <div className="divide-y divide-rift-line/15">
+                  {g.rows.map((c, i) => (
+                    <div key={c.name} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
+                      <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">{i + 1}</span>
+                      {c.team && <TeamIcon iconKey={c.team.iconKey} logoUrl={c.team.logoUrl ?? logoForTeamName(c.team.name)} size={13} color={c.team.color} />}
+                      <span className="min-w-0 flex-1 truncate text-rift-mutedbright font-medium">{c.name}</span>
+                      <span className="text-[8px] text-rift-muted/55 tabular-nums flex-shrink-0" title="Splits · Internationals">
+                        {c.splitTitles}S · {c.intlTotal}I
+                      </span>
+                      <span className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}>{c.total}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Per-region split winners */}
       <div>
@@ -1680,7 +1883,13 @@ const goldDiff = (sum: number, n: number) => {
   return { text: `${v >= 0 ? "+" : ""}${v}`, tone: v > 50 ? "text-emerald-400" : v < -50 ? "text-rift-redbright" : "text-rift-mutedbright" };
 };
 
-function RosterChips({ roster }: { roster: Array<{ name?: string; tier: PlayerTier; lane: Lane }> }) {
+function RosterChips({
+  roster,
+  onNavigate,
+}: {
+  roster: Array<{ id?: string; name?: string; tier: PlayerTier; lane: Lane }>;
+  onNavigate?: NavFn;
+}) {
   return (
     <div className="flex flex-wrap gap-x-2 gap-y-0.5">
       {[...roster]
@@ -1689,7 +1898,18 @@ function RosterChips({ roster }: { roster: Array<{ name?: string; tier: PlayerTi
           <span key={i} className="inline-flex items-center gap-1 text-[9px]">
             <LaneIcon lane={p.lane} size="xs" />
             <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>
-            <span className="text-rift-mutedbright truncate max-w-[80px]">{p.name ?? "—"}</span>
+            {p.id && onNavigate ? (
+              <button
+                type="button"
+                onClick={() => onNavigate("players", p.id!)}
+                className="text-rift-mutedbright truncate max-w-[80px] hover:text-rift-goldbright transition-colors"
+                title={`View ${p.name ?? "player"}`}
+              >
+                {p.name ?? "—"}
+              </button>
+            ) : (
+              <span className="text-rift-mutedbright truncate max-w-[80px]">{p.name ?? "—"}</span>
+            )}
           </span>
         ))}
     </div>
@@ -1775,7 +1995,11 @@ function ChampPool({
   );
 }
 
-function PlayerProfileView({ entries, id }: { entries: SeasonHistoryEntry[]; id: string }) {
+// Navigate the search to another entity's profile (cross-links inside a profile).
+type NavFn = (kind: "players" | "teams" | "coaches", id: string) => void;
+const teamRefKey = (t: SeasonHistoryTeamRef) => `${t.leagueId}:${t.name}`;
+
+function PlayerProfileView({ entries, id, onNavigate }: { entries: SeasonHistoryEntry[]; id: string; onNavigate: NavFn }) {
   const p = useMemo(() => playerProfile(entries, id), [entries, id]);
   const champions = useDraftStore((s) => s.champions);
   const champById = useMemo(
@@ -1794,6 +2018,14 @@ function PlayerProfileView({ entries, id }: { entries: SeasonHistoryEntry[]; id:
         {p.age != null && (
           <span className="text-[9px] uppercase tracking-[0.2em] text-rift-muted/70 border border-rift-line/40 px-1.5 py-0.5">
             Age {p.age}
+          </span>
+        )}
+        {p.debutYear != null && (
+          <span
+            className="text-[9px] uppercase tracking-[0.2em] text-emerald-400/85 border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5"
+            title={`Debuted as a rookie in Year ${p.debutYear}`}
+          >
+            Rookie · Year {p.debutYear}
           </span>
         )}
         {p.retired && (
@@ -1885,7 +2117,9 @@ function PlayerProfileView({ entries, id }: { entries: SeasonHistoryEntry[]; id:
                   {t.stints.map((st, j) => (
                     <span key={j} className="inline-flex items-center gap-1">
                       {j > 0 && <span className="text-rift-muted/40">→</span>}
-                      <TeamRef team={st.team} size={12} />
+                      <button type="button" onClick={() => onNavigate("teams", teamRefKey(st.team))} className="hover:opacity-75 transition-opacity" title={`View ${st.team.name}`}>
+                        <TeamRef team={st.team} size={12} />
+                      </button>
                       <LaneIcon lane={st.lane} size="xs" />
                       <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[st.tier] ?? ""}`}>{st.tier}</span>
                       <span className="text-[7px] uppercase tracking-[0.15em] text-rift-muted/45">{st.stages.join(", ")}</span>
@@ -1902,7 +2136,7 @@ function PlayerProfileView({ entries, id }: { entries: SeasonHistoryEntry[]; id:
   );
 }
 
-function TeamProfileView({ entries, teamKey }: { entries: SeasonHistoryEntry[]; teamKey: string }) {
+function TeamProfileView({ entries, teamKey, onNavigate }: { entries: SeasonHistoryEntry[]; teamKey: string; onNavigate: NavFn }) {
   const t = useMemo(() => teamProfile(entries, teamKey), [entries, teamKey]);
   if (!t) return <p className="text-[11px] italic text-rift-muted">No data.</p>;
   const r = t.record;
@@ -1927,6 +2161,39 @@ function TeamProfileView({ entries, teamKey }: { entries: SeasonHistoryEntry[]; 
           </div>
         </>
       )}
+      {/* Hall of Fame — players who spent the most of their careers here. */}
+      {t.hallOfFame.length > 0 && (
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Hall of Fame</div>
+          <div className="border border-rift-line/40 bg-rift-bg/30 divide-y divide-rift-line/15">
+            {t.hallOfFame.map((h, i) => (
+              <div key={`${h.playerId ?? h.name}-${i}`} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
+                <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">{i + 1}</span>
+                <LaneIcon lane={h.lane} size="xs" />
+                {h.playerId ? (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate("players", h.playerId!)}
+                    className="min-w-0 flex-1 truncate text-left text-rift-mutedbright font-medium hover:text-rift-goldbright transition-colors"
+                    title={`View ${h.name}`}
+                  >
+                    {h.name}
+                  </button>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate text-rift-mutedbright font-medium">{h.name}</span>
+                )}
+                <span className="text-[9px] tabular-nums text-rift-gold/80 flex-shrink-0" title="Seasons played for this team">
+                  {h.seasons} {h.seasons === 1 ? "season" : "seasons"}
+                </span>
+                <span className="text-[8px] tabular-nums text-rift-muted/55 flex-shrink-0" title="Total stage appearances">
+                  {h.stages} app
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Results history — a trophy line per season across all years */}
       <div>
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Results History</div>
@@ -1965,9 +2232,18 @@ function TeamProfileView({ entries, teamKey }: { entries: SeasonHistoryEntry[]; 
                   <div key={j}>
                     <div className="flex flex-wrap items-center gap-x-2 text-[9px] mb-0.5">
                       <span className="uppercase tracking-[0.15em] text-rift-mutedbright/70 w-28 flex-shrink-0">{stage.label}</span>
-                      {stage.coach && <span className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/70">coach {stage.coach}</span>}
+                      {stage.coach && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigate("coaches", stage.coach!)}
+                          className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/70 hover:text-rift-bluebright transition-colors"
+                          title={`View ${stage.coach}`}
+                        >
+                          coach {stage.coach}
+                        </button>
+                      )}
                     </div>
-                    <RosterChips roster={stage.roster} />
+                    <RosterChips roster={stage.roster} onNavigate={onNavigate} />
                   </div>
                 ))}
               </div>
@@ -1979,7 +2255,7 @@ function TeamProfileView({ entries, teamKey }: { entries: SeasonHistoryEntry[]; 
   );
 }
 
-function CoachProfileView({ entries, name }: { entries: SeasonHistoryEntry[]; name: string }) {
+function CoachProfileView({ entries, name, onNavigate }: { entries: SeasonHistoryEntry[]; name: string; onNavigate: NavFn }) {
   const c = useMemo(() => coachProfile(entries, name), [entries, name]);
   if (!c) return <p className="text-[11px] italic text-rift-muted">No data.</p>;
   return (
@@ -2013,7 +2289,9 @@ function CoachProfileView({ entries, name }: { entries: SeasonHistoryEntry[]; na
           {c.tenures.map((t, i) => (
             <div key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5 text-[10px]">
               <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-16 flex-shrink-0">{t.season}</span>
-              <TeamRef team={t.team} size={13} />
+              <button type="button" onClick={() => onNavigate("teams", teamRefKey(t.team))} className="hover:opacity-75 transition-opacity" title={`View ${t.team.name}`}>
+                <TeamRef team={t.team} size={13} />
+              </button>
               <span className="text-rift-gold/80 tabular-nums text-[9px]">★{t.rating.toFixed(1)}</span>
               {t.playstyle && <span className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/70">{t.playstyle}</span>}
               <TitleTallyInline titles={t.titles} />
@@ -2025,6 +2303,38 @@ function CoachProfileView({ entries, name }: { entries: SeasonHistoryEntry[]; na
   );
 }
 
+// Order-by options per entity type. value(row) returns the sort number; "name"
+// is the default and sorts A→Z, everything else sorts high→low. Each row already
+// carries the stats it needs in `sortVals`.
+const SORT_OPTIONS: Record<
+  "players" | "teams" | "coaches",
+  { key: string; label: string }[]
+> = {
+  players: [
+    { key: "name", label: "Name" },
+    { key: "grade", label: "Avg Grade" },
+    { key: "titles", label: "Titles" },
+    { key: "mvps", label: "MVPs" },
+    { key: "allPro", label: "All-Pro" },
+    { key: "pentakills", label: "Pentakills" },
+    { key: "kills", label: "Kills" },
+    { key: "games", label: "Games" },
+  ],
+  teams: [
+    { key: "name", label: "Name" },
+    { key: "totalTitles", label: "Total Titles" },
+    { key: "worldsTitles", label: "Worlds Titles" },
+    { key: "intlTotal", label: "Intl Titles" },
+    { key: "splitTitles", label: "Split Titles" },
+    { key: "star", label: "Star Rating" },
+  ],
+  coaches: [
+    { key: "name", label: "Name" },
+    { key: "titles", label: "Titles" },
+    { key: "rating", label: "Rating" },
+  ],
+};
+
 function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
   const [kind, setKind] = useState<"players" | "teams" | "coaches">("players");
   const [query, setQuery] = useState("");
@@ -2032,18 +2342,46 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
   const [laneFilter, setLaneFilter] = useState<Lane | null>(null); // players
   const [regionFilter, setRegionFilter] = useState<LeagueId | null>(null); // teams
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "retired">("all"); // players
+  const [sortKey, setSortKey] = useState("name"); // order-by within the result list
 
   const players = useMemo(() => listPlayers(entries), [entries]);
   const teams = useMemo(() => listTeams(entries), [entries]);
   const stars = useMemo(() => teamStars(entries), [entries]);
   const coaches = useMemo(() => listCoachesRich(entries), [entries]);
+  const teamRecords = useMemo(() => {
+    const m = new Map<string, TeamRecord>();
+    for (const r of computeTeamRecords(entries)) m.set(r.key, r);
+    return m;
+  }, [entries]);
+
+  // Jump to another entity's profile (cross-links inside a profile). Switches
+  // entity type + selection and clears the search query so the target is shown.
+  const navigate = (k: "players" | "teams" | "coaches", id: string) => {
+    setKind(k);
+    setSelected(id);
+    setSortKey("name");
+    setQuery("");
+  };
 
   const q = query.normalize("NFKD").toLowerCase().trim();
   // Result rows carry icon + rating data: lane/tier (players), team ref + star
   // (teams), rating + team (coaches). regionFilter applies to teams AND coaches.
   const results = useMemo(() => {
+    let rows: Array<{
+      id: string;
+      label: string;
+      sub: string;
+      lane: Lane | null;
+      tier: PlayerTier | null;
+      team: SeasonHistoryTeamRef | null;
+      star: number | null;
+      rating: number | null;
+      retired: boolean;
+      debutYear?: number;
+      sortVals: Record<string, number>;
+    }>;
     if (kind === "players") {
-      return players
+      rows = players
         .filter(
           (p) =>
             (!laneFilter || p.lane === laneFilter) &&
@@ -2064,38 +2402,71 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
           star: null as number | null,
           rating: null as number | null,
           retired: p.retired,
+          ...(p.debutYear != null ? { debutYear: p.debutYear } : {}),
+          sortVals: {
+            grade: p.grade,
+            titles: p.titles,
+            mvps: p.mvps,
+            allPro: p.allPro,
+            pentakills: p.pentakills,
+            kills: p.kills,
+            games: p.games,
+          },
         }));
-    }
-    if (kind === "teams") {
-      return teams
+    } else if (kind === "teams") {
+      rows = teams
         .filter((t) => (!regionFilter || t.leagueId === regionFilter) && (!q || t.name.toLowerCase().includes(q) || t.leagueId.toLowerCase().includes(q)))
-        .map((t) => ({
-          id: `${t.leagueId}:${t.name}`,
-          label: t.name,
-          sub: t.leagueId,
+        .map((t) => {
+          const key = `${t.leagueId}:${t.name}`;
+          const rec = teamRecords.get(key);
+          const star = stars.get(key) ?? null;
+          return {
+            id: key,
+            label: t.name,
+            sub: t.leagueId,
+            lane: null as Lane | null,
+            tier: null as PlayerTier | null,
+            team: t,
+            star,
+            rating: null as number | null,
+            retired: false,
+            sortVals: {
+              totalTitles: rec?.totalTitles ?? 0,
+              worldsTitles: rec?.worldsTitles ?? 0,
+              intlTotal: rec?.intlTotal ?? 0,
+              splitTitles: rec?.splitTitles ?? 0,
+              star: star ?? 0,
+            },
+          };
+        });
+    } else {
+      rows = coaches
+        .filter((c) => (!regionFilter || c.team?.leagueId === regionFilter) && (!q || c.name.toLowerCase().includes(q) || c.team?.name.toLowerCase().includes(q) || (c.playstyle?.toLowerCase().includes(q) ?? false)))
+        .map((c) => ({
+          id: c.name,
+          label: c.name,
+          // Fold the playstyle into the sub line so it shows in the list.
+          sub: [c.team ? c.team.name : "Coach", c.playstyle].filter(Boolean).join(" · "),
           lane: null as Lane | null,
           tier: null as PlayerTier | null,
-          team: t,
-          star: stars.get(`${t.leagueId}:${t.name}`) ?? null,
-          rating: null as number | null,
+          team: c.team,
+          star: null as number | null,
+          rating: c.rating,
           retired: false,
+          sortVals: { titles: c.titles, rating: c.rating },
         }));
     }
-    return coaches
-      .filter((c) => (!regionFilter || c.team?.leagueId === regionFilter) && (!q || c.name.toLowerCase().includes(q) || c.team?.name.toLowerCase().includes(q) || (c.playstyle?.toLowerCase().includes(q) ?? false)))
-      .map((c) => ({
-        id: c.name,
-        label: c.name,
-        // Fold the playstyle into the sub line so it shows in the list.
-        sub: [c.team ? c.team.name : "Coach", c.playstyle].filter(Boolean).join(" · "),
-        lane: null as Lane | null,
-        tier: null as PlayerTier | null,
-        team: c.team,
-        star: null as number | null,
-        rating: c.rating,
-        retired: false,
-      }));
-  }, [kind, q, laneFilter, regionFilter, statusFilter, players, teams, stars, coaches]);
+    // Source lists arrive A→Z (name default); any other key sorts high→low,
+    // with name as the stable tiebreak.
+    if (sortKey !== "name") {
+      rows = [...rows].sort(
+        (a, b) =>
+          (b.sortVals[sortKey] ?? 0) - (a.sortVals[sortKey] ?? 0) ||
+          a.label.localeCompare(b.label),
+      );
+    }
+    return rows;
+  }, [kind, q, laneFilter, regionFilter, statusFilter, sortKey, players, teams, stars, coaches, teamRecords]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-5 items-start">
@@ -2115,6 +2486,7 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
               onClick={() => {
                 setKind(id);
                 setSelected(null);
+                setSortKey("name");
               }}
               className={`px-2.5 py-1 border text-[9px] uppercase tracking-[0.2em] transition-all ${
                 kind === id ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright"
@@ -2131,6 +2503,37 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
           placeholder={kind === "players" ? "Search by player, team or region…" : kind === "teams" ? "Search by team or region…" : "Search coach…"}
           className="w-full mb-2 px-2.5 py-1.5 border border-rift-line/60 bg-rift-bg/40 text-[11px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 focus:outline-none"
         />
+        {/* Order-by — sort the list by any tracked stat (titles, MVPs, grade…). */}
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-[8px] uppercase tracking-[0.25em] text-rift-gold/50 flex-shrink-0">
+            Order by
+          </span>
+          <div className="relative flex-1 min-w-0 group">
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value)}
+              className="w-full appearance-none cursor-pointer rounded-sm border border-rift-line/60 bg-rift-bgdeep pl-2.5 pr-7 py-1.5 text-[10px] uppercase tracking-[0.12em] text-rift-mutedbright transition-colors hover:border-rift-gold/40 focus:border-rift-gold/60 focus:outline-none focus:ring-1 focus:ring-rift-gold/30 [&>option]:normal-case [&>option]:tracking-normal [&>option]:bg-rift-bgdeep [&>option]:text-rift-mutedbright"
+              aria-label="Order results by"
+            >
+              {SORT_OPTIONS[kind].map((o) => (
+                <option key={o.key} value={o.key} className="bg-rift-bgdeep text-rift-mutedbright">
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            {/* Custom chevron — native arrow is hidden by appearance-none. */}
+            <svg
+              viewBox="0 0 10 6"
+              aria-hidden
+              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 text-rift-gold/60 transition-colors group-hover:text-rift-gold"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            >
+              <path d="M1 1l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+        </div>
         {/* Position filter (players) */}
         {kind === "players" && (
           <div className="flex flex-wrap gap-1 mb-2">
@@ -2222,6 +2625,14 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                     {r.sub}
                   </span>
                 </span>
+                {r.debutYear != null && (
+                  <span
+                    className="text-[7px] uppercase tracking-[0.15em] text-emerald-400/80 border border-emerald-500/40 px-1 shrink-0"
+                    title={`Debuted as a rookie in Year ${r.debutYear}`}
+                  >
+                    Rk Y{r.debutYear}
+                  </span>
+                )}
                 {r.retired && (
                   <span className="text-[7px] uppercase tracking-[0.15em] text-rift-redbright/70 border border-rift-red/40 px-1 shrink-0" title="Retired">
                     Ret
@@ -2229,6 +2640,17 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                 )}
                 {r.star != null && <span className="text-[9px] text-rift-gold/85 tabular-nums shrink-0">{r.star}★</span>}
                 {r.rating != null && <span className="text-[9px] text-rift-gold/85 tabular-nums shrink-0">★{r.rating.toFixed(1)}</span>}
+                {/* Surface the active sort stat (unless already shown as star/rating). */}
+                {sortKey !== "name" && sortKey !== "star" && sortKey !== "rating" && (
+                  <span
+                    className="text-[9px] text-rift-gold/85 tabular-nums shrink-0"
+                    title={SORT_OPTIONS[kind].find((o) => o.key === sortKey)?.label}
+                  >
+                    {sortKey === "grade"
+                      ? (r.sortVals[sortKey] ?? 0).toFixed(1)
+                      : (r.sortVals[sortKey] ?? 0)}
+                  </span>
+                )}
               </button>
             ))
           )}
@@ -2238,11 +2660,11 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
         {selected == null ? (
           <p className="text-[11px] italic text-rift-muted">Pick a {kind.slice(0, -1)} to see their full history.</p>
         ) : kind === "players" ? (
-          <PlayerProfileView entries={entries} id={selected} />
+          <PlayerProfileView entries={entries} id={selected} onNavigate={navigate} />
         ) : kind === "teams" ? (
-          <TeamProfileView entries={entries} teamKey={selected} />
+          <TeamProfileView entries={entries} teamKey={selected} onNavigate={navigate} />
         ) : (
-          <CoachProfileView entries={entries} name={selected} />
+          <CoachProfileView entries={entries} name={selected} onNavigate={navigate} />
         )}
       </div>
     </div>

@@ -399,7 +399,7 @@ export interface TeamRosterSnapshot {
   // The team's coach at this stage (name + rating + playstyle label), when it
   // had one. `playstyle` is optional — only on snapshots saved after it existed.
   coach?: { name: string; rating: number; playstyle?: string };
-  players: Array<{ id?: string; name?: string; tier: PlayerTier; lane: Lane; age?: number }>;
+  players: Array<{ id?: string; name?: string; tier: PlayerTier; lane: Lane; age?: number; debutYear?: number }>;
 }
 
 // Every team's roster as a given split / international completed.

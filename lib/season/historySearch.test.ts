@@ -10,6 +10,8 @@ import {
   teamProfile,
   coachProfile,
 } from "./historySearch";
+import { computePlayerTitlesByEvent } from "./historyRecords";
+import { computeCoachRecords } from "./historySearch";
 
 // ─── Retired detection + coach playstyle ────────────────────────────────────
 const LANES5 = ["top", "jungle", "middle", "bottom", "support"] as const;
@@ -180,6 +182,11 @@ describe("history search indexes", () => {
     const kkoma = listCoachesRich(es).find((c) => c.name === "kkOma")!;
     expect(kkoma.rating).toBe(4);
     expect(kkoma.team?.name).toBe("GEN");
+    // Sortable career stats ride along on the hits (for the order-by filter).
+    // kkOma coached the Worlds+Winter winner in both seasons → 4 titles.
+    expect(kkoma.titles).toBe(4);
+    expect(faker.titles).toBe(4); // 2 Winter splits + 2 Worlds
+    expect(faker.games).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -229,5 +236,116 @@ describe("coachProfile", () => {
     expect(c.intlTitles.worlds).toBe(2);
     expect(c.team?.name).toBe("GEN"); // latest team, for the header logo
     expect(c.team?.color).toBe("#0e0"); // enriched identity
+  });
+});
+
+describe("retired S+ players keep their tier in the search", () => {
+  // Season 0: 'legend' is S+ on T1. Season 1: replaced by 'kid' (legend retired).
+  const splusRetireFixture: SeasonHistoryEntry[] = [
+    {
+      id: "S0",
+      archivedAt: 1,
+      name: "Year 1",
+      complete: true,
+      champion: null,
+      runnerUp: null,
+      intlChampions: {},
+      splitChampions: {},
+      phaseRosters: [
+        {
+          phaseIndex: 0,
+          label: "Winter Split",
+          kind: "split",
+          split: "winter",
+          teams: [
+            {
+              teamId: "T1",
+              teamName: "T1",
+              leagueId: "LCK",
+              players: [
+                { id: "legend", name: "Legend", tier: "S+", lane: "middle" },
+                { id: "b", name: "B", tier: "A", lane: "top" },
+              ],
+            },
+          ],
+        },
+      ],
+      playerCareers: [
+        { playerId: "legend", playerName: "Legend", leagueId: "LCK", teamName: "T1", games: 30, kills: 0, mvps: 0, allPro: 0, splitTitles: 0, intlAppearances: 0, intlTitles: 0 },
+        { playerId: "b", playerName: "B", leagueId: "LCK", teamName: "T1", games: 30, kills: 0, mvps: 0, allPro: 0, splitTitles: 0, intlAppearances: 0, intlTitles: 0 },
+      ],
+    },
+    {
+      id: "S1",
+      archivedAt: 2,
+      name: "Year 2",
+      complete: true,
+      champion: null,
+      runnerUp: null,
+      intlChampions: {},
+      splitChampions: {},
+      phaseRosters: [
+        {
+          phaseIndex: 0,
+          label: "Winter Split",
+          kind: "split",
+          split: "winter",
+          teams: [
+            {
+              teamId: "T1",
+              teamName: "T1",
+              leagueId: "LCK",
+              players: [
+                { id: "kid", name: "Kid", tier: "A", lane: "middle" },
+                { id: "b", name: "B", tier: "A", lane: "top" },
+              ],
+            },
+          ],
+        },
+      ],
+      playerCareers: [
+        { playerId: "kid", playerName: "Kid", leagueId: "LCK", teamName: "T1", games: 30, kills: 0, mvps: 0, allPro: 0, splitTitles: 0, intlAppearances: 0, intlTitles: 0 },
+        { playerId: "b", playerName: "B", leagueId: "LCK", teamName: "T1", games: 30, kills: 0, mvps: 0, allPro: 0, splitTitles: 0, intlAppearances: 0, intlTitles: 0 },
+      ],
+    },
+  ] as unknown as SeasonHistoryEntry[];
+
+  it("shows a retired player's final S+ tier (and flags them retired)", () => {
+    const legend = listPlayers(splusRetireFixture).find((p) => p.id === "legend")!;
+    expect(legend.tier).toBe("S+"); // their last-recorded tier is preserved visually
+    expect(legend.retired).toBe(true);
+    expect(playerProfile(splusRetireFixture, "legend")!.tier).toBe("S+");
+  });
+});
+
+describe("computeCoachRecords", () => {
+  it("tallies a coach's split + per-event intl titles with most-recent region", () => {
+    const kk = computeCoachRecords(entries()).find((c) => c.name === "kkOma")!;
+    expect(kk.splitTitles).toBe(2);
+    expect(kk.worlds).toBe(2);
+    expect(kk.intlTotal).toBe(2);
+    expect(kk.total).toBe(4);
+    expect(kk.leagueId).toBe("LCK");
+    expect(kk.team?.name).toBe("GEN"); // most-recent team
+  });
+});
+
+describe("computePlayerTitlesByEvent", () => {
+  it("breaks a player's titles out by event (splits + FS/MSI/Worlds)", () => {
+    const t = computePlayerTitlesByEvent(entries()).get("faker")!;
+    expect(t.worlds).toBe(2); // won Worlds both years (T1 then GEN)
+    expect(t.splits).toBe(2); // won the Winter split both years
+    expect(t.firstStand).toBe(0);
+    expect(t.msi).toBe(0);
+  });
+});
+
+describe("teamProfile hall of fame", () => {
+  it("ranks players by tenure with the team", () => {
+    const t1 = teamProfile(entries(), "LCK:T1")!;
+    const faker = t1.hallOfFame.find((h) => h.name === "Faker");
+    expect(faker).toBeTruthy();
+    expect(faker!.seasons).toBe(1); // only Year 1 on T1 (moved to GEN in Year 2)
+    expect(faker!.stages).toBeGreaterThan(0);
   });
 });

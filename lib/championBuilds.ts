@@ -238,12 +238,22 @@ const ARCHETYPE_PRIORITY = [
   "peel",
 ] as const;
 
+// Memoized per ChampionMeta (stable references from CHAMPION_META / FALLBACK_META).
+// Pure: returns the same BuildPath object, so behavior is byte-identical — this
+// just skips re-scanning ARCHETYPE_PRIORITY on every per-event buildStatsAt call.
+const buildPathCache = new WeakMap<ChampionMeta, BuildPath>();
 function buildPathFor(meta: ChampionMeta): BuildPath {
+  const cached = buildPathCache.get(meta);
+  if (cached) return cached;
+  let path = BUILDS.skirmish; // default if nothing matches
   for (const a of ARCHETYPE_PRIORITY) {
-    if (meta.archetypes.includes(a)) return BUILDS[a];
+    if (meta.archetypes.includes(a)) {
+      path = BUILDS[a];
+      break;
+    }
   }
-  // Default to skirmish if nothing matches.
-  return BUILDS.skirmish;
+  buildPathCache.set(meta, path);
+  return path;
 }
 
 // First-major-item completion spike. The "I'm online" moment after the

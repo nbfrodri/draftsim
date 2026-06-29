@@ -3,8 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
-import { deriveStar, randomizeTiersForStar } from "@/lib/players";
-import type { AIDifficulty, SeriesFormat, VariancePreset } from "@/lib/types";
+import { deriveStar, randomizeTiersForStar, PLAYER_TIERS } from "@/lib/players";
+import type {
+  AIDifficulty,
+  PlayerTier,
+  SeriesFormat,
+  VariancePreset,
+} from "@/lib/types";
 import type { TournamentFormat } from "@/lib/tournament";
 import {
   DEFAULT_LEAGUE_CONFIG,
@@ -49,6 +54,9 @@ interface Props {
 export default function SeasonSetup({ onCancel }: Props) {
   const champions = useDraftStore((s) => s.champions);
   const startSeason = useDraftStore((s) => s.startSeason);
+  // When the creator was opened from the Realities hub, players carry an age
+  // (a continuous timeline ages them year to year) — so expose age editing too.
+  const isReality = useDraftStore((s) => s.pendingReality != null);
 
   const [name, setName] = useState("My Season");
   const [shared, setShared] = useState(true);
@@ -90,6 +98,8 @@ export default function SeasonSetup({ onCancel }: Props) {
     null,
   );
   const [openLeague, setOpenLeague] = useState<LeagueId | null>(null);
+  // Team whose per-player / coach ratings are being fine-tuned (one at a time).
+  const [editTeamId, setEditTeamId] = useState<string | null>(null);
   // Starting Meta is bulky — collapsed by default so the creator opens on
   // the parts most users change (formats + teams).
   const [metaOpen, setMetaOpen] = useState(false);
@@ -102,6 +112,22 @@ export default function SeasonSetup({ onCancel }: Props) {
     if (champions.length === 0 || teams.length > 0) return;
     setTeams(generateSeasonTeams(champions));
   }, [champions, teams.length]);
+
+  // Reality mode: stamp a starting age on any player missing one, so ages are
+  // visible and editable up front (re-rolls produce age-less players too). The
+  // guard returns the same array once all have ages, so this settles in one pass.
+  useEffect(() => {
+    if (!isReality) return;
+    setTeams((prev) => {
+      if (prev.every((t) => t.players.every((p) => p.age != null))) return prev;
+      return prev.map((t) => ({
+        ...t,
+        players: t.players.map((p) =>
+          p.age != null ? p : { ...p, age: 18 + Math.floor(Math.random() * 8) },
+        ),
+      }));
+    });
+  }, [isReality, teams]);
 
   const byLeague = useMemo(() => {
     const map = new Map<LeagueId, SeasonTeam[]>();
@@ -224,6 +250,52 @@ export default function SeasonSetup({ onCancel }: Props) {
           players: t.players.map((p, i) => ({ ...p, tier: tiers[i] })),
         };
       }),
+    );
+  };
+
+  // Fine-tune one player's skill tier. The team's star badge re-derives live
+  // from the roster, so editing here can pull a team off its preset star tier.
+  const setPlayerTier = (teamId: string, lane: string, tier: PlayerTier) => {
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.id === teamId
+          ? {
+              ...t,
+              players: t.players.map((p) =>
+                p.lane === lane ? { ...p, tier } : p,
+              ),
+            }
+          : t,
+      ),
+    );
+  };
+
+  // Fine-tune a player's starting age (reality mode). Clamped to a realistic
+  // pro range; the timeline ages them from here.
+  const setPlayerAge = (teamId: string, lane: string, age: number) => {
+    const clamped = Math.max(16, Math.min(40, age));
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.id === teamId
+          ? {
+              ...t,
+              players: t.players.map((p) =>
+                p.lane === lane ? { ...p, age: clamped } : p,
+              ),
+            }
+          : t,
+      ),
+    );
+  };
+
+  // Fine-tune a coach's rating (1..5 → drives draft AI difficulty).
+  const setCoachRating = (teamId: string, rating: number) => {
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.id === teamId && t.coach
+          ? { ...t, coach: { ...t.coach, rating } }
+          : t,
+      ),
     );
   };
 
@@ -671,7 +743,8 @@ export default function SeasonSetup({ onCancel }: Props) {
                 {open && (
                   <div className="border-t border-rift-line/30 divide-y divide-rift-line/20">
                     {ts.map((t) => (
-                      <div key={t.id} className="flex items-center gap-2 px-3 py-1.5">
+                      <div key={t.id}>
+                      <div className="flex items-center gap-2 px-3 py-1.5">
                         <span
                           className="w-2.5 h-2.5 flex-shrink-0"
                           style={{ backgroundColor: t.color }}
@@ -722,12 +795,36 @@ export default function SeasonSetup({ onCancel }: Props) {
                         </span>
                         <button
                           type="button"
+                          onClick={() =>
+                            setEditTeamId((cur) => (cur === t.id ? null : t.id))
+                          }
+                          className={`px-1.5 text-[9px] uppercase tracking-[0.2em] transition-colors flex-shrink-0 ${
+                            editTeamId === t.id
+                              ? "text-rift-goldbright"
+                              : "text-rift-mutedbright/50 hover:text-rift-goldbright"
+                          }`}
+                          title="Fine-tune individual player & coach ratings"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => rerollOne(t.id)}
                           className="px-1.5 text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright/50 hover:text-rift-goldbright transition-colors flex-shrink-0"
                           title="Re-roll this team's name, color, and icon"
                         >
                           Re-roll
                         </button>
+                      </div>
+                      {editTeamId === t.id && (
+                        <TeamRatingEditor
+                          team={t}
+                          showAge={isReality}
+                          onPlayerTier={setPlayerTier}
+                          onPlayerAge={setPlayerAge}
+                          onCoachRating={setCoachRating}
+                        />
+                      )}
                       </div>
                     ))}
                   </div>
@@ -757,6 +854,108 @@ export default function SeasonSetup({ onCancel }: Props) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Per-team fine-tuning: set each player's skill tier and the coach's rating
+// individually, so a team can be pulled off its preset star tier (a superteam
+// in a weak region, a stacked bot lane, a star carry on a mediocre roster…).
+const LANE_LABELS: Record<string, string> = {
+  top: "TOP",
+  jungle: "JNG",
+  middle: "MID",
+  bottom: "BOT",
+  support: "SUP",
+};
+function TeamRatingEditor({
+  team,
+  showAge,
+  onPlayerTier,
+  onPlayerAge,
+  onCoachRating,
+}: {
+  team: SeasonTeam;
+  showAge: boolean;
+  onPlayerTier: (teamId: string, lane: string, tier: PlayerTier) => void;
+  onPlayerAge: (teamId: string, lane: string, age: number) => void;
+  onCoachRating: (teamId: string, rating: number) => void;
+}) {
+  return (
+    <div className="px-3 pb-2.5 pt-1 bg-rift-bg/40 border-t border-rift-line/20 flex flex-col gap-1">
+      {team.players.map((p) => (
+        <div key={p.lane} className="flex items-center gap-2 text-[11px]">
+          <span className="w-8 text-[9px] tracking-[0.2em] text-rift-mutedbright/60 flex-shrink-0">
+            {LANE_LABELS[p.lane] ?? p.lane}
+          </span>
+          <span className="flex-1 min-w-0 truncate text-rift-mutedbright">
+            {p.name ?? p.lane}
+          </span>
+          {showAge && (
+            <label className="flex items-center gap-1 flex-shrink-0 text-[9px] text-rift-mutedbright/60">
+              Age
+              <input
+                type="number"
+                min={16}
+                max={40}
+                value={p.age ?? ""}
+                onChange={(e) => {
+                  // Ignore an empty field so the user can clear it to retype
+                  // (Number("") is 0, which would snap the age to the min).
+                  if (e.target.value !== "")
+                    onPlayerAge(team.id, p.lane, Number(e.target.value));
+                }}
+                className="w-11 px-1 py-0.5 border border-rift-line/50 bg-rift-bg/40 text-[10px] text-rift-mutedbright tabular-nums focus:border-rift-gold/50 focus:outline-none"
+                aria-label={`${p.name ?? p.lane} age`}
+              />
+            </label>
+          )}
+          <select
+            value={p.tier}
+            onChange={(e) =>
+              onPlayerTier(team.id, p.lane, e.target.value as PlayerTier)
+            }
+            className={`${SELECT_CLS} py-0.5 text-[10px]`}
+            aria-label={`${p.name ?? p.lane} skill tier`}
+          >
+            {PLAYER_TIERS.map((tier) => (
+              <option key={tier} value={tier}>
+                {tier}
+              </option>
+            ))}
+          </select>
+        </div>
+      ))}
+      {team.coach && (
+        <div className="flex items-center gap-2 text-[11px] mt-0.5 pt-1 border-t border-rift-line/20">
+          <span className="text-[8px] tracking-[0.12em] text-rift-gold/60 flex-shrink-0">
+            COACH
+          </span>
+          <span className="flex-1 min-w-0 truncate text-rift-mutedbright">
+            {team.coach.name}
+          </span>
+          <span
+            className="inline-flex items-center flex-shrink-0"
+            title="Coach rating — drives draft AI strength"
+          >
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => onCoachRating(team.id, n)}
+                aria-label={`Set ${team.coach!.name} rating to ${n}`}
+                className={`px-0.5 text-[11px] leading-none transition-colors ${
+                  n <= Math.round(team.coach!.rating)
+                    ? "text-rift-gold hover:text-rift-goldbright"
+                    : "text-rift-line hover:text-rift-gold/60"
+                }`}
+              >
+                ★
+              </button>
+            ))}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

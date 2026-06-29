@@ -79,6 +79,9 @@ export function startNextSeason(
   };
 
   const aging = prev.franchise?.aging ?? false;
+  // The franchise year the new rosters belong to — rookies debuting now are
+  // stamped with it for the Hall's rookie badge.
+  const nextYear = (prev.franchise?.year ?? 1) + 1;
   // Aging on → age every roster (perf-driven growth/decline, retirees → rookies).
   // Aging off → carry the same players forward untouched.
   let evolvedTeams: SeasonTeam[] = prev.teams;
@@ -91,7 +94,7 @@ export function startNextSeason(
     }
     evolvedTeams = prev.teams.map((t) => {
       const debuts: RookieDebut[] = [];
-      const players = offseasonEvolveRoster(t.players, gradesOf(t.id), champions, rng, taken, debuts);
+      const players = offseasonEvolveRoster(t.players, gradesOf(t.id), champions, rng, taken, debuts, nextYear);
       for (const d of debuts) rosterNews.push({ teamId: t.id, ...d });
       return { ...t, players };
     });
@@ -176,7 +179,7 @@ export function startNextSeason(
       : prev;
   const prior =
     prev.status === "complete" ? buildSeasonHistoryEntry(prevForHistory, Date.now()) : undefined;
-  const year = (prev.franchise?.year ?? 1) + 1;
+  const year = nextYear;
   const franchise = {
     id: prev.franchise?.id ?? makeRealityId(rng),
     name: prev.franchise?.name ?? "My Reality",
@@ -190,8 +193,9 @@ export function startNextSeason(
     activeMeta: prev.currentMeta, // carry the meta the year ended on
     priorSeason: prior,
   });
-  // Pools keep creeping with the meta when development is on.
-  if (next.config.playerDevelopment) next = applyPoolDrift(next, champions, rng);
+  // Pools keep creeping with the meta every offseason — auto-driven, like the
+  // in-season drift (independent of the playerDevelopment skill-growth toggle).
+  next = applyPoolDrift(next, champions, rng);
 
   // Reward roster continuity across the offseason: count how many players each
   // team kept from last year (by id) and seed a starting-season form bonus.
