@@ -16,6 +16,7 @@ import {
   type SplitId,
 } from "./types";
 import {
+  careerWinLoss,
   computePlayerCareers,
   computeTeamRecords,
   type PlayerCareerLine,
@@ -84,6 +85,8 @@ export interface PlayerHit {
   pentakills: number;
   kills: number;
   games: number;
+  gamesWon: number; // career games won (from champ-pool tallies)
+  winRate: number | null; // career win rate (0..1), null when no recorded games
   grade: number; // career average grade (0 when no rated games)
 }
 
@@ -135,6 +138,7 @@ export function listPlayers(entries: SeasonHistoryEntry[]): PlayerHit[] {
   return computePlayerCareers(entries)
     .map((c) => {
       const m = meta.get(c.playerId);
+      const wl = careerWinLoss(c);
       return {
         id: c.playerId,
         name: c.playerName,
@@ -150,6 +154,8 @@ export function listPlayers(entries: SeasonHistoryEntry[]): PlayerHit[] {
         pentakills: c.pentakills,
         kills: c.kills,
         games: c.games,
+        gamesWon: wl.wins,
+        winRate: wl.rate,
         grade: c.ratingGames > 0 ? Math.round((c.ratingSum / c.ratingGames) * 10) / 10 : 0,
       };
     })

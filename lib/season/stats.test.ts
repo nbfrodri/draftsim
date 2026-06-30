@@ -53,4 +53,15 @@ describe("computePlayerSeasonLines gold diff", () => {
     expect(by.get("a2")!.ratingGames).toBe(1);
     expect(by.get("a2")!.avgRating).toBe(8);
   });
+
+  it("counts exact wins per player: the winning side gets a win, the loser none", () => {
+    const lines = computePlayerSeasonLines(seasonWithGame());
+    const by = new Map(lines.map((l) => [l.playerId, l]));
+    // Blue (A) won the game.
+    expect(by.get("a0")!.wins).toBe(1);
+    expect(by.get("a0")!.games).toBe(1);
+    // Red (B) lost — a game played, no win.
+    expect(by.get("b0")!.wins).toBe(0);
+    expect(by.get("b0")!.games).toBe(1);
+  });
 });

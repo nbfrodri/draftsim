@@ -276,6 +276,9 @@ export interface PlayerSeasonLine {
   teamName: string;
   lane: Lane;
   games: number;
+  // Games WON (decided games where this player's side took the game). The
+  // denominator for win rate is `games` (every recorded game is decided).
+  wins: number;
   kills: number;
   deaths: number;
   assists: number;
@@ -339,6 +342,7 @@ export function computePlayerSeasonLines(season: SeasonState): PlayerSeasonLine[
         teamName: teamNameById.get(teamId) ?? teamId,
         lane,
         games: 0,
+        wins: 0,
         kills: 0,
         deaths: 0,
         assists: 0,
@@ -389,6 +393,9 @@ export function computePlayerSeasonLines(season: SeasonState): PlayerSeasonLine[
             if (!id) continue;
             const row = ensure(id, names?.[li] ?? "", teamId, POS_LANES[li]);
             row.games += 1;
+            // The recap's blue/red frame matches the game's winner frame, so
+            // this side won iff g.winner names it (see computePlayerChampStats).
+            if (g.winner === side) row.wins += 1;
             if (kda?.[li]) {
               row.kills += kda[li].k;
               row.deaths += kda[li].d;
@@ -529,6 +536,9 @@ export interface PlayerSeasonRecord {
   // existed have no lane (those careers fall out of the per-role boards).
   lane?: Lane;
   games: number;
+  // Games won this season. Optional — archives saved before this existed have
+  // no win record (their careers fall back to the champion-pool win tally).
+  wins?: number;
   kills: number;
   mvps: number;
   // Total per-tournament All-Pro selections this season (splits + internationals).
@@ -649,6 +659,7 @@ export function computePlayerCareerRecords(season: SeasonState): PlayerSeasonRec
       teamName: nameOfTeam.get(teamId) ?? l.teamName,
       lane: l.lane,
       games: l.games,
+      wins: l.wins,
       kills: l.kills,
       mvps: l.mvps,
       allPro: allProById.get(l.playerId) ?? 0,

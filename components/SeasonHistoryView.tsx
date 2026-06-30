@@ -27,6 +27,7 @@ import {
   computeTitleStreaks,
   computePlayerCareers,
   computePlayerTitlesByEvent,
+  careerWinLoss,
   DYNASTY_WINDOW,
   type TeamRecord,
   type DynastyTier,
@@ -1029,6 +1030,17 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
       { label: "Intl Titles", rows: top((p) => p.intlTitles), val: (p: PlayerCareerLine) => `${p.intlTitles}` },
     ].filter((b) => b.rows.length > 0);
   }, [careers]);
+  // Career win-rate board — every player with recorded games, ordered by most
+  // games WON (win rate breaks ties). Wins/games come from the champ-pool
+  // tallies (the only per-game W/L the archive carries).
+  const winRateBoard = useMemo(
+    () =>
+      careers
+        .map((c) => ({ c, wl: careerWinLoss(c) }))
+        .filter((x) => x.wl.games > 0)
+        .sort((a, b) => b.wl.wins - a.wl.wins || (b.wl.rate ?? 0) - (a.wl.rate ?? 0)),
+    [careers],
+  );
   // Retired players (absent from the latest archived roster) — so the boards
   // can flag them while still counting their careers.
   const retired = useMemo(() => retiredPlayerIds(entries), [entries]);
@@ -1480,6 +1492,54 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
         )}
       </div>
 
+      {/* Career win rates — every player with recorded games, ordered by most
+          games won (win rate breaks ties). Scrolls so the full list stays
+          reachable. */}
+      {winRateBoard.length > 0 && (
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+            Career Win Rate · Most Games Won
+          </div>
+          <div className="border border-rift-line/40 bg-rift-bg/30">
+            <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_3rem_3rem] gap-x-2 px-3 py-1 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">
+              <span />
+              <span>Player</span>
+              <span className="text-right" title="Career games won">Won</span>
+              <span className="text-right" title="Career win rate">WR</span>
+            </div>
+            <div className="divide-y divide-rift-line/15 max-h-72 overflow-y-auto">
+              {winRateBoard.map(({ c, wl }, i) => (
+                <div
+                  key={c.playerId}
+                  className="grid grid-cols-[1.25rem_minmax(0,1fr)_3rem_3rem] gap-x-2 items-center px-3 py-1.5 text-[11px]"
+                >
+                  <span className="text-right text-[9px] tabular-nums text-rift-muted/70">{i + 1}</span>
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    {c.lane && <LaneIcon lane={c.lane} size="xs" className="flex-shrink-0" />}
+                    {c.teamName && (
+                      <TeamIcon iconKey="shield" logoUrl={logoForTeamName(c.teamName)} size={13} />
+                    )}
+                    <span className="truncate text-rift-mutedbright font-medium">{c.playerName || "—"}</span>
+                    {c.leagueId && (
+                      <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/60 flex-shrink-0">
+                        {c.leagueId}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className={`text-right tabular-nums font-semibold ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}
+                    title={`${wl.wins}W / ${wl.games - wl.wins}L`}
+                  >
+                    {wl.wins}
+                  </span>
+                  <span className="text-right tabular-nums text-rift-gold/80">{winPct(wl.rate)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hall of Fame — players ranked by total titles (intl weighted over
           splits), with the full First Stand / MSI / Worlds breakdown. */}
       {legends.length > 0 && (
@@ -1877,6 +1937,7 @@ function StatChip({ label, value, tone }: { label: string; value: number | strin
 const avg1 = (sum: number, n: number) => (n > 0 ? (sum / n).toFixed(1) : "—");
 const perGame = (total: number, games: number) => (games > 0 ? (total / games).toFixed(1) : "—");
 const kdaOf = (k: number, d: number, a: number) => (k + a === 0 && d === 0 ? "—" : (d > 0 ? (k + a) / d : k + a).toFixed(2));
+const winPct = (rate: number | null) => (rate == null ? "—" : `${Math.round(rate * 100)}%`);
 const goldDiff = (sum: number, n: number) => {
   if (n <= 0) return { text: "—", tone: "text-rift-muted/60" };
   const v = Math.round(sum / n);
@@ -2009,6 +2070,7 @@ function PlayerProfileView({ entries, id, onNavigate }: { entries: SeasonHistory
   if (!p) return <p className="text-[11px] italic text-rift-muted">No data.</p>;
   const c = p.career;
   const gd = c ? goldDiff(c.goldDiffSum, c.goldDiffGames) : null;
+  const wl = c ? careerWinLoss(c) : null;
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
@@ -2039,6 +2101,7 @@ function PlayerProfileView({ entries, id, onNavigate }: { entries: SeasonHistory
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
             <StatChip label="Seasons" value={c.seasons} />
             <StatChip label="Games" value={c.games} />
+            <StatChip label="Win rate" value={wl ? winPct(wl.rate) : "—"} />
             <StatChip label="Avg grade" value={avg1(c.ratingSum, c.ratingGames)} />
             <StatChip label="Avg gold ±" value={gd!.text} tone={gd!.tone} />
             <StatChip label="Kills/game" value={perGame(c.kills, c.games)} />
@@ -2319,6 +2382,8 @@ const SORT_OPTIONS: Record<
     { key: "pentakills", label: "Pentakills" },
     { key: "kills", label: "Kills" },
     { key: "games", label: "Games" },
+    { key: "gamesWon", label: "Games Won" },
+    { key: "winRate", label: "Win Rate" },
   ],
   teams: [
     { key: "name", label: "Name" },
@@ -2411,6 +2476,8 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
             pentakills: p.pentakills,
             kills: p.kills,
             games: p.games,
+            gamesWon: p.gamesWon,
+            winRate: p.winRate ?? 0,
           },
         }));
     } else if (kind === "teams") {
@@ -2648,7 +2715,9 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                   >
                     {sortKey === "grade"
                       ? (r.sortVals[sortKey] ?? 0).toFixed(1)
-                      : (r.sortVals[sortKey] ?? 0)}
+                      : sortKey === "winRate"
+                        ? `${Math.round((r.sortVals[sortKey] ?? 0) * 100)}%`
+                        : (r.sortVals[sortKey] ?? 0)}
                   </span>
                 )}
               </button>

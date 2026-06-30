@@ -494,6 +494,12 @@ export interface PlayerCareerLine {
   lane?: Lane; // most-recent lane — drives the all-time per-role boards
   seasons: number;
   games: number;
+  // Exact career games won, summed from per-season win counts. `winsGames` is
+  // the matching denominator (games only from seasons that recorded wins), so a
+  // career spanning the feature boundary still yields an exact rate over the
+  // seasons that have the data. Both 0 on pre-expansion archives.
+  wins: number;
+  winsGames: number;
   kills: number;
   mvps: number;
   allPro: number;
@@ -554,6 +560,8 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
       if (cur) {
         cur.seasons += 1;
         cur.games += r.games;
+        cur.wins += r.wins ?? 0;
+        cur.winsGames += r.wins != null ? r.games : 0;
         cur.kills += r.kills;
         cur.mvps += r.mvps;
         cur.allPro += r.allPro;
@@ -582,6 +590,8 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
           ...(r.age != null ? { age: r.age } : {}),
           seasons: 1,
           games: r.games,
+          wins: r.wins ?? 0,
+          winsGames: r.wins != null ? r.games : 0,
           kills: r.kills,
           mvps: r.mvps,
           allPro: r.allPro,
@@ -613,6 +623,28 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
       .sort((a, b) => b.games - a.games || b.wins - a.wins || a.championId - b.championId);
   }
   return [...byId.values()];
+}
+
+/** Career game wins / losses. Exact when the career has per-season win counts
+ *  (`winsGames` > 0) — every decided game is counted. For pre-expansion archives
+ *  that predate win tracking it falls back to the champion-pool tallies (capped
+ *  per season, so a prolific pool can slightly undercount). `rate` is null when
+ *  neither source has any recorded games. */
+export function careerWinLoss(c: PlayerCareerLine): {
+  wins: number;
+  games: number;
+  rate: number | null;
+} {
+  if (c.winsGames > 0) {
+    return { wins: c.wins, games: c.winsGames, rate: c.wins / c.winsGames };
+  }
+  let wins = 0;
+  let games = 0;
+  for (const ch of c.champs) {
+    wins += ch.wins;
+    games += ch.games;
+  }
+  return { wins, games, rate: games > 0 ? wins / games : null };
 }
 
 // ─── Player titles split by event (Hall of Fame) ────────────────────────────
