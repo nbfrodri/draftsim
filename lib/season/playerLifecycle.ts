@@ -19,12 +19,32 @@ import {
 import { generateHandle } from "./playerNames";
 import rookiePool from "./rookieNames.json";
 
-// Real sub/academy/prospect handles (LoL Esports squads minus current starters)
-// — gives rookies authentic names; falls back to a generated handle.
-const PROSPECTS = rookiePool as string[];
-function rookieName(rng: RNG, taken: Set<string>): string {
-  for (let i = 0; i < 12 && PROSPECTS.length > 0; i++) {
-    const n = PROSPECTS[Math.floor(rng() * PROSPECTS.length)];
+// Real sub/academy/prospect handles, bucketed BY LANE so a debut gets a
+// position-authentic name (a real top laner debuts top, not support). The pool
+// ships either flat (legacy, no position data) or as { lane: string[] } from
+// `npm run fetch-rookie-names`; normalize both. A flat pool shares one list
+// across all lanes (old behavior); a keyed pool is position-correct.
+// ponytail: drop the flat-array branch once the regenerated keyed file lands.
+const LANE_KEYS: readonly Lane[] = ["top", "jungle", "middle", "bottom", "support"];
+const POOL_BY_LANE: Record<Lane, string[]> = (() => {
+  const byLane: Record<Lane, string[]> = {
+    top: [], jungle: [], middle: [], bottom: [], support: [],
+  };
+  if (Array.isArray(rookiePool)) {
+    for (const l of LANE_KEYS) byLane[l] = rookiePool as string[];
+  } else {
+    const keyed = rookiePool as Partial<Record<Lane, string[]>>;
+    for (const l of LANE_KEYS) byLane[l] = keyed[l] ?? [];
+  }
+  return byLane;
+})();
+
+// An unused handle for `lane`: pick from that lane's pool, else synthesize.
+// Falling back to generateHandle (not another lane) keeps positions authentic.
+function rookieName(lane: Lane, rng: RNG, taken: Set<string>): string {
+  const pool = POOL_BY_LANE[lane];
+  for (let i = 0; i < 12 && pool.length > 0; i++) {
+    const n = pool[Math.floor(rng() * pool.length)];
     if (!taken.has(n)) {
       taken.add(n);
       return n;
@@ -103,7 +123,7 @@ export function makeRookie(
   const pools = randomizeChampPools(lane, champions, rng, tier);
   return {
     id: makePlayerId(rng),
-    name: rookieName(rng, taken),
+    name: rookieName(lane, rng, taken),
     lane,
     tier,
     age,

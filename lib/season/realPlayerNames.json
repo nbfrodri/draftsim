@@ -17,7 +17,7 @@
     "NONGSHIM RED FORCE": {
       "top": "Kingen",
       "jungle": "Sponge",
-      "middle": "Calix",
+      "middle": "Scout",
       "bottom": "Diable",
       "support": "Lehends"
     },
@@ -36,39 +36,39 @@
       "support": "Effort"
     },
     "Dplus KIA": {
-      "top": null,
-      "jungle": null,
-      "middle": null,
-      "bottom": null,
-      "support": null
+      "top": "Siwoo",
+      "jungle": "Lucid",
+      "middle": "ShowMaker",
+      "bottom": "Smash",
+      "support": "Career"
     },
     "BNK FEARX": {
       "top": "Clear",
       "jungle": "Raptor",
-      "middle": "Daystar",
+      "middle": "VicLa",
       "bottom": "Taeyoon",
       "support": "Kellin"
     },
     "HANJIN BRION": {
-      "top": "Panther",
-      "jungle": "Jackal",
-      "middle": "Cracker",
-      "bottom": "Pyeonsik",
-      "support": "Bluffing"
+      "top": "Casting",
+      "jungle": "GIDEON",
+      "middle": "Loki ",
+      "bottom": "Teddy",
+      "support": "Namgung"
     },
     "DN SOOPers": {
       "top": "DuDu",
       "jungle": "Pyosik",
       "middle": "Clozer",
       "bottom": "deokdam",
-      "support": "Life"
+      "support": "Peter"
     },
     "KIWOOM DRX": {
-      "top": null,
-      "jungle": null,
-      "middle": null,
-      "bottom": null,
-      "support": null
+      "top": "Rich",
+      "jungle": "Willer",
+      "middle": "Ucal",
+      "bottom": "Jiwoo",
+      "support": "Andil"
     }
   },
   "LPL": {
@@ -101,7 +101,7 @@
       "support": "Kael"
     },
     "Shenzhen NINJAS IN PYJAMAS": {
-      "top": "HOYA",
+      "top": "Hoya",
       "jungle": "Guwon",
       "middle": "Care",
       "bottom": "Assum",
@@ -112,12 +112,12 @@
       "jungle": "Jiejie",
       "middle": "Xiaohu",
       "bottom": "Elk",
-      "support": "Hang"
+      "support": "TheHank"
     },
     "Invictus Gaming": {
-      "top": "TheShy",
+      "top": "Breathe",
       "jungle": "Wei",
-      "middle": "Renard",
+      "middle": "Rookie",
       "bottom": "JiaQi",
       "support": "Meiko"
     },
@@ -126,7 +126,7 @@
       "jungle": "Monki",
       "middle": "Karis",
       "bottom": "About",
-      "support": "Erha"
+      "support": "Dorian"
     },
     "Suzhou LNG Esports": {
       "top": "sheer",
@@ -139,7 +139,7 @@
       "top": "Keshi",
       "jungle": "Junhao",
       "middle": "Heru",
-      "bottom": "Ahn",
+      "bottom": "Ryan3",
       "support": "Feather"
     }
   },
@@ -155,7 +155,7 @@
       "top": "Lot",
       "jungle": "ISMA",
       "middle": "Jackies",
-      "bottom": "Flakked",
+      "bottom": "Noah",
       "support": "Jun"
     },
     "Movistar KOI": {
@@ -167,16 +167,16 @@
     },
     "Shifters": {
       "top": "Rooster",
-      "jungle": "Boukada",
+      "jungle": "Sheo",
       "middle": "nuc",
       "bottom": "Paduck",
-      "support": "Stend"
+      "support": "Trymbi"
     },
     "Team Heretics": {
       "top": "Tracyn",
       "jungle": "Daglas",
       "middle": "Serin",
-      "bottom": "Hype",
+      "bottom": "Ice",
       "support": "Way"
     },
     "Karmine Corp": {
@@ -189,19 +189,19 @@
     "Natus Vincere": {
       "top": "Maynter",
       "jungle": "Rhilech",
-      "middle": "Larssen",
+      "middle": "Poby",
       "bottom": "SamD",
       "support": "Parus"
     },
     "Fnatic": {
       "top": "Empyros",
-      "jungle": "Obsess",
+      "jungle": "Razork",
       "middle": "Vladi",
       "bottom": "Upset",
       "support": "Lospa"
     },
     "G2 Esports": {
-      "top": "BrokenBlade",
+      "top": "BrokenBIade",
       "jungle": "SkewMond",
       "middle": "Caps",
       "bottom": "Hans Sama",
@@ -234,7 +234,7 @@
       "top": "Thanatos",
       "jungle": "Blaber",
       "middle": "APA",
-      "bottom": "Tactical",
+      "bottom": "Zven",
       "support": "Vulcan"
     },
     "Dignitas": {
@@ -242,7 +242,7 @@
       "jungle": "eXyu",
       "middle": "Palafox",
       "bottom": "FBI",
-      "support": "Ignar"
+      "support": "IgNar"
     },
     "Team Liquid Alienware": {
       "top": "Morgan",
@@ -259,11 +259,11 @@
       "support": "Cryogen"
     },
     "LYON": {
-      "top": null,
-      "jungle": null,
-      "middle": null,
-      "bottom": null,
-      "support": null
+      "top": "Dhokla",
+      "jungle": "Inspired",
+      "middle": "Saint",
+      "bottom": "Berserker",
+      "support": "Isles"
     },
     "Sentinels": {
       "top": "Impact",
@@ -274,10 +274,10 @@
     },
     "100 Thieves": {
       "top": null,
-      "jungle": null,
+      "jungle": "River",
       "middle": null,
       "bottom": null,
-      "support": null
+      "support": "Eyla"
     },
     "NRG Kia": {
       "top": "Zamudo",
@@ -304,45 +304,45 @@
     },
     "Vivo Keyd Stars": {
       "top": "zekas",
-      "jungle": "Disamis",
+      "jungle": "sarolu",
       "middle": "Mireu",
       "bottom": "ceo",
-      "support": "scamber"
+      "support": "Kaiwing"
     },
     "LOS": {
-      "top": null,
-      "jungle": null,
-      "middle": null,
-      "bottom": null,
-      "support": null
+      "top": "Zest",
+      "jungle": "Curse",
+      "middle": "Feisty",
+      "bottom": "Duduhh",
+      "support": "Ackerman"
     },
     "Fluxo": {
-      "top": null,
-      "jungle": null,
-      "middle": null,
-      "bottom": null,
-      "support": null
+      "top": "curty",
+      "jungle": "Peach",
+      "middle": "cody",
+      "bottom": "BAO",
+      "support": "Momochi"
     },
     "LOUD": {
-      "top": "xyno",
-      "jungle": "Sinatra",
+      "top": "Xyno",
+      "jungle": "YoungJae",
       "middle": "Envy",
       "bottom": "Bull",
       "support": "uZent"
     },
     "paiN Gaming": {
-      "top": "Boal",
+      "top": "Robo",
       "jungle": "CarioK",
       "middle": "Keine",
-      "bottom": null,
+      "bottom": "Trigger",
       "support": "Kuri"
     },
     "LEVIATÁN": {
-      "top": null,
-      "jungle": null,
-      "middle": null,
-      "bottom": null,
-      "support": null
+      "top": "Devost",
+      "jungle": "Booki",
+      "middle": "Enga",
+      "bottom": "Snaker",
+      "support": "TopLop"
     },
     "KaBuM!": {
       "top": null,
@@ -355,13 +355,13 @@
       "top": "Kiari",
       "jungle": "StineR",
       "middle": "Leleko",
-      "bottom": null,
+      "bottom": "scuro",
       "support": "konseki"
     }
   },
   "LCP": {
     "Team Secret Whales": {
-      "top": "Hiro02",
+      "top": "Pun",
       "jungle": "Hizto",
       "middle": "Dire",
       "bottom": "Eddie",
@@ -370,14 +370,14 @@
     "GAM Esports": {
       "top": "Kiaya",
       "jungle": "Draktharr",
-      "middle": "Gloryy",
+      "middle": "Aress",
       "bottom": "Artemis",
       "support": "Taki"
     },
     "MVK Esports": {
       "top": "Kratos",
       "jungle": "Gury",
-      "middle": "Chika",
+      "middle": "Seany",
       "bottom": "Harky",
       "support": "SiuLoong"
     },
@@ -392,20 +392,20 @@
       "top": "Flauren",
       "jungle": "Pop9",
       "middle": "HongSuo",
-      "bottom": "Feng",
+      "bottom": "Feng ",
       "support": "ShiauC"
     },
     "CTBC Flying Oyster": {
       "top": "Rest",
       "jungle": "Shad0w",
-      "middle": "Pout",
+      "middle": "POUT",
       "bottom": "Doggo",
       "support": "Kino"
     },
     "Ground Zero Gaming": {
       "top": "1Jiang",
       "jungle": "Husha",
-      "middle": "JimieN",
+      "middle": null,
       "bottom": "Shunn",
       "support": "Orca"
     },
@@ -414,21 +414,21 @@
       "jungle": "Citrus",
       "middle": "Fisher",
       "bottom": "Kakkun",
-      "support": "Woody"
+      "support": null
     },
     "PSG Talon": {
-      "top": null,
-      "jungle": null,
-      "middle": null,
-      "bottom": null,
-      "support": null
+      "top": "Azhi",
+      "jungle": "Karsa",
+      "middle": "Maple",
+      "bottom": "Betty",
+      "support": "Woody"
     },
     "The Chiefs Esports Club": {
-      "top": null,
-      "jungle": null,
-      "middle": null,
-      "bottom": null,
-      "support": null
+      "top": "BioPanther",
+      "jungle": "Whynot",
+      "middle": "JimieN",
+      "bottom": "Slayder",
+      "support": "Luon"
     }
   }
 }

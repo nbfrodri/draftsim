@@ -12,6 +12,7 @@
     "refresh-data": "node scripts/refresh-meraki-data.mjs",
     "fetch-team-logos": "node scripts/fetch-team-logos.mjs",
     "fetch-player-names": "node scripts/fetch-player-names.mjs",
+    "fetch-rookie-names": "node scripts/fetch-rookie-names.mjs",
     "fetch-coaches": "node scripts/fetch-coaches.mjs",
     "calibrate": "tsx scripts/calibrate.ts",
     "desktop:dev": "tauri dev",

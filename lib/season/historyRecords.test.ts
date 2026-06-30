@@ -8,7 +8,9 @@ import {
   computeRegionStrength,
   computeTitleStreaks,
   computePlayerAllTime,
+  computeRegionTitleLeaders,
 } from "./historyRecords";
+import type { PlayerSeasonRecord } from "./stats";
 import { goldenRoadTeam } from "./history";
 import type { SeasonHistoryEntry, SeasonHistoryTeamRef } from "./history";
 
@@ -347,5 +349,52 @@ describe("splitWinnersByRegion", () => {
     expect(byRegion.LEC!.map((r) => r.team.name)).toEqual(["G2"]);
     // International-only winners never appear on the split boards.
     expect(byRegion.LPL).toBeUndefined();
+  });
+});
+
+describe("computeRegionTitleLeaders", () => {
+  const rec = (o: Partial<PlayerSeasonRecord>): PlayerSeasonRecord => ({
+    playerId: "p1",
+    playerName: "Faker",
+    leagueId: "LCK",
+    games: 10,
+    kills: 0,
+    mvps: 0,
+    allPro: 0,
+    splitTitles: 0,
+    intlAppearances: 0,
+    intlTitles: 0,
+    ...o,
+  });
+
+  it("credits split titles to the region they were won in, not the latest league", () => {
+    // Won 2 splits in LCK, then moved to the LCS and won 1 there.
+    const s1 = entry("s1", "S1", 1000, {
+      playerCareers: [rec({ leagueId: "LCK", teamName: "T1", splitTitles: 2, intlTitles: 1 })],
+    });
+    const s2 = entry("s2", "S2", 2000, {
+      playerCareers: [rec({ leagueId: "LCS", teamName: "TL", splitTitles: 1 })],
+    });
+    const leaders = computeRegionTitleLeaders([s1, s2]);
+
+    const lck = leaders.find((l) => l.leagueId === "LCK");
+    const lcs = leaders.find((l) => l.leagueId === "LCS");
+    expect(lck).toMatchObject({ playerId: "p1", splitTitles: 2, intlTitles: 1, teamName: "T1" });
+    expect(lcs).toMatchObject({ playerId: "p1", splitTitles: 1, intlTitles: 0, teamName: "TL" });
+  });
+
+  it("ignores title-less seasons and sums repeats within a region", () => {
+    const a = entry("a", "A", 1000, {
+      playerCareers: [rec({ leagueId: "LPL", splitTitles: 1 })],
+    });
+    const b = entry("b", "B", 2000, {
+      playerCareers: [rec({ leagueId: "LPL", splitTitles: 0, intlTitles: 0 })], // no title → ignored
+    });
+    const c = entry("c", "C", 3000, {
+      playerCareers: [rec({ leagueId: "LPL", splitTitles: 1 })],
+    });
+    const leaders = computeRegionTitleLeaders([a, b, c]);
+    expect(leaders).toHaveLength(1);
+    expect(leaders[0]).toMatchObject({ leagueId: "LPL", splitTitles: 2 });
   });
 });

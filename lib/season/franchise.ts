@@ -49,11 +49,18 @@ export function seedFranchise(
     players: seedRosterCareers(t.players, rng),
   }));
   const fname = name.trim() || "My Reality";
+  // Seed the reality's name ledger from the starting field so a later rookie
+  // never reuses a founding player's/coach's handle.
+  const usedNames = new Set<string>();
+  for (const t of teams) {
+    for (const p of t.players) if (p.name) usedNames.add(p.name);
+    if (t.coach?.name) usedNames.add(t.coach.name);
+  }
   return {
     ...season,
     name: `${fname} — Year 1`,
     teams,
-    franchise: { id: makeRealityId(rng), name: fname, year: 1, aging },
+    franchise: { id: makeRealityId(rng), name: fname, year: 1, aging, usedNames: [...usedNames] },
   };
 }
 
@@ -87,7 +94,9 @@ export function startNextSeason(
   let evolvedTeams: SeasonTeam[] = prev.teams;
   const rosterNews: NonNullable<SeasonState["rosterNews"]> = [];
   if (aging) {
-    const taken = new Set<string>(); // keep rookie handles unique vs. active players & coaches
+    // Seed from the reality's full name ledger (everyone who ever played) AND
+    // the current actives, so a rookie never reuses ANY past or present handle.
+    const taken = new Set<string>(prev.franchise?.usedNames ?? []);
     for (const t of prev.teams) {
       for (const p of t.players) if (p.name) taken.add(p.name);
       if (t.coach?.name) taken.add(t.coach.name);
@@ -180,11 +189,19 @@ export function startNextSeason(
   const prior =
     prev.status === "complete" ? buildSeasonHistoryEntry(prevForHistory, Date.now()) : undefined;
   const year = nextYear;
+  // Carry the name ledger forward, adding this year's final rosters + coaches
+  // (incl. any new rookies) so it stays the union of every handle ever used.
+  const usedNames = new Set<string>(prev.franchise?.usedNames ?? []);
+  for (const t of evolvedTeams) {
+    for (const p of t.players) if (p.name) usedNames.add(p.name);
+    if (t.coach?.name) usedNames.add(t.coach.name);
+  }
   const franchise = {
     id: prev.franchise?.id ?? makeRealityId(rng),
     name: prev.franchise?.name ?? "My Reality",
     year,
     aging,
+    usedNames: [...usedNames],
   };
 
   let next = createSeason({

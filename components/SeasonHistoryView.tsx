@@ -27,11 +27,13 @@ import {
   computeTitleStreaks,
   computePlayerCareers,
   computePlayerTitlesByEvent,
+  computeRegionTitleLeaders,
   careerWinLoss,
   DYNASTY_WINDOW,
   type TeamRecord,
   type DynastyTier,
   type PlayerCareerLine,
+  type RegionTitleLeader,
 } from "@/lib/season/historyRecords";
 import { logoForTeamName } from "@/lib/season/realTeams";
 import { isDesktop, openBinaryFileNative } from "@/lib/desktopStorage";
@@ -724,6 +726,69 @@ function SplitMvpsPanel({ mvps }: { mvps: SeasonHistorySplitMvp[] }) {
   );
 }
 
+// Per-region top-players board: one scrollable column per league, each row
+// badged with the player's position icon, team logo and title count. Used for
+// both the split-titles and the split+intl boards (see RecordsPanel). Titles are
+// attributed to the region they were WON in (computeRegionTitleLeaders).
+function RegionTitleBoard({
+  title,
+  columns,
+  value,
+  valueTitle,
+  rowTitle,
+}: {
+  title: string;
+  columns: { league: LeagueId; rows: RegionTitleLeader[] }[];
+  value: (p: RegionTitleLeader) => string;
+  valueTitle?: string;
+  rowTitle?: (p: RegionTitleLeader) => string;
+}) {
+  if (columns.length === 0) return null;
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+        {title}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {columns.map(({ league, rows }) => (
+          <div key={league} className="border border-rift-line/40 bg-rift-bg/30">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-rift-line/30 text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
+              <LeagueIcon league={league} size={12} />
+              {league}
+            </div>
+            <div className="divide-y divide-rift-line/15 max-h-64 overflow-y-auto">
+              {rows.map((p, i) => (
+                <div
+                  key={p.playerId}
+                  title={rowTitle?.(p)}
+                  className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
+                >
+                  <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
+                    {i + 1}
+                  </span>
+                  {p.lane && <LaneIcon lane={p.lane} size="xs" className="flex-shrink-0" />}
+                  {p.teamName && (
+                    <TeamIcon iconKey="shield" logoUrl={logoForTeamName(p.teamName)} size={13} />
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-rift-mutedbright font-medium">
+                    {p.playerName || "—"}
+                  </span>
+                  <span
+                    title={valueTitle}
+                    className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}
+                  >
+                    {value(p)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Browse every team's roster at any split / international of the year, with the
 // stage's champion flagged. Rosters shift between stages via transfer windows,
 // so each stage shows who actually played it.
@@ -1088,6 +1153,35 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
         .sort((a, b) => careerScore(b) - careerScore(a)),
     })).filter((b) => b.rows.length > 0);
   }, [careers, laneById]);
+  // Top players PER REGION — titles credited to the region they were WON in (a
+  // player who lifts trophies in two leagues appears under each). Two boards:
+  // split titles only, and split + international combined. Lane falls back to the
+  // roster snapshots so retirees/pre-per-lane careers still show a position icon.
+  const regionTitleBoards = useMemo(() => {
+    const leaders = computeRegionTitleLeaders(entries).map((p) => ({
+      ...p,
+      lane: p.lane ?? laneById.get(p.playerId),
+    }));
+    const cols = (
+      include: (p: RegionTitleLeader) => boolean,
+      cmp: (a: RegionTitleLeader, b: RegionTitleLeader) => number,
+    ) =>
+      LEAGUE_IDS.map((league) => ({
+        league,
+        rows: leaders.filter((p) => p.leagueId === league && include(p)).sort(cmp),
+      })).filter((c) => c.rows.length > 0);
+    const total = (p: RegionTitleLeader) => p.splitTitles + p.intlTitles;
+    return {
+      splits: cols(
+        (p) => p.splitTitles > 0,
+        (a, b) => b.splitTitles - a.splitTitles || total(b) - total(a),
+      ),
+      combined: cols(
+        (p) => total(p) > 0,
+        (a, b) => total(b) - total(a) || b.intlTitles - a.intlTitles,
+      ),
+    };
+  }, [entries, laneById]);
   // Hall of Fame — players ranked by a weighted sum of every title they won.
   // Internationals count more than splits (and Worlds most of all), but the
   // ranking is a total across everything; the row shows the full breakdown.
@@ -1441,6 +1535,22 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
         </p>
       </div>
 
+      {/* Top players per region — most split titles, then split + intl combined,
+          each title credited to the region it was won in. */}
+      <RegionTitleBoard
+        title="Most Split Titles · by Region"
+        columns={regionTitleBoards.splits}
+        value={(p) => `${p.splitTitles}`}
+        valueTitle="Split titles won in this region"
+      />
+      <RegionTitleBoard
+        title="Most Titles (Split + Intl) · by Region"
+        columns={regionTitleBoards.combined}
+        value={(p) => `${p.splitTitles + p.intlTitles}`}
+        valueTitle="Split + international titles won representing this region"
+        rowTitle={(p) => `${p.splitTitles} split · ${p.intlTitles} intl`}
+      />
+
       {/* Player careers — aggregated by stable id across every archived season,
           so a player's record follows them across teams and years (a retiree's
           awards never merge with the rookie who later fills their slot). */}
@@ -1463,11 +1573,14 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                     {b.label}
                   </div>
                   <div className="divide-y divide-rift-line/15 max-h-64 overflow-y-auto">
-                    {b.rows.map((p, i) => (
+                    {b.rows.map((p, i) => {
+                      const lane = p.lane ?? laneById.get(p.playerId);
+                      return (
                       <div key={p.playerId} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
                         <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
                           {i + 1}
                         </span>
+                        {lane && <LaneIcon lane={lane} size="xs" className="flex-shrink-0" />}
                         {p.teamName && (
                           <TeamIcon iconKey="shield" logoUrl={logoForTeamName(p.teamName)} size={13} />
                         )}
@@ -1483,7 +1596,8 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                           {b.val(p)}
                         </span>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}

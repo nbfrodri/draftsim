@@ -625,6 +625,57 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
   return [...byId.values()];
 }
 
+/** Per-region title leaders: each player's split (and international) titles
+ *  attributed to the REGION THEY WON THEM IN — not their latest league. A player
+ *  who lifts two LCK trophies then moves to the LCS still shows two under LCK,
+ *  because each per-season record carries the league the player represented that
+ *  year. Name / team / lane come from the player's NEWEST title season in that
+ *  region (so the row badges a relevant team logo). Returns one flat list; group
+ *  by `leagueId` to render per-region columns. */
+export interface RegionTitleLeader {
+  playerId: string;
+  playerName: string;
+  leagueId: LeagueId;
+  teamName?: string;
+  lane?: Lane;
+  splitTitles: number; // split titles won IN this region
+  intlTitles: number; // intl titles won while representing this region
+}
+
+export function computeRegionTitleLeaders(
+  entries: SeasonHistoryEntry[],
+): RegionTitleLeader[] {
+  // Oldest → newest so the newest title season in a region sets the display.
+  const ordered = [...entries].sort((a, b) => a.archivedAt - b.archivedAt);
+  const byKey = new Map<string, RegionTitleLeader>();
+  for (const e of ordered) {
+    for (const r of e.playerCareers ?? []) {
+      if (!r.leagueId) continue;
+      if (r.splitTitles <= 0 && r.intlTitles <= 0) continue;
+      const key = `${r.playerId}|${r.leagueId}`;
+      const cur = byKey.get(key);
+      if (cur) {
+        cur.splitTitles += r.splitTitles;
+        cur.intlTitles += r.intlTitles;
+        cur.playerName = r.playerName;
+        if (r.teamName) cur.teamName = r.teamName;
+        if (r.lane) cur.lane = r.lane;
+      } else {
+        byKey.set(key, {
+          playerId: r.playerId,
+          playerName: r.playerName,
+          leagueId: r.leagueId,
+          ...(r.teamName ? { teamName: r.teamName } : {}),
+          ...(r.lane ? { lane: r.lane } : {}),
+          splitTitles: r.splitTitles,
+          intlTitles: r.intlTitles,
+        });
+      }
+    }
+  }
+  return [...byKey.values()];
+}
+
 /** Career game wins / losses. Exact when the career has per-season win counts
  *  (`winsGames` > 0) — every decided game is counted. For pre-expansion archives
  *  that predate win tracking it falls back to the champion-pool tallies (capped

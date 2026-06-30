@@ -331,7 +331,10 @@ export interface SeasonState {
   // continuous timeline (teams + careers carry across years). Absent for a
   // classic one-off season. `aging` (chosen at reality creation) decides
   // whether the offseason ages players / retires veterans / introduces rookies.
-  franchise?: { id: string; name: string; year: number; aging: boolean };
+  // usedNames: every player/coach handle that has EVER existed in this reality
+  // (actives + everyone retired), so rookie generation never reuses a name —
+  // regardless of position. Accumulates each offseason.
+  franchise?: { id: string; name: string; year: number; aging: boolean; usedNames?: string[] };
   // Snapshot of every team's roster as each split / international COMPLETED, so
   // the Hall can show who played each stage (rosters shift between stages via
   // transfer windows). Captured at phase completion; archived into history.
