@@ -286,6 +286,16 @@ export async function fetchRealTeams(
     /* names/logos already resolved — proceed without real handles */
   }
 
+  // Every handle the bundle assigns as a starter, across all teams. Bundled
+  // starters are authoritative; the unreliable live feed (full org list, no
+  // starter flag, loose name match) must never reuse one to fill ANOTHER team's
+  // empty slot — that's how a starter (e.g. JimieN on The Chiefs) duplicated
+  // onto a team whose bundled slot was empty (Ground Zero's middle).
+  const bundledStarters = new Set<string>();
+  for (const league of LEAGUE_IDS)
+    for (const team of deduped[league])
+      for (const h of Object.values(realPlayersForTeam(team.name))) if (h) bundledStarters.add(h);
+
   for (const league of LEAGUE_IDS) {
     for (const team of deduped[league]) {
       // Prefer a bundled local logo when the team name matches, so seasons
@@ -299,7 +309,9 @@ export async function fetchRealTeams(
       const live = matchRoster(team.name, rosters);
       const merged: Partial<Record<Lane, string>> = {};
       for (const lane of ["top", "jungle", "middle", "bottom", "support"] as Lane[]) {
-        const handle = bundled[lane] || live?.[lane];
+        const lh = live?.[lane];
+        // A live handle is only usable if it isn't a bundled starter elsewhere.
+        const handle = bundled[lane] || (lh && !bundledStarters.has(lh) ? lh : undefined);
         if (handle) merged[lane] = handle;
       }
       if (Object.keys(merged).length > 0) team.players = merged;
