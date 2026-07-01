@@ -40,12 +40,12 @@ const LEGENDS = {
   middle: [
     "Pawn", "xPeke", "Dade", "Easyhoon", "Bjergsen", "Crown", "Pobelter", "Ryu", "Froggen", "Coco",
     "Kuro", "Febiven", "Hai", "Scarra", "Bischu", "Fenix", "Nagne", "Ggoong", "Frozen", "Cruzer",
-    "Mickey", "Sun", "Naehyun", "Goldenglue",
+    "Mickey", "Sun", "Naehyun", "Goldenglue", "Perkz",
   ],
   bottom: [
     "Uzi", "Deft", "Bang", "PraY", "Imp", "Doublelift", "Sneaky", "Piglet", "WildTurtle", "Bebe",
     "Mystic", "Stixxay", "Altec", "Apse", "Kobe", "NaMei", "San", "Hjarnan", "Steeelback", "Forg1ven",
-    "Emperor", "Smlz",
+    "Emperor", "Smlz", "Perkz",
   ],
   support: [
     "MadLife", "Mata", "Wolf", "GorillA", "aphromoo", "Mithy", "Smoothie", "Olleh", "Wadid", "PoohManDu",
