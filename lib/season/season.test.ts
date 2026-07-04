@@ -31,6 +31,9 @@ import {
   regionStrengthSeed,
   seasonGoldenRoadTeamId,
   tournamentPlacements,
+  globalCupQualifiers,
+  isGlobalCupYear,
+  seasonRankingPoints,
 } from "./engine";
 import type { SeasonHistoryEntry, SeasonHistoryTeamRef } from "./history";
 import { generateSeasonTeams } from "./teamGen";
@@ -1133,6 +1136,7 @@ describe("championship points & qualification", () => {
   function fabricate(opts: {
     splitResults?: SeasonState["splitResults"];
     intlResults?: SeasonState["intlResults"];
+    phases?: SeasonState["phases"];
   }): SeasonState {
     return {
       teams: ids.map((id) => ({
@@ -1146,6 +1150,7 @@ describe("championship points & qualification", () => {
       })),
       splitResults: opts.splitResults ?? {},
       intlResults: opts.intlResults ?? {},
+      ...(opts.phases ? { phases: opts.phases } : {}),
     } as unknown as SeasonState;
   }
 
@@ -1173,6 +1178,38 @@ describe("championship points & qualification", () => {
       intlResults: { "first-stand": ["t1"], msi: ["t1"], worlds: ["t1"] },
     });
     expect(seasonGoldenRoadTeamId(nearMiss)).toBeNull();
+  });
+
+  it("seasonGoldenRoadTeamId requires Global Cup on quadrennial cup years", () => {
+    const cupPhases = [
+      { kind: "international" as const, event: "global-cup" as const, label: "Global Cup", tournamentIds: [], status: "pending" as const },
+    ];
+    const sixOnly = fabricate({
+      phases: cupPhases,
+      splitResults: {
+        winter: { LCK: ["t1"] },
+        spring: { LCK: ["t1"] },
+        summer: { LCK: ["t1"] },
+      },
+      intlResults: { "first-stand": ["t1"], msi: ["t1"], worlds: ["t1"] },
+    });
+    expect(seasonGoldenRoadTeamId(sixOnly)).toBeNull();
+
+    const seven = fabricate({
+      phases: cupPhases,
+      splitResults: {
+        winter: { LCK: ["t1"] },
+        spring: { LCK: ["t1"] },
+        summer: { LCK: ["t1"] },
+      },
+      intlResults: {
+        "first-stand": ["t1"],
+        msi: ["t1"],
+        worlds: ["t1"],
+        "global-cup": ["t1"],
+      },
+    });
+    expect(seasonGoldenRoadTeamId(seven)).toBe("t1");
   });
 
   it("championshipPoints sums split placements and international results", () => {
@@ -1749,5 +1786,106 @@ describe("transfer windows as phases", () => {
     const done = runSeason(seeded, champions);
     expect(done.status).toBe("complete");
     expect(done.transfersByEvent?.worlds).toBeUndefined();
+  });
+});
+
+describe("Global Cup (quadrennial)", () => {
+  const champions = championPool();
+  const meta = {
+    metaOverride: null,
+    metaEnabled: true,
+    synergyOverride: null,
+    counterOverride: null,
+  };
+
+  it("isGlobalCupYear is true only on franchise years 4, 8, …", () => {
+    expect(isGlobalCupYear(undefined)).toBe(false);
+    expect(isGlobalCupYear(1)).toBe(false);
+    expect(isGlobalCupYear(3)).toBe(false);
+    expect(isGlobalCupYear(4)).toBe(true);
+    expect(isGlobalCupYear(8)).toBe(true);
+  });
+
+  it("adds a Global Cup phase after Worlds on year 4", () => {
+    const teams = generateSeasonTeams(champions, rngFrom(42));
+    const s = createSeason({
+      config: makeConfig(),
+      teams,
+      activeMeta: meta,
+      franchiseYear: 4,
+    });
+    const events = s.phases
+      .filter((p) => p.kind === "international")
+      .map((p) => p.event);
+    expect(events).toEqual(["first-stand", "msi", "worlds", "global-cup"]);
+    expect(s.phases.at(-1)?.label).toBe("Global Cup");
+  });
+
+  it("omits Global Cup on non-quadrennial franchise years", () => {
+    const teams = generateSeasonTeams(champions, rngFrom(43));
+    const s = createSeason({
+      config: makeConfig(),
+      teams,
+      activeMeta: meta,
+      franchiseYear: 3,
+    });
+    expect(
+      s.phases.some((p) => p.event === "global-cup"),
+    ).toBe(false);
+  });
+
+  it("seeds the Global Cup with the top 32 teams by season ranking", () => {
+    const teams = generateSeasonTeams(champions, rngFrom(44));
+    let s = createSeason({
+      config: makeConfig(),
+      teams,
+      activeMeta: meta,
+      franchiseYear: 4,
+    });
+    s = {
+      ...s,
+      intlResults: {
+        worlds: teams.map((t) => t.id),
+      },
+    };
+    const top = globalCupQualifiers(s);
+    expect(top).toHaveLength(32);
+    const pts = seasonRankingPoints(s);
+    const minTop = Math.min(...top.map((t) => pts[t.id] ?? 0));
+    const rest = teams.filter((t) => !top.some((x) => x.id === t.id));
+    const maxRest = Math.max(...rest.map((t) => pts[t.id] ?? 0));
+    expect(minTop).toBeGreaterThanOrEqual(maxRest);
+  });
+
+  it("respects configured early-round series for Global Cup", () => {
+    const teams = generateSeasonTeams(champions, rngFrom(45));
+    const config = makeConfig();
+    config.intlConfigs = {
+      "global-cup": {
+        format: "single-elim",
+        earlySeries: "bo3",
+        semifinalSeries: "bo5",
+        finalsSeries: "bo5",
+        playoffTeams: 8,
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: meta,
+      franchiseYear: 4,
+    });
+    const rng = rngFrom(46);
+    while (s.status !== "complete") {
+      const t = nextPendingTournament(s);
+      if (!t) break;
+      if (t.name === "Global Cup") {
+        expect(t.matches.some((m) => m.format === "bo3")).toBe(true);
+        expect(t.matches.some((m) => m.format === "bo5")).toBe(true);
+        return;
+      }
+      s = applyTournamentUpdate(s, resolveTournament(t, rng), champions);
+    }
+    throw new Error("Global Cup tournament never spawned");
   });
 });

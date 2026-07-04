@@ -17,6 +17,7 @@ import {
   type InternationalId,
   type LeagueId,
   type SplitId,
+  INTERNATIONAL_DISPLAY_ORDER,
 } from "./types";
 
 // ─── Dynasty model ──────────────────────────────────────────────────────────
@@ -33,8 +34,8 @@ import {
 //   • Dynasty   — ≥ DYNASTY_TITLES majors in the window AND ≥ 1 international
 //                 title (First Stand / MSI / Worlds). Splits-only runs never
 //                 qualify, no matter how many.
-//   • Legendary — a Worlds-anchored era: ≥ 1 Worlds title in the window AND
-//                 ≥ LEGENDARY_TITLES majors. The rarest tier.
+//   • Legendary — a Global-Cup- or Worlds-anchored era: ≥ 1 apex title
+//                 (Global Cup preferred) AND ≥ LEGENDARY_TITLES majors.
 //
 // "Major title" = one split championship OR one international title.
 
@@ -55,6 +56,8 @@ export interface DynastyInfo {
   windowIntl: number;
   /** Worlds titles inside that window. */
   windowWorlds: number;
+  /** Global Cup titles inside that window (apex tier — above Worlds). */
+  windowGlobalCup: number;
   /** Season names bounding the window, oldest → newest (for tooltips). */
   windowSpan: [string, string] | null;
 }
@@ -83,12 +86,13 @@ interface SeasonTally {
   majors: number;
   intl: number;
   worlds: number;
+  globalCup: number;
 }
 
 /** Slide a 5-season window over a franchise's chronological title
  *  timeline and return its densest qualifying window. `seasonNames` is
  *  the chronological (oldest-first) list of season names; `tally[i]` is
- *  that franchise's majors/intl/worlds in season i. */
+ *  that franchise's majors/intl/worlds/globalCup in season i. */
 function classifyDynasty(
   tally: SeasonTally[],
   seasonNames: string[],
@@ -98,36 +102,38 @@ function classifyDynasty(
     windowTitles: 0,
     windowIntl: 0,
     windowWorlds: 0,
+    windowGlobalCup: 0,
     windowSpan: null,
   };
   const n = tally.length;
   if (n === 0) return best;
-  // Tier rank for "is this window better than the one we kept?"
   const rank = (t: DynastyTier) =>
     t === "legendary" ? 2 : t === "dynasty" ? 1 : 0;
+  const apexScore = (gc: number, w: number) => gc * 2 + w;
   for (let i = 0; i < n; i++) {
     const end = Math.min(n, i + DYNASTY_WINDOW);
     let majors = 0;
     let intl = 0;
     let worlds = 0;
+    let globalCup = 0;
     for (let j = i; j < end; j++) {
       majors += tally[j].majors;
       intl += tally[j].intl;
       worlds += tally[j].worlds;
+      globalCup += tally[j].globalCup;
     }
     let tier: DynastyTier = "none";
-    // Legendary: a Worlds-anchored era. Dynasty: dense AND internationally
-    // proven (≥1 international title) — splits-only runs never qualify.
-    if (worlds >= 1 && majors >= LEGENDARY_TITLES) tier = "legendary";
-    else if (majors >= DYNASTY_TITLES && intl >= 1) tier = "dynasty";
+    if ((globalCup >= 1 || worlds >= 1) && majors >= LEGENDARY_TITLES) {
+      tier = "legendary";
+    } else if (majors >= DYNASTY_TITLES && intl >= 1) tier = "dynasty";
     if (tier === "none") continue;
-    // Keep the strongest tier; break ties on the most titles in-window.
     const better =
       rank(tier) > rank(best.tier) ||
-      (rank(tier) === rank(best.tier) && majors > best.windowTitles);
+      (rank(tier) === rank(best.tier) &&
+        (apexScore(globalCup, worlds) > apexScore(best.windowGlobalCup, best.windowWorlds) ||
+          (apexScore(globalCup, worlds) === apexScore(best.windowGlobalCup, best.windowWorlds) &&
+            majors > best.windowTitles)));
     if (better) {
-      // Trim the window to the seasons that actually bracket titles so
-      // the span reads tightly (first..last season with a major).
       let first = i;
       let last = end - 1;
       while (first < end && tally[first].majors === 0) first++;
@@ -137,6 +143,7 @@ function classifyDynasty(
         windowTitles: majors,
         windowIntl: intl,
         windowWorlds: worlds,
+        windowGlobalCup: globalCup,
         windowSpan: [
           seasonNames[first] ?? seasonNames[i],
           seasonNames[last] ?? seasonNames[end - 1],
@@ -167,7 +174,7 @@ export function computeTeamRecords(
   const tallyOf = (key: string): SeasonTally[] => {
     let t = tallies.get(key);
     if (!t) {
-      t = chron.map(() => ({ majors: 0, intl: 0, worlds: 0 }));
+      t = chron.map(() => ({ majors: 0, intl: 0, worlds: 0, globalCup: 0 }));
       tallies.set(key, t);
     }
     return t;
@@ -193,6 +200,7 @@ export function computeTeamRecords(
           windowTitles: 0,
           windowIntl: 0,
           windowWorlds: 0,
+          windowGlobalCup: 0,
           windowSpan: null,
         },
       };
@@ -203,12 +211,16 @@ export function computeTeamRecords(
 
   for (const e of ordered) {
     const si = chronIndex.get(e.id) ?? -1;
-    const bumpTally = (key: string, kind: "split" | "intl" | "worlds") => {
+    const bumpTally = (
+      key: string,
+      kind: "split" | "intl" | "worlds" | "global-cup",
+    ) => {
       if (si < 0) return;
       const cell = tallyOf(key)[si];
       cell.majors += 1;
-      if (kind === "intl" || kind === "worlds") cell.intl += 1;
+      if (kind !== "split") cell.intl += 1;
       if (kind === "worlds") cell.worlds += 1;
+      if (kind === "global-cup") cell.globalCup += 1;
     };
     for (const [split, byLeague] of Object.entries(e.splitChampions) as Array<
       [SplitId, Partial<Record<LeagueId, SeasonHistoryTeamRef>>]
@@ -226,18 +238,26 @@ export function computeTeamRecords(
     const worldsWinner = e.intlChampions.worlds ?? e.champion ?? undefined;
     const intlWinners: Array<
       [InternationalId, SeasonHistoryTeamRef | undefined]
-    > = [
-      ["first-stand", e.intlChampions["first-stand"]],
-      ["msi", e.intlChampions.msi],
-      ["worlds", worldsWinner],
-    ];
+    > = INTERNATIONAL_DISPLAY_ORDER.map((event) => [
+      event,
+      event === "worlds"
+        ? worldsWinner
+        : e.intlChampions[event],
+    ] as [InternationalId, SeasonHistoryTeamRef | undefined]);
     for (const [event, team] of intlWinners) {
       if (!team) continue;
       const rec = recordOf(team);
       rec.intlTitles[event] = (rec.intlTitles[event] ?? 0) + 1;
       rec.intlTotal += 1;
       if (event === "worlds") rec.worldsTitles += 1;
-      bumpTally(rec.key, event === "worlds" ? "worlds" : "intl");
+      bumpTally(
+        rec.key,
+        event === "worlds"
+          ? "worlds"
+          : event === "global-cup"
+            ? "global-cup"
+            : "intl",
+      );
     }
   }
 
@@ -291,7 +311,8 @@ export function teamPrestigeScore(r: TeamRecord): number {
     r.splitTitles +
     (r.intlTitles["first-stand"] ?? 0) * 4 +
     (r.intlTitles.msi ?? 0) * 6 +
-    (r.intlTitles.worlds ?? 0) * 10
+    (r.intlTitles.worlds ?? 0) * 10 +
+    (r.intlTitles["global-cup"] ?? 0) * 14
   );
 }
 
@@ -710,11 +731,13 @@ export interface PlayerTitleTotals {
   firstStand: number;
   msi: number;
   worlds: number;
+  globalCup: number;
 }
 const INTL_FIELD: Record<InternationalId, keyof PlayerTitleTotals> = {
   "first-stand": "firstStand",
   msi: "msi",
   worlds: "worlds",
+  "global-cup": "globalCup",
 };
 export function computePlayerTitlesByEvent(
   entries: SeasonHistoryEntry[],
@@ -723,7 +746,7 @@ export function computePlayerTitlesByEvent(
   const ensure = (id: string) => {
     let t = out.get(id);
     if (!t) {
-      t = { splits: 0, firstStand: 0, msi: 0, worlds: 0 };
+      t = { splits: 0, firstStand: 0, msi: 0, worlds: 0, globalCup: 0 };
       out.set(id, t);
     }
     return t;

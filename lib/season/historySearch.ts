@@ -203,13 +203,18 @@ export interface CoachRecord {
   firstStand: number;
   msi: number;
   worlds: number;
+  globalCup: number;
   intlTotal: number;
   total: number; // splits + internationals (raw count)
 }
-const COACH_INTL_FIELD: Record<InternationalId, "firstStand" | "msi" | "worlds"> = {
+const COACH_INTL_FIELD: Record<
+  InternationalId,
+  "firstStand" | "msi" | "worlds" | "globalCup"
+> = {
   "first-stand": "firstStand",
   msi: "msi",
   worlds: "worlds",
+  "global-cup": "globalCup",
 };
 
 /** Per-coach career titles, broken out by event. A team's titles are credited
@@ -222,7 +227,7 @@ export function computeCoachRecords(entries: SeasonHistoryEntry[]): CoachRecord[
   const ensure = (name: string) => {
     let r = acc.get(name);
     if (!r) {
-      r = { name, team: null, leagueId: null, splitTitles: 0, firstStand: 0, msi: 0, worlds: 0, intlTotal: 0, total: 0 };
+      r = { name, team: null, leagueId: null, splitTitles: 0, firstStand: 0, msi: 0, worlds: 0, globalCup: 0, intlTotal: 0, total: 0 };
       acc.set(name, r);
     }
     return r;
@@ -249,7 +254,7 @@ export function computeCoachRecords(entries: SeasonHistoryEntry[]): CoachRecord[
     }
   }
   for (const r of acc.values()) {
-    r.intlTotal = r.firstStand + r.msi + r.worlds;
+    r.intlTotal = r.firstStand + r.msi + r.worlds + r.globalCup;
     r.total = r.splitTitles + r.intlTotal;
   }
   return [...acc.values()];

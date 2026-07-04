@@ -51,6 +51,13 @@ export const DEFAULT_INTL_CONFIGS: Record<InternationalId, SeasonIntlConfig> = {
     finalsSeries: "bo5",
     playoffTeams: 8,
   },
+  "global-cup": {
+    format: "single-elim",
+    earlySeries: "bo3",
+    semifinalSeries: "bo5",
+    finalsSeries: "bo5",
+    playoffTeams: 8,
+  },
 };
 
 // ── Format predicates (which controls apply to which format) ───────────────
@@ -410,6 +417,47 @@ export function IntlConfigCard({
           Only First Stand&apos;s 12-team field fits double-elim — MSI and Worlds keep their canonical formats
         </span>
       )}
+    </div>
+  );
+}
+
+// ── Global Cup (quadrennial) ───────────────────────────────────────────────
+// Fixed 32-team single-elim after Worlds on franchise years 4, 8, … — only
+// series lengths are customizable (same early / semis / finals split as other
+// internationals).
+export function GlobalCupConfigCard({
+  cfg,
+  onChange,
+}: {
+  cfg: SeasonIntlConfig;
+  onChange: (patch: Partial<SeasonIntlConfig>) => void;
+}) {
+  return (
+    <div className="border border-rift-line/40 bg-rift-bg/30 p-3 flex items-end gap-3 flex-wrap">
+      <div className="font-display text-xs tracking-[0.25em] uppercase text-rift-goldbright w-28 flex-shrink-0 pb-1.5">
+        Global Cup
+      </div>
+      <SeriesSelect
+        label="Early Rounds"
+        value={cfg.earlySeries}
+        onChange={(v) => onChange({ earlySeries: v })}
+        title="Series length for R32 through quarterfinals"
+      />
+      <SeriesSelect
+        label="Semifinals"
+        value={cfg.semifinalSeries ?? cfg.finalsSeries}
+        onChange={(v) => onChange({ semifinalSeries: v })}
+        title="Series length for the semifinals"
+      />
+      <SeriesSelect
+        label="Finals"
+        value={cfg.finalsSeries}
+        onChange={(v) => onChange({ finalsSeries: v })}
+        title="Series length for the Global Cup final"
+      />
+      <span className="text-[9px] text-rift-muted/70 pb-1.5 max-w-[220px] leading-snug">
+        Quadrennial event (years 4, 8, …) · 32-team single elimination after Worlds
+      </span>
     </div>
   );
 }

@@ -17,6 +17,7 @@ import {
   qualifiedForInternational,
   qualifierTag,
   seasonGoldenRoadTeamId,
+  seasonHasGlobalCup,
 } from "@/lib/season/engine";
 import {
   computeSeasonStats,
@@ -45,6 +46,7 @@ import {
   LEAGUE_IDS,
   SPLIT_FEEDS_EVENT,
   SPLIT_LABELS,
+  INTERNATIONAL_DISPLAY_ORDER,
   seasonTeam,
   type LeagueId,
   type InternationalId,
@@ -270,7 +272,9 @@ export default function SeasonDashboard() {
                   ★ Golden Road ★
                 </span>
                 <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/70 mt-0.5">
-                  Swept all 3 splits + First Stand, MSI &amp; Worlds
+                  {seasonHasGlobalCup(season)
+                    ? "Swept all 3 splits + First Stand, MSI, Worlds & Global Cup"
+                    : "Swept all 3 splits + First Stand, MSI & Worlds"}
                 </div>
               </div>
             )}
@@ -641,7 +645,6 @@ function MiniBracket({
 
 // ─── Latest matchday results ───────────────────────────────────────────────
 
-// Small colored tag for a match's stage (playoff round / group / etc.).
 function MatchdayStageTag({ stage, group }: { stage: string; group?: string }) {
   const map: Record<string, { label: string; cls: string }> = {
     winners: { label: "Winners", cls: "border-rift-gold/50 text-rift-gold/80" },
@@ -659,6 +662,24 @@ function MatchdayStageTag({ stage, group }: { stage: string; group?: string }) {
   return (
     <span className={`px-1 py-px border text-[7px] uppercase tracking-[0.15em] flex-shrink-0 ${t.cls}`}>
       {t.label}
+    </span>
+  );
+}
+
+function MatchdayResultTag({ tag }: { tag: string }) {
+  if (tag === "reverse-sweep") {
+    return (
+      <span
+        className="px-1 py-px border border-rift-red/50 text-rift-redbright/90 text-[7px] uppercase tracking-[0.12em] flex-shrink-0"
+        title="Reverse sweep — 0-2 comeback to win 3-2"
+      >
+        Rev Sweep
+      </span>
+    );
+  }
+  return (
+    <span className="px-1 py-px border border-rift-line/60 text-rift-mutedbright/70 text-[7px] uppercase tracking-[0.12em] flex-shrink-0">
+      {tag}
     </span>
   );
 }
@@ -717,6 +738,9 @@ function LatestMatchdayPanel({ matchday }: { matchday: SeasonMatchdayResult }) {
                       </span>
                     </span>
                     <MatchdayStageTag stage={m.stage} group={m.group} />
+                    {m.tags?.map((tag) => (
+                      <MatchdayResultTag key={tag} tag={tag} />
+                    ))}
                   </div>
                 ))}
               </div>
@@ -1789,7 +1813,7 @@ function SeasonRecapPanel({
   const bestWR = stats.bestWR
     ? championsById.get(stats.bestWR.championId)
     : null;
-  const intlOrder = ["first-stand", "msi", "worlds"] as const;
+  const intlOrder = INTERNATIONAL_DISPLAY_ORDER;
   const splitOrder = ["winter", "spring", "summer"] as const;
   const bestRegion = (Object.entries(stats.leagueIntlTitles) as Array<
     [keyof typeof stats.leagueIntlTitles, number]

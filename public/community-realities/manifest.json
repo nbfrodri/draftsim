@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "starter-template",
+      "title": "Starter Reality Template",
+      "author": "DraftSim",
+      "description": "Minimal Year 1 reality shell — configure teams and formats after import, or use as a reference for building share codes.",
+      "tags": ["template", "starter"],
+      "year": 1,
+      "featured": true
+    }
+  ]
+}

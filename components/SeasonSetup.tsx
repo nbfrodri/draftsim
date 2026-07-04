@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import { deriveStar, randomizeTiersForStar, PLAYER_TIERS } from "@/lib/players";
@@ -18,7 +18,9 @@ import {
   SELECT_CLS,
   LeagueConfigCard,
   IntlConfigCard,
+  GlobalCupConfigCard,
 } from "./season/configCards";
+import TeamPicker from "./season/TeamPicker";
 import {
   generateSeasonTeams,
   rerollTeamIdentity,
@@ -87,11 +89,12 @@ export default function SeasonSetup({ onCancel }: Props) {
   // canonical shape); "shared" applies the First Stand card to all.
   const [sharedIntl, setSharedIntl] = useState(false);
   const [intlConfigs, setIntlConfigs] = useState<
-    Record<InternationalId, SeasonIntlConfig>
+    Partial<Record<InternationalId, SeasonIntlConfig>>
   >(() => ({
     "first-stand": { ...DEFAULT_INTL_CONFIGS["first-stand"] },
     msi: { ...DEFAULT_INTL_CONFIGS.msi },
     worlds: { ...DEFAULT_INTL_CONFIGS.worlds },
+    "global-cup": { ...DEFAULT_INTL_CONFIGS["global-cup"] },
   }));
   const [teams, setTeams] = useState<SeasonTeam[]>([]);
   const [controlledTeamId, setControlledTeamId] = useState<string | null>(
@@ -309,12 +312,22 @@ export default function SeasonSetup({ onCancel }: Props) {
             LEAGUE_IDS.map((l) => [l, { ...leagueConfigs.LCK }]),
           ) as Record<LeagueId, SeasonLeagueConfig>)
         : leagueConfigs,
-      // Shared mode: the First Stand card is the master copy for all
-      // three events (mirrors the league shared slot).
+      // Shared mode: the First Stand card is the master copy for calendar
+      // internationals; Global Cup keeps single-elim but copies series lengths.
       intlConfigs: sharedIntl
-        ? (Object.fromEntries(
-            INTL_IDS.map((e) => [e, { ...intlConfigs["first-stand"] }]),
-          ) as Record<InternationalId, SeasonIntlConfig>)
+        ? ({
+            ...Object.fromEntries(
+              INTL_IDS.map((e) => [e, { ...intlConfigs["first-stand"]! }]),
+            ),
+            "global-cup": {
+              ...DEFAULT_INTL_CONFIGS["global-cup"],
+              earlySeries: intlConfigs["first-stand"]!.earlySeries,
+              semifinalSeries:
+                intlConfigs["first-stand"]!.semifinalSeries ??
+                intlConfigs["first-stand"]!.finalsSeries,
+              finalsSeries: intlConfigs["first-stand"]!.finalsSeries,
+            },
+          } as Record<InternationalId, SeasonIntlConfig>)
         : intlConfigs,
       liveMeta,
       patchShift,
@@ -470,7 +483,7 @@ export default function SeasonSetup({ onCancel }: Props) {
           {sharedIntl ? (
             <IntlConfigCard
               event="shared"
-              cfg={intlConfigs["first-stand"]}
+              cfg={intlConfigs["first-stand"] ?? DEFAULT_INTL_CONFIGS["first-stand"]}
               onChange={(p) => updateIntlConfig("first-stand", p)}
             />
           ) : (
@@ -478,11 +491,22 @@ export default function SeasonSetup({ onCancel }: Props) {
               <IntlConfigCard
                 key={e}
                 event={e}
-                cfg={intlConfigs[e]}
+                cfg={intlConfigs[e] ?? DEFAULT_INTL_CONFIGS[e]}
                 onChange={(p) => updateIntlConfig(e, p)}
               />
             ))
           )}
+        </div>
+
+        {/* Global Cup — quadrennial; series lengths only */}
+        <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
+          Global Cup
+        </div>
+        <div className="space-y-2 mb-6">
+          <GlobalCupConfigCard
+            cfg={intlConfigs["global-cup"] ?? DEFAULT_INTL_CONFIGS["global-cup"]}
+            onChange={(p) => updateIntlConfig("global-cup", p)}
+          />
         </div>
 
         {/* Season options */}
@@ -648,13 +672,18 @@ export default function SeasonSetup({ onCancel }: Props) {
           </label>
           <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
             <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
-              Follow / Control a Team (optional)
+              Spectate or Follow a Team
             </span>
             <TeamPicker
               byLeague={byLeague}
               value={controlledTeamId}
               onChange={setControlledTeamId}
             />
+            {isReality && (
+              <span className="text-[8px] text-rift-muted/55">
+                You can change this each offseason before the next year.
+              </span>
+            )}
           </div>
         </div>
 
@@ -954,139 +983,6 @@ function TeamRatingEditor({
               </button>
             ))}
           </span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Custom team dropdown for Follow/Control. A native <select> popup is
-// positioned by the browser and flips upward when the control sits in
-// the lower half of the viewport — this one always opens BELOW the
-// trigger, and gets team icons/colors as a bonus.
-function TeamPicker({
-  byLeague,
-  value,
-  onChange,
-}: {
-  byLeague: Map<LeagueId, SeasonTeam[]>;
-  value: string | null;
-  onChange: (teamId: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-
-  // Close on outside click / Escape.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const selected = value
-    ? [...byLeague.values()].flat().find((t) => t.id === value) ?? null
-    : null;
-
-  const pick = (teamId: string | null) => {
-    onChange(teamId);
-    setOpen(false);
-  };
-
-  return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className="w-full flex items-center gap-1.5 bg-rift-bg/60 border border-rift-line text-rift-mutedbright text-xs px-2 py-1.5 outline-none focus:border-rift-gold/60 hover:border-rift-gold/40 transition-colors text-left"
-      >
-        {selected ? (
-          <>
-            <TeamIcon
-              iconKey={selected.iconKey}
-              logoUrl={selected.logoUrl}
-              size={13}
-              color={selected.color}
-            />
-            <span className="flex-1 truncate">{selected.name}</span>
-            <span className="text-[9px] uppercase tracking-[0.15em] text-rift-gold/60">
-              {selected.leagueId}
-            </span>
-          </>
-        ) : (
-          <span className="flex-1">Spectate everything</span>
-        )}
-        <svg
-          viewBox="0 0 16 16"
-          className={`w-3 h-3 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          aria-hidden
-        >
-          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-      {open && (
-        <div
-          role="listbox"
-          className="absolute left-0 right-0 top-full mt-1 z-40 max-h-64 overflow-y-auto custom-scroll bg-rift-panel border border-rift-gold/40 shadow-[0_8px_30px_rgba(0,0,0,0.7)]"
-        >
-          <button
-            type="button"
-            role="option"
-            aria-selected={value == null}
-            onClick={() => pick(null)}
-            className={`w-full text-left px-2 py-1.5 text-xs transition-colors ${
-              value == null
-                ? "text-rift-goldbright bg-rift-gold/10"
-                : "text-rift-mutedbright hover:bg-rift-gold/5 hover:text-rift-goldbright"
-            }`}
-          >
-            Spectate everything
-          </button>
-          {LEAGUE_IDS.map((l) => (
-            <div key={l}>
-              <div className="px-2 pt-1.5 pb-0.5 text-[8px] uppercase tracking-[0.3em] text-rift-gold/70 border-t border-rift-line/30">
-                {l}
-              </div>
-              {(byLeague.get(l) ?? []).map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="option"
-                  aria-selected={value === t.id}
-                  onClick={() => pick(t.id)}
-                  className={`w-full flex items-center gap-1.5 text-left px-2 py-1 text-xs transition-colors ${
-                    value === t.id
-                      ? "text-rift-goldbright bg-rift-gold/10"
-                      : "text-rift-mutedbright hover:bg-rift-gold/5 hover:text-rift-goldbright"
-                  }`}
-                >
-                  <TeamIcon
-                    iconKey={t.iconKey}
-                    logoUrl={t.logoUrl}
-                    size={13}
-                    color={t.color}
-                  />
-                  <span className="truncate">{t.name}</span>
-                </button>
-              ))}
-            </div>
-          ))}
         </div>
       )}
     </div>

@@ -1,9 +1,25 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import { isDesktop, saveFileNative, openFileNative } from "@/lib/desktopStorage";
+import { REALITY_CODE_PREFIX } from "@/lib/realityShare";
+
+interface CommunityEntry {
+  id: string;
+  title: string;
+  author: string;
+  description: string;
+  tags?: string[];
+  code?: string;
+  featured?: boolean;
+}
+
+interface CommunityManifest {
+  version: number;
+  entries: CommunityEntry[];
+}
 
 // Realities hub — the entry screen for franchise mode. A reality is a
 // continuous, persistent timeline: the SAME teams + players carry from one
@@ -21,13 +37,27 @@ export default function RealitiesHub({ onChoose }: Props) {
   const switchReality = useDraftStore((s) => s.switchReality);
   const deleteReality = useDraftStore((s) => s.deleteReality);
   const exportReality = useDraftStore((s) => s.exportReality);
+  const exportRealityShareCode = useDraftStore((s) => s.exportRealityShareCode);
   const importReality = useDraftStore((s) => s.importReality);
+  const importRealityShareCode = useDraftStore((s) => s.importRealityShareCode);
 
   const [name, setName] = useState("");
   const [aging, setAging] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [shareCodeInput, setShareCodeInput] = useState("");
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [gallery, setGallery] = useState<CommunityEntry[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    void fetch("/community-realities/manifest.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m: CommunityManifest | null) => {
+        if (m?.entries) setGallery(m.entries);
+      })
+      .catch(() => {});
+  }, []);
 
   const flash = (kind: "ok" | "err", text: string) => {
     setMsg({ kind, text });
@@ -73,6 +103,30 @@ export default function RealitiesHub({ onChoose }: Props) {
     const res = importReality(text);
     if (res.ok) flash("ok", "Reality imported");
     else flash("err", res.error ?? "Import failed");
+  };
+
+  const applyShareCode = async () => {
+    const code = shareCodeInput.trim();
+    if (!code) return;
+    const res = await importRealityShareCode(code);
+    if (res.ok) {
+      flash("ok", "Reality imported from share code");
+      setShareCodeInput("");
+    } else flash("err", res.error ?? "Import failed");
+  };
+
+  const copyShareCode = async (id: string) => {
+    const code = await exportRealityShareCode(id);
+    if (!code) {
+      flash("err", "Could not build share code");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(code);
+      flash("ok", "REAL1 code copied");
+    } catch {
+      flash("err", "Copy failed — select code manually");
+    }
   };
 
   const handleImport = async () => {
@@ -160,8 +214,103 @@ export default function RealitiesHub({ onChoose }: Props) {
             </button>
             <p className="text-[9px] text-rift-muted/55">
               Next you&apos;ll configure the first season (leagues, formats, real names).
+              See <span className="text-rift-gold/70">docs/reality-sharing.md</span> for REAL1 share codes.
             </p>
           </div>
+        </div>
+
+        {/* Share code import */}
+        <div className="border border-rift-line/40 bg-rift-bg/20 mb-6 p-3">
+          <div className="text-[10px] uppercase tracking-[0.3em] text-rift-gold/70 mb-2">
+            Import share code
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <input
+              value={shareCodeInput}
+              onChange={(e) => setShareCodeInput(e.target.value)}
+              placeholder={`${REALITY_CODE_PREFIX}… or paste JSON`}
+              className="flex-1 min-w-[200px] bg-rift-bg/50 border border-rift-line/50 px-2 py-1.5 text-[11px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 outline-none font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => void applyShareCode()}
+              className="px-3 py-1.5 border border-rift-gold/60 bg-rift-gold/10 text-rift-goldbright text-[9px] uppercase tracking-[0.2em] hover:bg-rift-gold/20 transition-all"
+            >
+              Import code
+            </button>
+          </div>
+        </div>
+
+        {/* Community gallery */}
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={() => setGalleryOpen((v) => !v)}
+            className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/80 hover:text-rift-goldbright transition-colors mb-2"
+          >
+            {galleryOpen ? "▾" : "▸"} Community gallery
+            {gallery.length > 0 ? ` (${gallery.length})` : ""}
+          </button>
+          {galleryOpen && (
+            <div className="space-y-2 border border-rift-line/40 bg-rift-bg/20 p-3">
+              {gallery.length === 0 ? (
+                <p className="text-[10px] text-rift-muted/60 italic">
+                  No curated entries — add manifests under public/community-realities/
+                </p>
+              ) : (
+                gallery.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="border border-rift-line/30 bg-rift-bg/30 px-2 py-2"
+                  >
+                    <div className="flex items-start gap-2 flex-wrap">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] text-rift-goldbright">{entry.title}</div>
+                        <div className="text-[9px] text-rift-muted/60">
+                          by {entry.author}
+                          {entry.featured ? " · featured" : ""}
+                        </div>
+                        <p className="text-[10px] text-rift-mutedbright/80 mt-1 leading-snug">
+                          {entry.description}
+                        </p>
+                        {entry.tags && entry.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {entry.tags.map((t) => (
+                              <span
+                                key={t}
+                                className="text-[7px] uppercase tracking-[0.15em] text-rift-muted/50 border border-rift-line/40 px-1"
+                              >
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {entry.code ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShareCodeInput(entry.code!);
+                            void importRealityShareCode(entry.code!).then((res) => {
+                              if (res.ok) flash("ok", `Imported “${entry.title}”`);
+                              else flash("err", res.error ?? "Import failed");
+                            });
+                          }}
+                          className="px-2 py-1 border border-rift-gold/60 bg-rift-gold/10 text-rift-goldbright text-[8px] uppercase tracking-[0.2em] hover:bg-rift-gold/20"
+                        >
+                          Import
+                        </button>
+                      ) : (
+                        <span className="text-[8px] text-rift-muted/45 uppercase tracking-[0.15em">
+                          Paste REAL1 code
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         {/* Saved realities */}
@@ -231,6 +380,14 @@ export default function RealitiesHub({ onChoose }: Props) {
                     className="px-2 py-1 border border-rift-line text-rift-mutedbright text-[9px] uppercase tracking-[0.2em] hover:border-rift-gold/50 hover:text-rift-goldbright transition-all"
                   >
                     Export
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copyShareCode(r.id)}
+                    title="Copy a REAL1: share code to clipboard"
+                    className="px-2 py-1 border border-rift-line text-rift-mutedbright text-[9px] uppercase tracking-[0.2em] hover:border-rift-gold/50 hover:text-rift-goldbright transition-all"
+                  >
+                    REAL1
                   </button>
                   {confirmDelete === r.id ? (
                     <button

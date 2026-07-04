@@ -40,6 +40,7 @@ import {
 } from "../tournament";
 import {
   INTERNATIONAL_LABELS,
+  GLOBAL_CUP_NAME,
   LEAGUE_IDS,
   QUALIFIER_COUNTS,
   QUALIFYING_SPLIT,
@@ -294,6 +295,8 @@ export function defaultIntlConfig(
   const format: TournamentFormat =
     event === "first-stand"
       ? "single-elim"
+      : event === "global-cup"
+        ? "single-elim"
       : event === "msi"
         ? "swiss-playoffs-de"
         : "groups-playoffs";
@@ -542,6 +545,142 @@ export function championshipPoints(
   return pts;
 }
 
+const GLOBAL_CUP_FIELD_SIZE = 32;
+
+/** Quadrennial Global Cup runs after Worlds on franchise years 4, 8, … */
+export function isGlobalCupYear(franchiseYear: number | undefined): boolean {
+  return franchiseYear != null && franchiseYear > 0 && franchiseYear % 4 === 0;
+}
+
+/** True when this season's calendar includes the post-Worlds Global Cup. */
+export function seasonHasGlobalCup(season: SeasonState): boolean {
+  return season.phases?.some((p) => p.event === "global-cup") ?? false;
+}
+
+/** Season-long ranking points for global-cup seeding — splits, First Stand,
+ *  MSI, and the Worlds that just finished. */
+export function seasonRankingPoints(
+  season: SeasonState,
+): Record<string, number> {
+  const pts = { ...championshipPoints(season) };
+  const add = (teamId: string, n: number) => {
+    if (n > 0) pts[teamId] = (pts[teamId] ?? 0) + n;
+  };
+  (season.intlResults.worlds ?? []).forEach((id, i) =>
+    add(id, INTL_PLACEMENT_POINTS[i] ?? INTL_PARTICIPATION_POINTS),
+  );
+  return pts;
+}
+
+/** Top 32 teams by season ranking (used for the quadrennial cup). */
+export function globalCupQualifiers(season: SeasonState): SeasonTeam[] {
+  const pts = seasonRankingPoints(season);
+  const strength = season.leagueStrength ?? {};
+  return [...season.teams]
+    .sort((a, b) => {
+      const pa = pts[a.id] ?? 0;
+      const pb = pts[b.id] ?? 0;
+      if (pb !== pa) return pb - pa;
+      const la = leagueSeedScore(a.leagueId, strength);
+      const lb = leagueSeedScore(b.leagueId, strength);
+      if (lb !== la) return lb - la;
+      return deriveStar(b.players) - deriveStar(a.players);
+    })
+    .slice(0, GLOBAL_CUP_FIELD_SIZE);
+}
+
+function createGlobalCup(season: SeasonState): TournamentState {
+  const qualified = globalCupQualifiers(season);
+  const cfg = intlConfigFor(season.config, "global-cup");
+  const t = createTournament({
+    name: GLOBAL_CUP_NAME,
+    format: "single-elim",
+    teams: qualified.map((team, i) => toTournamentTeam(team, i + 1)),
+    defaults: defaultsFor(season.config, cfg.earlySeries),
+    formatOverrides: singleElimOverrides(
+      qualified.length,
+      cfg.earlySeries,
+      cfg.finalsSeries,
+      cfg.semifinalSeries ?? cfg.finalsSeries,
+    ),
+    metaSnapshot: cloneMeta(season.currentMeta),
+    variancePreset: season.config.variancePreset,
+    liveMeta: season.config.liveMeta,
+    fearlessConfig: { perSeries: season.config.fearless },
+    streakSeeds: streakSeedsFor(season, qualified),
+  });
+  return tagSeason(t, season);
+}
+
+function buildSeasonPhases(
+  transferOn: boolean,
+  franchiseYear?: number,
+): SeasonPhase[] {
+  const transferPhase = (event: InternationalId): SeasonPhase => ({
+    kind: "transfer",
+    event,
+    label: "Transfer Window",
+    tournamentIds: [],
+    status: "pending",
+  });
+  const phases: SeasonPhase[] = [
+    {
+      kind: "split",
+      split: "winter",
+      label: SPLIT_LABELS.winter,
+      tournamentIds: [],
+      status: "pending",
+    },
+    {
+      kind: "international",
+      event: "first-stand",
+      label: INTERNATIONAL_LABELS["first-stand"],
+      tournamentIds: [],
+      status: "pending",
+    },
+    ...(transferOn ? [transferPhase("first-stand")] : []),
+    {
+      kind: "split",
+      split: "spring",
+      label: SPLIT_LABELS.spring,
+      tournamentIds: [],
+      status: "pending",
+    },
+    {
+      kind: "international",
+      event: "msi",
+      label: INTERNATIONAL_LABELS.msi,
+      tournamentIds: [],
+      status: "pending",
+    },
+    ...(transferOn ? [transferPhase("msi")] : []),
+    {
+      kind: "split",
+      split: "summer",
+      label: SPLIT_LABELS.summer,
+      tournamentIds: [],
+      status: "pending",
+    },
+    {
+      kind: "international",
+      event: "worlds",
+      label: INTERNATIONAL_LABELS.worlds,
+      tournamentIds: [],
+      status: "pending",
+    },
+  ];
+  if (isGlobalCupYear(franchiseYear)) {
+    phases.push({
+      kind: "international",
+      event: "global-cup",
+      label: INTERNATIONAL_LABELS["global-cup"],
+      tournamentIds: [],
+      status: "pending",
+    });
+  }
+  return phases;
+}
+
 // ─── Qualification + seeding ───────────────────────────────────────────────
 
 export interface Qualifier {
@@ -722,9 +861,10 @@ export function feederEventOf(
 }
 
 /** The team id that completed a Golden Road — winning all three of its
- *  domestic splits (Winter/Spring/Summer) AND all three internationals
- *  (First Stand/MSI/Worlds) — this season, or null. Computed live from
- *  the season's results (no history entry required). */
+ *  domestic splits (Winter/Spring/Summer) AND every international on the
+ *  calendar (First Stand/MSI/Worlds, plus Global Cup on quadrennial years)
+ *  — this season, or null. Computed live from the season's results (no
+ *  history entry required). */
 export function seasonGoldenRoadTeamId(season: SeasonState): string | null {
   const worlds = season.intlResults.worlds?.[0] ?? season.champion ?? null;
   if (!worlds) return null;
@@ -735,6 +875,9 @@ export function seasonGoldenRoadTeamId(season: SeasonState): string | null {
   if (!won(season.intlResults.msi?.[0])) return null;
   for (const split of ["winter", "spring", "summer"] as SplitId[]) {
     if (!won(season.splitResults[split]?.[team.leagueId]?.[0])) return null;
+  }
+  if (seasonHasGlobalCup(season) && !won(season.intlResults["global-cup"]?.[0])) {
+    return null;
   }
   return worlds;
 }
@@ -1548,6 +1691,7 @@ const CARRYOVER_DECAY = 0.5;
 // Weights for the champion-region fallback (when the prior season didn't
 // track tides): the region that won the bigger event enters stronger.
 const CHAMPION_REGION_WEIGHT: Partial<Record<InternationalId, number>> = {
+  "global-cup": 0.65,
   worlds: 0.5,
   msi: 0.3,
   "first-stand": 0.15,
@@ -1586,64 +1730,11 @@ export function createSeason(opts: {
   // Previous season's archive — seeds Region Tides so regions keep a
   // reputation across years (ignored unless regionTides is on).
   priorSeason?: SeasonHistoryEntry;
+  /** Franchise year (realities mode) — year 4/8/… adds the quadrennial cup. */
+  franchiseYear?: number;
 }): SeasonState {
-  // Transfer windows are real calendar phases that follow First Stand and MSI
-  // — but only when the feature is on, so a classic season's roadmap is
-  // unchanged (and old saves stay byte-identical).
   const transferOn = !!opts.config.playerTransfers;
-  const transferPhase = (event: InternationalId): SeasonPhase => ({
-    kind: "transfer",
-    event,
-    label: "Transfer Window",
-    tournamentIds: [],
-    status: "pending",
-  });
-  const phases: SeasonPhase[] = [
-    {
-      kind: "split",
-      split: "winter",
-      label: SPLIT_LABELS.winter,
-      tournamentIds: [],
-      status: "pending",
-    },
-    {
-      kind: "international",
-      event: "first-stand",
-      label: INTERNATIONAL_LABELS["first-stand"],
-      tournamentIds: [],
-      status: "pending",
-    },
-    ...(transferOn ? [transferPhase("first-stand")] : []),
-    {
-      kind: "split",
-      split: "spring",
-      label: SPLIT_LABELS.spring,
-      tournamentIds: [],
-      status: "pending",
-    },
-    {
-      kind: "international",
-      event: "msi",
-      label: INTERNATIONAL_LABELS.msi,
-      tournamentIds: [],
-      status: "pending",
-    },
-    ...(transferOn ? [transferPhase("msi")] : []),
-    {
-      kind: "split",
-      split: "summer",
-      label: SPLIT_LABELS.summer,
-      tournamentIds: [],
-      status: "pending",
-    },
-    {
-      kind: "international",
-      event: "worlds",
-      label: INTERNATIONAL_LABELS.worlds,
-      tournamentIds: [],
-      status: "pending",
-    },
-  ];
+  const phases = buildSeasonPhases(transferOn, opts.franchiseYear);
   const now = Date.now();
   const season: SeasonState = {
     id: makeSeasonId(),
@@ -1728,6 +1819,8 @@ function startPhase(season: SeasonState, index: number): SeasonState {
         ? createWorldsPlayIn(season)
         : createWorldsMain(season, null),
     );
+  } else if (phase.kind === "international" && phase.event === "global-cup") {
+    created.push(createGlobalCup(season));
   }
   const tournaments = { ...season.tournaments };
   for (const t of created) tournaments[t.id] = t;
@@ -2010,7 +2103,7 @@ export function applyTournamentUpdate(
   // the just-shifted patch factors in, so it runs after the patch. The
   // upcoming transfer phase (startPhase below) then pauses for the followed
   // team's decisions, or flows straight through if there are none.
-  if (phase.kind === "international" && phase.event !== "worlds") {
+  if (phase.kind === "international" && (phase.event === "first-stand" || phase.event === "msi")) {
     next = applyTransfers(next, champions, phase);
   }
   return startPhase(next, next.phaseIndex + 1);

@@ -19,12 +19,14 @@ import {
   type LeagueId,
   type SeasonIntlConfig,
   type SeasonLeagueConfig,
+  type SeasonTeam,
 } from "@/lib/season/types";
 import type { Champion, Lane, PlayerTier } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
 import LaneIcon from "./LaneIcon";
 import { ProjectedChemScore } from "./ChemistryRow";
-import { LeagueConfigCard, IntlConfigCard, INTL_IDS } from "./season/configCards";
+import { LeagueConfigCard, IntlConfigCard, GlobalCupConfigCard, INTL_IDS } from "./season/configCards";
+import TeamPicker from "./season/TeamPicker";
 
 // The post-Worlds OFFSEASON for a reality: the year is decided, and before
 // rolling into the next one the user sees the season's headline stats and runs
@@ -60,6 +62,12 @@ export default function OffseasonView() {
   const active = !!season?.franchise && season.status === "complete";
   const byId = useMemo(() => new Map(champions.map((c) => [c.id, c] as const)), [champions]);
   const stats = useMemo(() => (active && season ? computeSeasonStats(season) : null), [active, season]);
+  const byLeague = useMemo(() => {
+    const map = new Map<LeagueId, SeasonTeam[]>();
+    for (const l of LEAGUE_IDS) map.set(l, []);
+    for (const t of season?.teams ?? []) map.get(t.leagueId)?.push(t);
+    return map;
+  }, [season?.teams]);
   const candidates = useMemo(
     () => (active && season && shopLane ? offseasonCandidates(season, champions, shopLane) : []),
     [active, season, champions, shopLane],
@@ -388,6 +396,10 @@ export default function OffseasonView() {
                         onChange={(p) => setIntl(e, p)}
                       />
                     ))}
+                    <GlobalCupConfigCard
+                      cfg={intlConfigFor(cfg, "global-cup")}
+                      onChange={(p) => setIntl("global-cup", p)}
+                    />
                   </div>
                 </div>
                 <p className="text-[8px] text-rift-muted/55">
@@ -398,6 +410,21 @@ export default function OffseasonView() {
           </div>
         );
       })()}
+
+      {/* Spectate vs follow — per-year role before rolling forward */}
+      <div className="px-3 py-2 border-t border-rift-gold/15">
+        <div className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/70 mb-1">
+          Your role · Year {fr.year + 1}
+        </div>
+        <p className="text-[8px] text-rift-muted/55 mb-2">
+          Spectate the full sim, or follow one team for play / watch on their matches and the offseason shop.
+        </p>
+        <TeamPicker
+          byLeague={byLeague}
+          value={season.config.controlledTeamId}
+          onChange={(teamId) => updateSeasonConfig({ controlledTeamId: teamId })}
+        />
+      </div>
 
       <div className="px-3 pb-3">
         <button

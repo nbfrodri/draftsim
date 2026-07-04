@@ -4,6 +4,7 @@ import { memo, useCallback, useRef } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { getTeam } from "@/lib/tournament";
 import type { TournamentMatch, TournamentState, TournamentTeam } from "@/lib/tournament";
+import { isReverseSweep } from "@/lib/matchTags";
 import TeamIcon from "@/components/TeamIcon";
 import { getPersonality } from "@/lib/draftAI";
 import { computeTeamStreaks } from "@/lib/streaks";
@@ -78,10 +79,6 @@ function StarsBadge({ rating }: { rating: number }) {
   );
 }
 
-// Compact streak badge: "W3" in green, "L2" in red. Only shown when count >= 2.
-// Takes PRIMITIVE props (kind + count) instead of the streak object so the
-// memoized TeamRow/MatchCardInner above it can bail out on shallow compare
-// even though computeTeamStreaks returns fresh objects per tournament state.
 function StreakChip({
   kind,
   count,
@@ -104,6 +101,17 @@ function StreakChip({
       title={tooltip}
     >
       {label}
+    </span>
+  );
+}
+
+function ReverseSweepTag() {
+  return (
+    <span
+      className="inline-flex items-center text-[8px] uppercase tracking-[0.12em] px-1 py-px border border-rift-red/50 bg-rift-red/10 text-rift-redbright shrink-0"
+      title="Reverse sweep — came back from 0-2 to win 3-2"
+    >
+      Rev Sweep
     </span>
   );
 }
@@ -253,6 +261,7 @@ const MatchCardInner = memo(function MatchCardInner({
 
   const blueWon = winner ? winner.teamId === match.blueTeamId : false;
   const redWon = winner ? winner.teamId === match.redTeamId : false;
+  const reverseSweep = winner ? isReverseSweep(match) : false;
 
   // Border / accent based on status — pending = muted, ready = gold,
   // complete = green-ish gold for the winning side.
@@ -272,6 +281,7 @@ const MatchCardInner = memo(function MatchCardInner({
         <div className="flex items-center gap-1.5 text-[8px] uppercase tracking-[0.25em] text-rift-mutedbright/55">
           <span>{match.format.toUpperCase()}</span>
           {match.fearless && <span>· Fearless</span>}
+          {reverseSweep && <ReverseSweepTag />}
         </div>
         <StatusPill status={status} />
       </div>

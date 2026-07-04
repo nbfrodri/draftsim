@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import GlobalCupBadge from "@/components/GlobalCupBadge";
 import type { LeagueId, InternationalId } from "@/lib/season/types";
 
 // Region/league OR international-event logo, bundled offline under
@@ -18,6 +19,9 @@ export default function LeagueIcon({
 }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [league]);
+  if (league === "global-cup") {
+    return <GlobalCupBadge size={size} className={className} />;
+  }
   if (failed) return null;
   return (
     // eslint-disable-next-line @next/next/no-img-element -- static bundled

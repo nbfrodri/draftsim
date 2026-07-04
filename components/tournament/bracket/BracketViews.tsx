@@ -11,6 +11,7 @@ import {
 } from "@/lib/tournament";
 import TeamIcon from "@/components/TeamIcon";
 import { MatchCard } from "./MatchCard";
+import { BracketConnectorRoot, MatchAnchor } from "./BracketConnectors";
 import type { TournamentMatch, TournamentState, TournamentTeam } from "@/lib/tournament";
 
 // ─── Header ────────────────────────────────────────────────────────────
@@ -166,13 +167,14 @@ export function RoundColumn({
         className="flex-1 flex flex-col gap-3 md:gap-4 justify-around"
       >
         {matches.map((m) => (
-          <MatchCard
-            key={m.id}
-            match={m}
-            tournament={tournament}
-            onStart={() => onStartMatch(m.id)}
-            onView={onViewMatch ? () => onViewMatch(m.id) : undefined}
-          />
+          <MatchAnchor key={m.id} matchId={m.id}>
+            <MatchCard
+              match={m}
+              tournament={tournament}
+              onStart={() => onStartMatch(m.id)}
+              onView={onViewMatch ? () => onViewMatch(m.id) : undefined}
+            />
+          </MatchAnchor>
         ))}
       </div>
     </div>
@@ -208,13 +210,14 @@ export function LosersRoundColumn({
       </div>
       <div className="flex-1 flex flex-col gap-3 md:gap-4 justify-around">
         {matches.map((m) => (
-          <MatchCard
-            key={m.id}
-            match={m}
-            tournament={tournament}
-            onStart={() => onStartMatch(m.id)}
-            onView={onViewMatch ? () => onViewMatch(m.id) : undefined}
-          />
+          <MatchAnchor key={m.id} matchId={m.id}>
+            <MatchCard
+              match={m}
+              tournament={tournament}
+              onStart={() => onStartMatch(m.id)}
+              onView={onViewMatch ? () => onViewMatch(m.id) : undefined}
+            />
+          </MatchAnchor>
         ))}
       </div>
     </div>
@@ -253,100 +256,116 @@ export function DoubleElimView({
   const losersByRound = groupByRound(losers);
   const wTotal = winnersByRound.length;
   const lTotal = losersByRound.length;
+  const connectorMatches = [
+    ...winners,
+    ...losers,
+    ...(grandFinal ? [grandFinal] : []),
+    ...(grandFinalReset ? [grandFinalReset] : []),
+  ];
+  // One unified horizontal scroll wraps BracketConnectorRoot so the SVG
+  // overlay and every match card share the same coordinate/scroll space.
+  // Previously, separate overflow-x-auto containers for W and L brackets
+  // caused the SVG (outside those containers) to draw lines to clipped-away
+  // cards, producing orphaned/mispositioned connector paths on scroll.
   return (
-    <div className="space-y-6">
-      <div>
-        <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
-          Winners Bracket
-        </div>
-        <div className="overflow-x-auto pb-2">
-          <div
-            className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
-            style={{ minWidth: `${wTotal * 220}px` }}
-          >
-            {winnersByRound.map((roundMatches, idx) => (
-              <RoundColumn
-                key={idx}
-                round={idx + 1}
-                totalRounds={wTotal}
-                matches={roundMatches}
-                tournament={tournament}
-                onStartMatch={onStartMatch}
-                onViewMatch={onViewMatch}
-                kind="de-winners"
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <div className="text-[10px] uppercase tracking-[0.4em] text-rift-redbright/65 mb-2">
-          Losers Bracket
-        </div>
-        <div className="overflow-x-auto pb-2">
-          <div
-            className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
-            style={{ minWidth: `${lTotal * 220}px` }}
-          >
-            {losersByRound.map((roundMatches, idx) => (
-              <LosersRoundColumn
-                key={idx}
-                round={idx + 1}
-                totalRounds={lTotal}
-                matches={roundMatches}
-                tournament={tournament}
-                onStartMatch={onStartMatch}
-                onViewMatch={onViewMatch}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {grandFinal && (
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
-            Grand Final
-          </div>
-          <div className="max-w-md">
-            <MatchCard
-              match={grandFinal}
-              tournament={tournament}
-              onStart={() => onStartMatch(grandFinal.id)}
-              onView={
-                onViewMatch ? () => onViewMatch(grandFinal.id) : undefined
-              }
-            />
-          </div>
-          {!grandFinalReset && (
-            <div className="text-[8px] uppercase tracking-[0.3em] text-rift-mutedbright/40 mt-1">
-              W-side wins outright. L-side win forces a bracket reset.
+    <div className="overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+      <BracketConnectorRoot
+        matches={connectorMatches}
+        className="inline-flex flex-row items-stretch gap-6"
+      >
+        {/* W-bracket + L-bracket stacked vertically; rounds are plain flex
+            columns — no nested scroll containers. */}
+        <div className="flex flex-col gap-6">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
+              Winners Bracket
             </div>
-          )}
-        </div>
-      )}
+            <div className="flex items-stretch gap-4 md:gap-6">
+              {winnersByRound.map((roundMatches, idx) => (
+                <RoundColumn
+                  key={idx}
+                  round={idx + 1}
+                  totalRounds={wTotal}
+                  matches={roundMatches}
+                  tournament={tournament}
+                  onStartMatch={onStartMatch}
+                  onViewMatch={onViewMatch}
+                  kind="de-winners"
+                />
+              ))}
+            </div>
+          </div>
 
-      {grandFinalReset && (
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
-            Grand Final · Reset
-          </div>
-          <div className="max-w-md">
-            <MatchCard
-              match={grandFinalReset}
-              tournament={tournament}
-              onStart={() => onStartMatch(grandFinalReset.id)}
-              onView={
-                onViewMatch ? () => onViewMatch(grandFinalReset.id) : undefined
-              }
-            />
-          </div>
-          <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mt-1">
-            L-side forced a reset — this match decides the tournament.
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.4em] text-rift-redbright/65 mb-2">
+              Losers Bracket
+            </div>
+            <div className="flex items-stretch gap-4 md:gap-6">
+              {losersByRound.map((roundMatches, idx) => (
+                <LosersRoundColumn
+                  key={idx}
+                  round={idx + 1}
+                  totalRounds={lTotal}
+                  matches={roundMatches}
+                  tournament={tournament}
+                  onStartMatch={onStartMatch}
+                  onViewMatch={onViewMatch}
+                />
+              ))}
+            </div>
           </div>
         </div>
-      )}
+
+        {/* Grand Final — always to the right, vertically centred within the
+            scroll unit. No xl: breakpoint needed since layout is always row. */}
+        {grandFinal && (
+          <div className="flex-shrink-0 w-[240px] flex flex-col justify-center pl-6 border-l border-rift-gold/20">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
+                Grand Final
+              </div>
+              <MatchAnchor matchId={grandFinal.id}>
+                <MatchCard
+                  match={grandFinal}
+                  tournament={tournament}
+                  onStart={() => onStartMatch(grandFinal.id)}
+                  onView={
+                    onViewMatch ? () => onViewMatch(grandFinal.id) : undefined
+                  }
+                />
+              </MatchAnchor>
+              {!grandFinalReset && (
+                <div className="text-[8px] uppercase tracking-[0.3em] text-rift-mutedbright/40 mt-1">
+                  W-side wins outright. L-side win forces a bracket reset.
+                </div>
+              )}
+            </div>
+
+            {grandFinalReset && (
+              <div className="mt-4">
+                <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
+                  Grand Final · Reset
+                </div>
+                <MatchAnchor matchId={grandFinalReset.id}>
+                  <MatchCard
+                    match={grandFinalReset}
+                    tournament={tournament}
+                    onStart={() => onStartMatch(grandFinalReset.id)}
+                    onView={
+                      onViewMatch
+                        ? () => onViewMatch(grandFinalReset.id)
+                        : undefined
+                    }
+                  />
+                </MatchAnchor>
+                <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mt-1">
+                  L-side forced a reset — this match decides the tournament.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </BracketConnectorRoot>
     </div>
   );
 }
@@ -780,118 +799,132 @@ export function PlayoffBracketSection({
           onViewMatch={onViewMatch}
         />
       ) : kind === "single-elim" || kind === "stepladder" ? (
-        <div className="overflow-x-auto pb-2">
-          <div
-            className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
-            style={{ minWidth: `${seRoundsByRound.length * 220}px` }}
-          >
-            {seRoundsByRound.map((roundMatches, idx) => (
-              <RoundColumn
-                key={idx}
-                round={idx + 1}
-                totalRounds={seRoundsByRound.length}
-                matches={roundMatches}
-                tournament={tournament}
-                onStartMatch={onStartMatch}
-                onViewMatch={onViewMatch}
-                kind={kind === "stepladder" ? "stepladder" : "se"}
-              />
-            ))}
+        <BracketConnectorRoot matches={playoffMatches}>
+          <div className="overflow-x-auto pb-2">
+            <div
+              className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
+              style={{ minWidth: `${seRoundsByRound.length * 220}px` }}
+            >
+              {seRoundsByRound.map((roundMatches, idx) => (
+                <RoundColumn
+                  key={idx}
+                  round={idx + 1}
+                  totalRounds={seRoundsByRound.length}
+                  matches={roundMatches}
+                  tournament={tournament}
+                  onStartMatch={onStartMatch}
+                  onViewMatch={onViewMatch}
+                  kind={kind === "stepladder" ? "stepladder" : "se"}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        </BracketConnectorRoot>
       ) : (
-        <div className="space-y-6">
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
-              Winners Bracket
-            </div>
-            <div className="overflow-x-auto pb-2">
-              <div
-                className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
-                style={{ minWidth: `${winnersByRound.length * 220}px` }}
-              >
-                {winnersByRound.map((roundMatches, idx) => (
-                  <RoundColumn
-                    key={idx}
-                    round={idx + 1}
-                    totalRounds={winnersByRound.length}
-                    matches={roundMatches}
-                    tournament={tournament}
-                    onStartMatch={onStartMatch}
-                    onViewMatch={onViewMatch}
-                    kind="de-winners"
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.4em] text-rift-redbright/65 mb-2">
-              Losers Bracket
-            </div>
-            <div className="overflow-x-auto pb-2">
-              <div
-                className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
-                style={{ minWidth: `${losersByRound.length * 220}px` }}
-              >
-                {losersByRound.map((roundMatches, idx) => (
-                  <LosersRoundColumn
-                    key={idx}
-                    round={idx + 1}
-                    totalRounds={losersByRound.length}
-                    matches={roundMatches}
-                    tournament={tournament}
-                    onStartMatch={onStartMatch}
-                    onViewMatch={onViewMatch}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-          {grandFinal && (
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
-                Grand Final
-              </div>
-              <div className="max-w-md">
-                <MatchCard
-                  match={grandFinal}
-                  tournament={tournament}
-                  onStart={() => onStartMatch(grandFinal.id)}
-                  onView={
-                    onViewMatch ? () => onViewMatch(grandFinal.id) : undefined
-                  }
-                />
-              </div>
-              {!grandFinalReset && (
-                <div className="text-[8px] uppercase tracking-[0.3em] text-rift-mutedbright/40 mt-1">
-                  W-side wins outright. L-side win forces a bracket reset.
+        // Same unified-scroll fix as DoubleElimView: one overflow-x-auto
+        // outside BracketConnectorRoot so the SVG and cards share one scroll
+        // space. Previously separate W/L scroll containers broke connector sync.
+        <div className="overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+          <BracketConnectorRoot
+            matches={[
+              ...winners,
+              ...losers,
+              ...(grandFinal ? [grandFinal] : []),
+              ...(grandFinalReset ? [grandFinalReset] : []),
+            ]}
+            className="inline-flex flex-row items-stretch gap-6"
+          >
+            {/* W + L brackets: stacked rows, plain flex — no nested scroll */}
+            <div className="flex flex-col gap-6">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
+                  Winners Bracket
                 </div>
-              )}
+                <div className="flex items-stretch gap-4 md:gap-6">
+                  {winnersByRound.map((roundMatches, idx) => (
+                    <RoundColumn
+                      key={idx}
+                      round={idx + 1}
+                      totalRounds={winnersByRound.length}
+                      matches={roundMatches}
+                      tournament={tournament}
+                      onStartMatch={onStartMatch}
+                      onViewMatch={onViewMatch}
+                      kind="de-winners"
+                    />
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.4em] text-rift-redbright/65 mb-2">
+                  Losers Bracket
+                </div>
+                <div className="flex items-stretch gap-4 md:gap-6">
+                  {losersByRound.map((roundMatches, idx) => (
+                    <LosersRoundColumn
+                      key={idx}
+                      round={idx + 1}
+                      totalRounds={losersByRound.length}
+                      matches={roundMatches}
+                      tournament={tournament}
+                      onStartMatch={onStartMatch}
+                      onViewMatch={onViewMatch}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
-          )}
-          {grandFinalReset && (
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
-                Grand Final · Reset
+
+            {/* Grand Final — always to the right in the unified scroll row */}
+            {grandFinal && (
+              <div className="flex-shrink-0 w-[240px] flex flex-col justify-center pl-6 border-l border-rift-gold/20">
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
+                    Grand Final
+                  </div>
+                  <MatchAnchor matchId={grandFinal.id}>
+                    <MatchCard
+                      match={grandFinal}
+                      tournament={tournament}
+                      onStart={() => onStartMatch(grandFinal.id)}
+                      onView={
+                        onViewMatch
+                          ? () => onViewMatch(grandFinal.id)
+                          : undefined
+                      }
+                    />
+                  </MatchAnchor>
+                  {!grandFinalReset && (
+                    <div className="text-[8px] uppercase tracking-[0.3em] text-rift-mutedbright/40 mt-1">
+                      W-side wins outright. L-side win forces a bracket reset.
+                    </div>
+                  )}
+                </div>
+                {grandFinalReset && (
+                  <div className="mt-4">
+                    <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
+                      Grand Final · Reset
+                    </div>
+                    <MatchAnchor matchId={grandFinalReset.id}>
+                      <MatchCard
+                        match={grandFinalReset}
+                        tournament={tournament}
+                        onStart={() => onStartMatch(grandFinalReset.id)}
+                        onView={
+                          onViewMatch
+                            ? () => onViewMatch(grandFinalReset.id)
+                            : undefined
+                        }
+                      />
+                    </MatchAnchor>
+                    <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mt-1">
+                      L-side forced a reset — this match decides the tournament.
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="max-w-md">
-                <MatchCard
-                  match={grandFinalReset}
-                  tournament={tournament}
-                  onStart={() => onStartMatch(grandFinalReset.id)}
-                  onView={
-                    onViewMatch
-                      ? () => onViewMatch(grandFinalReset.id)
-                      : undefined
-                  }
-                />
-              </div>
-              <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mt-1">
-                L-side forced a reset — this match decides the tournament.
-              </div>
-            </div>
-          )}
+            )}
+          </BracketConnectorRoot>
         </div>
       )}
     </section>

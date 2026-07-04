@@ -6,6 +6,7 @@ import { useDraftStore } from "@/store/draftStore";
 import {
   diffMetaOverrides,
   goldenRoadTeam,
+  goldenRoadRequiresGlobalCup,
   type HistoryTransfer,
   type SeasonHistoryEntry,
   type SeasonHistoryTeamRef,
@@ -66,12 +67,14 @@ import {
   type InternationalId,
   type LeagueId,
   type SplitId,
+  INTERNATIONAL_DISPLAY_ORDER,
 } from "@/lib/season/types";
 import TeamIcon from "./TeamIcon";
 import LeagueIcon from "./LeagueIcon";
 import LaneIcon from "./LaneIcon";
 import Modal from "./Modal";
 import SeasonStoryCard from "./SeasonStoryCard";
+import DynastyTimelinePanel from "./DynastyTimelinePanel";
 import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
 
 // Season History — a full-screen Hall of Seasons. Left: the timeline of
@@ -81,7 +84,7 @@ import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
 // starting and final tier tables side by side (per lane) plus the drift
 // between them.
 
-const INTL_ORDER: readonly InternationalId[] = ["first-stand", "msi", "worlds"];
+const INTL_ORDER = INTERNATIONAL_DISPLAY_ORDER;
 const SPLIT_ORDER: readonly SplitId[] = ["winter", "spring", "summer"];
 const LANES: readonly { lane: Lane; label: string }[] = [
   { lane: "top", label: "Top" },
@@ -404,7 +407,10 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
         {goldenRoadTeam(entry) && (
           <div className="mt-2 inline-block border border-rift-goldbright/70 bg-rift-goldbright/10 px-2.5 py-1">
             <span className="text-[9px] uppercase tracking-[0.3em] text-rift-goldbright">
-              ★ Golden Road — swept all six titles
+              ★ Golden Road —{" "}
+              {goldenRoadRequiresGlobalCup(entry)
+                ? "swept all seven titles"
+                : "swept all six titles"}
             </span>
           </div>
         )}
@@ -1068,13 +1074,20 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
     () =>
       entries
         .map((e) => ({
+          entry: e,
           team: goldenRoadTeam(e),
           season: e.name,
           at: e.archivedAt,
         }))
         .filter(
-          (g): g is { team: SeasonHistoryTeamRef; season: string; at: number } =>
-            g.team != null,
+          (
+            g,
+          ): g is {
+            entry: SeasonHistoryEntry;
+            team: SeasonHistoryTeamRef;
+            season: string;
+            at: number;
+          } => g.team != null,
         )
         .sort((a, b) => b.at - a.at),
     [entries],
@@ -1418,8 +1431,9 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
         {goldenRoads.length === 0 ? (
           <p className="text-[10px] italic text-rift-muted">
             No Golden Roads yet — a franchise earns one by winning all three
-            of its splits (Winter, Spring, Summer) AND all three
-            internationals (First Stand, MSI, Worlds) in a single season.
+            of its splits (Winter, Spring, Summer) AND every international on
+            the calendar (First Stand, MSI, Worlds — plus Global Cup in
+            quadrennial years) in a single season.
           </p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
@@ -1427,7 +1441,7 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
               <div
                 key={`${g.season}-${g.team.leagueId}-${g.team.name}`}
                 className="flex items-center gap-2 px-3 py-2 border border-rift-goldbright/50 bg-gradient-to-r from-rift-gold/10 to-rift-goldbright/10 text-[11px]"
-                title={`${g.team.name} swept all six titles in ${g.season}`}
+                title={`${g.team.name} swept ${goldenRoadRequiresGlobalCup(g.entry) ? "all seven titles" : "all six titles"} in ${g.season}`}
               >
                 <span aria-hidden className="text-rift-goldbright">
                   ★
@@ -1468,7 +1482,7 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                 className="flex items-center gap-2 px-3 py-2 border border-rift-line/40 bg-rift-bg/30 text-[11px]"
                 title={
                   r.dynasty.windowSpan
-                    ? `${r.dynasty.windowTitles} major titles (${r.dynasty.windowIntl}× international${r.dynasty.windowWorlds > 0 ? `, ${r.dynasty.windowWorlds}× Worlds` : ""}) across ${r.dynasty.windowSpan[0]} → ${r.dynasty.windowSpan[1]}`
+                    ? `${r.dynasty.windowTitles} major titles (${r.dynasty.windowIntl}× international${r.dynasty.windowGlobalCup > 0 ? `, ${r.dynasty.windowGlobalCup}× Global Cup` : ""}${r.dynasty.windowWorlds > 0 ? `, ${r.dynasty.windowWorlds}× Worlds` : ""}) across ${r.dynasty.windowSpan[0]} → ${r.dynasty.windowSpan[1]}`
                     : undefined
                 }
               >
@@ -2875,7 +2889,7 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
   const importSeasonHistory = useDraftStore((s) => s.importSeasonHistory);
   const champions = useDraftStore((s) => s.champions);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"timeline" | "records" | "search">("timeline");
+  const [tab, setTab] = useState<"timeline" | "records" | "dynasties" | "search">("timeline");
   // Within the Timeline tab: "seasons" = the list + selected-season résumé;
   // "overall" = a single chronological timeline across all seasons.
   const [timelineView, setTimelineView] = useState<"seasons" | "overall">(
@@ -3129,6 +3143,7 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
               [
                 { id: "timeline", label: "Timeline" },
                 { id: "records", label: "Records & Dynasties" },
+                { id: "dynasties", label: "Franchise Timeline" },
                 { id: "search", label: "Search" },
               ] as const
             ).map(({ id, label }) => (
@@ -3158,6 +3173,8 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
           </p>
         ) : tab === "records" ? (
           <RecordsPanel entries={seasonHistory} />
+        ) : tab === "dynasties" ? (
+          <DynastyTimelinePanel entries={seasonHistory} />
         ) : tab === "search" ? (
           <SearchPanel entries={seasonHistory} />
         ) : (
@@ -3215,7 +3232,11 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
                           {goldenRoadTeam(entry) && (
                             <span
                               className="ml-1.5 text-rift-goldbright"
-                              title="Golden Road — a six-title sweep"
+                              title={
+                                goldenRoadRequiresGlobalCup(entry)
+                                  ? "Golden Road — a seven-title sweep"
+                                  : "Golden Road — a six-title sweep"
+                              }
                               aria-label="Golden Road"
                             >
                               ★

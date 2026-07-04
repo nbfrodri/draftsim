@@ -24,6 +24,7 @@ import { QualifierTagView, type QualifierTagInfo } from "./QualifierBadge";
 import { Header } from "./tournament/bracket/BracketViews";
 import { RoundColumn } from "./tournament/bracket/BracketViews";
 import { DoubleElimView, TripleElimView } from "./tournament/bracket/BracketViews";
+import { BracketConnectorRoot } from "./tournament/bracket/BracketConnectors";
 import { LiveChampionMetaPanel, MetaEvolutionFeed } from "./tournament/bracket/LiveChampionMetaPanel";
 import { MatchOverrideModal } from "./tournament/bracket/MatchOverrideModal";
 import { SaveTournamentModal, SimulatingOverlay } from "./tournament/bracket/DashboardModals";
@@ -400,24 +401,26 @@ export default function TournamentDashboard() {
             onViewMatch={reviewMode ? handleViewMatch : undefined}
           />
         ) : (
-          <div className="overflow-x-auto pb-4">
-            <div
-              className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
-              style={{ minWidth: `${totalRounds * 220}px` }}
-            >
-              {rounds.map((roundMatches, roundIdx) => (
-                <RoundColumn
-                  key={roundIdx}
-                  round={roundIdx + 1}
-                  totalRounds={totalRounds}
-                  matches={roundMatches}
-                  tournament={tournament}
-                  onStartMatch={(id) => setPendingMatchId(id)}
-                  onViewMatch={reviewMode ? handleViewMatch : undefined}
-                />
-              ))}
+          <BracketConnectorRoot matches={tournament.matches}>
+            <div className="overflow-x-auto pb-4">
+              <div
+                className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
+                style={{ minWidth: `${totalRounds * 220}px` }}
+              >
+                {rounds.map((roundMatches, roundIdx) => (
+                  <RoundColumn
+                    key={roundIdx}
+                    round={roundIdx + 1}
+                    totalRounds={totalRounds}
+                    matches={roundMatches}
+                    tournament={tournament}
+                    onStartMatch={(id) => setPendingMatchId(id)}
+                    onViewMatch={reviewMode ? handleViewMatch : undefined}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
+          </BracketConnectorRoot>
         )}
       </div>
 

@@ -136,12 +136,13 @@ function findBiggestUpset(season: SeasonState): SeasonStoryUpset | undefined {
   return best?.upset;
 }
 
-// Title weights for "team of the year" — internationals dwarf split titles,
-// Worlds dwarfs the rest.
+// Title weights for "team of the year" — internationals dwarf split titles;
+// Global Cup (quadrennial) outranks Worlds.
 const TITLE_WEIGHT: Record<InternationalId, number> = {
   "first-stand": 1.5,
   msi: 2,
   worlds: 4,
+  "global-cup": 5,
 };
 
 // Most-decorated franchise of the season, ranked by weighted titles but

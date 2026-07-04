@@ -15,6 +15,7 @@ const EVENT_SHORT: Record<InternationalId, string> = {
   "first-stand": "FS",
   msi: "MSI",
   worlds: "Worlds",
+  "global-cup": "GC",
 };
 
 /** Gold trophy pill marking the defending champion of an international

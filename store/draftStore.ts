@@ -7,8 +7,6 @@ import {
   applyLock,
   applyTimeout,
   currentAction,
-  POSITIONAL_LANES,
-  reorderPicksByPosition,
   swapChampions as swapChampionsPure,
 } from "@/lib/draftEngine";
 import {
@@ -26,7 +24,6 @@ import {
   starRatingBias,
   winsByTeamName,
 } from "@/lib/series";
-import { optimizeRoleAssignment } from "@/lib/draftAI/roleAssign";
 import {
   chooseAIAction,
   chooseAIActionWithRationale,
@@ -93,7 +90,7 @@ import {
 } from "@/lib/tournament";
 import { buildGameRecap, computeGameRatings, simulateMatch } from "@/lib/matchSimulator";
 import { randomizeRoster } from "@/lib/players";
-import { chooseAIStrategyForGame, type PriorGameSummary, type TeamStrategy } from "@/lib/sim/strategies";
+import type { TeamStrategy } from "@/lib/sim/strategies";
 import {
   applyRatingsToForms,
   sideFormsFor,
@@ -104,6 +101,10 @@ import {
   getPersonality,
 } from "@/lib/draftAI";
 import { evolveMetaForTournament } from "@/lib/metaEvolution";
+import { isReverseSweep } from "@/lib/matchTags";
+import { runAutoPlayMatch } from "@/lib/sim/bulkSimClient";
+import { finalizeRoles } from "@/lib/sim/finalizeRoles";
+import { encodeRealityShareCode, decodeRealityShareCode } from "@/lib/realityShare";
 import {
   compactEncodeTournamentForPersist,
   decodeRecapHeavyFields,
@@ -334,6 +335,8 @@ export interface SeasonMatchdayMatch {
   stage: string;
   /** Group letter when stage === "group". */
   group?: string;
+  /** Match result tags (e.g. reverse sweep on a 3-2 comeback). */
+  tags?: string[];
 }
 
 /** Per-region (or per-event) results for one simulated matchday. */
@@ -691,8 +694,12 @@ interface DraftStore {
   /** Serialize a reality (its timeline + its own season history) to a JSON
    *  string for download. Tournaments are compact-encoded. Null if unknown. */
   exportReality: (id: string) => string | null;
+  /** Export a reality as a REAL1: share code (compact import string). */
+  exportRealityShareCode: (id: string) => Promise<string | null>;
   /** Restore a reality from an exported JSON string (upsert by id). */
   importReality: (json: string) => { ok: boolean; error?: string; id?: string };
+  /** Import from a REAL1: code or raw JSON export. */
+  importRealityShareCode: (code: string) => Promise<{ ok: boolean; error?: string; id?: string }>;
   /** Merge entries parsed from an imported .xlsx (upsert by id, newest
    *  archive first). Returns how many were new vs. overwritten. */
   importSeasonHistory: (
@@ -785,262 +792,6 @@ interface DraftStore {
 
 function allChampionIds(champs: Champion[]): number[] {
   return champs.map((c) => c.id);
-}
-
-// Auto-play a single tournament match in AI-vs-AI mode end-to-end.
-// Returns [updatedTournament, updatedPlayerForms] after recording the match
-// winner, advancing the bracket, and appending picks to cross-match
-// histories. Pure: never reads or writes the store. Used by both
-// simulateOneMatch (single-match) and simulateAllRemaining (loop).
-function autoPlayMatch(
-  workingTournament: TournamentState,
-  matchId: string,
-  champions: Champion[],
-  playerForms: PlayerFormMap = {},
-): [TournamentState, PlayerFormMap] {
-  const match = workingTournament.matches.find((m) => m.id === matchId);
-  if (!match) return [workingTournament, playerForms];
-  if (match.winner) return [workingTournament, playerForms];
-  if (match.blueTeamId == null || match.redTeamId == null) {
-    return [workingTournament, playerForms];
-  }
-  const blueTeam = workingTournament.teams.find(
-    (t) => t.id === match.blueTeamId,
-  );
-  const redTeam = workingTournament.teams.find(
-    (t) => t.id === match.redTeamId,
-  );
-  if (!blueTeam || !redTeam) return [workingTournament, playerForms];
-  const allIds = allChampionIds(champions);
-  // Tournament momentum context — star ratings + win streaks +
-  // round-depth in one lookup. Falls back to plain star ratings if the
-  // context can't be assembled (defensive against partially-decoded
-  // tournament state).
-  const tctx = tournamentSeriesContext(workingTournament, matchId);
-  let series = createSeries({
-    format: match.format,
-    fearless: match.fearless,
-    timerEnabled: false,
-    blueTeam: blueTeam.name,
-    redTeam: redTeam.name,
-    mode: "aivai",
-    aiSide: null,
-    aiDifficulty: match.aiDifficulty,
-    blueAiDifficulty: blueTeam.aiDifficulty,
-    redAiDifficulty: redTeam.aiDifficulty,
-    blueStarRating: tctx?.blueStarRating ?? teamStarRating(blueTeam),
-    redStarRating: tctx?.redStarRating ?? teamStarRating(redTeam),
-    blueWinStreak: tctx?.blueWinStreak,
-    redWinStreak: tctx?.redWinStreak,
-    tournamentRound: tctx?.roundDepth,
-    blueForm: tctx?.blueForm,
-    redForm: tctx?.redForm,
-    blueClutch: tctx?.blueClutch,
-    redClutch: tctx?.redClutch,
-    variancePreset: tctx?.variancePreset,
-    bluePlayers: blueTeam.players,
-    redPlayers: redTeam.players,
-    // Personality ids follow teams.
-    bluePersonalityId: blueTeam.personalityId,
-    redPersonalityId: redTeam.personalityId,
-    // Side-assignment rule from the tournament.
-    sideRule: workingTournament.sideRule,
-  });
-  let currentForms = playerForms;
-  while (series.status !== "complete") {
-    const crossLocked = crossMatchFearlessLocked(
-      workingTournament,
-      matchId,
-    );
-    const perSeriesLocked = fearlessLockedSet(series);
-    const locked = new Set<number>([...perSeriesLocked, ...crossLocked]);
-    const tournamentWR = computeTournamentChampionWR(workingTournament);
-    const teamWR = computeTeamChampionWR(workingTournament);
-    let game = currentGame(series);
-    while (currentAction(game)) {
-      const action = currentAction(game)!;
-      // Use the personality for whichever side is currently acting.
-      const personality = getPersonality(
-        action.side === "blue" ? series.bluePersonalityId : series.redPersonalityId,
-      );
-      const championId = chooseAIAction(
-        game,
-        champions,
-        locked,
-        seriesAIContextFrom(
-          series,
-          action.side,
-          champions,
-          tournamentWR,
-          {
-            map: currentForms,
-            keyFor: (n) =>
-              workingTournament.teams.find((t) => t.name === n)?.id ?? n,
-          },
-          teamWR,
-        ),
-        Math.random,
-        personality,
-      );
-      if (championId == null) {
-        game = applyTimeout(game, allIds, locked);
-      } else {
-        game = applyLock(game, championId);
-        locked.add(championId);
-      }
-    }
-    game = finalizeRoles(game, champions, series);
-    // AI auto-play picks each side's game plan using series-adaptive
-    // chooseAIStrategyForGame so plans evolve within the match based on
-    // how prior games went (deny their best carry, flip tempo after a
-    // loss, etc.).
-    {
-      const byId = new Map(champions.map((c) => [c.id, c]));
-      const toChamps = (ids: (number | null)[]) =>
-        ids.map((id) => (id != null ? byId.get(id) ?? null : null));
-      const blueChamps = toChamps(game.bluePicks);
-      const redChamps = toChamps(game.redPicks);
-      const wins = winsByTeamName(series);
-      const blueWins = wins.get(game.blueTeam) ?? 0;
-      const redWins = wins.get(game.redTeam) ?? 0;
-      const gamesToWin = requiredWins(series.format);
-      // Build prior-game summaries (team-following — pass team names).
-      const bluePrior = buildPriorGamesForTeam(series, game.blueTeam, game.redTeam);
-      const redPrior = buildPriorGamesForTeam(series, game.redTeam, game.blueTeam);
-      game = {
-        ...game,
-        blueStrategy: chooseAIStrategyForGame({
-          picks: blueChamps,
-          context: {
-            enemyPicks: redChamps,
-            roster: series.bluePlayers,
-            enemyRoster: series.redPlayers,
-            selfWins: blueWins,
-            oppWins: redWins,
-            gamesToWin,
-            rng: Math.random,
-          },
-          priorGames: bluePrior,
-          opponentName: game.redTeam,
-          rng: Math.random,
-        }),
-        redStrategy: chooseAIStrategyForGame({
-          picks: redChamps,
-          context: {
-            enemyPicks: blueChamps,
-            roster: series.redPlayers,
-            enemyRoster: series.bluePlayers,
-            selfWins: redWins,
-            oppWins: blueWins,
-            gamesToWin,
-            rng: Math.random,
-          },
-          priorGames: redPrior,
-          opponentName: game.blueTeam,
-          rng: Math.random,
-        }),
-      };
-    }
-    series = {
-      ...series,
-      games: [...series.games.slice(0, -1), game],
-    };
-    // Feature 5: pass player forms to the simulator.
-    const blueKey = blueTeam.id;
-    const redKey = redTeam.id;
-    const result = simulateMatch(game, champions, {
-      scoreBias: starRatingBias(series),
-      bluePlayers: series.bluePlayers,
-      redPlayers: series.redPlayers,
-      playerForms: {
-        blue: sideFormsFor(currentForms, blueKey),
-        red: sideFormsFor(currentForms, redKey),
-      },
-      adaptiveMidgame: true,
-    });
-    const recap = buildGameRecap(
-      game,
-      champions,
-      result,
-      series.bluePlayers,
-      series.redPlayers,
-    );
-    // Update forms after the game.
-    if (recap.ratings) {
-      currentForms = applyRatingsToForms(currentForms, blueKey, recap.ratings.blue);
-      currentForms = applyRatingsToForms(currentForms, redKey, recap.ratings.red);
-    } else {
-      const derived = computeGameRatings(recap, result.winner);
-      if (derived) {
-        currentForms = applyRatingsToForms(currentForms, blueKey, derived.blue);
-        currentForms = applyRatingsToForms(currentForms, redKey, derived.red);
-      }
-    }
-    series = recordWinner(series, result.winner, recap);
-    if (series.status === "between-games") {
-      // Feature 4: respect the tournament's sideRule.
-      const rule = effectiveSideRule(series);
-      if (rule === "loser-picks") {
-        // In bulk auto-sim both teams are AI — resolve the choice immediately.
-        const chooser = series.sideChooser;
-        if (chooser) {
-          const chooserTeam = chooser === blueTeam.name ? blueTeam : redTeam;
-          const teamPicks: number[] = [];
-          for (const g of series.games) {
-            const picksArr = g.blueTeam === chooser ? g.bluePicks : g.redPicks;
-            for (const id of picksArr) if (id != null) teamPicks.push(id);
-          }
-          const chosenSide = chooseSideAI(
-            { players: chooserTeam.players, pickHistory: teamPicks },
-            Math.random,
-          );
-          series = applySideChoice(series, chosenSide);
-        }
-      } else {
-        const sides = nextGameSides(series);
-        if (sides) {
-          series = startNextGame(series, sides.blueTeam, sides.redTeam);
-        } else {
-          const lastGame = series.games[series.games.length - 1];
-          const swap = lastGame?.winner === "blue";
-          const newBlue = swap ? series.redTeam : series.blueTeam;
-          const newRed = swap ? series.blueTeam : series.redTeam;
-          series = startNextGame(series, newBlue, newRed);
-        }
-      }
-    }
-  }
-  const wins = winsByTeamName(series);
-  const blueWins = wins.get(blueTeam.name) ?? 0;
-  const redWins = wins.get(redTeam.name) ?? 0;
-  // Resolve winner from the series's authoritative winner-side, then
-  // map back to the match's TEAM id by name (handles side-swaps mid-
-  // series). Falls back to game-count comparison only if the series
-  // somehow lacks a definitive `winner` — defensive against legacy or
-  // malformed states.
-  const winningTeamId = (() => {
-    if (series.winner) {
-      const winningName =
-        series.winner === "blue" ? series.blueTeam : series.redTeam;
-      if (winningName === blueTeam.name) return blueTeam.id;
-      if (winningName === redTeam.name) return redTeam.id;
-    }
-    return blueWins > redWins ? blueTeam.id : redTeam.id;
-  })();
-  const matchesWithSeries = workingTournament.matches.map((m) =>
-    m.id === matchId ? { ...m, series } : m,
-  );
-  const tournamentWithSeries: TournamentState = {
-    ...workingTournament,
-    matches: matchesWithSeries,
-  };
-  const withPicks = appendMatchPicks(tournamentWithSeries, matchId, series);
-  const finalTournament = recordMatchWinner(withPicks, matchId, {
-    teamId: winningTeamId,
-    blueWins,
-    redWins,
-  });
-  return [finalTournament, currentForms];
 }
 
 // Strip heavy per-game fields from a tournament snapshot before
@@ -1307,103 +1058,11 @@ function seasonPatchFor(
   };
 }
 
-// Is `side` driven by the AI in this series?
-function isAISide(series: SeriesState, side: Side): boolean {
-  if (series.mode === "aivai") return true;
-  if (series.mode === "pvai") return series.aiSide === side;
-  return false;
-}
-
-// Build the PriorGameSummary history for a given team (by NAME) from a series.
-// Follows the team across side swaps so the history covers all completed games
-// regardless of which side the team occupied. Used by chooseAIStrategyForGame.
-function buildPriorGamesForTeam(
-  series: SeriesState,
-  teamName: string,
-  opponentName: string,
-): PriorGameSummary[] {
-  const result: PriorGameSummary[] = [];
-  // Walk all completed games except the current (last) one.
-  const completedGames = series.games.slice(0, -1);
-  for (const game of completedGames) {
-    if (game.winner == null) continue;
-    const teamIsBlue = game.blueTeam === teamName;
-    const teamSide: Side = teamIsBlue ? "blue" : "red";
-    const won = game.winner === teamSide;
-    const strategy = teamIsBlue ? game.blueStrategy : game.redStrategy;
-    const oppStrategy = teamIsBlue ? game.redStrategy : game.blueStrategy;
-    if (!strategy) continue; // skip games without strategy data
-    // Gold diff from this team's perspective. goldLeadTimeline is
-    // blue-positive; flip for red.
-    const goldTimeline = game.recap?.goldLeadTimeline;
-    const finalGoldBlue = goldTimeline?.at(-1)?.goldLead ?? null;
-    const goldDiff =
-      finalGoldBlue != null
-        ? teamIsBlue
-          ? finalGoldBlue
-          : -finalGoldBlue
-        : undefined;
-    const stomp =
-      goldDiff != null ? Math.abs(goldDiff) >= 7000 : undefined;
-    result.push({
-      strategy,
-      won,
-      goldDiff: goldDiff ?? undefined,
-      stomp,
-      durationMinutes: game.recap?.durationMinutes,
-      opponentStrategy: oppStrategy,
-      opponentName,
-    });
-  }
-  return result;
-}
-
 // Pick a random personality id from PERSONALITY_LIST. Used when assigning
 // personalities to AI tournament teams at creation time.
 function randomPersonalityId(): string {
   const idx = Math.floor(Math.random() * PERSONALITY_LIST.length);
   return PERSONALITY_LIST[idx].id;
-}
-
-// Positional picks for one side. AI sides (above Easy) get the flex optimizer
-// — champions placed in the lanes that maximize meta tier + their player's
-// comfort. Human sides (and Easy AI) keep the greedy primary-lane assignment
-// and rely on the manual swap UI.
-function positionalPicksForSide(
-  picks: (number | null)[],
-  champions: Champion[],
-  series: SeriesState | undefined,
-  side: Side,
-): (number | null)[] {
-  if (
-    series &&
-    isAISide(series, side) &&
-    difficultyForSide(series, side) !== "easy"
-  ) {
-    const roster = side === "blue" ? series.bluePlayers : series.redPlayers;
-    return optimizeRoleAssignment(picks, champions, roster);
-  }
-  return reorderPicksByPosition(picks, champions);
-}
-
-// When a game completes, reorder picks into positional (top→support) order and
-// fix the role slots. After this, swap operations exchange champions between
-// positional slots while the role labels stay in place. When `series` is
-// supplied, AI-controlled sides flex-optimize their assignment first (see
-// positionalPicksForSide) so the bots play their comfort/meta-best lanes.
-function finalizeRoles(
-  game: GameDraft,
-  champions: Champion[],
-  series?: SeriesState,
-): GameDraft {
-  if (game.status !== "complete") return game;
-  return {
-    ...game,
-    bluePicks: positionalPicksForSide(game.bluePicks, champions, series, "blue"),
-    redPicks: positionalPicksForSide(game.redPicks, champions, series, "red"),
-    blueRoles: [...POSITIONAL_LANES],
-    redRoles: [...POSITIONAL_LANES],
-  };
 }
 
 export const useDraftStore = create<DraftStore>()(
@@ -2006,6 +1665,16 @@ export const useDraftStore = create<DraftStore>()(
     return JSON.stringify(payload);
   },
 
+  exportRealityShareCode: async (id) => {
+    const json = get().exportReality(id);
+    if (!json) return null;
+    try {
+      return await encodeRealityShareCode(json);
+    } catch {
+      return null;
+    }
+  },
+
   importReality: (json) => {
     let parsed: unknown;
     try {
@@ -2055,6 +1724,12 @@ export const useDraftStore = create<DraftStore>()(
       realities: [slot, ...st.realities.filter((x) => x.id !== id)],
     }));
     return { ok: true, id };
+  },
+
+  importRealityShareCode: async (code) => {
+    const decoded = await decodeRealityShareCode(code);
+    if (!decoded.json) return { ok: false, error: decoded.error ?? "Invalid code" };
+    return get().importReality(decoded.json);
   },
 
   simSeason: (scope) => {
@@ -2126,7 +1801,7 @@ export const useDraftStore = create<DraftStore>()(
             set((s) => ({ ...seasonPatchFor(s, frozen) }));
             continue;
           }
-          let [after, nextForms] = autoPlayMatch(
+          let [after, nextForms] = await runAutoPlayMatch(
             t,
             startable.id,
             champions,
@@ -2279,7 +1954,7 @@ export const useDraftStore = create<DraftStore>()(
             }
             const blue = liveT.teams.find((x) => x.id === m.blueTeamId);
             const red = liveT.teams.find((x) => x.id === m.redTeamId);
-            let [after, nf] = autoPlayMatch(liveT, id, champions, forms);
+            let [after, nf] = await runAutoPlayMatch(liveT, id, champions, forms);
             forms = nf;
             const evo = evolveMetaForTournament(after, champions);
             if (evo.tournament !== after) {
@@ -2312,6 +1987,7 @@ export const useDraftStore = create<DraftStore>()(
                       ? "group"
                       : "regular",
                 ...(fm.groupId ? { group: fm.groupId } : {}),
+                ...(isReverseSweep(fm) ? { tags: ["reverse-sweep"] } : {}),
               });
             }
             set((s) => ({ ...seasonPatchFor(s, after), playerForms: forms }));
@@ -3742,11 +3418,11 @@ export const useDraftStore = create<DraftStore>()(
     // tick so it doesn't block the render. Without this, the synchronous
     // chooseAIAction loop freezes the UI for hundreds of ms.
     set({ simulating: "match" });
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
         const { tournament: cur, champions, playerForms } = get();
         if (!cur) return;
-        const [after, newForms] = autoPlayMatch(cur, matchId, champions, playerForms);
+        const [after, newForms] = await runAutoPlayMatch(cur, matchId, champions, playerForms);
         // Feature 6: evolve meta after recording the match result.
         const evo = evolveMetaForTournament(after, champions);
         const finalTournament = evo.tournament;
@@ -3808,7 +3484,7 @@ export const useDraftStore = create<DraftStore>()(
           const m = working.matches.find((x) => x.id === id);
           if (!m || m.winner) continue;
           if (m.blueTeamId == null || m.redTeamId == null) continue;
-          const [next, nextForms] = autoPlayMatch(working, id, champions, currentForms);
+          const [next, nextForms] = await runAutoPlayMatch(working, id, champions, currentForms);
           working = next;
           currentForms = nextForms;
           // Feature 6: evolve meta after each match (order preserved —
@@ -3937,7 +3613,7 @@ export const useDraftStore = create<DraftStore>()(
             }
             break;
           }
-          const [next, nextForms] = autoPlayMatch(working, startable.id, champions, currentForms);
+          const [next, nextForms] = await runAutoPlayMatch(working, startable.id, champions, currentForms);
           working = next;
           currentForms = nextForms;
           // Feature 6: evolve meta after each match (sim-call order is

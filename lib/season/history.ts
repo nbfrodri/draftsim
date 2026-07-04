@@ -23,6 +23,7 @@ import {
   type SeasonState,
   type SplitId,
 } from "./types";
+import { isGlobalCupYear } from "./engine";
 import {
   computeSeasonStats,
   computeStageStats,
@@ -525,10 +526,23 @@ export function buildSeasonHistoryEntry(
 
 // ─── Golden Road ─────────────────────────────────────────────────────────────
 // The perfect season: ONE team wins every title it can in a single year —
-// all three of its domestic splits (Winter, Spring, Summer) AND all three
-// internationals (First Stand, MSI, Worlds). Six trophies, one franchise.
+// all three of its domestic splits (Winter, Spring, Summer) AND every
+// international on the calendar (First Stand, MSI, Worlds — plus Global Cup
+// on quadrennial franchise years). Six trophies normally; seven in cup years.
 
 const GOLDEN_ROAD_SPLITS: SplitId[] = ["winter", "spring", "summer"];
+
+function franchiseYearFromEntryName(name: string): number | undefined {
+  const m = name.match(/Year (\d+)\s*$/);
+  return m ? Number(m[1]) : undefined;
+}
+
+/** Whether a history entry's season required a Global Cup win for Golden Road. */
+export function goldenRoadRequiresGlobalCup(entry: SeasonHistoryEntry): boolean {
+  if (entry.intlChampions["global-cup"]) return true;
+  if (entry.phaseRosters?.some((p) => p.event === "global-cup")) return true;
+  return isGlobalCupYear(franchiseYearFromEntryName(entry.name));
+}
 
 /** The team that completed a Golden Road this season, or null. Operates
  *  on a finished season's résumé (split + international champions). */
@@ -545,6 +559,12 @@ export function goldenRoadTeam(
   if (!won(entry.intlChampions.msi)) return null;
   for (const split of GOLDEN_ROAD_SPLITS) {
     if (!won(entry.splitChampions[split]?.[worlds.leagueId])) return null;
+  }
+  if (
+    goldenRoadRequiresGlobalCup(entry) &&
+    !won(entry.intlChampions["global-cup"])
+  ) {
+    return null;
   }
   return worlds;
 }

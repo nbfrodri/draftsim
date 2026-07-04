@@ -209,6 +209,7 @@ export function startNextSeason(
     teams: evolvedTeams,
     activeMeta: prev.currentMeta, // carry the meta the year ended on
     priorSeason: prior,
+    franchiseYear: year,
   });
   // Pools keep creeping with the meta every offseason — auto-driven, like the
   // in-season drift (independent of the playerDevelopment skill-growth toggle).

@@ -24,6 +24,7 @@ import {
   SPLIT_LABELS,
   type InternationalId,
   type SplitId,
+  INTERNATIONAL_DISPLAY_ORDER,
 } from "./types";
 import { isDesktop, saveBinaryFileNative } from "../desktopStorage";
 import {
@@ -78,7 +79,7 @@ const TIER_STYLE: Record<MetaTier, { fill: Fill; font: string }> = {
   D: { fill: fill(C.bgdeep), font: C.muted },
 };
 
-const INTL_ORDER: readonly InternationalId[] = ["first-stand", "msi", "worlds"];
+const INTL_ORDER = INTERNATIONAL_DISPLAY_ORDER;
 const SPLIT_ORDER: readonly SplitId[] = ["winter", "spring", "summer"];
 const LANES: readonly { lane: Lane; label: string }[] = [
   { lane: "top", label: "Top" },
@@ -233,7 +234,7 @@ function addOverviewSheet(wb: Workbook, entries: SeasonHistoryEntry[], exportedA
     ws,
     "HALL OF SEASONS",
     `DraftSim season archive · ${entries.length} season${entries.length === 1 ? "" : "s"} · exported ${fmtDate(exportedAt)}`,
-    8,
+    9,
   );
   r += 1;
   writeHeaderRow(ws, r, [
@@ -245,6 +246,7 @@ function addOverviewSheet(wb: Workbook, entries: SeasonHistoryEntry[], exportedA
     "Runner-Up",
     "First Stand",
     "MSI",
+    "Global Cup",
   ]);
   ws.views = [{ state: "frozen", ySplit: r }];
   r += 1;
@@ -265,6 +267,7 @@ function addOverviewSheet(wb: Workbook, entries: SeasonHistoryEntry[], exportedA
         teamCell(e.runnerUp, rf),
         teamCell(e.intlChampions["first-stand"], rf),
         teamCell(e.intlChampions.msi, rf),
+        teamCell(e.intlChampions["global-cup"], rf),
       ],
       { height: 16 },
     );

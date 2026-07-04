@@ -48,7 +48,22 @@ export const TEAMS_PER_LEAGUE = 10;
 // ─── Calendar ──────────────────────────────────────────────────────────────
 
 export type SplitId = "winter" | "spring" | "summer";
-export type InternationalId = "first-stand" | "msi" | "worlds";
+export type InternationalId = "first-stand" | "msi" | "worlds" | "global-cup";
+
+/** Internationals shown in calendar/setup (Global Cup is automatic on quadrennial franchise years). */
+export const CONFIGURABLE_INTERNATIONAL_IDS = [
+  "first-stand",
+  "msi",
+  "worlds",
+] as const satisfies readonly InternationalId[];
+
+/** Full display order for timeline / records (includes quadrennial cup). */
+export const INTERNATIONAL_DISPLAY_ORDER: readonly InternationalId[] = [
+  "first-stand",
+  "msi",
+  "worlds",
+  "global-cup",
+];
 
 export const SPLIT_LABELS: Record<SplitId, string> = {
   winter: "Winter Split",
@@ -56,10 +71,14 @@ export const SPLIT_LABELS: Record<SplitId, string> = {
   summer: "Summer Split",
 };
 
+/** Default tournament name — user can rename later. */
+export const GLOBAL_CUP_NAME = "Global Cup";
+
 export const INTERNATIONAL_LABELS: Record<InternationalId, string> = {
   "first-stand": "First Stand",
   msi: "MSI",
   worlds: "Worlds",
+  "global-cup": GLOBAL_CUP_NAME,
 };
 
 // How many teams each league sends to each international (taken from
@@ -68,6 +87,7 @@ export const QUALIFIER_COUNTS: Record<InternationalId, number> = {
   "first-stand": 2, // Winter top 2 per league → 12 teams, single-elim
   msi: 3, //          Spring top 3 per league → 18 teams, swiss → DE-8
   worlds: 4, //       Summer top 4 per league → 18 direct + play-in
+  "global-cup": 32, // Top 32 by end-of-season global ranking (not split-fed)
 };
 
 // Which split feeds which international.
@@ -75,6 +95,7 @@ export const QUALIFYING_SPLIT: Record<InternationalId, SplitId> = {
   "first-stand": "winter",
   msi: "spring",
   worlds: "summer",
+  "global-cup": "summer", // Runs after Worlds in the same calendar year
 };
 
 // Inverse of QUALIFYING_SPLIT — which international a split feeds.

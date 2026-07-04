@@ -11,7 +11,7 @@ import {
   computeRegionTitleLeaders,
 } from "./historyRecords";
 import type { PlayerSeasonRecord } from "./stats";
-import { goldenRoadTeam } from "./history";
+import { goldenRoadTeam, goldenRoadRequiresGlobalCup } from "./history";
 import type { SeasonHistoryEntry, SeasonHistoryTeamRef } from "./history";
 
 const team = (
@@ -239,6 +239,33 @@ describe("goldenRoadTeam", () => {
       },
     });
     expect(goldenRoadTeam(e)).toBeNull();
+  });
+
+  it("requires Global Cup on quadrennial franchise years", () => {
+    const cupYear = sweep({
+      name: "My Reality — Year 4",
+      intlChampions: {
+        "first-stand": team("T1"),
+        msi: team("T1"),
+        worlds: team("T1"),
+      },
+    });
+    expect(goldenRoadRequiresGlobalCup(cupYear)).toBe(true);
+    expect(goldenRoadTeam(cupYear)).toBeNull();
+
+    expect(
+      goldenRoadTeam(
+        sweep({
+          name: "My Reality — Year 4",
+          intlChampions: {
+            "first-stand": team("T1"),
+            msi: team("T1"),
+            worlds: team("T1"),
+            "global-cup": team("T1"),
+          },
+        }),
+      )?.name,
+    ).toBe("T1");
   });
 });
 
