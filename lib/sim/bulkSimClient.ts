@@ -23,7 +23,9 @@ function ensureWorker(): Worker | null {
   if (typeof window === "undefined" || typeof Worker === "undefined") return null;
   if (worker) return worker;
   try {
-    worker = new Worker(new URL("./bulkSim.worker.ts", import.meta.url));
+    // Pre-bundled by scripts/build-bulk-sim-worker.mjs (Turbopack static export
+    // cannot bundle Worker entry points with relative imports).
+    worker = new Worker("/workers/bulkSim.worker.js");
     worker.onmessage = (event: MessageEvent<BulkSimWorkerResponse>) => {
       const { id, tournament, playerForms, error } = event.data;
       const p = pending.get(id);

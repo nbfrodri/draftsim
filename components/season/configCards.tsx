@@ -346,7 +346,7 @@ export function IntlConfigCard({
                     onChange({ playInFormat: e.target.value as "single-elim" | "double-elim" })
                   }
                   className={SELECT_CLS}
-                  title="Bracket format for the play-in (double-elim gives eliminated teams a second life)"
+                  title="Bracket format for the play-in (double-elim gives eliminated teams a second life). Play-ins always use a single decisive grand final — no bracket reset."
                 >
                   <option value="single-elim">Single Elim</option>
                   <option value="double-elim">Double Elim</option>
@@ -382,7 +382,7 @@ export function IntlConfigCard({
       {formatHasDEGrandFinal(cfg.format) && (
         <label
           className="flex items-center gap-1.5 cursor-pointer pb-1.5"
-          title="Single decisive grand final in the double-elim bracket — no bracket reset"
+          title="Main event only: single decisive grand final in the double-elim bracket — no bracket reset. Play-ins never use a reset regardless of this toggle."
         >
           <input
             type="checkbox"

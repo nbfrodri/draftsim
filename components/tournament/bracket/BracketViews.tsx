@@ -159,7 +159,7 @@ export function RoundColumn({
       ? "Quarterfinals"
       : `Round ${round}`;
   return (
-    <div className="flex-1 min-w-[200px] md:min-w-[220px] flex flex-col">
+    <div className="flex-1 min-w-[220px] md:min-w-[240px] flex flex-col">
       <div className="text-[9px] md:text-[10px] uppercase tracking-[0.4em] text-rift-gold/55 text-center mb-3">
         {roundLabel}
       </div>
@@ -204,7 +204,7 @@ export function LosersRoundColumn({
   const roundLabel =
     round === totalRounds ? "Losers Final" : `Losers Round ${round}`;
   return (
-    <div className="flex-1 min-w-[200px] md:min-w-[220px] flex flex-col">
+    <div className="flex-1 min-w-[220px] md:min-w-[240px] flex flex-col">
       <div className="text-[9px] md:text-[10px] uppercase tracking-[0.4em] text-rift-redbright/55 text-center mb-3">
         {roundLabel}
       </div>
@@ -319,7 +319,7 @@ export function DoubleElimView({
         {/* Grand Final — always to the right, vertically centred within the
             scroll unit. No xl: breakpoint needed since layout is always row. */}
         {grandFinal && (
-          <div className="flex-shrink-0 w-[240px] flex flex-col justify-center pl-6 border-l border-rift-gold/20">
+          <div className="flex-shrink-0 w-[300px] flex flex-col justify-center pl-6">
             <div>
               <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
                 Grand Final
@@ -877,7 +877,7 @@ export function PlayoffBracketSection({
 
             {/* Grand Final — always to the right in the unified scroll row */}
             {grandFinal && (
-              <div className="flex-shrink-0 w-[240px] flex flex-col justify-center pl-6 border-l border-rift-gold/20">
+              <div className="flex-shrink-0 w-[300px] flex flex-col justify-center pl-6">
                 <div>
                   <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold mb-2">
                     Grand Final

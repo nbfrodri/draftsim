@@ -504,8 +504,13 @@ describe("custom international formats", () => {
     const playIn = nextPendingTournament(s)!;
     expect(playIn.name).toBe("First Stand Play-In");
     expect(playIn.format).toBe("double-elim");
+    expect(playIn.trueGrandFinal).toBe(true);
     expect(playIn.matches.some((m) => m.bracket === "losers")).toBe(true);
-    s = applyTournamentUpdate(s, resolveTournament(playIn, rng), champions);
+    const playInDone = resolveTournament(playIn, rng);
+    expect(playInDone.matches.some((m) => m.bracket === "grand-final-reset")).toBe(
+      false,
+    );
+    s = applyTournamentUpdate(s, playInDone, champions);
     // The main bracket is still the single-elim event with the #1 seeds.
     const fs = nextPendingTournament(s)!;
     expect(fs.name).toBe("First Stand");
@@ -823,6 +828,7 @@ describe("custom international formats", () => {
         playoffTeams: 8,
         playInFormat: "double-elim",
         playInSeries: "bo3",
+        trueGrandFinal: false,
       },
     };
     let s = createSeason({
@@ -842,12 +848,57 @@ describe("custom international formats", () => {
     )!;
     expect(playIn.format).toBe("double-elim");
     expect(playIn.teams).toHaveLength(6);
+    expect(playIn.trueGrandFinal).toBe(true);
     // A losers bracket exists, and every real play-in match uses the
     // configured play-in series (bo3) — independent of the main event.
     expect(playIn.matches.some((m) => m.bracket === "losers")).toBe(true);
     expect(
       playIn.matches.filter((m) => !m.isBye).every((m) => m.format === "bo3"),
     ).toBe(true);
+    expect(playIn.matches.some((m) => m.bracket === "grand-final-reset")).toBe(
+      false,
+    );
+  });
+
+  it("double-elim First Stand play-in ignores the main-event true-grand-final toggle", () => {
+    const champions = championPool();
+    const teams = generateSeasonTeams(champions, rngFrom(31));
+    const config = makeConfig();
+    config.intlConfigs = {
+      "first-stand": {
+        format: "single-elim",
+        earlySeries: "bo1",
+        finalsSeries: "bo3",
+        playoffTeams: 8,
+        playInFormat: "double-elim",
+        trueGrandFinal: false,
+      },
+    };
+    let s = createSeason({
+      config,
+      teams,
+      activeMeta: {
+        metaOverride: null,
+        metaEnabled: true,
+        synergyOverride: null,
+        counterOverride: null,
+      },
+    });
+    const rng = rngFrom(33);
+    for (let i = 0; i < 6; i++) {
+      s = applyTournamentUpdate(
+        s,
+        resolveTournament(nextPendingTournament(s)!, rng),
+        champions,
+      );
+    }
+    const fsPlayIn = nextPendingTournament(s)!;
+    expect(fsPlayIn.name).toBe("First Stand Play-In");
+    expect(fsPlayIn.trueGrandFinal).toBe(true);
+    const fsPlayInDone = resolveTournament(fsPlayIn, rng);
+    expect(
+      fsPlayInDone.matches.some((m) => m.bracket === "grand-final-reset"),
+    ).toBe(false);
   });
 
   it("runs a triple-elimination international event to completion", () => {

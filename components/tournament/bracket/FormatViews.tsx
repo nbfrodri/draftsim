@@ -11,6 +11,7 @@ import { MatchCard } from "./MatchCard";
 import { RoundColumn, LosersRoundColumn, PlayoffBracketSection } from "./BracketViews";
 import { StandingsTable, GroupStandingsTable, SwissStandingsTable } from "./StandingsTables";
 import { DirectQualifierBadge } from "@/components/QualifierBadge";
+import TeamIcon from "@/components/TeamIcon";
 
 // Standalone round-robin layout: standings + matchday-grouped match
 // cards. Each matchday gets its own header with a quick progress
@@ -991,8 +992,27 @@ function SwissTeamSlot({
     <div
       className={`min-w-0 ${alignRight ? "text-right" : "text-left"}`}
     >
-      <div className={`font-display text-[12px] tracking-wider truncate ${winnerCls}`}>
-        {team?.name ?? "TBD"}
+      <div
+        className={`flex items-center gap-1 min-w-0 ${
+          alignRight ? "flex-row-reverse justify-end" : ""
+        }`}
+      >
+        {team && (
+          <span
+            className={`shrink-0 self-center ${winnerCls}`}
+            style={team.color ? { color: team.color } : undefined}
+          >
+            <TeamIcon
+              iconKey={team.iconKey}
+              logoUrl={team.logoUrl}
+              size={12}
+              color={team.color ?? undefined}
+            />
+          </span>
+        )}
+        <div className={`font-display text-[12px] tracking-wider truncate ${winnerCls}`}>
+          {team?.name ?? "TBD"}
+        </div>
       </div>
       {record && (
         <div className="text-[8px] uppercase tracking-[0.25em] text-rift-mutedbright/60 tabular-nums">

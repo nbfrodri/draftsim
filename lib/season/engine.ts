@@ -1041,7 +1041,8 @@ function createFirstStandPlayIn(season: SeasonState): TournamentState {
       ? // Uniform play-in series across every W/L/GF round.
         seriesOverrides(series, series, series, series)
       : singleElimOverrides(qualified.length, series, cfg.finalsSeries),
-    ...(useDE ? { trueGrandFinal: cfg.trueGrandFinal } : {}),
+    // Play-ins qualify N teams — one decisive grand final, never a reset.
+    ...(useDE ? { trueGrandFinal: true } : {}),
     metaSnapshot: cloneMeta(season.currentMeta),
     variancePreset: season.config.variancePreset,
     liveMeta: season.config.liveMeta,
@@ -1284,7 +1285,8 @@ function createWorldsPlayIn(season: SeasonState): TournamentState {
       ? // Uniform play-in series across every W/L/GF round.
         seriesOverrides(series, series, series, series)
       : singleElimOverrides(qualified.length, series, cfg.finalsSeries),
-    ...(useDE ? { trueGrandFinal: cfg.trueGrandFinal } : {}),
+    // Play-ins qualify N teams — one decisive grand final, never a reset.
+    ...(useDE ? { trueGrandFinal: true } : {}),
     metaSnapshot: cloneMeta(season.currentMeta),
     variancePreset: season.config.variancePreset,
     liveMeta: season.config.liveMeta,

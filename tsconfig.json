@@ -37,6 +37,10 @@
   ],
   "exclude": [
     "node_modules",
+    "out",
+    ".next",
+    "src-tauri/target",
+    "public/workers/bulkSim.worker.js",
     "**/__tests__/**",
     "**/*.test.ts",
     "vitest.config.ts"

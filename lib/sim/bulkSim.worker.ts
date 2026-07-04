@@ -1,4 +1,4 @@
-import { autoPlayMatch } from "./autoPlayMatch";
+import { autoPlayMatch } from "@/lib/sim/autoPlayMatch";
 
 export type BulkSimWorkerRequest = {
   type: "autoPlayMatch";
