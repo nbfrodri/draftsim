@@ -6,7 +6,7 @@ import { getTeam } from "@/lib/tournament";
 import { getChampionMeta } from "@/lib/championMeta";
 import { syntheticDamage } from "@/lib/sim/descriptions";
 import { computeGameRatings } from "@/lib/matchSimulator";
-import type { TournamentMatch, TournamentState } from "@/lib/tournament";
+import type { TournamentMatch, TournamentState, TournamentTeam } from "@/lib/tournament";
 import type { Champion, GameDraft, GameRecap, Lane, Roster, Side } from "@/lib/types";
 import { LANES } from "@/lib/lanes";
 import LaneIcon from "@/components/LaneIcon";
@@ -14,6 +14,47 @@ import TeamIcon from "@/components/TeamIcon";
 import WinProbChart from "@/components/charts/WinProbChart";
 import GoldLeadChart from "@/components/charts/GoldLeadChart";
 import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
+
+function resolveReplayTeam(
+  tournament: TournamentState,
+  name: string,
+  bracketBlue: TournamentTeam | null,
+  bracketRed: TournamentTeam | null,
+  matchBlueName: string,
+  matchRedName: string,
+): TournamentTeam | null {
+  const direct = tournament.teams.find((t) => t.name === name);
+  if (direct) return direct;
+  if (name === matchBlueName) return bracketBlue;
+  if (name === matchRedName) return bracketRed;
+  return null;
+}
+
+function ReplayTeamLabel({
+  team,
+  name,
+  className = "",
+  iconSize = 16,
+}: {
+  team: TournamentTeam | null;
+  name: string;
+  className?: string;
+  iconSize?: number;
+}) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 min-w-0 ${className}`}>
+      {team && (
+        <TeamIcon
+          iconKey={team.iconKey}
+          logoUrl={team.logoUrl}
+          size={iconSize}
+          color={team.color}
+        />
+      )}
+      <span className="truncate">{name}</span>
+    </span>
+  );
+}
 
 // Compute per-player ratings for a single game, using the recap's stored
 // ratings if present, or falling back to computeGameRatings when the recap
@@ -192,6 +233,12 @@ export function MatchReplayModal({
       ),
     [series.games, matchRedName, redTeam?.players],
   );
+  const winnerTeam =
+    match.winner?.teamId === match.blueTeamId
+      ? blueTeam
+      : match.winner?.teamId === match.redTeamId
+        ? redTeam
+        : null;
   const showSeriesStats = blueSummaries || redSummaries;
 
   return (
@@ -217,30 +264,42 @@ export function MatchReplayModal({
             Match Replay · {match.format.toUpperCase()}
             {match.fearless && " · Fearless"}
           </div>
-          <div className="flex items-baseline gap-3 flex-wrap">
-            <span
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+            <ReplayTeamLabel
+              team={blueTeam}
+              name={blueTeam?.name ?? matchBlueName}
+              iconSize={18}
               className={`font-display text-lg md:text-xl tracking-wider ${
                 match.winner?.teamId === match.blueTeamId
                   ? "text-rift-goldbright"
                   : "text-rift-bluebright"
               }`}
-            >
-              {blueTeam?.name ?? matchBlueName}
-            </span>
-            <span className="text-rift-mutedbright/60 text-sm tabular-nums">
+            />
+            <span className="text-rift-mutedbright/60 text-sm tabular-nums font-display px-0.5">
               {match.winner?.blueWins ?? 0}-{match.winner?.redWins ?? 0}
             </span>
-            <span
+            <ReplayTeamLabel
+              team={redTeam}
+              name={redTeam?.name ?? matchRedName}
+              iconSize={18}
               className={`font-display text-lg md:text-xl tracking-wider ${
                 match.winner?.teamId === match.redTeamId
                   ? "text-rift-goldbright"
                   : "text-rift-redbright"
               }`}
-            >
-              {redTeam?.name ?? matchRedName}
-            </span>
-            <span className="text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright/60 ml-auto">
-              Winner: <span className="text-rift-goldbright">{winnerLabel}</span>
+            />
+            <span className="text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright/60 ml-auto flex items-center gap-1.5">
+              Winner:{" "}
+              {winnerTeam ? (
+                <ReplayTeamLabel
+                  team={winnerTeam}
+                  name={winnerLabel}
+                  iconSize={14}
+                  className="text-rift-goldbright font-display tracking-wider normal-case"
+                />
+              ) : (
+                <span className="text-rift-goldbright">—</span>
+              )}
             </span>
           </div>
           {/* Series-average player ratings — only when at least one game
@@ -308,6 +367,22 @@ export function MatchReplayModal({
         <div className="px-4 md:px-5 py-3 md:py-4">
           <ReplayGamePanel
             game={game}
+            blueTeam={resolveReplayTeam(
+              tournament,
+              game.blueTeam || matchBlueName,
+              blueTeam,
+              redTeam,
+              matchBlueName,
+              matchRedName,
+            )}
+            redTeam={resolveReplayTeam(
+              tournament,
+              game.redTeam || matchRedName,
+              blueTeam,
+              redTeam,
+              matchBlueName,
+              matchRedName,
+            )}
             blueTeamName={game.blueTeam || matchBlueName}
             redTeamName={game.redTeam || matchRedName}
             sidesSwapped={
@@ -403,18 +478,26 @@ function SeriesRatingsPanel({
 
 function ReplayGamePanel({
   game,
+  blueTeam,
+  redTeam,
   blueTeamName,
   redTeamName,
   sidesSwapped,
   byId,
 }: {
   game: GameDraft;
+  blueTeam: TournamentTeam | null;
+  redTeam: TournamentTeam | null;
   blueTeamName: string;
   redTeamName: string;
   sidesSwapped: boolean;
   byId: Map<number, Champion>;
 }) {
   const winnerSide = game.winner;
+  const winnerTeam =
+    winnerSide === "blue" ? blueTeam : winnerSide === "red" ? redTeam : null;
+  const winnerName =
+    winnerSide === "blue" ? blueTeamName : winnerSide === "red" ? redTeamName : "";
   const recap = game.recap;
   const mvp = recap?.mvp;
   const mvpChampion = mvp ? byId.get(mvp.championId) ?? null : null;
@@ -435,19 +518,20 @@ function ReplayGamePanel({
           )}
         </div>
         {winnerSide ? (
-          <div className="text-[10px] uppercase tracking-[0.3em]">
-            Winner:{" "}
-            <span
+          <div className="text-[10px] uppercase tracking-[0.3em] flex items-center gap-1.5 flex-wrap justify-end">
+            <span className="text-rift-mutedbright/60">Winner:</span>
+            <ReplayTeamLabel
+              team={winnerTeam}
+              name={winnerName}
+              iconSize={14}
               className={
                 winnerSide === "blue"
-                  ? "text-rift-bluebright"
-                  : "text-rift-redbright"
+                  ? "text-rift-bluebright font-display tracking-wider normal-case"
+                  : "text-rift-redbright font-display tracking-wider normal-case"
               }
-            >
-              {winnerSide === "blue" ? blueTeamName : redTeamName}
-            </span>
+            />
             {recap?.durationMinutes != null && (
-              <span className="text-rift-mutedbright/60 ml-2">
+              <span className="text-rift-mutedbright/60">
                 · {Math.round(recap.durationMinutes)} min
               </span>
             )}
@@ -463,12 +547,14 @@ function ReplayGamePanel({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
         <BanRow
           side="blue"
+          team={blueTeam}
           label={blueTeamName}
           bans={game.blueBans}
           byId={byId}
         />
         <BanRow
           side="red"
+          team={redTeam}
           label={redTeamName}
           bans={game.redBans}
           byId={byId}
@@ -483,6 +569,7 @@ function ReplayGamePanel({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
         <PickColumn
           side="blue"
+          team={blueTeam}
           label={blueTeamName}
           picks={game.bluePicks}
           roles={game.blueRoles}
@@ -495,6 +582,7 @@ function ReplayGamePanel({
         />
         <PickColumn
           side="red"
+          team={redTeam}
           label={redTeamName}
           picks={game.redPicks}
           roles={game.redRoles}
@@ -585,11 +673,13 @@ function ReplayGamePanel({
 
 function BanRow({
   side,
+  team,
   label,
   bans,
   byId,
 }: {
   side: Side;
+  team: TournamentTeam | null;
   label: string;
   bans: (number | null)[];
   byId: Map<number, Champion>;
@@ -599,9 +689,10 @@ function BanRow({
   return (
     <div>
       <div
-        className={`text-[9px] uppercase tracking-[0.3em] mb-1 ${sideAccent}`}
+        className={`flex items-center gap-1.5 text-[9px] uppercase tracking-[0.3em] mb-1 ${sideAccent}`}
       >
-        {label} · Bans
+        <ReplayTeamLabel team={team} name={label} iconSize={13} />
+        <span className="text-rift-mutedbright/50">· Bans</span>
       </div>
       <div className="flex gap-1">
         {bans.map((id, i) => {
@@ -735,6 +826,7 @@ function DamageBars({
 
 function PickColumn({
   side,
+  team,
   label,
   picks,
   roles,
@@ -746,6 +838,7 @@ function PickColumn({
   playerNames,
 }: {
   side: Side;
+  team: TournamentTeam | null;
   label: string;
   picks: (number | null)[];
   roles: (Lane | null)[];
@@ -768,11 +861,12 @@ function PickColumn({
   const winnerCls = isWinner ? "border-rift-gold/60" : "border-rift-line/40";
   return (
     <div className={`border ${winnerCls} bg-rift-bg/30 p-2`}>
-      <div className="flex items-baseline justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 gap-2">
         <div
-          className={`text-[10px] uppercase tracking-[0.35em] ${sideAccent}`}
+          className={`flex items-center gap-1.5 text-[10px] uppercase tracking-[0.35em] min-w-0 ${sideAccent}`}
         >
-          {label} · Picks
+          <ReplayTeamLabel team={team} name={label} iconSize={14} className="truncate" />
+          <span className="text-rift-mutedbright/50 flex-shrink-0">· Picks</span>
         </div>
         {isWinner && (
           <div className="text-[8px] uppercase tracking-[0.3em] text-rift-goldbright">
