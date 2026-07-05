@@ -26,13 +26,11 @@ import TeamIcon from "@/components/TeamIcon";
 export function RoundRobinView({
   tournament,
   rounds,
-  reviewMode,
   onStartMatch,
   onViewMatch,
 }: {
   tournament: TournamentState;
   rounds: TournamentMatch[][];
-  reviewMode: boolean;
   onStartMatch: (matchId: string) => void;
   onViewMatch: (matchId: string) => void;
 }) {
@@ -131,9 +129,7 @@ export function RoundRobinView({
                       match={m}
                       tournament={tournament}
                       onStart={() => onStartMatch(m.id)}
-                      onView={
-                        reviewMode ? () => onViewMatch(m.id) : undefined
-                      }
+                      onView={() => onViewMatch(m.id)}
                     />
                   ))}
                 </div>
@@ -160,7 +156,7 @@ export function RoundRobinView({
           kind={playoffBracketKindFor(tournament.format)}
           advancing={advancing}
           onStartMatch={onStartMatch}
-          onViewMatch={reviewMode ? onViewMatch : undefined}
+          onViewMatch={onViewMatch}
         />
       )}
     </div>
@@ -173,13 +169,11 @@ export function RoundRobinView({
 // Playoff bracket sits below in a tournament-tree layout once started.
 export function GroupsPlayoffsView({
   tournament,
-  reviewMode,
   onStartMatch,
   onViewMatch,
 }: {
   tournament: TournamentState;
   rounds: TournamentMatch[][];
-  reviewMode: boolean;
   onStartMatch: (matchId: string) => void;
   onViewMatch: (matchId: string) => void;
 }) {
@@ -340,7 +334,6 @@ export function GroupsPlayoffsView({
             tournament={tournament}
             groupId={groupId}
             advancingPerGroup={advancingPerGroup}
-            reviewMode={reviewMode}
             onStartMatch={onStartMatch}
             onViewMatch={onViewMatch}
           />
@@ -365,7 +358,7 @@ export function GroupsPlayoffsView({
           kind={playoffBracketKindFor(tournament.format)}
           advancing={totalAdvancing}
           onStartMatch={onStartMatch}
-          onViewMatch={reviewMode ? onViewMatch : undefined}
+          onViewMatch={onViewMatch}
         />
       )}
     </div>
@@ -378,14 +371,12 @@ function GroupPanel({
   tournament,
   groupId,
   advancingPerGroup,
-  reviewMode,
   onStartMatch,
   onViewMatch,
 }: {
   tournament: TournamentState;
   groupId: string;
   advancingPerGroup: number;
-  reviewMode: boolean;
   onStartMatch: (matchId: string) => void;
   onViewMatch: (matchId: string) => void;
 }) {
@@ -459,7 +450,7 @@ function GroupPanel({
                   match={m}
                   tournament={tournament}
                   onStart={() => onStartMatch(m.id)}
-                  onView={reviewMode ? () => onViewMatch(m.id) : undefined}
+                  onView={() => onViewMatch(m.id)}
                 />
               ))}
             </div>
@@ -479,13 +470,11 @@ function GroupPanel({
 export function SwissView({
   tournament,
   rounds: _rounds,
-  reviewMode,
   onStartMatch,
   onViewMatch,
 }: {
   tournament: TournamentState;
   rounds: TournamentMatch[][];
-  reviewMode: boolean;
   onStartMatch: (matchId: string) => void;
   onViewMatch: (matchId: string) => void;
 }) {
@@ -681,7 +670,7 @@ export function SwissView({
                   preRoundRecord={preRoundRecords[idx] ?? new Map()}
                   pendingIds={pendingIds}
                   onStartMatch={onStartMatch}
-                  onViewMatch={reviewMode ? onViewMatch : undefined}
+                  onViewMatch={onViewMatch}
                 />
               );
             })}
@@ -697,7 +686,7 @@ export function SwissView({
           kind={playoffKind}
           advancing={advancing}
           onStartMatch={onStartMatch}
-          onViewMatch={reviewMode ? onViewMatch : undefined}
+          onViewMatch={onViewMatch}
         />
       )}
     </div>

@@ -186,11 +186,6 @@ export default function TournamentDashboard() {
       }));
     return field.length > 0 ? field : null;
   }, [season, tournament]);
-  // Replay click-through is available only post-tournament. Mid-event
-  // we'd be exposing in-progress series state via a read-only modal,
-  // which conflicts with the live "start match" affordance on the same
-  // card. Keep them mutually exclusive.
-  const reviewMode = tournament.status === "complete";
   const handleViewMatch = (id: string) => {
     setViewMatchId(id);
     setViewGameIdx(0);
@@ -363,7 +358,6 @@ export default function TournamentDashboard() {
           <RoundRobinView
             tournament={tournament}
             rounds={rounds}
-            reviewMode={reviewMode}
             onStartMatch={(id) => setPendingMatchId(id)}
             onViewMatch={handleViewMatch}
           />
@@ -373,7 +367,6 @@ export default function TournamentDashboard() {
           <GroupsPlayoffsView
             tournament={tournament}
             rounds={rounds}
-            reviewMode={reviewMode}
             onStartMatch={(id) => setPendingMatchId(id)}
             onViewMatch={handleViewMatch}
           />
@@ -384,7 +377,6 @@ export default function TournamentDashboard() {
           <SwissView
             tournament={tournament}
             rounds={rounds}
-            reviewMode={reviewMode}
             onStartMatch={(id) => setPendingMatchId(id)}
             onViewMatch={handleViewMatch}
           />
@@ -392,13 +384,13 @@ export default function TournamentDashboard() {
           <DoubleElimView
             tournament={tournament}
             onStartMatch={(id) => setPendingMatchId(id)}
-            onViewMatch={reviewMode ? handleViewMatch : undefined}
+            onViewMatch={handleViewMatch}
           />
         ) : tournament.format === "triple-elim" ? (
           <TripleElimView
             tournament={tournament}
             onStartMatch={(id) => setPendingMatchId(id)}
-            onViewMatch={reviewMode ? handleViewMatch : undefined}
+            onViewMatch={handleViewMatch}
           />
         ) : (
           <BracketConnectorRoot matches={tournament.matches}>
@@ -415,7 +407,7 @@ export default function TournamentDashboard() {
                     matches={roundMatches}
                     tournament={tournament}
                     onStartMatch={(id) => setPendingMatchId(id)}
-                    onViewMatch={reviewMode ? handleViewMatch : undefined}
+                    onViewMatch={handleViewMatch}
                   />
                 ))}
               </div>

@@ -324,8 +324,8 @@ const MatchCardInner = memo(function MatchCardInner({
       )}
       {status === "complete" &&
         (onView ? (
-          // When a view handler is supplied (post-tournament), make the
-          // final-score line a button that opens the replay modal.
+          // Completed matches can open the replay modal any time — even
+          // while the wider tournament is still in progress.
           <button
             type="button"
             onClick={onView}
@@ -365,9 +365,8 @@ export function MatchCard({
   match: TournamentMatch;
   tournament: TournamentState;
   onStart: () => void;
-  // Optional review-mode handler. When supplied and the match is
-  // complete, the whole card becomes clickable to open the replay
-  // modal. Undefined = no replay button (dashboard during play).
+  // Optional review handler. When supplied and the match is complete,
+  // the final score becomes a button that opens the replay modal.
   onView?: () => void;
 }) {
   const blueTeam = getTeam(tournament, match.blueTeamId);

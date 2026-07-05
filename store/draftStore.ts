@@ -337,6 +337,11 @@ export interface SeasonMatchdayMatch {
   group?: string;
   /** Match result tags (e.g. reverse sweep on a 3-2 comeback). */
   tags?: string[];
+  /** Live tournament + match ids for opening the replay modal. */
+  tournamentId?: string;
+  matchId?: string;
+  /** False when the match was resolved without series/recap data. */
+  hasReplay?: boolean;
 }
 
 /** Per-region (or per-event) results for one simulated matchday. */
@@ -1988,6 +1993,9 @@ export const useDraftStore = create<DraftStore>()(
                       : "regular",
                 ...(fm.groupId ? { group: fm.groupId } : {}),
                 ...(isReverseSweep(fm) ? { tags: ["reverse-sweep"] } : {}),
+                tournamentId: tid,
+                matchId: fm.id,
+                hasReplay: Boolean(fm.series),
               });
             }
             set((s) => ({ ...seasonPatchFor(s, after), playerForms: forms }));

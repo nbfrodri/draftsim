@@ -7,8 +7,10 @@ import { getChampionMeta } from "@/lib/championMeta";
 import { syntheticDamage } from "@/lib/sim/descriptions";
 import { computeGameRatings } from "@/lib/matchSimulator";
 import type { TournamentMatch, TournamentState } from "@/lib/tournament";
-import type { Champion, GameDraft, GameRecap, Lane, Side } from "@/lib/types";
+import type { Champion, GameDraft, GameRecap, Lane, Roster, Side } from "@/lib/types";
+import { LANES } from "@/lib/lanes";
 import LaneIcon from "@/components/LaneIcon";
+import TeamIcon from "@/components/TeamIcon";
 import WinProbChart from "@/components/charts/WinProbChart";
 import GoldLeadChart from "@/components/charts/GoldLeadChart";
 import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
@@ -22,32 +24,90 @@ function gameRatings(recap: GameRecap, winner: Side | null): { blue: number[]; r
   return computeGameRatings(recap, winner);
 }
 
-// Compute each player's average rating across all simulated games in the
-// series. Returns { blue: number[], red: number[] } with 5 entries per side
-// (positional lane order). Returns null when no game has ratings.
-function seriesAverageRatings(games: GameDraft[]): { blue: number[]; red: number[] } | null {
-  const blueAccum = [0, 0, 0, 0, 0];
-  const redAccum = [0, 0, 0, 0, 0];
-  const blueCount = [0, 0, 0, 0, 0];
-  const redCount = [0, 0, 0, 0, 0];
+// Which side a team played on in a given game (sides may swap mid-series).
+function teamSideInGame(game: GameDraft, teamName: string): Side | null {
+  if (game.blueTeam === teamName) return "blue";
+  if (game.redTeam === teamName) return "red";
+  return null;
+}
+
+type SeriesPlayerSummary = {
+  lane: Lane;
+  name: string | null;
+  avgRating: number;
+  kda: { k: number; d: number; a: number };
+};
+
+// Per-player series averages + summed KDA for one team slot.
+function seriesTeamPlayerSummaries(
+  games: GameDraft[],
+  teamName: string,
+  roster?: Roster,
+): SeriesPlayerSummary[] | null {
+  const ratingSum = [0, 0, 0, 0, 0];
+  const ratingCount = [0, 0, 0, 0, 0];
+  const kdaSum = [
+    { k: 0, d: 0, a: 0 },
+    { k: 0, d: 0, a: 0 },
+    { k: 0, d: 0, a: 0 },
+    { k: 0, d: 0, a: 0 },
+    { k: 0, d: 0, a: 0 },
+  ];
+  let anyKda = false;
+  let anyRating = false;
 
   for (const g of games) {
     if (!g.recap || !g.winner) continue;
-    const r = gameRatings(g.recap, g.winner);
-    if (!r) continue;
-    for (let i = 0; i < 5; i++) {
-      if (r.blue[i] != null) { blueAccum[i] += r.blue[i]; blueCount[i]++; }
-      if (r.red[i] != null) { redAccum[i] += r.red[i]; redCount[i]++; }
+    const side = teamSideInGame(g, teamName);
+    if (!side) continue;
+    const recap = g.recap;
+    const ratings = gameRatings(recap, g.winner);
+    if (ratings) {
+      const sideRatings = side === "blue" ? ratings.blue : ratings.red;
+      for (let i = 0; i < 5; i++) {
+        if (sideRatings[i] != null) {
+          ratingSum[i] += sideRatings[i];
+          ratingCount[i]++;
+          anyRating = true;
+        }
+      }
+    }
+    const sideKda = recap.perPickKDA?.[side];
+    if (sideKda) {
+      for (let i = 0; i < 5; i++) {
+        const row = sideKda[i];
+        if (!row) continue;
+        kdaSum[i].k += row.k;
+        kdaSum[i].d += row.d;
+        kdaSum[i].a += row.a;
+        anyKda = true;
+      }
     }
   }
 
-  const anyRated = blueCount.some((c) => c > 0) || redCount.some((c) => c > 0);
-  if (!anyRated) return null;
+  if (!anyKda && !anyRating) return null;
 
-  return {
-    blue: blueAccum.map((sum, i) => blueCount[i] > 0 ? Math.round((sum / blueCount[i]) * 10) / 10 : 0),
-    red: redAccum.map((sum, i) => redCount[i] > 0 ? Math.round((sum / redCount[i]) * 10) / 10 : 0),
-  };
+  return LANES.map(({ key: lane }, i) => {
+    // Prefer names from recap data (correct side per game after swaps),
+    // then the tournament roster for this bracket slot.
+    const nameFromGames = games
+      .map((g) => {
+        const side = teamSideInGame(g, teamName);
+        if (!side || !g.recap?.perPickNames) return null;
+        return g.recap.perPickNames[side][i] ?? null;
+      })
+      .find((n) => n);
+    const name = nameFromGames ?? roster?.[i]?.name ?? null;
+    return {
+      lane,
+      name,
+      avgRating:
+        ratingCount[i] > 0
+          ? Math.round((ratingSum[i] / ratingCount[i]) * 10) / 10
+          : 0,
+      kda: kdaSum[i],
+    };
+  });
 }
 
 // Read-only replay of a completed tournament match. Renders a tab-strip
@@ -103,14 +163,36 @@ export function MatchReplayModal({
   if (!series) return null;
   const games = series.games;
   const game = games[activeGameIdx] ?? games[0];
+  // Bracket-slot team identity — do NOT use series.blueTeam/redTeam here;
+  // side-swap rules rewrite those each game so the final values can invert.
+  const matchBlueName = blueTeam?.name ?? games[0]?.blueTeam ?? "Blue";
+  const matchRedName = redTeam?.name ?? games[0]?.redTeam ?? "Red";
   const winnerLabel =
     match.winner?.teamId === match.blueTeamId
-      ? blueTeam?.name ?? "Blue"
+      ? matchBlueName
       : match.winner?.teamId === match.redTeamId
-      ? redTeam?.name ?? "Red"
+      ? matchRedName
       : "—";
 
-  const avgRatings = useMemo(() => seriesAverageRatings(series.games), [series.games]);
+  const blueSummaries = useMemo(
+    () =>
+      seriesTeamPlayerSummaries(
+        series.games,
+        matchBlueName,
+        blueTeam?.players,
+      ),
+    [series.games, matchBlueName, blueTeam?.players],
+  );
+  const redSummaries = useMemo(
+    () =>
+      seriesTeamPlayerSummaries(
+        series.games,
+        matchRedName,
+        redTeam?.players,
+      ),
+    [series.games, matchRedName, redTeam?.players],
+  );
+  const showSeriesStats = blueSummaries || redSummaries;
 
   return (
     <div
@@ -143,7 +225,7 @@ export function MatchReplayModal({
                   : "text-rift-bluebright"
               }`}
             >
-              {blueTeam?.name ?? "Blue"}
+              {blueTeam?.name ?? matchBlueName}
             </span>
             <span className="text-rift-mutedbright/60 text-sm tabular-nums">
               {match.winner?.blueWins ?? 0}-{match.winner?.redWins ?? 0}
@@ -155,26 +237,32 @@ export function MatchReplayModal({
                   : "text-rift-redbright"
               }`}
             >
-              {redTeam?.name ?? "Red"}
+              {redTeam?.name ?? matchRedName}
             </span>
             <span className="text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright/60 ml-auto">
               Winner: <span className="text-rift-goldbright">{winnerLabel}</span>
             </span>
           </div>
           {/* Series-average player ratings — only when at least one game
-              was simulated and has rating data. Two columns, one per side. */}
-          {avgRatings && (
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <SeriesRatingsRow
-                label={blueTeam?.name ?? "Blue"}
-                side="blue"
-                ratings={avgRatings.blue}
-              />
-              <SeriesRatingsRow
-                label={redTeam?.name ?? "Red"}
-                side="red"
-                ratings={avgRatings.red}
-              />
+              was simulated and has rating/KDA data. */}
+          {showSeriesStats && (
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+              {blueSummaries && (
+                <SeriesRatingsPanel
+                  team={blueTeam}
+                  side="blue"
+                  label={matchBlueName}
+                  players={blueSummaries}
+                />
+              )}
+              {redSummaries && (
+                <SeriesRatingsPanel
+                  team={redTeam}
+                  side="red"
+                  label={matchRedName}
+                  players={redSummaries}
+                />
+              )}
             </div>
           )}
         </div>
@@ -220,8 +308,8 @@ export function MatchReplayModal({
         <div className="px-4 md:px-5 py-3 md:py-4">
           <ReplayGamePanel
             game={game}
-            blueTeamName={game.blueTeam || blueTeam?.name || "Blue"}
-            redTeamName={game.redTeam || redTeam?.name || "Red"}
+            blueTeamName={game.blueTeam || matchBlueName}
+            redTeamName={game.redTeam || matchRedName}
             sidesSwapped={
               activeGameIdx > 0 &&
               games[0].blueTeam !== game.blueTeam &&
@@ -236,28 +324,78 @@ export function MatchReplayModal({
   );
 }
 
-// Series-level average ratings row for one team's 5 players.
-// Rendered in the modal header area to give an at-a-glance overview of
-// each player's average performance across all simulated games.
-function SeriesRatingsRow({
-  label,
+// Series-level stats for one team: logo, per-player lane icon + name,
+// summed KDA, and average rating across simulated games.
+function SeriesRatingsPanel({
+  team,
   side,
-  ratings,
+  label,
+  players,
 }: {
-  label: string;
+  team: ReturnType<typeof getTeam>;
   side: Side;
-  ratings: number[];
+  label: string;
+  players: SeriesPlayerSummary[];
 }) {
   const sideAccent = side === "blue" ? "text-rift-bluebright" : "text-rift-redbright";
+  const borderAccent =
+    side === "blue" ? "border-rift-blue/30" : "border-rift-red/30";
   return (
-    <div>
-      <div className={`text-[8px] uppercase tracking-[0.3em] mb-1 ${sideAccent}`}>
-        {label} · Avg Ratings
+    <div className={`border ${borderAccent} bg-rift-bg/25 px-2 py-1.5`}>
+      <div className={`flex items-center gap-1.5 mb-1.5 ${sideAccent}`}>
+        {team && (
+          <TeamIcon
+            iconKey={team.iconKey}
+            logoUrl={team.logoUrl}
+            size={14}
+            color={team.color}
+          />
+        )}
+        <span className="text-[8px] uppercase tracking-[0.3em] truncate">
+          {label} · Series Avg
+        </span>
       </div>
-      <div className="flex gap-1 flex-wrap">
-        {ratings.map((r, i) => (
-          r > 0 ? <RatingBadge key={i} rating={r} /> : null
-        ))}
+      <div className="space-y-0.5">
+        {players.map((p, i) => {
+          const hasKda = p.kda.k + p.kda.d + p.kda.a > 0;
+          const kdaRatio =
+            p.kda.d > 0
+              ? ((p.kda.k + p.kda.a) / p.kda.d).toFixed(1)
+              : null;
+          return (
+            <div
+              key={i}
+              className="flex items-center gap-1.5 min-w-0 text-[10px]"
+            >
+              <LaneIcon lane={p.lane} className="w-3.5 h-3.5 text-rift-gold/70 flex-shrink-0" />
+              <span
+                className="truncate flex-1 min-w-0 font-medium text-rift-mutedbright"
+                title={p.name ?? LANES[i].label}
+              >
+                {p.name ?? LANES[i].label}
+              </span>
+              {hasKda && (
+                <span className="tabular-nums font-display flex-shrink-0 text-[9px]">
+                  <span className="text-emerald-300">{p.kda.k}</span>
+                  <span className="text-rift-muted/50">/</span>
+                  <span className="text-rift-redbright/85">{p.kda.d}</span>
+                  <span className="text-rift-muted/50">/</span>
+                  <span className="text-rift-goldbright/85">{p.kda.a}</span>
+                  {kdaRatio && (
+                    <span className="ml-1 text-rift-mutedbright/60">
+                      ({kdaRatio})
+                    </span>
+                  )}
+                </span>
+              )}
+              {p.avgRating > 0 && (
+                <span className="flex-shrink-0">
+                  <RatingBadge rating={p.avgRating} />
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

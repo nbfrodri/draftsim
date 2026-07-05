@@ -70,6 +70,7 @@ import { isDesktop, saveFileNative } from "@/lib/desktopStorage";
 import SeasonMetaPanel from "./SeasonMetaPanel";
 import { SimulatingOverlay } from "./tournament/bracket/DashboardModals";
 import { GroupStandingsTable } from "./tournament/bracket/StandingsTables";
+import { MatchReplayModal } from "./tournament/replay/MatchReplayModal";
 
 // Season dashboard: phase timeline, the current phase's tournaments
 // (league cards with standings, international cards with seeds), sim
@@ -94,8 +95,19 @@ export default function SeasonDashboard() {
   );
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const [matchReplay, setMatchReplay] = useState<{
+    tournamentId: string;
+    matchId: string;
+  } | null>(null);
   // Mid-season aggregate stats toggle (always rendered once complete).
   const [statsOpen, setStatsOpen] = useState(false);
+
+  const replayTournament = matchReplay
+    ? season.tournaments[matchReplay.tournamentId]
+    : null;
+  const replayMatch =
+    replayTournament?.matches.find((m) => m.id === matchReplay?.matchId) ??
+    null;
 
   useEffect(() => {
     if (!saveFeedback) return;
@@ -464,7 +476,12 @@ export default function SeasonDashboard() {
 
         {/* Latest matchday results, per region (updates each matchday). */}
         {seasonMatchday && season.status !== "complete" && (
-          <LatestMatchdayPanel matchday={seasonMatchday} />
+          <LatestMatchdayPanel
+            matchday={seasonMatchday}
+            onViewReplay={(tournamentId, matchId) =>
+              setMatchReplay({ tournamentId, matchId })
+            }
+          />
         )}
 
         {/* Season-wide stats, available any time once games exist. */}
@@ -524,6 +541,14 @@ export default function SeasonDashboard() {
         }}
         onCancel={() => setConfirmAbandon(false)}
       />
+
+      {replayTournament && replayMatch && (
+        <MatchReplayModal
+          match={replayMatch}
+          tournament={replayTournament}
+          onClose={() => setMatchReplay(null)}
+        />
+      )}
     </div>
   );
 }
@@ -684,7 +709,13 @@ function MatchdayResultTag({ tag }: { tag: string }) {
   );
 }
 
-function LatestMatchdayPanel({ matchday }: { matchday: SeasonMatchdayResult }) {
+function LatestMatchdayPanel({
+  matchday,
+  onViewReplay,
+}: {
+  matchday: SeasonMatchdayResult;
+  onViewReplay?: (tournamentId: string, matchId: string) => void;
+}) {
   if (matchday.regions.length === 0) return null;
   return (
     <div className="mb-7 border border-rift-gold/40 bg-rift-bg/40">
@@ -708,8 +739,14 @@ function LatestMatchdayPanel({ matchday }: { matchday: SeasonMatchdayResult }) {
               </div>
             ) : (
               <div className="space-y-1">
-                {r.results.map((m, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-[10px]">
+                {r.results.map((m, i) => {
+                  const canReplay =
+                    m.hasReplay &&
+                    m.tournamentId &&
+                    m.matchId &&
+                    onViewReplay;
+                  const row = (
+                    <div className="flex items-center gap-1.5 text-[10px]">
                     {/* Blue side (right-aligned toward the score) */}
                     <span className="flex-1 flex items-center justify-end gap-1 min-w-0">
                       <span
@@ -741,8 +778,32 @@ function LatestMatchdayPanel({ matchday }: { matchday: SeasonMatchdayResult }) {
                     {m.tags?.map((tag) => (
                       <MatchdayResultTag key={tag} tag={tag} />
                     ))}
-                  </div>
-                ))}
+                    {canReplay && (
+                      <span className="text-[8px] uppercase tracking-[0.15em] text-rift-gold/60 flex-shrink-0">
+                        · View
+                      </span>
+                    )}
+                    </div>
+                  );
+                  if (!canReplay) {
+                    return (
+                      <div key={i}>{row}</div>
+                    );
+                  }
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() =>
+                        onViewReplay!(m.tournamentId!, m.matchId!)
+                      }
+                      className="w-full text-left rounded-sm hover:bg-rift-gold/[0.06] transition-colors px-0.5 -mx-0.5"
+                      title="View match recap"
+                    >
+                      {row}
+                    </button>
+                  );
+                })}
               </div>
             )}
             {r.qualified && r.qualified.length > 0 && (
