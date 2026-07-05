@@ -132,102 +132,125 @@ function YearCell({ cell }: { cell: MatrixCell }) {
 
 // ─── Expanded franchise detail ────────────────────────────────────────────────
 
+function StatChip({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex flex-col items-center justify-center min-w-[3.25rem] px-2 py-1.5 border border-rift-line/35 bg-rift-bg/30">
+      <span className="text-[8px] uppercase tracking-[0.14em] text-rift-muted/55 leading-none">
+        {label}
+      </span>
+      <span className="text-base tabular-nums font-display text-rift-goldbright leading-tight mt-1">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function TitleListSection({
+  heading,
+  items,
+}: {
+  heading: string;
+  items: MatrixRow["titleList"];
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="text-[8px] uppercase tracking-[0.16em] text-rift-muted/55 mb-1.5">
+        {heading}
+        <span className="ml-1.5 text-rift-muted/35 tabular-nums">({items.length})</span>
+      </div>
+      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 max-h-40 overflow-y-auto pr-1">
+        {items.map((t, i) => (
+          <li key={i} className="flex items-center gap-1.5 min-w-0">
+            <EventIcon event={t.event} size={t.event.kind === "split-title" ? 10 : 12} />
+            <span
+              className="text-[10px] text-rift-mutedbright/85 truncate flex-1 min-w-0"
+              title={t.event.label}
+            >
+              {t.event.label}
+            </span>
+            <span className="text-[8px] tabular-nums text-rift-muted/50 flex-shrink-0 px-1 py-px border border-rift-line/30 bg-rift-bg/40">
+              {t.yearLabel}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ExpandedDetail({
   row,
-  yearCount,
 }: {
   row: MatrixRow;
-  yearCount: number;
 }) {
   const splits = row.titleList.filter((t) => t.event.kind === "split-title");
   const intls = row.titleList.filter((t) => t.event.kind !== "split-title");
+  const accent = row.team.color ?? "rgba(200,170,110,0.45)";
 
   return (
-    <tr>
-      <td
-        colSpan={yearCount + 1}
-        className="bg-rift-paneldark/60 border-b border-rift-line/30 p-0"
-      >
+    <tr className="bg-rift-paneldark/40">
+      <td colSpan={999} className="p-0 border-b border-rift-line/25">
         {/*
-          Sticky so the detail panel stays in view when the year matrix
-          is scrolled horizontally. The inner div pins to left=0 of the
-          overflow-x-auto scroll container while the outer <td> (which
-          spans all year columns) can be arbitrarily wide.
+          Sticky panel pinned to the scroll container's left edge. max-width
+          keeps content inside the visible viewport when many year columns
+          make the table row extremely wide.
         */}
         <div
-          className="sticky left-0 pt-3 pb-4 pr-4"
-          style={{ paddingLeft: FRANCHISE_COL_W + 8 }}
+          className="sticky left-0 z-[5] py-2 pr-3"
+          style={{
+            paddingLeft: FRANCHISE_COL_W + 10,
+            width: "max-content",
+            maxWidth: "min(92vw, 52rem)",
+          }}
         >
-        <div className="flex flex-wrap gap-8">
-          {/* Stats summary */}
-          <div className="flex gap-5">
-            {(
-              [
-                { label: "Splits", value: row.splitTitles },
-                { label: "Intl", value: row.intlTitles },
-                { label: "Worlds", value: row.worldsTitles },
-                ...(row.globalCupTitles > 0
-                  ? [{ label: "Global Cup", value: row.globalCupTitles }]
-                  : []),
-                { label: "Total", value: row.totalTitles },
-              ] as Array<{ label: string; value: number }>
-            ).map(({ label, value }) => (
-              <div key={label} className="flex flex-col items-center gap-0.5">
-                <span className="text-[9px] uppercase tracking-[0.15em] text-rift-muted/50">
-                  {label}
-                </span>
-                <span className="text-lg tabular-nums font-display text-rift-goldbright leading-none">
-                  {value}
-                </span>
+          <div
+            className="border border-rift-line/40 bg-rift-panel/90 shadow-[0_4px_24px_rgba(0,0,0,0.35)] overflow-hidden"
+            style={{ borderLeftWidth: 2, borderLeftColor: accent }}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-rift-line/25 bg-rift-bg/25 min-w-0">
+              <TeamIcon
+                iconKey={row.team.iconKey}
+                logoUrl={row.team.logoUrl}
+                size={16}
+                color={row.team.color}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-medium text-rift-goldbright truncate">
+                  {row.team.name}
+                </div>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <LeagueIcon league={row.team.leagueId} size={9} />
+                  <span className="text-[8px] text-rift-muted/55 uppercase tracking-wider">
+                    {row.team.leagueId}
+                  </span>
+                </div>
               </div>
-            ))}
-          </div>
+              <TierBadge tier={row.dynasty.tier} />
+            </div>
 
-          {/* Title lists */}
-          <div className="flex flex-wrap gap-6 flex-1 min-w-0">
-            {intls.length > 0 && (
-              <div>
-                <div className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/50 mb-1.5">
-                  International titles
-                </div>
-                <div className="flex flex-col gap-1">
-                  {intls.map((t, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <EventIcon event={t.event} size={12} />
-                      <span className="text-[10px] text-rift-mutedbright/80">
-                        {t.event.label}
-                      </span>
-                      <span className="text-[9px] tabular-nums text-rift-muted/50 ml-1">
-                        {t.yearLabel}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+            <div className="px-3 py-3 space-y-3">
+              {/* Stats */}
+              <div className="flex flex-wrap gap-1.5">
+                <StatChip label="Splits" value={row.splitTitles} />
+                <StatChip label="Intl" value={row.intlTitles} />
+                <StatChip label="Worlds" value={row.worldsTitles} />
+                {row.globalCupTitles > 0 && (
+                  <StatChip label="Global Cup" value={row.globalCupTitles} />
+                )}
+                <StatChip label="Total" value={row.totalTitles} />
               </div>
-            )}
 
-            {splits.length > 0 && (
-              <div>
-                <div className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/50 mb-1.5">
-                  Split titles
+              {/* Title lists */}
+              {(intls.length > 0 || splits.length > 0) && (
+                <div className="flex flex-col lg:flex-row gap-4 pt-1 border-t border-rift-line/20">
+                  <TitleListSection heading="International" items={intls} />
+                  <TitleListSection heading="Splits" items={splits} />
                 </div>
-                <div className="flex flex-col gap-1">
-                  {splits.map((t, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <EventIcon event={t.event} size={10} />
-                      <span className="text-[10px] text-rift-mutedbright/70">
-                        {t.event.label}
-                      </span>
-                      <span className="text-[9px] tabular-nums text-rift-muted/50 ml-1">
-                        {t.yearLabel}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
         </div>
       </td>
     </tr>
@@ -291,9 +314,9 @@ function FranchiseRow({
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="flex-shrink-0 opacity-40 text-rift-muted/50">
               {expanded ? (
-                <IconChevronDown size={10} strokeWidth={2} />
+                <IconChevronDown size={10} strokeWidth={2} aria-hidden />
               ) : (
-                <IconChevronRight size={10} strokeWidth={2} />
+                <IconChevronRight size={10} strokeWidth={2} aria-hidden />
               )}
             </span>
             <TeamIcon
@@ -343,9 +366,7 @@ function FranchiseRow({
         })}
       </tr>
 
-      {expanded && (
-        <ExpandedDetail row={row} yearCount={years.length} />
-      )}
+      {expanded && <ExpandedDetail row={row} />}
     </>
   );
 }
@@ -636,7 +657,7 @@ export default function DynastyTimelinePanel({
       {/* Description */}
       <p className="text-[10px] text-rift-muted/60 leading-relaxed max-w-2xl">
         Every franchise as a row, every season as a column. Icons show titles
-        won. Click a row to expand details. Hover icons for event names.
+        won. Click a row to expand title details. Hover icons for event names.
       </p>
 
       {/* Filters */}
