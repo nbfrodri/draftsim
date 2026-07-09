@@ -201,6 +201,21 @@ export interface SeasonHistoryEntry {
    *  team of the year, region that rose, meta arc). Optional — only on
    *  seasons archived after the story feature; older entries simply omit it. */
   story?: SeasonStory;
+  /** Most-played head-to-head pairings this season (franchise refs, not ids).
+   *  Optional — only on seasons archived after the rivalry expansion. */
+  rivalries?: HistoryRivalry[];
+}
+
+/** A frozen head-to-head pairing for the Hall archive. Teams are ordered by
+ *  franchise key (`leagueId:name`) so seasons merge cleanly all-time. */
+export interface HistoryRivalry {
+  teamA: SeasonHistoryTeamRef;
+  teamB: SeasonHistoryTeamRef;
+  meetings: number;
+  /** Wins for `teamA` (lexicographically first franchise key). */
+  aWins: number;
+  /** Wins for `teamB`. */
+  bWins: number;
 }
 
 /** One champion-lane tier movement between two meta snapshots. */
@@ -315,6 +330,7 @@ export function buildSeasonHistoryEntry(
     : [];
   const leagueBestTeams: SeasonHistoryEntry["leagueBestTeams"] = {};
   const tallyMap = new Map<string, SeasonHistoryAwardTally>();
+  const rivalryArchive: HistoryRivalry[] = [];
   if (tournaments.length > 0) {
     // Per-league best team of the year, with its aggregate record.
     const stats = computeSeasonStats(season);
@@ -329,6 +345,24 @@ export function buildSeasonHistoryEntry(
           titles: line.titles,
         };
       }
+    }
+    const franchiseKey = (t: SeasonHistoryTeamRef) => `${t.leagueId}:${t.name}`;
+    for (const r of stats.rivalries) {
+      const refA = teamRef(season, r.teamAId);
+      const refB = teamRef(season, r.teamBId);
+      if (!refA || !refB) continue;
+      const keyA = franchiseKey(refA);
+      const keyB = franchiseKey(refB);
+      const flip = keyA > keyB;
+      const [teamA, teamB] = flip ? [refB, refA] : [refA, refB];
+      const [aWins, bWins] = flip ? [r.bWins, r.aWins] : [r.aWins, r.bWins];
+      rivalryArchive.push({
+        teamA,
+        teamB,
+        meetings: r.meetings,
+        aWins,
+        bWins,
+      });
     }
     // Aggregate every stage's MVP + All-Pro into per-team-position tallies.
     const tallyKey = (ref: SeasonHistoryTeamRef, lane: Lane) =>
@@ -508,6 +542,7 @@ export function buildSeasonHistoryEntry(
     ...(playerCareers.length > 0 ? { playerCareers } : {}),
     ...(season.phaseRosters?.length ? { phaseRosters: season.phaseRosters } : {}),
     ...(transfers.length > 0 ? { transfers } : {}),
+    ...(rivalryArchive.length > 0 ? { rivalries: rivalryArchive } : {}),
     // Starting tier table (undefined when the season pre-dates
     // initialMeta — we can't reconstruct what it began on) and the
     // table at archive time after a year of drift.

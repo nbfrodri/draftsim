@@ -87,7 +87,7 @@
       "support": "Vampire"
     },
     "TOP ESPORTS": {
-      "top": "369",
+      "top": "ZUIAN",
       "jungle": "Tian",
       "middle": "Creme",
       "bottom": "JackeyLove",
@@ -107,12 +107,19 @@
       "bottom": "Assum",
       "support": "Zhuo"
     },
-    "WeiboGaming": {
-      "top": "Zika",
-      "jungle": "Jiejie",
-      "middle": "Xiaohu",
-      "bottom": "Elk",
-      "support": "TheHank"
+    "EDWARD GAMING": {
+      "top": "Zdz",
+      "jungle": "Xiaohao",
+      "middle": "Angel",
+      "bottom": "Leave",
+      "support": "Jwei"
+    },
+    "LGD GAMING": {
+      "top": "Burdol",
+      "jungle": "Heng",
+      "middle": "Tangyuan",
+      "bottom": "Shaoye",
+      "support": "Ycx"
     },
     "Invictus Gaming": {
       "top": "Breathe",
@@ -127,13 +134,6 @@
       "middle": "Karis",
       "bottom": "About",
       "support": "Dorian"
-    },
-    "Suzhou LNG Esports": {
-      "top": "sheer",
-      "jungle": "Croco",
-      "middle": "BuLLDoG",
-      "bottom": "1xn",
-      "support": "MISSING"
     },
     "THUNDER TALK GAMING": {
       "top": "Keshi",
@@ -405,7 +405,7 @@
     "Ground Zero Gaming": {
       "top": "1Jiang",
       "jungle": "Husha",
-      "middle": "JimieN",
+      "middle": null,
       "bottom": "Shunn",
       "support": "Orca"
     },
@@ -426,9 +426,39 @@
     "The Chiefs Esports Club": {
       "top": "BioPanther",
       "jungle": "Whynot",
-      "middle": null,
+      "middle": "JimieN",
       "bottom": "Slayder",
       "support": "Luon"
+    }
+  },
+  "extraTeamLogos": {
+    "WeiboGaming": {
+      "top": "Zika",
+      "jungle": "Jiejie",
+      "middle": "Xiaohu",
+      "bottom": "Elk",
+      "support": "TheHank"
+    },
+    "Suzhou LNG Esports": {
+      "top": "sheer",
+      "jungle": "Croco",
+      "middle": "BuLLDoG",
+      "bottom": "1xn",
+      "support": "MISSING"
+    },
+    "Ultra Prime": {
+      "top": "sasii",
+      "jungle": "climber",
+      "middle": "Saber",
+      "bottom": "Hena",
+      "support": "Xiaoxia"
+    },
+    "Oh My God": {
+      "top": "Hery",
+      "jungle": "Juhan",
+      "middle": "haichao",
+      "bottom": "Starry",
+      "support": "Moham"
     }
   }
 }

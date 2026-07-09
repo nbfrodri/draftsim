@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import type { SeasonMatchdayResult } from "@/store/draftStore";
@@ -68,9 +75,16 @@ import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
 import Modal from "./Modal";
 import { isDesktop, saveFileNative } from "@/lib/desktopStorage";
 import SeasonMetaPanel from "./SeasonMetaPanel";
-import { SimulatingOverlay } from "./tournament/bracket/DashboardModals";
+import {
+  ReplayLoadingOverlay,
+  SimulatingOverlay,
+} from "./tournament/bracket/DashboardModals";
 import { GroupStandingsTable } from "./tournament/bracket/StandingsTables";
-import { MatchReplayModal } from "./tournament/replay/MatchReplayModal";
+const MatchReplayModal = lazy(() =>
+  import("./tournament/replay/MatchReplayModal").then((m) => ({
+    default: m.MatchReplayModal,
+  })),
+);
 
 // Season dashboard: phase timeline, the current phase's tournaments
 // (league cards with standings, international cards with seeds), sim
@@ -543,11 +557,17 @@ export default function SeasonDashboard() {
       />
 
       {replayTournament && replayMatch && (
-        <MatchReplayModal
-          match={replayMatch}
-          tournament={replayTournament}
-          onClose={() => setMatchReplay(null)}
-        />
+        <Suspense
+          fallback={
+            <ReplayLoadingOverlay onClose={() => setMatchReplay(null)} />
+          }
+        >
+          <MatchReplayModal
+            match={replayMatch}
+            tournament={replayTournament}
+            onClose={() => setMatchReplay(null)}
+          />
+        </Suspense>
       )}
     </div>
   );

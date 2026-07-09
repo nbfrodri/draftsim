@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { getTeam } from "@/lib/tournament";
 import { getChampionMeta } from "@/lib/championMeta";
@@ -65,6 +65,43 @@ function gameRatings(recap: GameRecap, winner: Side | null): { blue: number[]; r
   return computeGameRatings(recap, winner);
 }
 
+type GameRatingsCache = Map<string, { blue: number[]; red: number[] } | null>;
+
+function buildGameRatingsCache(games: GameDraft[]): GameRatingsCache {
+  const cache: GameRatingsCache = new Map();
+  for (const g of games) {
+    if (!g.recap || !g.winner) continue;
+    cache.set(g.id, gameRatings(g.recap, g.winner));
+  }
+  return cache;
+}
+
+// Defer chart mounts one frame so picks/header paint before recharts.
+function DeferredMount({
+  children,
+  fallback,
+}: {
+  children: ReactNode;
+  fallback?: ReactNode;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  if (!mounted) {
+    return (
+      fallback ?? (
+        <div
+          className="h-40 md:h-48 border border-rift-line/30 bg-rift-bg/20 animate-pulse"
+          aria-hidden
+        />
+      )
+    );
+  }
+  return children;
+}
+
 // Which side a team played on in a given game (sides may swap mid-series).
 function teamSideInGame(game: GameDraft, teamName: string): Side | null {
   if (game.blueTeam === teamName) return "blue";
@@ -84,6 +121,7 @@ function seriesTeamPlayerSummaries(
   games: GameDraft[],
   teamName: string,
   roster?: Roster,
+  ratingsCache?: GameRatingsCache,
 ): SeriesPlayerSummary[] | null {
   const ratingSum = [0, 0, 0, 0, 0];
   const ratingCount = [0, 0, 0, 0, 0];
@@ -94,6 +132,7 @@ function seriesTeamPlayerSummaries(
     { k: 0, d: 0, a: 0 },
     { k: 0, d: 0, a: 0 },
   ];
+  const namesFromGames: (string | null)[] = [null, null, null, null, null];
   let anyKda = false;
   let anyRating = false;
 
@@ -102,7 +141,8 @@ function seriesTeamPlayerSummaries(
     const side = teamSideInGame(g, teamName);
     if (!side) continue;
     const recap = g.recap;
-    const ratings = gameRatings(recap, g.winner);
+    const ratings =
+      ratingsCache?.get(g.id) ?? gameRatings(recap, g.winner);
     if (ratings) {
       const sideRatings = side === "blue" ? ratings.blue : ratings.red;
       for (let i = 0; i < 5; i++) {
@@ -122,33 +162,23 @@ function seriesTeamPlayerSummaries(
         kdaSum[i].d += row.d;
         kdaSum[i].a += row.a;
         anyKda = true;
+        const name = recap.perPickNames?.[side]?.[i];
+        if (name && !namesFromGames[i]) namesFromGames[i] = name;
       }
     }
   }
 
   if (!anyKda && !anyRating) return null;
 
-  return LANES.map(({ key: lane }, i) => {
-    // Prefer names from recap data (correct side per game after swaps),
-    // then the tournament roster for this bracket slot.
-    const nameFromGames = games
-      .map((g) => {
-        const side = teamSideInGame(g, teamName);
-        if (!side || !g.recap?.perPickNames) return null;
-        return g.recap.perPickNames[side][i] ?? null;
-      })
-      .find((n) => n);
-    const name = nameFromGames ?? roster?.[i]?.name ?? null;
-    return {
-      lane,
-      name,
-      avgRating:
-        ratingCount[i] > 0
-          ? Math.round((ratingSum[i] / ratingCount[i]) * 10) / 10
-          : 0,
-      kda: kdaSum[i],
-    };
-  });
+  return LANES.map(({ key: lane }, i) => ({
+    lane,
+    name: namesFromGames[i] ?? roster?.[i]?.name ?? null,
+    avgRating:
+      ratingCount[i] > 0
+        ? Math.round((ratingSum[i] / ratingCount[i]) * 10) / 10
+        : 0,
+    kda: kdaSum[i],
+  }));
 }
 
 // Read-only replay of a completed tournament match. Renders a tab-strip
@@ -185,12 +215,27 @@ export function MatchReplayModal({
   const redTeam = getTeam(tournament, match.redTeamId);
   const series = match.series;
 
-  // Esc-to-close + body-scroll-lock — same pattern Modal uses, kept
-  // local because this modal has its own multi-panel layout that doesn't
-  // fit Modal's confirm/cancel shape.
+  // Deep links (Notable Games) can open a specific tab after mount.
   useEffect(() => {
+    setActiveGameIdx(initialGameIdx);
+  }, [initialGameIdx, match.id]);
+
+  // Esc-to-close, arrow keys for game tabs, body-scroll-lock.
+  useEffect(() => {
+    const gameCount = series?.games.length ?? 0;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (gameCount <= 1) return;
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setActiveGameIdx((i) => Math.max(0, i - 1));
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setActiveGameIdx((i) => Math.min(gameCount - 1, i + 1));
+      }
     };
     document.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
@@ -199,40 +244,86 @@ export function MatchReplayModal({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [onClose]);
+  }, [onClose, series?.games.length]);
 
-  if (!series) return null;
-  const games = series.games;
+  const games = series?.games ?? [];
   const game = games[activeGameIdx] ?? games[0];
-  // Bracket-slot team identity — do NOT use series.blueTeam/redTeam here;
-  // side-swap rules rewrite those each game so the final values can invert.
   const matchBlueName = blueTeam?.name ?? games[0]?.blueTeam ?? "Blue";
   const matchRedName = redTeam?.name ?? games[0]?.redTeam ?? "Red";
+
+  const ratingsCache = useMemo(
+    () => buildGameRatingsCache(games),
+    [games],
+  );
+
+  const blueSummaries = useMemo(
+    () =>
+      series
+        ? seriesTeamPlayerSummaries(
+            games,
+            matchBlueName,
+            blueTeam?.players,
+            ratingsCache,
+          )
+        : null,
+    [series, games, matchBlueName, blueTeam?.players, ratingsCache],
+  );
+  const redSummaries = useMemo(
+    () =>
+      series
+        ? seriesTeamPlayerSummaries(
+            games,
+            matchRedName,
+            redTeam?.players,
+            ratingsCache,
+          )
+        : null,
+    [series, games, matchRedName, redTeam?.players, ratingsCache],
+  );
+  const resolvedTeams = useMemo(
+    () => ({
+      blue: resolveReplayTeam(
+        tournament,
+        game?.blueTeam || matchBlueName,
+        blueTeam,
+        redTeam,
+        matchBlueName,
+        matchRedName,
+      ),
+      red: resolveReplayTeam(
+        tournament,
+        game?.redTeam || matchRedName,
+        blueTeam,
+        redTeam,
+        matchBlueName,
+        matchRedName,
+      ),
+    }),
+    [
+      tournament,
+      game?.blueTeam,
+      game?.redTeam,
+      blueTeam,
+      redTeam,
+      matchBlueName,
+      matchRedName,
+    ],
+  );
+  const sidesSwapped =
+    activeGameIdx > 0 &&
+    games[0]?.blueTeam !== game?.blueTeam &&
+    !!game?.blueTeam &&
+    !!games[0]?.blueTeam;
+  const perGameRatings = game ? ratingsCache.get(game.id) ?? null : null;
+
+  if (!series || !game) return null;
+
   const winnerLabel =
     match.winner?.teamId === match.blueTeamId
       ? matchBlueName
       : match.winner?.teamId === match.redTeamId
       ? matchRedName
       : "—";
-
-  const blueSummaries = useMemo(
-    () =>
-      seriesTeamPlayerSummaries(
-        series.games,
-        matchBlueName,
-        blueTeam?.players,
-      ),
-    [series.games, matchBlueName, blueTeam?.players],
-  );
-  const redSummaries = useMemo(
-    () =>
-      seriesTeamPlayerSummaries(
-        series.games,
-        matchRedName,
-        redTeam?.players,
-      ),
-    [series.games, matchRedName, redTeam?.players],
-  );
   const winnerTeam =
     match.winner?.teamId === match.blueTeamId
       ? blueTeam
@@ -365,33 +456,15 @@ export function MatchReplayModal({
             takes-blue rule), so we use the GAME's own blue/red team
             names for labels, not the match-level slots. */}
         <div className="px-4 md:px-5 py-3 md:py-4">
-          <ReplayGamePanel
+          <ReplayGamePanelMemo
             game={game}
-            blueTeam={resolveReplayTeam(
-              tournament,
-              game.blueTeam || matchBlueName,
-              blueTeam,
-              redTeam,
-              matchBlueName,
-              matchRedName,
-            )}
-            redTeam={resolveReplayTeam(
-              tournament,
-              game.redTeam || matchRedName,
-              blueTeam,
-              redTeam,
-              matchBlueName,
-              matchRedName,
-            )}
+            blueTeam={resolvedTeams.blue}
+            redTeam={resolvedTeams.red}
             blueTeamName={game.blueTeam || matchBlueName}
             redTeamName={game.redTeam || matchRedName}
-            sidesSwapped={
-              activeGameIdx > 0 &&
-              games[0].blueTeam !== game.blueTeam &&
-              !!game.blueTeam &&
-              !!games[0].blueTeam
-            }
+            sidesSwapped={sidesSwapped}
             byId={byId}
+            perGameRatings={perGameRatings}
           />
         </div>
       </div>
@@ -484,6 +557,7 @@ function ReplayGamePanel({
   redTeamName,
   sidesSwapped,
   byId,
+  perGameRatings,
 }: {
   game: GameDraft;
   blueTeam: TournamentTeam | null;
@@ -492,6 +566,7 @@ function ReplayGamePanel({
   redTeamName: string;
   sidesSwapped: boolean;
   byId: Map<number, Champion>;
+  perGameRatings: { blue: number[]; red: number[] } | null;
 }) {
   const winnerSide = game.winner;
   const winnerTeam =
@@ -501,10 +576,6 @@ function ReplayGamePanel({
   const recap = game.recap;
   const mvp = recap?.mvp;
   const mvpChampion = mvp ? byId.get(mvp.championId) ?? null : null;
-  // Per-game ratings: use stored ratings if present, fall back to
-  // computeGameRatings for historical recaps that have perPickKDA.
-  const perGameRatings =
-    recap && winnerSide ? gameRatings(recap, winnerSide) : null;
   return (
     <div className="space-y-4">
       {/* Game-level header (winner + duration) */}
@@ -595,41 +666,37 @@ function ReplayGamePanel({
         />
       </div>
 
-      {/* Win-probability sparkline. Renders only when the recap has a
-          timeline (sim-resolved games). Step area chart anchored at 50%
-          start so the user can read the game's tempo. */}
-      {recap?.winProbTimeline && recap.winProbTimeline.length > 1 && (
-        <WinProbChart
-          variant="replay"
-          timeline={recap.winProbTimeline}
-          events={recap.notableEvents ?? []}
-          biggestSwing={recap.biggestSwing}
-        />
-      )}
+      {/* Heavy chart blocks mount one frame after picks/header paint. */}
+      <DeferredMount key={`charts-${game.id}`}>
+        <>
+          {recap?.winProbTimeline && recap.winProbTimeline.length > 1 && (
+            <WinProbChart
+              variant="replay"
+              timeline={recap.winProbTimeline}
+              events={recap.notableEvents ?? []}
+              biggestSwing={recap.biggestSwing}
+            />
+          )}
 
-      {/* Gold-lead sparkline. Mirrors the live chart in BetweenGamesView
-          using the recap's persisted goldLeadTimeline (signed, blue-
-          positive). Renders only when the timeline is present (sim-
-          resolved games on a recent build; legacy recaps lack it). */}
-      {recap?.goldLeadTimeline && recap.goldLeadTimeline.length > 1 && (
-        <GoldLeadChart
-          variant="replay"
-          timeline={recap.goldLeadTimeline}
-          notableEvents={recap.notableEvents ?? []}
-          blueTeam={blueTeamName}
-          redTeam={redTeamName}
-        />
-      )}
+          {recap?.goldLeadTimeline && recap.goldLeadTimeline.length > 1 && (
+            <GoldLeadChart
+              variant="replay"
+              timeline={recap.goldLeadTimeline}
+              notableEvents={recap.notableEvents ?? []}
+              blueTeam={blueTeamName}
+              redTeam={redTeamName}
+            />
+          )}
 
-      {/* Damage-dealt bars synthesized from KDA + champion archetype.
-          Renders only when per-pick KDA is in the recap. */}
-      {recap?.perPickKDA && (
-        <DamageBars
-          game={game}
-          perPickKDA={recap.perPickKDA}
-          byId={byId}
-        />
-      )}
+          {recap?.perPickKDA && (
+            <DamageBars
+              game={game}
+              perPickKDA={recap.perPickKDA}
+              byId={byId}
+            />
+          )}
+        </>
+      </DeferredMount>
 
       {/* Recap details — only when a sim recap was attached. Manual
           winner declarations leave recap unset. */}
@@ -670,6 +737,8 @@ function ReplayGamePanel({
     </div>
   );
 }
+
+const ReplayGamePanelMemo = memo(ReplayGamePanel);
 
 function BanRow({
   side,
@@ -732,7 +801,7 @@ function BanRow({
 // (no live damage feed, but the synthesis reads "right" for the user
 // — carries top the chart, supports trail). Reuses the same formula as
 // BetweenGamesView's damage bars.
-function DamageBars({
+const DamageBars = memo(function DamageBars({
   game,
   perPickKDA,
   byId,
@@ -741,41 +810,46 @@ function DamageBars({
   perPickKDA: NonNullable<GameRecap["perPickKDA"]>;
   byId: Map<number, Champion>;
 }) {
-  // Compute synthetic damage per pick on both sides.
-  type Row = {
-    side: Side;
-    laneIdx: number;
-    champion: Champion | null;
-    damage: number;
-  };
-  const rows: Row[] = [];
-  for (let i = 0; i < 5; i++) {
-    const blueId = game.bluePicks[i];
-    const blueChamp = blueId != null ? byId.get(blueId) ?? null : null;
-    const blueKDA = perPickKDA.blue[i] ?? { k: 0, d: 0, a: 0 };
-    if (blueChamp) {
-      const meta = getChampionMeta(blueChamp.alias);
-      rows.push({
-        side: "blue",
-        laneIdx: i,
-        champion: blueChamp,
-        damage: meta ? syntheticDamage(blueKDA, meta) : 0,
-      });
+  const rows = useMemo(() => {
+    type Row = {
+      side: Side;
+      laneIdx: number;
+      champion: Champion | null;
+      damage: number;
+    };
+    const out: Row[] = [];
+    for (let i = 0; i < 5; i++) {
+      const blueId = game.bluePicks[i];
+      const blueChamp = blueId != null ? byId.get(blueId) ?? null : null;
+      const blueKDA = perPickKDA.blue[i] ?? { k: 0, d: 0, a: 0 };
+      if (blueChamp) {
+        const meta = getChampionMeta(blueChamp.alias);
+        out.push({
+          side: "blue",
+          laneIdx: i,
+          champion: blueChamp,
+          damage: meta ? syntheticDamage(blueKDA, meta) : 0,
+        });
+      }
+      const redId = game.redPicks[i];
+      const redChamp = redId != null ? byId.get(redId) ?? null : null;
+      const redKDA = perPickKDA.red[i] ?? { k: 0, d: 0, a: 0 };
+      if (redChamp) {
+        const meta = getChampionMeta(redChamp.alias);
+        out.push({
+          side: "red",
+          laneIdx: i,
+          champion: redChamp,
+          damage: meta ? syntheticDamage(redKDA, meta) : 0,
+        });
+      }
     }
-    const redId = game.redPicks[i];
-    const redChamp = redId != null ? byId.get(redId) ?? null : null;
-    const redKDA = perPickKDA.red[i] ?? { k: 0, d: 0, a: 0 };
-    if (redChamp) {
-      const meta = getChampionMeta(redChamp.alias);
-      rows.push({
-        side: "red",
-        laneIdx: i,
-        champion: redChamp,
-        damage: meta ? syntheticDamage(redKDA, meta) : 0,
-      });
-    }
-  }
-  const maxDamage = Math.max(1, ...rows.map((r) => r.damage));
+    return out;
+  }, [game.bluePicks, game.redPicks, perPickKDA, byId]);
+  const maxDamage = useMemo(
+    () => Math.max(1, ...rows.map((r) => r.damage)),
+    [rows],
+  );
   return (
     <div className="border border-rift-line/40 bg-rift-bg/30 px-3 py-2">
       <div className="flex items-baseline justify-between mb-1">
@@ -822,7 +896,7 @@ function DamageBars({
       </div>
     </div>
   );
-}
+});
 
 function PickColumn({
   side,

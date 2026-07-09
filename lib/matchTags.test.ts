@@ -93,4 +93,39 @@ describe("isReverseSweep", () => {
     });
     expect(isReverseSweep(bo3)).toBe(false);
   });
+
+  it("rejects a 3-2 where side swaps made blue look 2-0 but teams were 1-1", () => {
+    const m = match({
+      blueTeamId: "team-a",
+      redTeamId: "team-b",
+      gameWinners: ["blue", "blue", "red", "red", "blue"],
+      winner: { teamId: "team-a", blueWins: 3, redWins: 2 },
+    });
+    // Game 1: A (blue) wins. Game 2: sides swap — B is blue and wins.
+    // Side-based score reads 2-0 blue, but teams are 1-1; not a reverse sweep.
+    m.series!.games[1] = {
+      ...m.series!.games[1],
+      blueTeam: "Red",
+      redTeam: "Blue",
+      winner: "blue",
+    };
+    expect(isReverseSweep(m)).toBe(false);
+  });
+
+  it("detects reverse sweep when sides swap mid-series", () => {
+    const m = match({
+      blueTeamId: "team-a",
+      redTeamId: "team-b",
+      gameWinners: ["blue", "red", "red", "red", "red"],
+      winner: { teamId: "team-b", blueWins: 2, redWins: 3 },
+    });
+    // A wins G1 on blue; G2 swap — A on red wins again (A leads 2-0); B sweeps back.
+    m.series!.games[1] = {
+      ...m.series!.games[1],
+      blueTeam: "Red",
+      redTeam: "Blue",
+      winner: "red",
+    };
+    expect(isReverseSweep(m)).toBe(true);
+  });
 });

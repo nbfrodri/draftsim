@@ -83,6 +83,29 @@ export function SaveTournamentModal({
 // asynchronously, yielding between matches, and publishes lightweight
 // progress (done/total match counts) via `simProgress` — rendered here
 // so the user sees the run advance instead of a frozen spinner.
+// Lightweight shell shown while the replay modal chunk loads. Keeps the
+// backdrop + dismiss affordance instant so "View recap" feels responsive.
+export function ReplayLoadingOverlay({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-2 py-4 bg-black/75 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="border-2 border-rift-gold/50 bg-rift-panel px-8 py-6 text-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-center mb-3">
+          <div className="w-6 h-6 border-2 border-rift-gold/30 border-t-rift-goldbright rounded-full animate-spin" />
+        </div>
+        <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
+          Loading replay…
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SimulatingOverlay({ scope }: { scope: "match" | "all" }) {
   const progress = useDraftStore((s) => s.simProgress);
   const label = scope === "all" ? "Simulating remaining matches…" : "Simulating match…";

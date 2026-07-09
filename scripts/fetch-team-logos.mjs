@@ -58,40 +58,48 @@ async function main() {
   let skipped = 0;
   const failures = [];
 
-  for (const league of Object.keys(snapshot)) {
-    for (const team of snapshot[league]) {
-      const src = sourceUrl(team);
-      if (!src) {
-        skipped += 1;
-        continue;
-      }
-
-      // Unique, stable filename per team.
-      let slug = slugify(team.name) || slugify(league + "-team");
-      let n = 2;
-      while (usedSlugs.has(slug)) slug = `${slugify(team.name)}-${n++}`;
-      usedSlugs.add(slug);
-
-      try {
-        const res = await fetch(src);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const input = Buffer.from(await res.arrayBuffer());
-        await sharp(input)
-          .resize(SIZE, SIZE, {
-            fit: "inside",
-            withoutEnlargement: true,
-            background: { r: 0, g: 0, b: 0, alpha: 0 },
-          })
-          .png()
-          .toFile(resolve(OUT_DIR, `${slug}.png`));
-
-        team.logoRemote = src;
-        team.logoUrl = `${PUBLIC_PREFIX}/${slug}.png`;
-        ok += 1;
-      } catch (err) {
-        failures.push(`${team.name} (${league}): ${err.message}`);
-      }
+  async function bundleTeam(team, label) {
+    const src = sourceUrl(team);
+    if (!src) {
+      skipped += 1;
+      return;
     }
+
+    let slug = slugify(team.name) || slugify(label + "-team");
+    let n = 2;
+    while (usedSlugs.has(slug)) slug = `${slugify(team.name)}-${n++}`;
+    usedSlugs.add(slug);
+
+    try {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const input = Buffer.from(await res.arrayBuffer());
+      await sharp(input)
+        .resize(SIZE, SIZE, {
+          fit: "inside",
+          withoutEnlargement: true,
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .png()
+        .toFile(resolve(OUT_DIR, `${slug}.png`));
+
+      team.logoRemote = src;
+      team.logoUrl = `${PUBLIC_PREFIX}/${slug}.png`;
+      ok += 1;
+    } catch (err) {
+      failures.push(`${team.name} (${label}): ${err.message}`);
+    }
+  }
+
+  const leagueKeys = Object.keys(snapshot).filter((k) => k !== "extraTeamLogos");
+  for (const league of leagueKeys) {
+    for (const team of snapshot[league]) {
+      await bundleTeam(team, league);
+    }
+  }
+
+  for (const team of snapshot.extraTeamLogos ?? []) {
+    await bundleTeam(team, "extra");
   }
 
   await writeFile(SNAPSHOT, JSON.stringify(snapshot, null, 2) + "\n", "utf-8");

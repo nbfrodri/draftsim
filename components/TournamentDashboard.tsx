@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import {
@@ -27,12 +27,20 @@ import { DoubleElimView, TripleElimView } from "./tournament/bracket/BracketView
 import { BracketConnectorRoot } from "./tournament/bracket/BracketConnectors";
 import { LiveChampionMetaPanel, MetaEvolutionFeed } from "./tournament/bracket/LiveChampionMetaPanel";
 import { MatchOverrideModal } from "./tournament/bracket/MatchOverrideModal";
-import { SaveTournamentModal, SimulatingOverlay } from "./tournament/bracket/DashboardModals";
+import {
+  ReplayLoadingOverlay,
+  SaveTournamentModal,
+  SimulatingOverlay,
+} from "./tournament/bracket/DashboardModals";
 import { RoundRobinView, GroupsPlayoffsView, SwissView } from "./tournament/bracket/FormatViews";
 import { StreaksPanel } from "./tournament/bracket/StreaksPanel";
 
-// ─── Replay sub-module ────────────────────────────────────────────────
-import { MatchReplayModal } from "./tournament/replay/MatchReplayModal";
+// ─── Replay sub-module (lazy — pulls in recharts + recap panels) ─────
+const MatchReplayModal = lazy(() =>
+  import("./tournament/replay/MatchReplayModal").then((m) => ({
+    default: m.MatchReplayModal,
+  })),
+);
 
 // ─── Recap sub-module ─────────────────────────────────────────────────
 import { PostTournamentRecap } from "./tournament/recap/PostTournamentRecap";
@@ -457,12 +465,18 @@ export default function TournamentDashboard() {
       )}
 
       {viewMatch && (
-        <MatchReplayModal
-          match={viewMatch}
-          tournament={tournament}
-          initialGameIdx={viewGameIdx}
-          onClose={() => setViewMatchId(null)}
-        />
+        <Suspense
+          fallback={
+            <ReplayLoadingOverlay onClose={() => setViewMatchId(null)} />
+          }
+        >
+          <MatchReplayModal
+            match={viewMatch}
+            tournament={tournament}
+            initialGameIdx={viewGameIdx}
+            onClose={() => setViewMatchId(null)}
+          />
+        </Suspense>
       )}
 
       {saveOpen && (

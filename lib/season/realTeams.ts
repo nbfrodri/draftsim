@@ -27,11 +27,25 @@ export interface RealTeam {
   players?: Partial<Record<Lane, string>>;
 }
 
+type TeamsSnapshot = Record<LeagueId, RealTeam[]> & {
+  /** Extra logos for teams that can appear in live fetches but aren't in the
+   *  bundled 10-per-league snapshot (e.g. rotated-out LPL orgs). */
+  extraTeamLogos?: RealTeam[];
+};
+
+const snapshot = bundledTeamsJson as TeamsSnapshot;
+
 /** Bundled offline snapshot — 10 real pro teams per region, with logos.
  *  Applied instantly by the "Real Names" button and used as the fallback
  *  when the live API is unreachable. */
-export const BUNDLED_TEAMS: Record<LeagueId, RealTeam[]> =
-  bundledTeamsJson as Record<LeagueId, RealTeam[]>;
+export const BUNDLED_TEAMS: Record<LeagueId, RealTeam[]> = {
+  LCK: snapshot.LCK,
+  LPL: snapshot.LPL,
+  LEC: snapshot.LEC,
+  LCS: snapshot.LCS,
+  CBLOL: snapshot.CBLOL,
+  LCP: snapshot.LCP,
+};
 
 // Normalize a team name for fuzzy matching: drop accents, case, and any
 // non-alphanumerics so "kt Rolster" and "KT Rolster" collapse together.
@@ -45,11 +59,13 @@ function normalizeTeamName(name: string): string {
 
 const NAME_TO_LOGO: Map<string, string> = (() => {
   const map = new Map<string, string>();
-  for (const teams of Object.values(BUNDLED_TEAMS)) {
-    for (const team of teams) {
-      if (team.logoUrl) map.set(normalizeTeamName(team.name), team.logoUrl);
-    }
+  const add = (team: RealTeam) => {
+    if (team.logoUrl) map.set(normalizeTeamName(team.name), team.logoUrl);
+  };
+  for (const league of LEAGUE_IDS) {
+    for (const team of BUNDLED_TEAMS[league]) add(team);
   }
+  for (const team of snapshot.extraTeamLogos ?? []) add(team);
   return map;
 })();
 

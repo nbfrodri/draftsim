@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dedupeAcrossLeagues, extractStandingsTeams } from "./realTeams";
+import { dedupeAcrossLeagues, extractStandingsTeams, logoForTeamName } from "./realTeams";
 import type { RealTeam } from "./realTeams";
 import type { LeagueId } from "./types";
 
@@ -80,5 +80,23 @@ describe("dedupeAcrossLeagues", () => {
     expect(dedupeAcrossLeagues(raw).LCK).toEqual([
       { name: "T1", logoUrl: "https://logo/t1.png" },
     ]);
+  });
+});
+
+describe("logoForTeamName", () => {
+  it("resolves bundled LPL teams and extra logo-only teams", () => {
+    expect(logoForTeamName("EDWARD GAMING")).toBe("/team-logos/edward-gaming.png");
+    expect(logoForTeamName("LGD GAMING")).toBe("/team-logos/lgd-gaming.png");
+    expect(logoForTeamName("Ultra Prime")).toBe("/team-logos/ultra-prime.png");
+    expect(logoForTeamName("Oh My God")).toBe("/team-logos/oh-my-god.png");
+    expect(logoForTeamName("WeiboGaming")).toBe("/team-logos/weibogaming.png");
+    expect(logoForTeamName("Suzhou LNG Esports")).toBe(
+      "/team-logos/suzhou-lng-esports.png",
+    );
+  });
+
+  it("matches accent/case-insensitively", () => {
+    expect(logoForTeamName("Edward Gaming")).toBe("/team-logos/edward-gaming.png");
+    expect(logoForTeamName(undefined)).toBeUndefined();
   });
 });

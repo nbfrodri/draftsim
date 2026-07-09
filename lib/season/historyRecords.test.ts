@@ -9,6 +9,7 @@ import {
   computeTitleStreaks,
   computePlayerAllTime,
   computeRegionTitleLeaders,
+  computeAllTimeRivalries,
 } from "./historyRecords";
 import type { PlayerSeasonRecord } from "./stats";
 import { goldenRoadTeam, goldenRoadRequiresGlobalCup } from "./history";
@@ -423,5 +424,56 @@ describe("computeRegionTitleLeaders", () => {
     const leaders = computeRegionTitleLeaders([a, b, c]);
     expect(leaders).toHaveLength(1);
     expect(leaders[0]).toMatchObject({ leagueId: "LPL", splitTitles: 2 });
+  });
+});
+
+describe("computeAllTimeRivalries", () => {
+  it("merges head-to-head across seasons by franchise name + league", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      rivalries: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 3,
+          aWins: 2,
+          bWins: 1,
+        },
+      ],
+    });
+    const s2 = entry("s2", "Season 2", 2000, {
+      rivalries: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 2,
+          aWins: 1,
+          bWins: 1,
+        },
+      ],
+    });
+    const rows = computeAllTimeRivalries([s1, s2]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      meetings: 5,
+      aWins: 2,
+      bWins: 3,
+      teamA: expect.objectContaining({ name: "Gen.G" }),
+      teamB: expect.objectContaining({ name: "T1" }),
+    });
+  });
+
+  it("omits pairings with fewer than two total meetings", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      rivalries: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 1,
+          aWins: 1,
+          bWins: 0,
+        },
+      ],
+    });
+    expect(computeAllTimeRivalries([s1])).toHaveLength(0);
   });
 });

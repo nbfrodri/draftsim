@@ -29,6 +29,7 @@ import {
   computePlayerCareers,
   computePlayerTitlesByEvent,
   computeRegionTitleLeaders,
+  computeAllTimeRivalries,
   careerWinLoss,
   DYNASTY_WINDOW,
   type TeamRecord,
@@ -1069,6 +1070,10 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
         .slice(0, 8),
     [entries],
   );
+  const allTimeRivalries = useMemo(
+    () => computeAllTimeRivalries(entries),
+    [entries],
+  );
   // Golden Roads — perfect seasons (one team swept all six titles).
   const goldenRoads = useMemo(
     () =>
@@ -1498,6 +1503,45 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                 <DynastyBadge tier={r.dynasty.tier} />
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* All-time rivalries — most-played head-to-heads across the archive */}
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          All-Time Rivalries
+        </div>
+        {allTimeRivalries.length === 0 ? (
+          <p className="text-[10px] italic text-rift-muted">
+            Rivalry records appear once archived seasons include head-to-head
+            data — re-archive a completed season to backfill, or finish more
+            seasons where the same franchises keep meeting.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            {allTimeRivalries.map((r) => {
+              const key = `${r.teamA.leagueId}:${r.teamA.name}-${r.teamB.leagueId}:${r.teamB.name}`;
+              return (
+                <div
+                  key={key}
+                  className="flex items-center gap-2 border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2 text-[11px]"
+                >
+                  <span className="min-w-0 flex-1 flex justify-end">
+                    <TeamRef team={r.teamA} size={14} />
+                  </span>
+                  <div className="font-display text-sm text-rift-goldbright tabular-nums shrink-0 px-1">
+                    {r.aWins}–{r.bWins}
+                  </div>
+                  <span className="min-w-0 flex-1">
+                    <TeamRef team={r.teamB} size={14} />
+                  </span>
+                  <span className="text-[8px] uppercase tracking-wider text-rift-muted/70 shrink-0">
+                    ×{r.meetings}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

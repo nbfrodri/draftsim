@@ -1184,7 +1184,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: re
   "9001:27bab4f3",
   "31337:c5629654",
   "65535:6ebd0002",
-  "999983:98984b1d",
+  "999983:3b68445b",
 ]
 `;
 
@@ -4600,7 +4600,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
     "minutes": 32.89452385874465,
     "time": "32:54",
     "side": "red",
-    "description": "PENTAKILL!! Vi solo-aces to end it",
+    "description": "Red ACES — bases wide open",
     "kills": {
      "blue": 0,
      "red": 5
@@ -4614,11 +4614,11 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "red": 0
     },
     "laneGoldDelta": {
-     "top": -360,
-     "jungle": -1660,
-     "middle": -360,
-     "bottom": -360,
-     "support": -360
+     "top": -760,
+     "jungle": -760,
+     "middle": -760,
+     "bottom": -760,
+     "support": -760
     },
     "kdaDelta": {
      "blue": {
@@ -4649,41 +4649,37 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
       }
      },
      "red": {
-      "jungle": {
-       "k": 5,
-       "d": 0,
-       "a": 0
-      },
       "top": {
-       "k": 0,
+       "k": 1,
        "d": 0,
-       "a": 2
+       "a": 3
+      },
+      "jungle": {
+       "k": 1,
+       "d": 0,
+       "a": 3
       },
       "middle": {
-       "k": 0,
+       "k": 1,
        "d": 0,
-       "a": 2
+       "a": 3
       },
       "bottom": {
-       "k": 0,
+       "k": 1,
        "d": 0,
-       "a": 2
+       "a": 3
       },
       "support": {
-       "k": 0,
+       "k": 1,
        "d": 0,
-       "a": 2
+       "a": 3
       }
      }
     },
     "winProbAfter": 0.05284428356390957,
-    "goldLeadAfter": -11484,
+    "goldLeadAfter": -12184,
     "momentumAfter": -0.8306122009519255,
-    "mapControlAfter": -14,
-    "pentakill": {
-     "lane": "jungle",
-     "championName": "Vi"
-    }
+    "mapControlAfter": -14
    },
    {
     "type": "nexus",
@@ -4715,7 +4711,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
      "red": {}
     },
     "winProbAfter": 0.01,
-    "goldLeadAfter": -11984,
+    "goldLeadAfter": -12684,
     "momentumAfter": -0.5814285406663477,
     "mapControlAfter": -16
    }
@@ -4733,7 +4729,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
 
 exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: result hashes across 10 seeds 1`] = `
 [
-  "11:84e83b44",
+  "11:8237a3b5",
   "42:55bcf5f5",
   "101:770034c5",
   "777:0ee7e9ae",
@@ -4742,7 +4738,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: result ha
   "9001:50283762",
   "31337:d3707b6a",
   "65535:b645c097",
-  "999983:751ec648",
+  "999983:2b424dd9",
 ]
 `;
 
@@ -7400,7 +7396,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
   "5150:cd5ba022",
   "9001:6e3a1f86",
   "31337:3a01e4a6",
-  "65535:6adb38e2",
+  "65535:429f52c9",
   "999983:2f5583a9",
 ]
 `;

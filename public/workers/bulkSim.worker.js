@@ -32801,7 +32801,7 @@
     BARON_DANCE_CHANCE: 0.3,
     // Chance a clean 5-0 ace (mid teamfight or closing) is a single-champion
     // PENTAKILL rather than a spread team ace. Rare — kept special.
-    PENTAKILL_CHANCE: 0.1,
+    PENTAKILL_CHANCE: 0.03,
     // ─── New event beats (richer/varied feed) ─────────────────────────────────
     // Kept modest so calibration holds; every POSITIVE beat carries comebackBias
     // so a lead doesn't saturate the feed. Balanced by the negative beats below.

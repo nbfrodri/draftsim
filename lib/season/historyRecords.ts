@@ -465,6 +465,63 @@ export function computeTitleStreaks(
   return out;
 }
 
+// ─── All-time rivalries ─────────────────────────────────────────────────────
+
+export interface AllTimeRivalry {
+  /** Lexicographically first franchise in the pair. */
+  teamA: SeasonHistoryTeamRef;
+  teamB: SeasonHistoryTeamRef;
+  meetings: number;
+  aWins: number;
+  bWins: number;
+}
+
+/** Head-to-head pairings that met most often across every archived season.
+ *  Franchises match by name + league; only pairs with ≥ 2 total meetings
+ *  are returned. Newest archived identity is used for display. */
+export function computeAllTimeRivalries(
+  entries: SeasonHistoryEntry[],
+): AllTimeRivalry[] {
+  const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
+  const rows = new Map<string, AllTimeRivalry>();
+  for (const e of ordered) {
+    for (const r of e.rivalries ?? []) {
+      const keyA = teamRecordKey(r.teamA);
+      const keyB = teamRecordKey(r.teamB);
+      const flip = keyA > keyB;
+      const pairKey = flip ? `${keyB}|${keyA}` : `${keyA}|${keyB}`;
+      const cur = rows.get(pairKey);
+      if (cur) {
+        cur.meetings += r.meetings;
+        if (flip) {
+          cur.aWins += r.bWins;
+          cur.bWins += r.aWins;
+        } else {
+          cur.aWins += r.aWins;
+          cur.bWins += r.bWins;
+        }
+      } else {
+        rows.set(pairKey, {
+          teamA: flip ? r.teamB : r.teamA,
+          teamB: flip ? r.teamA : r.teamB,
+          meetings: r.meetings,
+          aWins: flip ? r.bWins : r.aWins,
+          bWins: flip ? r.aWins : r.bWins,
+        });
+      }
+    }
+  }
+  return [...rows.values()]
+    .filter((r) => r.meetings >= 2)
+    .sort(
+      (a, b) =>
+        b.meetings - a.meetings ||
+        Math.max(b.aWins, b.bWins) - Math.max(a.aWins, a.bWins) ||
+        a.teamA.name.localeCompare(b.teamA.name),
+    )
+    .slice(0, 8);
+}
+
 // ─── Player all-time (team-position awards) ─────────────────────────────────
 
 export interface PlayerAllTimeLine {
