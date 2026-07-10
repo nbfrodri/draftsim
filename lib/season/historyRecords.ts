@@ -8,6 +8,8 @@
 import type {
   SeasonHistoryEntry,
   SeasonHistoryTeamRef,
+  HistoryRivalry,
+  HistoryRivalryScope,
 } from "./history";
 import type { Lane } from "../types";
 import type { PlayerChampStat } from "./stats";
@@ -18,6 +20,7 @@ import {
   type LeagueId,
   type SplitId,
   INTERNATIONAL_DISPLAY_ORDER,
+  INTERNATIONAL_LABELS,
 } from "./types";
 
 // ─── Dynasty model ──────────────────────────────────────────────────────────
@@ -156,6 +159,86 @@ function classifyDynasty(
 
 export function teamRecordKey(team: SeasonHistoryTeamRef): string {
   return `${team.leagueId}:${team.name}`;
+}
+
+/** Accent/case/punctuation-insensitive franchise name (matches realTeams logos). */
+function franchiseNameNorm(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function franchiseKeyNorm(key: string): string {
+  const i = key.indexOf(":");
+  if (i < 0) return key;
+  return `${key.slice(0, i)}:${franchiseNameNorm(key.slice(i + 1))}`;
+}
+
+/** Whether two `leagueId:name` franchise keys refer to the same team. */
+export function franchiseKeysMatch(a: string, b: string): boolean {
+  const na = franchiseKeyNorm(a);
+  const nb = franchiseKeyNorm(b);
+  if (na === nb) return true;
+  const ai = na.indexOf(":");
+  const bi = nb.indexOf(":");
+  if (na.slice(0, ai) !== nb.slice(0, bi)) return false;
+  const an = na.slice(ai + 1);
+  const bn = nb.slice(bi + 1);
+  if (!an || !bn) return false;
+  return an.includes(bn) || bn.includes(an);
+}
+
+function parseFranchiseKey(
+  key: string,
+): { leagueId: LeagueId; name: string } | null {
+  const i = key.indexOf(":");
+  if (i < 0) return null;
+  return { leagueId: key.slice(0, i) as LeagueId, name: key.slice(i + 1) };
+}
+
+/** Resolve a roster/search label to the canonical franchise key used in records & rivalries. */
+export function resolveCanonicalFranchiseKey(
+  entries: SeasonHistoryEntry[],
+  records: TeamRecord[],
+  name: string,
+  leagueId: LeagueId,
+): string {
+  const candidate = `${leagueId}:${name}`;
+  for (const r of records) {
+    if (r.team.leagueId === leagueId && franchiseKeysMatch(r.key, candidate))
+      return r.key;
+  }
+  for (const e of entries) {
+    for (const rv of e.rivalries ?? []) {
+      for (const t of [rv.teamA, rv.teamB]) {
+        const k = teamRecordKey(t);
+        if (t.leagueId === leagueId && franchiseKeysMatch(k, candidate)) return k;
+      }
+    }
+    for (const rv of e.headToHead ?? []) {
+      for (const t of [rv.teamA, rv.teamB]) {
+        const k = teamRecordKey(t);
+        if (t.leagueId === leagueId && franchiseKeysMatch(k, candidate)) return k;
+      }
+    }
+  }
+  return candidate;
+}
+
+function identityForKey(
+  identity: Map<string, SeasonHistoryTeamRef>,
+  key: string,
+  fallback?: SeasonHistoryTeamRef,
+): SeasonHistoryTeamRef | undefined {
+  const direct = identity.get(key);
+  if (direct) return direct;
+  if (fallback) return fallback;
+  for (const [k, ref] of identity) {
+    if (franchiseKeysMatch(k, key)) return ref;
+  }
+  return undefined;
 }
 
 /** Aggregate every archived season into per-franchise title records,
@@ -465,7 +548,82 @@ export function computeTitleStreaks(
   return out;
 }
 
-// ─── All-time rivalries ─────────────────────────────────────────────────────
+/** Head-to-head rows stored on a season — prefers the full ledger when present. */
+function seasonHeadToHeadRows(e: SeasonHistoryEntry): HistoryRivalry[] {
+  return e.headToHead ?? e.rivalries ?? [];
+}
+
+function franchiseYearFromSeasonName(name: string): number | undefined {
+  const m = name.match(/Year (\d+)\s*$/);
+  return m ? Number(m[1]) : undefined;
+}
+
+const H2H_SCOPE_ORDER: Array<SplitId | InternationalId> = [
+  "winter",
+  "spring",
+  "summer",
+  "first-stand",
+  "msi",
+  "worlds",
+  "global-cup",
+];
+
+function scopeSortIndex(scope: SplitId | InternationalId): number {
+  const i = H2H_SCOPE_ORDER.indexOf(scope);
+  return i >= 0 ? i : H2H_SCOPE_ORDER.length;
+}
+
+function flipScopes(
+  scopes: HistoryRivalryScope[] | undefined,
+): HistoryRivalryScope[] | undefined {
+  if (!scopes?.length) return undefined;
+  return scopes.map((s) => ({
+    scope: s.scope,
+    meetings: s.meetings,
+    aWins: s.bWins,
+    bWins: s.aWins,
+  }));
+}
+
+function mergeScopeRows(
+  into: Map<SplitId | InternationalId, HistoryRivalryScope>,
+  scopes: HistoryRivalryScope[] | undefined,
+  flip: boolean,
+) {
+  for (const s of scopes ?? []) {
+    const cur = into.get(s.scope) ?? {
+      scope: s.scope,
+      meetings: 0,
+      aWins: 0,
+      bWins: 0,
+    };
+    cur.meetings += s.meetings;
+    if (flip) {
+      cur.aWins += s.bWins;
+      cur.bWins += s.aWins;
+    } else {
+      cur.aWins += s.aWins;
+      cur.bWins += s.bWins;
+    }
+    into.set(s.scope, cur);
+  }
+}
+
+function sortedScopeRows(
+  map: Map<SplitId | InternationalId, HistoryRivalryScope>,
+): HistoryRivalryScope[] {
+  return [...map.values()].sort(
+    (a, b) => scopeSortIndex(a.scope) - scopeSortIndex(b.scope),
+  );
+}
+
+/** Human label for a head-to-head scope chip (split or international). */
+export function headToHeadScopeLabel(scope: SplitId | InternationalId): string {
+  if (scope === "winter" || scope === "spring" || scope === "summer") {
+    return SPLIT_LABELS[scope];
+  }
+  return INTERNATIONAL_LABELS[scope as InternationalId] ?? scope;
+}
 
 export interface AllTimeRivalry {
   /** Lexicographically first franchise in the pair. */
@@ -485,7 +643,7 @@ export function computeAllTimeRivalries(
   const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
   const rows = new Map<string, AllTimeRivalry>();
   for (const e of ordered) {
-    for (const r of e.rivalries ?? []) {
+    for (const r of seasonHeadToHeadRows(e)) {
       const keyA = teamRecordKey(r.teamA);
       const keyB = teamRecordKey(r.teamB);
       const flip = keyA > keyB;
@@ -520,6 +678,258 @@ export function computeAllTimeRivalries(
         a.teamA.name.localeCompare(b.teamA.name),
     )
     .slice(0, 8);
+}
+
+// ─── Team head-to-head compare ──────────────────────────────────────────────
+
+export interface TeamHeadToHeadSeason {
+  seasonName: string;
+  /** Franchise year parsed from the season name, when present. */
+  franchiseYear?: number;
+  archivedAt: number;
+  meetings: number;
+  aWins: number;
+  bWins: number;
+  /** Per-stage breakdown for this season only. */
+  byScope?: HistoryRivalryScope[];
+}
+
+export interface TeamHeadToHead {
+  teamA: SeasonHistoryTeamRef;
+  teamB: SeasonHistoryTeamRef;
+  /** Decided series/meetings across the archive. */
+  meetings: number;
+  aWins: number;
+  bWins: number;
+  /** All-time per-stage totals (splits + internationals). */
+  byScope?: HistoryRivalryScope[];
+  seasons: TeamHeadToHeadSeason[];
+}
+
+export interface TeamCompareResult {
+  teamA: SeasonHistoryTeamRef;
+  teamB: SeasonHistoryTeamRef;
+  h2h: TeamHeadToHead | null;
+  recordA: TeamRecord | null;
+  recordB: TeamRecord | null;
+  /** Seasons the franchise appeared at an international stage. */
+  intlAppearancesA: number;
+  intlAppearancesB: number;
+  /** Worlds finals reached (champion + runner-up). */
+  worldsFinalsA: number;
+  worldsFinalsB: number;
+}
+
+function franchiseKeyFromParts(name: string, leagueId: LeagueId): string {
+  return `${leagueId}:${name}`;
+}
+
+function noteFranchise(
+  map: Map<string, SeasonHistoryTeamRef>,
+  ref: SeasonHistoryTeamRef | null | undefined,
+) {
+  if (!ref) return;
+  map.set(teamRecordKey(ref), ref);
+}
+
+/** Newest archived identity per franchise key — champions, rosters, etc. */
+function buildFranchiseIdentity(
+  entries: SeasonHistoryEntry[],
+): Map<string, SeasonHistoryTeamRef> {
+  const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
+  const byKey = new Map<string, SeasonHistoryTeamRef>();
+  for (const e of ordered) {
+    noteFranchise(byKey, e.champion);
+    noteFranchise(byKey, e.runnerUp);
+    for (const ref of Object.values(e.intlChampions)) noteFranchise(byKey, ref);
+    for (const byLeague of Object.values(e.splitChampions))
+      for (const ref of Object.values(byLeague ?? {})) noteFranchise(byKey, ref);
+    for (const r of e.rivalries ?? []) {
+      noteFranchise(byKey, r.teamA);
+      noteFranchise(byKey, r.teamB);
+    }
+    for (const r of e.headToHead ?? []) {
+      noteFranchise(byKey, r.teamA);
+      noteFranchise(byKey, r.teamB);
+    }
+    for (const phase of e.phaseRosters ?? []) {
+      for (const t of phase.teams) {
+        noteFranchise(byKey, {
+          name: t.teamName,
+          leagueId: t.leagueId,
+          color: "",
+          iconKey: "shield",
+          ...(t.logoUrl ? { logoUrl: t.logoUrl } : {}),
+        });
+      }
+    }
+  }
+  return byKey;
+}
+
+function countIntlAppearances(
+  entries: SeasonHistoryEntry[],
+  key: string,
+): number {
+  let count = 0;
+  for (const e of entries) {
+    const appeared = (e.phaseRosters ?? []).some(
+      (phase) =>
+        phase.kind === "international" &&
+        phase.teams.some((t) =>
+          franchiseKeysMatch(
+            franchiseKeyFromParts(t.teamName, t.leagueId),
+            key,
+          ),
+        ),
+    );
+    if (appeared) count += 1;
+  }
+  return count;
+}
+
+function countWorldsFinals(
+  entries: SeasonHistoryEntry[],
+  key: string,
+): number {
+  let count = 0;
+  for (const e of entries) {
+    for (const ref of [e.champion, e.runnerUp]) {
+      if (ref && franchiseKeysMatch(teamRecordKey(ref), key)) count += 1;
+    }
+  }
+  return count;
+}
+
+/** Head-to-head record between two franchises (name + league), aggregated
+ *  from archived rivalry data. Returns null when they never met. */
+export function computeTeamHeadToHead(
+  entries: SeasonHistoryEntry[],
+  keyA: string,
+  keyB: string,
+): TeamHeadToHead | null {
+  if (!keyA || !keyB || franchiseKeysMatch(keyA, keyB)) return null;
+  const chronological = [...entries].sort((a, b) => a.archivedAt - b.archivedAt);
+  const identity = buildFranchiseIdentity(entries);
+
+  let meetings = 0;
+  let aWins = 0;
+  let bWins = 0;
+  const seasons: TeamHeadToHeadSeason[] = [];
+  const scopeAllTime = new Map<SplitId | InternationalId, HistoryRivalryScope>();
+  let matchedA: SeasonHistoryTeamRef | undefined;
+  let matchedB: SeasonHistoryTeamRef | undefined;
+
+  for (const e of chronological) {
+    for (const r of seasonHeadToHeadRows(e)) {
+      const rKeyA = teamRecordKey(r.teamA);
+      const rKeyB = teamRecordKey(r.teamB);
+      const aIsQueryA =
+        franchiseKeysMatch(rKeyA, keyA) && franchiseKeysMatch(rKeyB, keyB);
+      const aIsQueryB =
+        franchiseKeysMatch(rKeyA, keyB) && franchiseKeysMatch(rKeyB, keyA);
+      if (!aIsQueryA && !aIsQueryB) continue;
+
+      const aIsFirst = aIsQueryA;
+      const seasonAWins = aIsFirst ? r.aWins : r.bWins;
+      const seasonBWins = aIsFirst ? r.bWins : r.aWins;
+      const seasonScopes = aIsFirst ? r.byScope : flipScopes(r.byScope);
+
+      meetings += r.meetings;
+      aWins += seasonAWins;
+      bWins += seasonBWins;
+      mergeScopeRows(scopeAllTime, seasonScopes, false);
+      matchedA = aIsFirst ? r.teamA : r.teamB;
+      matchedB = aIsFirst ? r.teamB : r.teamA;
+
+      seasons.push({
+        seasonName: e.name,
+        franchiseYear: franchiseYearFromSeasonName(e.name),
+        archivedAt: e.archivedAt,
+        meetings: r.meetings,
+        aWins: seasonAWins,
+        bWins: seasonBWins,
+        ...(seasonScopes && seasonScopes.length > 0
+          ? { byScope: seasonScopes }
+          : {}),
+      });
+    }
+  }
+
+  if (meetings === 0) return null;
+  const teamA = identityForKey(identity, keyA, matchedA);
+  const teamB = identityForKey(identity, keyB, matchedB);
+  if (!teamA || !teamB) return null;
+  const byScope = sortedScopeRows(scopeAllTime);
+  return {
+    teamA,
+    teamB,
+    meetings,
+    aWins,
+    bWins,
+    ...(byScope.length > 0 ? { byScope } : {}),
+    seasons,
+  };
+}
+
+/** Side-by-side franchise comparison: H2H (when rivalry data exists) plus
+ *  title records and international/Worlds footprint from the archive. */
+export function compareTeams(
+  entries: SeasonHistoryEntry[],
+  records: TeamRecord[],
+  keyA: string,
+  keyB: string,
+): TeamCompareResult | null {
+  const parsedA = parseFranchiseKey(keyA);
+  const parsedB = parseFranchiseKey(keyB);
+  if (!parsedA || !parsedB) return null;
+  const canonA = resolveCanonicalFranchiseKey(
+    entries,
+    records,
+    parsedA.name,
+    parsedA.leagueId,
+  );
+  const canonB = resolveCanonicalFranchiseKey(
+    entries,
+    records,
+    parsedB.name,
+    parsedB.leagueId,
+  );
+  if (franchiseKeysMatch(canonA, canonB)) return null;
+  const identity = buildFranchiseIdentity(entries);
+  const recordMap = new Map(records.map((r) => [r.key, r]));
+  const recordA =
+    recordMap.get(canonA) ??
+    [...recordMap.values()].find((r) => franchiseKeysMatch(r.key, canonA));
+  const recordB =
+    recordMap.get(canonB) ??
+    [...recordMap.values()].find((r) => franchiseKeysMatch(r.key, canonB));
+  const h2h = computeTeamHeadToHead(entries, canonA, canonB);
+  const fallback = (key: string): SeasonHistoryTeamRef | undefined => {
+    const rec =
+      recordMap.get(key) ??
+      [...recordMap.values()].find((r) => franchiseKeysMatch(r.key, key));
+    if (rec) return rec.team;
+    if (h2h) {
+      if (franchiseKeysMatch(teamRecordKey(h2h.teamA), key)) return h2h.teamA;
+      if (franchiseKeysMatch(teamRecordKey(h2h.teamB), key)) return h2h.teamB;
+    }
+    return identityForKey(identity, key);
+  };
+  const teamA = fallback(canonA);
+  const teamB = fallback(canonB);
+  if (!teamA || !teamB) return null;
+  return {
+    teamA,
+    teamB,
+    h2h,
+    recordA: recordA ?? null,
+    recordB: recordB ?? null,
+    intlAppearancesA: countIntlAppearances(entries, canonA),
+    intlAppearancesB: countIntlAppearances(entries, canonB),
+    worldsFinalsA: countWorldsFinals(entries, canonA),
+    worldsFinalsB: countWorldsFinals(entries, canonB),
+  };
 }
 
 // ─── Player all-time (team-position awards) ─────────────────────────────────

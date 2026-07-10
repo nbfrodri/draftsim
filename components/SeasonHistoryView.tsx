@@ -30,6 +30,10 @@ import {
   computePlayerTitlesByEvent,
   computeRegionTitleLeaders,
   computeAllTimeRivalries,
+  compareTeams,
+  resolveCanonicalFranchiseKey,
+  teamRecordKey,
+  headToHeadScopeLabel,
   careerWinLoss,
   DYNASTY_WINDOW,
   type TeamRecord,
@@ -37,7 +41,7 @@ import {
   type PlayerCareerLine,
   type RegionTitleLeader,
 } from "@/lib/season/historyRecords";
-import { logoForTeamName } from "@/lib/season/realTeams";
+import { resolveTeamLogo } from "@/lib/season/realTeams";
 import { isDesktop, openBinaryFileNative } from "@/lib/desktopStorage";
 import {
   CHAMPION_META,
@@ -132,7 +136,7 @@ function TeamRef({
     <span className="inline-flex items-center gap-1.5 min-w-0">
       <TeamIcon
         iconKey={team.iconKey}
-        logoUrl={team.logoUrl ?? logoForTeamName(team.name)}
+        logoUrl={resolveTeamLogo(team.name, team.logoUrl)}
         size={size}
         color={team.color}
       />
@@ -491,7 +495,7 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
                         </span>
                         <TeamIcon
                           iconKey={team.iconKey}
-                          logoUrl={team.logoUrl ?? logoForTeamName(team.name)}
+                          logoUrl={resolveTeamLogo(team.name, team.logoUrl)}
                           size={11}
                           color={team.color}
                         />
@@ -501,7 +505,7 @@ function SeasonDetail({ entry }: { entry: SeasonHistoryEntry }) {
                         {ru && (
                           <span className="inline-flex items-center gap-1 text-rift-muted/50 truncate">
                             <span className="text-[8px] uppercase tracking-[0.15em]">def.</span>
-                            <TeamIcon iconKey={ru.iconKey} logoUrl={ru.logoUrl ?? logoForTeamName(ru.name)} size={9} color={ru.color} />
+                            <TeamIcon iconKey={ru.iconKey} logoUrl={resolveTeamLogo(ru.name, ru.logoUrl)} size={9} color={ru.color} />
                             <span className="truncate">{ru.name}</span>
                           </span>
                         )}
@@ -566,7 +570,7 @@ function AllProMembers({ members }: { members: SeasonHistoryAllProMember[] }) {
           <LaneIcon lane={m.lane} size="xs" />
           <TeamIcon
             iconKey={m.team.iconKey}
-            logoUrl={m.team.logoUrl ?? logoForTeamName(m.team.name)}
+            logoUrl={resolveTeamLogo(m.team.name, m.team.logoUrl)}
             size={11}
             color={m.team.color}
           />
@@ -716,7 +720,7 @@ function SplitMvpsPanel({ mvps }: { mvps: SeasonHistorySplitMvp[] }) {
                     </span>
                     <TeamIcon
                       iconKey={m.team.iconKey}
-                      logoUrl={m.team.logoUrl ?? logoForTeamName(m.team.name)}
+                      logoUrl={resolveTeamLogo(m.team.name, m.team.logoUrl)}
                       size={10}
                       color={m.team.color}
                     />
@@ -775,7 +779,7 @@ function RegionTitleBoard({
                   </span>
                   {p.lane && <LaneIcon lane={p.lane} size="xs" className="flex-shrink-0" />}
                   {p.teamName && (
-                    <TeamIcon iconKey="shield" logoUrl={logoForTeamName(p.teamName)} size={13} />
+                    <TeamIcon iconKey="shield" logoUrl={resolveTeamLogo(p.teamName)} size={13} />
                   )}
                   <span className="min-w-0 flex-1 truncate text-rift-mutedbright font-medium">
                     {p.playerName || "—"}
@@ -868,7 +872,7 @@ function StageRosters({ entry }: { entry: SeasonHistoryEntry }) {
               className={`border px-2 py-1.5 ${isChamp ? "border-rift-gold/60 bg-rift-gold/[0.06]" : "border-rift-line/40 bg-rift-bg/30"}`}
             >
               <div className="flex items-center gap-1.5 mb-1">
-                <TeamIcon iconKey="shield" logoUrl={t.logoUrl ?? logoForTeamName(t.teamName)} size={13} />
+                <TeamIcon iconKey="shield" logoUrl={resolveTeamLogo(t.teamName, t.logoUrl)} size={13} />
                 <span className="text-[11px] text-rift-mutedbright truncate">{t.teamName}</span>
                 {isChamp && <span className="ml-auto text-[8px] uppercase tracking-[0.2em] text-rift-goldbright">★ champion</span>}
               </div>
@@ -912,7 +916,7 @@ function TransferLog({ transfers }: { transfers: HistoryTransfer[] }) {
   const teamChip = (team: HistoryTransfer["from"]) =>
     team ? (
       <span className="inline-flex items-center gap-1 min-w-0">
-        <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl ?? logoForTeamName(team.name)} size={12} color={team.color} />
+        <TeamIcon iconKey={team.iconKey} logoUrl={resolveTeamLogo(team.name, team.logoUrl)} size={12} color={team.color} />
         <span className="text-rift-mutedbright truncate max-w-[84px]">{team.name}</span>
       </span>
     ) : (
@@ -1023,6 +1027,368 @@ const LANE_SHORT: Record<Lane, string> = {
   bottom: "BOT",
   support: "SUP",
 };
+
+function TeamComparePanel({
+  entries,
+  records,
+}: {
+  entries: SeasonHistoryEntry[];
+  records: TeamRecord[];
+}) {
+  const [keyA, setKeyA] = useState("");
+  const [keyB, setKeyB] = useState("");
+  const [query, setQuery] = useState("");
+  const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
+
+  const teamOptions = useMemo(() => {
+    const byKey = new Map<string, SeasonHistoryTeamRef>();
+    const add = (key: string, team: SeasonHistoryTeamRef) => {
+      const canon = resolveCanonicalFranchiseKey(
+        entries,
+        records,
+        team.name,
+        team.leagueId,
+      );
+      const existing = byKey.get(canon);
+      if (!existing) byKey.set(canon, team);
+      else if (!existing.logoUrl && team.logoUrl)
+        byKey.set(canon, { ...existing, logoUrl: team.logoUrl });
+    };
+    for (const r of records) add(r.key, r.team);
+    for (const e of entries) {
+      for (const rv of e.rivalries ?? []) {
+        add(teamRecordKey(rv.teamA), rv.teamA);
+        add(teamRecordKey(rv.teamB), rv.teamB);
+      }
+      for (const rv of e.headToHead ?? []) {
+        add(teamRecordKey(rv.teamA), rv.teamA);
+        add(teamRecordKey(rv.teamB), rv.teamB);
+      }
+    }
+    for (const t of listTeams(entries)) add(teamRecordKey(t), t);
+    return [...byKey.entries()]
+      .map(([key, team]) => ({ key, team }))
+      .sort(
+        (a, b) =>
+          a.team.leagueId.localeCompare(b.team.leagueId) ||
+          a.team.name.localeCompare(b.team.name),
+      );
+  }, [entries, records]);
+
+  const q = query.normalize("NFKD").toLowerCase().trim();
+  const filteredTeams = useMemo(
+    () =>
+      teamOptions.filter(
+        (o) =>
+          (!leagueFilter || o.team.leagueId === leagueFilter) &&
+          (!q ||
+            o.team.name.toLowerCase().includes(q) ||
+            o.team.leagueId.toLowerCase().includes(q) ||
+            (LEAGUE_NAMES[o.team.leagueId]?.toLowerCase().includes(q) ?? false)),
+      ),
+    [teamOptions, leagueFilter, q],
+  );
+
+  const compare = useMemo(
+    () =>
+      keyA && keyB && keyA !== keyB
+        ? compareTeams(entries, records, keyA, keyB)
+        : null,
+    [entries, records, keyA, keyB],
+  );
+
+  const statRow = (label: string, a: string | number, b: string | number) => {
+    const na = Number(a);
+    const nb = Number(b);
+    return (
+      <div
+        key={label}
+        className="grid grid-cols-[1fr_auto_1fr] gap-2 px-3 py-1.5 text-[11px] items-center border-b border-rift-line/15 last:border-b-0"
+      >
+        <span
+          className={`text-right tabular-nums ${na > nb ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright"}`}
+        >
+          {a}
+        </span>
+        <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 text-center min-w-[5.5rem]">
+          {label}
+        </span>
+        <span
+          className={`tabular-nums ${nb > na ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright"}`}
+        >
+          {b}
+        </span>
+      </div>
+    );
+  };
+
+  const pickColumn = (
+    label: string,
+    value: string,
+    onChange: (key: string) => void,
+    disabledKey: string,
+  ) => (
+    <div className="min-w-0 flex-1 flex flex-col border border-rift-line/40 bg-rift-bg/30">
+      <div className="px-2.5 py-1.5 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.25em] text-rift-gold/60">
+        {label}
+      </div>
+      <div className="max-h-36 overflow-y-auto divide-y divide-rift-line/15">
+        {filteredTeams.length === 0 ? (
+          <p className="px-2.5 py-2 text-[10px] italic text-rift-muted">No matches.</p>
+        ) : (
+          filteredTeams.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              disabled={o.key === disabledKey}
+              onClick={() => onChange(o.key)}
+              className={`w-full text-left px-2.5 py-1.5 flex items-center gap-1.5 transition-colors disabled:opacity-35 disabled:cursor-not-allowed ${
+                value === o.key
+                  ? "bg-rift-gold/[0.08] border-l-2 border-l-rift-gold/70"
+                  : "hover:bg-rift-bg/50 border-l-2 border-l-transparent"
+              }`}
+            >
+              <TeamIcon
+                iconKey={o.team.iconKey}
+                logoUrl={resolveTeamLogo(o.team.name, o.team.logoUrl)}
+                size={14}
+                color={o.team.color}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11px] text-rift-mutedbright truncate">
+                  {o.team.name}
+                </span>
+                <span className="flex items-center gap-1 text-[8px] uppercase tracking-[0.15em] text-rift-muted/50">
+                  <LeagueIcon league={o.team.leagueId} size={9} />
+                  {o.team.leagueId}
+                </span>
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+        Team Compare
+      </div>
+      <p className="text-[9px] italic text-rift-muted mb-2">
+        Pick two franchises to compare all-time head-to-head (splits and
+        internationals) plus trophy counts across every archived season.
+      </p>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search by team or region…"
+        className="w-full mb-2 px-2.5 py-1.5 border border-rift-line/60 bg-rift-bg/40 text-[11px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 focus:outline-none"
+      />
+      <div className="flex flex-wrap gap-1 mb-2">
+        <button
+          type="button"
+          onClick={() => setLeagueFilter(null)}
+          className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
+            leagueFilter == null
+              ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+              : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+          }`}
+        >
+          All
+        </button>
+        {LEAGUE_IDS.map((lg) => (
+          <button
+            key={lg}
+            type="button"
+            onClick={() => setLeagueFilter(lg)}
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
+              leagueFilter === lg
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+            }`}
+          >
+            <LeagueIcon league={lg} size={11} />
+            {lg}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-col sm:flex-row items-stretch gap-2 mb-3">
+        {pickColumn("Team A", keyA, setKeyA, keyB)}
+        <div className="flex sm:flex-col items-center justify-center px-1 py-1 sm:py-0">
+          <span className="text-[10px] uppercase tracking-[0.3em] text-rift-gold/60">
+            vs
+          </span>
+        </div>
+        {pickColumn("Team B", keyB, setKeyB, keyA)}
+      </div>
+
+      {keyA && keyB && keyA === keyB ? (
+        <p className="text-[10px] italic text-rift-muted">
+          Choose two different franchises.
+        </p>
+      ) : compare ? (
+        <div className="border border-rift-line/40 bg-rift-bg/30 overflow-hidden">
+          {/* All-time head-to-head hero */}
+          <div className="bg-gradient-to-b from-rift-gold/[0.07] via-rift-gold/[0.02] to-transparent px-3 py-4 border-b border-rift-line/30">
+            <div className="text-[8px] uppercase tracking-[0.35em] text-rift-gold/70 text-center mb-3">
+              All-Time Head-to-Head
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 flex flex-col items-end gap-1">
+                <TeamRef team={compare.teamA} size={15} />
+                {compare.recordA?.dynasty.tier !== "none" && compare.recordA && (
+                  <DynastyBadge tier={compare.recordA.dynasty.tier} />
+                )}
+              </span>
+              {compare.h2h ? (
+                <div className="shrink-0 text-center px-2">
+                  <div className="font-display text-2xl text-rift-goldbright tabular-nums leading-none">
+                    {compare.h2h.aWins}–{compare.h2h.bWins}
+                  </div>
+                  <div className="mt-1 text-[8px] uppercase tracking-[0.2em] text-rift-muted/75">
+                    {compare.h2h.meetings} series
+                  </div>
+                </div>
+              ) : (
+                <div className="text-[9px] uppercase tracking-[0.2em] text-rift-muted/70 shrink-0 px-2 text-center">
+                  No meetings
+                  <span className="block text-[8px] normal-case tracking-normal text-rift-muted/55 mt-0.5">
+                    Trophy counts only
+                  </span>
+                </div>
+              )}
+              <span className="min-w-0 flex-1 flex flex-col items-start gap-1">
+                <TeamRef team={compare.teamB} size={15} />
+                {compare.recordB?.dynasty.tier !== "none" && compare.recordB && (
+                  <DynastyBadge tier={compare.recordB.dynasty.tier} />
+                )}
+              </span>
+            </div>
+            {compare.h2h?.byScope && compare.h2h.byScope.length > 0 && (
+              <div className="mt-3 flex flex-wrap justify-center gap-1">
+                {compare.h2h.byScope.map((s) => (
+                  <span
+                    key={s.scope}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 border border-rift-line/45 bg-rift-bg/50 text-[8px] uppercase tracking-[0.12em] text-rift-mutedbright"
+                    title={`${headToHeadScopeLabel(s.scope)} — ${s.meetings} series`}
+                  >
+                    <span className="text-rift-muted/65">{headToHeadScopeLabel(s.scope)}</span>
+                    <span className="text-rift-goldbright tabular-nums">
+                      {s.aWins}–{s.bWins}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {compare.h2h && !compare.h2h.byScope?.length && (
+              <p className="mt-2 text-center text-[8px] italic text-rift-muted/60">
+                Per-stage breakdown appears after re-archiving seasons with full H2H data.
+              </p>
+            )}
+          </div>
+
+          {/* Per-season / franchise-year ledger */}
+          {compare.h2h && compare.h2h.seasons.length > 0 && (
+            <div className="border-b border-rift-line/25">
+              <div className="px-3 py-1.5 border-b border-rift-line/20 text-[8px] uppercase tracking-[0.3em] text-rift-gold/65">
+                By Season
+              </div>
+              <div className="divide-y divide-rift-line/12 max-h-48 overflow-y-auto">
+                {[...compare.h2h.seasons]
+                  .sort((a, b) => b.archivedAt - a.archivedAt)
+                  .map((s) => (
+                    <div
+                      key={`${s.seasonName}-${s.archivedAt}`}
+                      className="px-3 py-2 text-[10px]"
+                    >
+                      <div className="flex items-baseline justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-rift-mutedbright truncate block">
+                            {s.seasonName}
+                          </span>
+                          {s.franchiseYear != null && (
+                            <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/55">
+                              Franchise Year {s.franchiseYear}
+                            </span>
+                          )}
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <span className="font-display text-sm text-rift-goldbright tabular-nums">
+                            {s.aWins}–{s.bWins}
+                          </span>
+                          <span className="block text-[8px] text-rift-muted/60 tabular-nums">
+                            {s.meetings} series
+                          </span>
+                        </div>
+                      </div>
+                      {s.byScope && s.byScope.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {s.byScope.map((scope) => (
+                            <span
+                              key={scope.scope}
+                              className="inline-flex items-center gap-1 px-1 py-px border border-rift-line/35 bg-rift-bg/40 text-[7px] uppercase tracking-[0.1em] text-rift-muted/80"
+                            >
+                              {headToHeadScopeLabel(scope.scope)}
+                              <span className="text-rift-mutedbright tabular-nums">
+                                {scope.aWins}–{scope.bWins}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Trophy & footprint comparison */}
+          <div>
+            <div className="px-3 py-1.5 border-b border-rift-line/20 text-[8px] uppercase tracking-[0.3em] text-rift-gold/65">
+              Trophy Ledger
+            </div>
+            {statRow(
+              "Total titles",
+              compare.recordA?.totalTitles ?? 0,
+              compare.recordB?.totalTitles ?? 0,
+            )}
+            {statRow(
+              "Split titles",
+              compare.recordA?.splitTitles ?? 0,
+              compare.recordB?.splitTitles ?? 0,
+            )}
+            {statRow(
+              "Intl titles",
+              compare.recordA?.intlTotal ?? 0,
+              compare.recordB?.intlTotal ?? 0,
+            )}
+            {statRow(
+              "Worlds titles",
+              compare.recordA?.worldsTitles ?? 0,
+              compare.recordB?.worldsTitles ?? 0,
+            )}
+            {statRow(
+              "Intl seasons",
+              compare.intlAppearancesA,
+              compare.intlAppearancesB,
+            )}
+            {statRow(
+              "Worlds finals",
+              compare.worldsFinalsA,
+              compare.worldsFinalsB,
+            )}
+          </div>
+        </div>
+      ) : keyA && keyB ? (
+        <p className="text-[10px] italic text-rift-muted">
+          No archived data found for that pairing.
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 function DynastyBadge({ tier }: { tier: DynastyTier }) {
   if (tier === "none") return null;
@@ -1546,6 +1912,8 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
         )}
       </div>
 
+      <TeamComparePanel entries={entries} records={records} />
+
       {/* Title streaks & droughts across seasons */}
       <div>
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
@@ -1640,7 +2008,7 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                         </span>
                         {lane && <LaneIcon lane={lane} size="xs" className="flex-shrink-0" />}
                         {p.teamName && (
-                          <TeamIcon iconKey="shield" logoUrl={logoForTeamName(p.teamName)} size={13} />
+                          <TeamIcon iconKey="shield" logoUrl={resolveTeamLogo(p.teamName)} size={13} />
                         )}
                         <span className="min-w-0 flex-1 truncate text-rift-mutedbright font-medium">
                           {p.playerName || "—"}
@@ -1689,7 +2057,7 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                   <span className="flex items-center gap-1.5 min-w-0">
                     {c.lane && <LaneIcon lane={c.lane} size="xs" className="flex-shrink-0" />}
                     {c.teamName && (
-                      <TeamIcon iconKey="shield" logoUrl={logoForTeamName(c.teamName)} size={13} />
+                      <TeamIcon iconKey="shield" logoUrl={resolveTeamLogo(c.teamName)} size={13} />
                     )}
                     <span className="truncate text-rift-mutedbright font-medium">{c.playerName || "—"}</span>
                     {c.leagueId && (
@@ -1739,7 +2107,7 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                   <span className="flex items-center gap-1.5 min-w-0">
                     {p.lane && <LaneIcon lane={p.lane} size="xs" className="flex-shrink-0" />}
                     {p.teamName && (
-                      <TeamIcon iconKey="shield" logoUrl={logoForTeamName(p.teamName)} size={13} />
+                      <TeamIcon iconKey="shield" logoUrl={resolveTeamLogo(p.teamName)} size={13} />
                     )}
                     <span className="truncate text-rift-mutedbright font-medium">{p.name}</span>
                     {p.leagueId && (
@@ -1783,7 +2151,7 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                         {i + 1}
                       </span>
                       {p.teamName && (
-                        <TeamIcon iconKey="shield" logoUrl={logoForTeamName(p.teamName)} size={13} />
+                        <TeamIcon iconKey="shield" logoUrl={resolveTeamLogo(p.teamName)} size={13} />
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 min-w-0">
@@ -1844,7 +2212,7 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                 <div key={c.name} className="grid grid-cols-[1.25rem_minmax(0,1fr)_repeat(5,2rem)] gap-x-1 items-center px-3 py-1.5 text-[11px]">
                   <span className="text-right text-[9px] tabular-nums text-rift-muted/70">{i + 1}</span>
                   <span className="flex items-center gap-1.5 min-w-0">
-                    {c.team && <TeamIcon iconKey={c.team.iconKey} logoUrl={c.team.logoUrl ?? logoForTeamName(c.team.name)} size={13} color={c.team.color} />}
+                    {c.team && <TeamIcon iconKey={c.team.iconKey} logoUrl={resolveTeamLogo(c.team.name, c.team.logoUrl)} size={13} color={c.team.color} />}
                     <span className="truncate text-rift-mutedbright font-medium">{c.name}</span>
                     {c.leagueId && (
                       <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/60 flex-shrink-0">{c.leagueId}</span>
@@ -1879,7 +2247,7 @@ function RecordsPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                   {g.rows.map((c, i) => (
                     <div key={c.name} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
                       <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">{i + 1}</span>
-                      {c.team && <TeamIcon iconKey={c.team.iconKey} logoUrl={c.team.logoUrl ?? logoForTeamName(c.team.name)} size={13} color={c.team.color} />}
+                      {c.team && <TeamIcon iconKey={c.team.iconKey} logoUrl={resolveTeamLogo(c.team.name, c.team.logoUrl)} size={13} color={c.team.color} />}
                       <span className="min-w-0 flex-1 truncate text-rift-mutedbright font-medium">{c.name}</span>
                       <span className="text-[8px] text-rift-muted/55 tabular-nums flex-shrink-0" title="Splits · Internationals">
                         {c.splitTitles}S · {c.intlTotal}I
@@ -2505,7 +2873,7 @@ function CoachProfileView({ entries, name, onNavigate }: { entries: SeasonHistor
         )}
         {c.team && (
           <span className="inline-flex items-center gap-1 text-[9px] text-rift-muted/70">
-            <TeamIcon iconKey={c.team.iconKey} logoUrl={c.team.logoUrl ?? logoForTeamName(c.team.name)} size={14} color={c.team.color} />
+            <TeamIcon iconKey={c.team.iconKey} logoUrl={resolveTeamLogo(c.team.name, c.team.logoUrl)} size={14} color={c.team.color} />
             {c.team.name}
           </span>
         )}
@@ -2855,7 +3223,7 @@ function SearchPanel({ entries }: { entries: SeasonHistoryEntry[] }) {
                 {r.tier && (
                   <span className={`w-4 text-center border font-display text-[8px] shrink-0 ${STAGE_TIER_CLS[r.tier] ?? ""}`}>{r.tier}</span>
                 )}
-                {r.team && <TeamIcon iconKey={r.team.iconKey} logoUrl={r.team.logoUrl ?? logoForTeamName(r.team.name)} size={14} color={r.team.color} />}
+                {r.team && <TeamIcon iconKey={r.team.iconKey} logoUrl={resolveTeamLogo(r.team.name, r.team.logoUrl)} size={14} color={r.team.color} />}
                 <span className="min-w-0 flex-1">
                   <span className="block text-[11px] text-rift-mutedbright truncate">{r.label}</span>
                   {/* Players: team logo's region; teams/coaches: the sub line. */}
@@ -3297,8 +3665,7 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
                           <TeamIcon
                             iconKey={entry.champion.iconKey}
                             logoUrl={
-                              entry.champion.logoUrl ??
-                              logoForTeamName(entry.champion.name)
+                            resolveTeamLogo(entry.champion.name, entry.champion.logoUrl)
                             }
                             size={12}
                             color={entry.champion.color}

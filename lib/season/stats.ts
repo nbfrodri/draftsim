@@ -1097,6 +1097,110 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
   };
 }
 
+/** Per-stage slice of a franchise head-to-head within one season. */
+export interface SeasonHeadToHeadScopeRow {
+  scope: SplitId | InternationalId;
+  meetings: number;
+  aWins: number;
+  bWins: number;
+}
+
+/** One franchise pairing's full season ledger (splits + internationals). */
+export interface SeasonHeadToHeadRow {
+  teamAId: string;
+  teamBId: string;
+  meetings: number;
+  aWins: number;
+  bWins: number;
+  byScope: SeasonHeadToHeadScopeRow[];
+}
+
+/** Every franchise pairing that met at least once this year, with a
+ *  per-stage breakdown (domestic splits and each international). Unlike
+ *  `computeSeasonStats().rivalries`, this includes single meetings and
+ *  is not capped to the top pairings — intended for Hall archive + compare. */
+export function computeSeasonHeadToHead(season: SeasonState): SeasonHeadToHeadRow[] {
+  const scopeOfTournament = new Map<string, SplitId | InternationalId>();
+  for (const phase of season.phases ?? []) {
+    if (phase.kind === "split" && phase.split) {
+      for (const tid of phase.tournamentIds)
+        scopeOfTournament.set(tid, phase.split);
+    } else if (phase.kind === "international" && phase.event) {
+      for (const tid of phase.tournamentIds)
+        scopeOfTournament.set(tid, phase.event);
+    }
+  }
+
+  type ScopeBucket = { meetings: number; aWins: number; bWins: number };
+  type PairBucket = {
+    teamAId: string;
+    teamBId: string;
+    meetings: number;
+    aWins: number;
+    bWins: number;
+    scopes: Map<SplitId | InternationalId, ScopeBucket>;
+  };
+  const pairs = new Map<string, PairBucket>();
+
+  const bump = (
+    blueId: string,
+    redId: string,
+    winnerId: string,
+    scope: SplitId | InternationalId | undefined,
+  ) => {
+    const [a, b] = [blueId, redId].sort();
+    const pairKey = `${a}:${b}`;
+    const row =
+      pairs.get(pairKey) ??
+      ({
+        teamAId: a,
+        teamBId: b,
+        meetings: 0,
+        aWins: 0,
+        bWins: 0,
+        scopes: new Map(),
+      } satisfies PairBucket);
+    row.meetings++;
+    if (winnerId === a) row.aWins++;
+    else row.bWins++;
+
+    if (scope) {
+      const s =
+        row.scopes.get(scope) ??
+        ({ meetings: 0, aWins: 0, bWins: 0 } satisfies ScopeBucket);
+      s.meetings++;
+      if (winnerId === a) s.aWins++;
+      else s.bWins++;
+      row.scopes.set(scope, s);
+    }
+    pairs.set(pairKey, row);
+  };
+
+  for (const t of Object.values(season.tournaments ?? {})) {
+    const scope = scopeOfTournament.get(t.id);
+    for (const m of t.matches) {
+      if (!m.winner || !m.blueTeamId || !m.redTeamId) continue;
+      bump(m.blueTeamId, m.redTeamId, m.winner.teamId, scope);
+    }
+  }
+
+  return [...pairs.values()]
+    .map((r) => ({
+      teamAId: r.teamAId,
+      teamBId: r.teamBId,
+      meetings: r.meetings,
+      aWins: r.aWins,
+      bWins: r.bWins,
+      byScope: [...r.scopes.entries()].map(([scope, s]) => ({ scope, ...s })),
+    }))
+    .sort(
+      (a, b) =>
+        b.meetings - a.meetings ||
+        a.teamAId.localeCompare(b.teamAId) ||
+        a.teamBId.localeCompare(b.teamBId),
+    );
+}
+
 // ─── Per-player season grades ("notes") for one team ────────────────────────
 // Walks every completed game the team played this season (across all
 // tournaments, in phase order) and extracts that team's per-lane performance

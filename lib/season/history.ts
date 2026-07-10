@@ -26,6 +26,7 @@ import {
 import { isGlobalCupYear } from "./engine";
 import {
   computeSeasonStats,
+  computeSeasonHeadToHead,
   computeStageStats,
   computePlayerCareerRecords,
   computeSeasonIntlMvps,
@@ -204,6 +205,19 @@ export interface SeasonHistoryEntry {
   /** Most-played head-to-head pairings this season (franchise refs, not ids).
    *  Optional — only on seasons archived after the rivalry expansion. */
   rivalries?: HistoryRivalry[];
+  /** Full head-to-head ledger — every franchise pairing that met at least once
+   *  (splits + internationals), with per-stage breakdown. Optional — only on
+   *  seasons archived after the full-H2H expansion; older entries fall back to
+   *  `rivalries` (top pairings, often without scope detail). */
+  headToHead?: HistoryRivalry[];
+}
+
+/** Per-stage slice of a frozen head-to-head (split or international). */
+export interface HistoryRivalryScope {
+  scope: SplitId | InternationalId;
+  meetings: number;
+  aWins: number;
+  bWins: number;
 }
 
 /** A frozen head-to-head pairing for the Hall archive. Teams are ordered by
@@ -216,6 +230,9 @@ export interface HistoryRivalry {
   aWins: number;
   /** Wins for `teamB`. */
   bWins: number;
+  /** Domestic splits + internationals where this pair met. Optional — only on
+   *  seasons archived after the full-H2H expansion. */
+  byScope?: HistoryRivalryScope[];
 }
 
 /** One champion-lane tier movement between two meta snapshots. */
@@ -331,6 +348,7 @@ export function buildSeasonHistoryEntry(
   const leagueBestTeams: SeasonHistoryEntry["leagueBestTeams"] = {};
   const tallyMap = new Map<string, SeasonHistoryAwardTally>();
   const rivalryArchive: HistoryRivalry[] = [];
+  const headToHeadArchive: HistoryRivalry[] = [];
   if (tournaments.length > 0) {
     // Per-league best team of the year, with its aggregate record.
     const stats = computeSeasonStats(season);
@@ -347,22 +365,58 @@ export function buildSeasonHistoryEntry(
       }
     }
     const franchiseKey = (t: SeasonHistoryTeamRef) => `${t.leagueId}:${t.name}`;
-    for (const r of stats.rivalries) {
-      const refA = teamRef(season, r.teamAId);
-      const refB = teamRef(season, r.teamBId);
-      if (!refA || !refB) continue;
+    const pushRivalryRow = (
+      refA: SeasonHistoryTeamRef,
+      refB: SeasonHistoryTeamRef,
+      meetings: number,
+      aWins: number,
+      bWins: number,
+      byScope?: HistoryRivalryScope[],
+    ) => {
       const keyA = franchiseKey(refA);
       const keyB = franchiseKey(refB);
       const flip = keyA > keyB;
       const [teamA, teamB] = flip ? [refB, refA] : [refA, refB];
-      const [aWins, bWins] = flip ? [r.bWins, r.aWins] : [r.aWins, r.bWins];
-      rivalryArchive.push({
+      const [normAWins, normBWins] = flip ? [bWins, aWins] : [aWins, bWins];
+      const normScopes = flip
+        ? byScope?.map((s) => ({
+            scope: s.scope,
+            meetings: s.meetings,
+            aWins: s.bWins,
+            bWins: s.aWins,
+          }))
+        : byScope;
+      return {
         teamA,
         teamB,
-        meetings: r.meetings,
-        aWins,
-        bWins,
-      });
+        meetings,
+        aWins: normAWins,
+        bWins: normBWins,
+        ...(normScopes && normScopes.length > 0 ? { byScope: normScopes } : {}),
+      } satisfies HistoryRivalry;
+    };
+    for (const r of stats.rivalries) {
+      const refA = teamRef(season, r.teamAId);
+      const refB = teamRef(season, r.teamBId);
+      if (!refA || !refB) continue;
+      rivalryArchive.push(
+        pushRivalryRow(refA, refB, r.meetings, r.aWins, r.bWins),
+      );
+    }
+    for (const r of computeSeasonHeadToHead(season)) {
+      const refA = teamRef(season, r.teamAId);
+      const refB = teamRef(season, r.teamBId);
+      if (!refA || !refB) continue;
+      headToHeadArchive.push(
+        pushRivalryRow(
+          refA,
+          refB,
+          r.meetings,
+          r.aWins,
+          r.bWins,
+          r.byScope,
+        ),
+      );
     }
     // Aggregate every stage's MVP + All-Pro into per-team-position tallies.
     const tallyKey = (ref: SeasonHistoryTeamRef, lane: Lane) =>
@@ -543,6 +597,7 @@ export function buildSeasonHistoryEntry(
     ...(season.phaseRosters?.length ? { phaseRosters: season.phaseRosters } : {}),
     ...(transfers.length > 0 ? { transfers } : {}),
     ...(rivalryArchive.length > 0 ? { rivalries: rivalryArchive } : {}),
+    ...(headToHeadArchive.length > 0 ? { headToHead: headToHeadArchive } : {}),
     // Starting tier table (undefined when the season pre-dates
     // initialMeta — we can't reconstruct what it began on) and the
     // table at archive time after a year of drift.

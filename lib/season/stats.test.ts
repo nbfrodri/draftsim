@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computePlayerSeasonLines } from "./stats";
+import { computePlayerSeasonLines, computeSeasonHeadToHead } from "./stats";
 import type { SeasonState } from "./types";
 
 // Minimal season with one finished game whose recap carries lane gold diffs
@@ -63,5 +63,62 @@ describe("computePlayerSeasonLines gold diff", () => {
     // Red (B) lost — a game played, no win.
     expect(by.get("b0")!.wins).toBe(0);
     expect(by.get("b0")!.games).toBe(1);
+  });
+});
+
+describe("computeSeasonHeadToHead", () => {
+  it("tracks split and international meetings with per-scope breakdown", () => {
+    const match = (blue: string, red: string, winner: string) => ({
+      isBye: false,
+      blueTeamId: blue,
+      redTeamId: red,
+      winner: { teamId: winner },
+      series: { games: [] },
+    });
+    const season = {
+      teams: [
+        { id: "t1", name: "T1", leagueId: "LCK", players: [] },
+        { id: "gen", name: "Gen.G", leagueId: "LCK", players: [] },
+      ],
+      phases: [
+        {
+          kind: "split",
+          split: "winter",
+          label: "Winter",
+          tournamentIds: ["lck-winter"],
+          status: "complete",
+        },
+        {
+          kind: "international",
+          event: "msi",
+          label: "MSI",
+          tournamentIds: ["msi-main"],
+          status: "complete",
+        },
+      ],
+      tournaments: {
+        "lck-winter": {
+          id: "lck-winter",
+          matches: [match("t1", "gen", "t1"), match("gen", "t1", "gen")],
+        },
+        "msi-main": {
+          id: "msi-main",
+          matches: [match("t1", "gen", "t1")],
+        },
+      },
+    } as unknown as SeasonState;
+    const rows = computeSeasonHeadToHead(season);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      teamAId: "gen",
+      teamBId: "t1",
+      meetings: 3,
+      aWins: 1,
+      bWins: 2,
+    });
+    expect(rows[0].byScope).toEqual([
+      { scope: "winter", meetings: 2, aWins: 1, bWins: 1 },
+      { scope: "msi", meetings: 1, aWins: 0, bWins: 1 },
+    ]);
   });
 });

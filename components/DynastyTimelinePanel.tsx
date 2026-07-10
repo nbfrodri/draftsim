@@ -15,6 +15,7 @@ import type { SeasonHistoryEntry } from "@/lib/season/history";
 import type { LeagueId, InternationalId } from "@/lib/season/types";
 import { LEAGUE_IDS } from "@/lib/season/types";
 import type { DynastyTier } from "@/lib/season/historyRecords";
+import { resolveTeamLogo } from "@/lib/season/realTeams";
 import TeamIcon from "./TeamIcon";
 import LeagueIcon from "./LeagueIcon";
 
@@ -212,7 +213,7 @@ function ExpandedDetail({
             <div className="flex items-center gap-2 px-3 py-2 border-b border-rift-line/25 bg-rift-bg/25 min-w-0">
               <TeamIcon
                 iconKey={row.team.iconKey}
-                logoUrl={row.team.logoUrl}
+                logoUrl={resolveTeamLogo(row.team.name, row.team.logoUrl)}
                 size={16}
                 color={row.team.color}
               />
@@ -321,7 +322,7 @@ function FranchiseRow({
             </span>
             <TeamIcon
               iconKey={row.team.iconKey}
-              logoUrl={row.team.logoUrl}
+              logoUrl={resolveTeamLogo(row.team.name, row.team.logoUrl)}
               size={14}
               color={row.team.color}
             />

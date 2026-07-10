@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dedupeAcrossLeagues, extractStandingsTeams, logoForTeamName } from "./realTeams";
+import { dedupeAcrossLeagues, extractStandingsTeams, logoForTeamName, resolveTeamLogo } from "./realTeams";
 import type { RealTeam } from "./realTeams";
 import type { LeagueId } from "./types";
 
@@ -98,5 +98,19 @@ describe("logoForTeamName", () => {
   it("matches accent/case-insensitively", () => {
     expect(logoForTeamName("Edward Gaming")).toBe("/team-logos/edward-gaming.png");
     expect(logoForTeamName(undefined)).toBeUndefined();
+  });
+});
+
+describe("resolveTeamLogo", () => {
+  it("prefers bundled logo over a stale archived remote URL", () => {
+    expect(
+      resolveTeamLogo("Edward Gaming", "https://dead.cdn/edward-gaming.png"),
+    ).toBe("/team-logos/edward-gaming.png");
+  });
+
+  it("falls back to archived URL when name has no bundled match", () => {
+    expect(resolveTeamLogo("Mystery Org", "https://cdn/mystery.png")).toBe(
+      "https://cdn/mystery.png",
+    );
   });
 });

@@ -10,6 +10,9 @@ import {
   computePlayerAllTime,
   computeRegionTitleLeaders,
   computeAllTimeRivalries,
+  computeTeamHeadToHead,
+  compareTeams,
+  resolveCanonicalFranchiseKey,
 } from "./historyRecords";
 import type { PlayerSeasonRecord } from "./stats";
 import { goldenRoadTeam, goldenRoadRequiresGlobalCup } from "./history";
@@ -475,5 +478,221 @@ describe("computeAllTimeRivalries", () => {
       ],
     });
     expect(computeAllTimeRivalries([s1])).toHaveLength(0);
+  });
+});
+
+describe("computeTeamHeadToHead", () => {
+  it("aggregates rivalry meetings for a specific franchise pair", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      rivalries: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 3,
+          aWins: 2,
+          bWins: 1,
+        },
+      ],
+    });
+    const s2 = entry("s2", "Season 2", 2000, {
+      rivalries: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 2,
+          aWins: 0,
+          bWins: 2,
+        },
+      ],
+    });
+    const h2h = computeTeamHeadToHead([s1, s2], "LCK:T1", "LCK:Gen.G");
+    expect(h2h).toMatchObject({
+      meetings: 5,
+      aWins: 2,
+      bWins: 3,
+    });
+    expect(h2h?.seasons).toHaveLength(2);
+  });
+
+  it("returns null when franchises never met", () => {
+    expect(computeTeamHeadToHead([], "LCK:T1", "LCK:Gen.G")).toBeNull();
+  });
+
+  it("prefers headToHead ledger with per-scope breakdown (splits + internationals)", () => {
+    const s1 = entry("s1", "My Reality — Year 1", 1000, {
+      headToHead: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 4,
+          aWins: 3,
+          bWins: 1,
+          byScope: [
+            { scope: "winter", meetings: 2, aWins: 2, bWins: 0 },
+            { scope: "msi", meetings: 2, aWins: 1, bWins: 1 },
+          ],
+        },
+      ],
+      rivalries: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 2,
+          aWins: 2,
+          bWins: 0,
+        },
+      ],
+    });
+    const s2 = entry("s2", "My Reality — Year 2", 2000, {
+      headToHead: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 1,
+          aWins: 0,
+          bWins: 1,
+          byScope: [{ scope: "worlds", meetings: 1, aWins: 0, bWins: 1 }],
+        },
+      ],
+    });
+    const h2h = computeTeamHeadToHead([s1, s2], "LCK:T1", "LCK:Gen.G");
+    expect(h2h).toMatchObject({
+      meetings: 5,
+      aWins: 3,
+      bWins: 2,
+    });
+    expect(h2h?.byScope).toEqual([
+      { scope: "winter", meetings: 2, aWins: 2, bWins: 0 },
+      { scope: "msi", meetings: 2, aWins: 1, bWins: 1 },
+      { scope: "worlds", meetings: 1, aWins: 0, bWins: 1 },
+    ]);
+    expect(h2h?.seasons).toHaveLength(2);
+    expect(h2h?.seasons[0]).toMatchObject({
+      seasonName: "My Reality — Year 1",
+      franchiseYear: 1,
+      meetings: 4,
+      aWins: 3,
+      bWins: 1,
+    });
+    expect(h2h?.seasons[1]).toMatchObject({
+      franchiseYear: 2,
+      byScope: [{ scope: "worlds", meetings: 1, aWins: 0, bWins: 1 }],
+    });
+  });
+
+  it("falls back to legacy rivalries when headToHead is absent", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      rivalries: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 2,
+          aWins: 1,
+          bWins: 1,
+        },
+      ],
+    });
+    const h2h = computeTeamHeadToHead([s1], "LCK:T1", "LCK:Gen.G");
+    expect(h2h).toMatchObject({ meetings: 2, aWins: 1, bWins: 1 });
+    expect(h2h?.byScope).toBeUndefined();
+  });
+});
+
+describe("franchise key matching", () => {
+  it("matches rivalry keys when roster names differ by punctuation/case", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      rivalries: [
+        {
+          teamA: team("Gen.G"),
+          teamB: team("T1"),
+          meetings: 3,
+          aWins: 1,
+          bWins: 2,
+        },
+      ],
+    });
+    const h2h = computeTeamHeadToHead([s1], "LCK:Gen G", "LCK:T1");
+    expect(h2h).toMatchObject({ meetings: 3, aWins: 1, bWins: 2 });
+  });
+
+  it("resolves canonical keys from records for compareTeams", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      champion: team("Gen.G"),
+      splitChampions: { winter: { LCK: team("Gen.G") } },
+      rivalries: [
+        {
+          teamA: team("Gen.G"),
+          teamB: team("T1"),
+          meetings: 2,
+          aWins: 1,
+          bWins: 1,
+        },
+      ],
+    });
+    const records = computeTeamRecords([s1]);
+    const cmp = compareTeams([s1], records, "LCK:Gen G", "LCK:T1");
+    expect(cmp?.h2h).toMatchObject({ meetings: 2, aWins: 1, bWins: 1 });
+    expect(cmp?.recordA?.team.name).toBe("Gen.G");
+  });
+
+  it("resolveCanonicalFranchiseKey prefers record/rivalry spelling", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      splitChampions: { winter: { LCK: team("Gen.G") } },
+      rivalries: [
+        {
+          teamA: team("Gen.G"),
+          teamB: team("T1"),
+          meetings: 2,
+          aWins: 1,
+          bWins: 1,
+        },
+      ],
+    });
+    const records = computeTeamRecords([s1]);
+    expect(resolveCanonicalFranchiseKey([s1], records, "Gen G", "LCK")).toBe(
+      "LCK:Gen.G",
+    );
+  });
+});
+
+describe("compareTeams", () => {
+  it("includes title records and H2H for two franchises", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      champion: team("T1"),
+      splitChampions: { winter: { LCK: team("T1") } },
+      rivalries: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 2,
+          aWins: 2,
+          bWins: 0,
+        },
+      ],
+      phaseRosters: [
+        {
+          phaseIndex: 0,
+          label: "MSI",
+          kind: "international",
+          event: "msi",
+          teams: [
+            {
+              teamId: "t1",
+              teamName: "T1",
+              leagueId: "LCK",
+              players: [{ tier: "S", lane: "top" }],
+            },
+          ],
+        },
+      ],
+    });
+    const records = computeTeamRecords([s1]);
+    const cmp = compareTeams([s1], records, "LCK:T1", "LCK:Gen.G");
+    expect(cmp).toMatchObject({
+      h2h: { meetings: 2, aWins: 2, bWins: 0 },
+      recordA: expect.objectContaining({ totalTitles: 2 }),
+      intlAppearancesA: 1,
+      worldsFinalsA: 1,
+    });
   });
 });

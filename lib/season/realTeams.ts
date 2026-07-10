@@ -78,6 +78,16 @@ export function logoForTeamName(name: string | undefined): string | undefined {
   return NAME_TO_LOGO.get(normalizeTeamName(name));
 }
 
+/** Best logo for a team shown in the Hall — prefers the bundled offline
+ *  asset (always loadable) over a possibly-dead remote URL snapshotted at
+ *  archive time. Matches fetchRealTeams' logo resolution order. */
+export function resolveTeamLogo(
+  name: string | undefined,
+  archivedLogoUrl?: string,
+): string | undefined {
+  return logoForTeamName(name) ?? archivedLogoUrl;
+}
+
 const API_BASE = "https://esports-api.lolesports.com/persisted/gw";
 // Public web client key embedded in lolesports.com — not a secret.
 const API_KEY = "0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z";
@@ -317,7 +327,7 @@ export async function fetchRealTeams(
       // Prefer a bundled local logo when the team name matches, so seasons
       // created from a live fetch still show logos offline; fall back to the
       // remote URL for teams not in the bundle.
-      team.logoUrl = logoForTeamName(team.name) ?? team.logoUrl;
+      team.logoUrl = resolveTeamLogo(team.name, team.logoUrl);
       // Prefer the accurate bundled roster (Leaguepedia starters); fill any
       // gaps from the live LoL Esports squad. The live feed alone is unreliable
       // (full org list, no starter flag), so it's only a fallback.
