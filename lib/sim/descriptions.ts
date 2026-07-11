@@ -1160,10 +1160,10 @@ const LANE_LIST: readonly Lane[] = [
 //   • Top         — moderate kills, LOW assists (isolated side lane, rarely
 //                   present for cross-map kills); deaths from 1v1 trades.
 const KILL_WEIGHTS: Record<Lane, number> = {
-  top: 0.18,
-  jungle: 0.24,
-  middle: 0.28,
-  bottom: 0.25,
+  top: 0.19,
+  jungle: 0.22,
+  middle: 0.24,
+  bottom: 0.26,
   support: 0.05,
 };
 
@@ -1176,10 +1176,10 @@ const DEATH_WEIGHTS: Record<Lane, number> = {
 };
 
 const ASSIST_WEIGHTS: Record<Lane, number> = {
-  top: 0.10,
-  jungle: 0.26,
-  middle: 0.22,
-  bottom: 0.12,
+  top: 0.11,
+  jungle: 0.24,
+  middle: 0.20,
+  bottom: 0.13,
   support: 0.30,
 };
 

@@ -23198,10 +23198,10 @@
     "support"
   ];
   var KILL_WEIGHTS = {
-    top: 0.18,
-    jungle: 0.24,
-    middle: 0.28,
-    bottom: 0.25,
+    top: 0.19,
+    jungle: 0.22,
+    middle: 0.24,
+    bottom: 0.26,
     support: 0.05
   };
   var DEATH_WEIGHTS = {
@@ -23212,10 +23212,10 @@
     support: 0.24
   };
   var ASSIST_WEIGHTS = {
-    top: 0.1,
-    jungle: 0.26,
-    middle: 0.22,
-    bottom: 0.12,
+    top: 0.11,
+    jungle: 0.24,
+    middle: 0.2,
+    bottom: 0.13,
     support: 0.3
   };
   function makeKDA() {
@@ -36168,11 +36168,11 @@
   var RATING_GOLD_SATURATION = 2e3;
   var RATING_RESULT_BONUS = 0.45;
   var ROLE_RATING = {
-    top: { invCenter: 0.45, assistWeight: 0.7, goldWeight: 1 },
-    jungle: { invCenter: 0.58, assistWeight: 0.5, goldWeight: 0.8 },
-    middle: { invCenter: 0.45, assistWeight: 0.7, goldWeight: 1 },
-    bottom: { invCenter: 0.47, assistWeight: 0.7, goldWeight: 1.1 },
-    support: { invCenter: 0.58, assistWeight: 0.5, goldWeight: 0.7 }
+    top: { invCenter: 0.42, assistWeight: 0.72, goldWeight: 1.05 },
+    jungle: { invCenter: 0.62, assistWeight: 0.48, goldWeight: 0.75 },
+    middle: { invCenter: 0.52, assistWeight: 0.65, goldWeight: 0.95 },
+    bottom: { invCenter: 0.48, assistWeight: 0.72, goldWeight: 1.12 },
+    support: { invCenter: 0.58, assistWeight: 0.48, goldWeight: 0.72 }
   };
   function ratePlayerGame(k, d, a, laneGoldDiff, won, teamKills, lane) {
     const role = ROLE_RATING[lane];

@@ -154,7 +154,15 @@ function collectPlayerStats(
         const laneIdx = LANE_INDEX[lane];
         const blueRating = gameRatings.blue[laneIdx];
         if (typeof blueRating !== "number" || !Number.isFinite(blueRating)) continue;
-        const stats = ensurePlayer(blueTeam.id, lane, blueTeam.name, blueTeam.players?.[laneIdx]?.name, blueTeam.players?.[laneIdx]?.id);
+        const ids = recap.perPickIds?.blue;
+        const names = recap.perPickNames?.blue;
+        const stats = ensurePlayer(
+          blueTeam.id,
+          lane,
+          blueTeam.name,
+          names?.[laneIdx] ?? blueTeam.players?.[laneIdx]?.name,
+          ids?.[laneIdx] ?? blueTeam.players?.[laneIdx]?.id,
+        );
         stats.ratings.push(blueRating);
         if (blueRating > stats.peakRating) {
           stats.peakRating = blueRating;
@@ -167,7 +175,15 @@ function collectPlayerStats(
         const laneIdx = LANE_INDEX[lane];
         const redRating = gameRatings.red[laneIdx];
         if (typeof redRating !== "number" || !Number.isFinite(redRating)) continue;
-        const stats = ensurePlayer(redTeam.id, lane, redTeam.name, redTeam.players?.[laneIdx]?.name, redTeam.players?.[laneIdx]?.id);
+        const ids = recap.perPickIds?.red;
+        const names = recap.perPickNames?.red;
+        const stats = ensurePlayer(
+          redTeam.id,
+          lane,
+          redTeam.name,
+          names?.[laneIdx] ?? redTeam.players?.[laneIdx]?.name,
+          ids?.[laneIdx] ?? redTeam.players?.[laneIdx]?.id,
+        );
         stats.ratings.push(redRating);
         if (redRating > stats.peakRating) {
           stats.peakRating = redRating;
@@ -411,6 +427,30 @@ export function computeTournamentAwards(
  * Returns null until the tournament is complete or when the final carries no
  * rated games (fully manual resolution).
  */
+/**
+ * International-event MVP: the best average-rated player on the tournament
+ * CHAMPION across every rated game in the event (whole tournament, not just
+ * the final). Returns null when the champion is undecided or no champion
+ * roster player has enough rated games.
+ */
+export function computeChampionTeamTournamentMvp(
+  tournament: TournamentState,
+): PlayerAward | null {
+  const champTeam = tournamentChampion(tournament);
+  if (!champTeam) return null;
+  const statsMap = collectPlayerStats(tournament);
+  const champStats = [...statsMap.values()].filter(
+    (s) =>
+      s.teamId === champTeam.id &&
+      s.ratings.length >= MIN_RATED_GAMES_MVP,
+  );
+  if (champStats.length === 0) return null;
+  const best = champStats.reduce((b, s) =>
+    avg(s.ratings) > avg(b.ratings) ? s : b,
+  );
+  return makePlayerAward(best);
+}
+
 export function computeFinalsMvp(
   tournament: TournamentState,
 ): PlayerAward | null {

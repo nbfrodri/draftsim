@@ -401,26 +401,25 @@ export default function TournamentDashboard() {
             onViewMatch={handleViewMatch}
           />
         ) : (
-          <BracketConnectorRoot matches={tournament.matches}>
-            <div className="overflow-x-auto pb-4">
-              <div
-                className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
-                style={{ minWidth: `${totalRounds * 220}px` }}
-              >
-                {rounds.map((roundMatches, roundIdx) => (
-                  <RoundColumn
-                    key={roundIdx}
-                    round={roundIdx + 1}
-                    totalRounds={totalRounds}
-                    matches={roundMatches}
-                    tournament={tournament}
-                    onStartMatch={(id) => setPendingMatchId(id)}
-                    onViewMatch={handleViewMatch}
-                  />
-                ))}
-              </div>
-            </div>
-          </BracketConnectorRoot>
+          <div className="overflow-x-auto pb-4" style={{ scrollbarWidth: "thin" }}>
+            <BracketConnectorRoot
+              matches={tournament.matches}
+              className="inline-flex items-stretch gap-4 md:gap-6"
+              style={{ minWidth: `${totalRounds * 220}px` }}
+            >
+              {rounds.map((roundMatches, roundIdx) => (
+                <RoundColumn
+                  key={roundIdx}
+                  round={roundIdx + 1}
+                  totalRounds={totalRounds}
+                  matches={roundMatches}
+                  tournament={tournament}
+                  onStartMatch={(id) => setPendingMatchId(id)}
+                  onViewMatch={handleViewMatch}
+                />
+              ))}
+            </BracketConnectorRoot>
+          </div>
         )}
       </div>
 

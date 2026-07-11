@@ -2349,11 +2349,11 @@ const ROLE_RATING: Record<
   Lane,
   { invCenter: number; assistWeight: number; goldWeight: number }
 > = {
-  top: { invCenter: 0.45, assistWeight: 0.7, goldWeight: 1.0 },
-  jungle: { invCenter: 0.58, assistWeight: 0.5, goldWeight: 0.8 },
-  middle: { invCenter: 0.45, assistWeight: 0.7, goldWeight: 1.0 },
-  bottom: { invCenter: 0.47, assistWeight: 0.7, goldWeight: 1.1 },
-  support: { invCenter: 0.58, assistWeight: 0.5, goldWeight: 0.7 },
+  top: { invCenter: 0.42, assistWeight: 0.72, goldWeight: 1.05 },
+  jungle: { invCenter: 0.62, assistWeight: 0.48, goldWeight: 0.75 },
+  middle: { invCenter: 0.52, assistWeight: 0.65, goldWeight: 0.95 },
+  bottom: { invCenter: 0.48, assistWeight: 0.72, goldWeight: 1.12 },
+  support: { invCenter: 0.58, assistWeight: 0.48, goldWeight: 0.72 },
 };
 
 function ratePlayerGame(

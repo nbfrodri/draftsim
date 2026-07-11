@@ -182,8 +182,10 @@ function TitleListSection({
 
 function ExpandedDetail({
   row,
+  onNavigate,
 }: {
   row: MatrixRow;
+  onNavigate?: (kind: "players" | "teams" | "coaches", id: string) => void;
 }) {
   const splits = row.titleList.filter((t) => t.event.kind === "split-title");
   const intls = row.titleList.filter((t) => t.event.kind !== "split-title");
@@ -218,9 +220,19 @@ function ExpandedDetail({
                 color={row.team.color}
               />
               <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-medium text-rift-goldbright truncate">
-                  {row.team.name}
-                </div>
+                {onNavigate ? (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate("teams", `${row.team.leagueId}:${row.team.name}`)}
+                    className="text-[11px] font-medium text-rift-goldbright truncate hover:underline text-left w-full"
+                  >
+                    {row.team.name}
+                  </button>
+                ) : (
+                  <div className="text-[11px] font-medium text-rift-goldbright truncate">
+                    {row.team.name}
+                  </div>
+                )}
                 <div className="flex items-center gap-1 mt-0.5">
                   <LeagueIcon league={row.team.leagueId} size={9} />
                   <span className="text-[8px] text-rift-muted/55 uppercase tracking-wider">
@@ -266,12 +278,14 @@ function FranchiseRow({
   expanded,
   onToggle,
   rowIndex,
+  onNavigate,
 }: {
   row: MatrixRow;
   years: MatrixYear[];
   expanded: boolean;
   onToggle: () => void;
   rowIndex: number;
+  onNavigate?: (kind: "players" | "teams" | "coaches", id: string) => void;
 }) {
   const isLegendary = row.dynasty.tier === "legendary";
   const isDynasty = row.dynasty.tier === "dynasty";
@@ -327,9 +341,16 @@ function FranchiseRow({
               color={row.team.color}
             />
             <div className="flex-1 min-w-0">
-              <div className="text-[11px] font-medium text-rift-goldbright truncate leading-tight">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNavigate?.("teams", `${row.team.leagueId}:${row.team.name}`);
+                }}
+                className="text-[11px] font-medium text-rift-goldbright truncate leading-tight hover:underline text-left w-full"
+              >
                 {row.team.name}
-              </div>
+              </button>
               <div className="flex items-center gap-1 mt-0.5">
                 <LeagueIcon league={row.team.leagueId} size={9} />
                 <span className="text-[8px] text-rift-muted/55 tabular-nums">
@@ -367,7 +388,7 @@ function FranchiseRow({
         })}
       </tr>
 
-      {expanded && <ExpandedDetail row={row} />}
+      {expanded && <ExpandedDetail row={row} onNavigate={onNavigate} />}
     </>
   );
 }
@@ -594,8 +615,10 @@ function EmptyState({ hasEntries }: { hasEntries: boolean }) {
 
 export default function DynastyTimelinePanel({
   entries,
+  onNavigate,
 }: {
   entries: SeasonHistoryEntry[];
+  onNavigate?: (kind: "players" | "teams" | "coaches", id: string) => void;
 }) {
   const matrix = useMemo(() => computeFranchiseMatrix(entries), [entries]);
 
@@ -742,6 +765,7 @@ export default function DynastyTimelinePanel({
                     )
                   }
                   rowIndex={idx}
+                  onNavigate={onNavigate}
                 />
               ))}
             </tbody>

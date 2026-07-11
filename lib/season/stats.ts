@@ -13,13 +13,14 @@ import {
 import { computeGameRatings } from "../matchSimulator";
 import {
   computeTournamentAwards,
+  computeChampionTeamTournamentMvp,
   computeFinalsMvp,
   type AllProPlayer,
   type PlayerAward,
   type SpecialAward,
 } from "../awards";
 import type { Lane } from "../types";
-import { playerForLane } from "../players";
+import { playerForLane, LANE_ORDER } from "../players";
 import { tournamentPlacements } from "./engine";
 import {
   LEAGUE_IDS,
@@ -61,9 +62,10 @@ export function computeStageStats(t: TournamentState): StageStats {
 }
 
 // ─── International event MVPs ───────────────────────────────────────────────
-// Per international event (First Stand / MSI / Worlds), the finals MVP — the
-// best player on the CHAMPION team across the grand final. Computed from the
-// event's MAIN tournament (the one whose champion is the event champion).
+// Per international event (First Stand / MSI / Worlds / Global Cup), the MVP —
+// the best average-rated player on the CHAMPION team across the whole event.
+// Computed from the event's MAIN tournament (the one whose champion is the
+// event champion).
 
 export interface SeasonIntlMvp {
   event: InternationalId;
@@ -82,7 +84,7 @@ export function computeSeasonIntlMvps(season: SeasonState): SeasonIntlMvp[] {
       const t = season.tournaments[tid];
       if (!t) continue;
       if (champId && tournamentChampion(t)?.id === champId) {
-        chosen = computeFinalsMvp(t);
+        chosen = computeChampionTeamTournamentMvp(t);
         if (chosen) break;
       }
     }
@@ -91,7 +93,7 @@ export function computeSeasonIntlMvps(season: SeasonState): SeasonIntlMvp[] {
       for (const tid of [...phase.tournamentIds].reverse()) {
         const t = season.tournaments[tid];
         if (!t) continue;
-        const mvp = computeFinalsMvp(t);
+        const mvp = computeChampionTeamTournamentMvp(t);
         if (mvp) {
           chosen = mvp;
           break;
@@ -130,6 +132,83 @@ export function computeSeasonSplitMvps(season: SeasonState): SeasonSplitMvp[] {
     }
   }
   return out;
+}
+
+// ─── Rookie of the Year (per lane) ───────────────────────────────────────────
+// One winner per lane among players whose debutYear matches this season's
+// franchise year. Scored by international + split titles, then average grade.
+
+export interface SeasonRookieOfYearCandidate {
+  lane: Lane;
+  playerId: string;
+  playerName: string;
+  teamId: string;
+  avgRating: number;
+  games: number;
+  splitTitles: number;
+  intlTitles: number;
+  score: number;
+}
+
+function seasonFranchiseYear(season: SeasonState): number | undefined {
+  if (season.franchise?.year != null) return season.franchise.year;
+  const m = season.name.match(/Year (\d+)\s*$/);
+  return m ? Number(m[1]) : undefined;
+}
+
+function rookieScore(
+  splitTitles: number,
+  intlTitles: number,
+  avgRating: number,
+): number {
+  return intlTitles * 12 + splitTitles * 3 + avgRating * 2;
+}
+
+export function computeSeasonRookiesOfYear(
+  season: SeasonState,
+): SeasonRookieOfYearCandidate[] {
+  const year = seasonFranchiseYear(season);
+  if (year == null) return [];
+  const achv = computePlayerTitleCounts(season);
+  const recordById = new Map(
+    computePlayerCareerRecords(season).map((r) => [r.playerId, r]),
+  );
+  const byLane = new Map<Lane, SeasonRookieOfYearCandidate>();
+  for (const t of season.teams) {
+    for (const p of t.players) {
+      if (!p.id || p.debutYear !== year) continue;
+      const rec = recordById.get(p.id);
+      const a = achv.get(p.id) ?? { split: 0, intlTitles: 0, intlApps: 0 };
+      const avg =
+        rec && (rec.ratingGames ?? 0) > 0
+          ? (rec.ratingSum ?? 0) / (rec.ratingGames ?? 1)
+          : 0;
+      const splitTitles = a.split;
+      const intlTitles = a.intlTitles;
+      const score = rookieScore(splitTitles, intlTitles, avg);
+      const cur = byLane.get(p.lane);
+      if (
+        !cur ||
+        score > cur.score ||
+        (score === cur.score && avg > cur.avgRating)
+      ) {
+        byLane.set(p.lane, {
+          lane: p.lane,
+          playerId: p.id,
+          playerName: p.name ?? p.id,
+          teamId: t.id,
+          avgRating: avg,
+          games: rec?.ratingGames ?? rec?.games ?? 0,
+          splitTitles,
+          intlTitles,
+          score,
+        });
+      }
+    }
+  }
+  return LANE_ORDER.filter((lane) => byLane.has(lane)).map(
+    (lane) => byLane.get(lane)!,
+  );
 }
 
 // ─── Season-wide stats ─────────────────────────────────────────────────────

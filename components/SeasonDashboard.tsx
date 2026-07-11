@@ -28,6 +28,7 @@ import {
 } from "@/lib/season/engine";
 import {
   computeSeasonStats,
+  computeSeasonRookiesOfYear,
   computeStageStats,
   type PlayerSeasonLine,
 } from "@/lib/season/stats";
@@ -35,7 +36,7 @@ import {
   computeAllProTeams,
   type RawAllProTeam,
 } from "@/lib/season/allPro";
-import { computeFinalsMvp } from "@/lib/awards";
+import { computeFinalsMvp, computeChampionTeamTournamentMvp } from "@/lib/awards";
 import {
   computePowerRankings,
   type PowerRankingRow,
@@ -1745,12 +1746,25 @@ function StageStatsRow({
   championsById: Map<number, Champion>;
 }) {
   const stats = useMemo(() => computeStageStats(tournament), [tournament]);
-  // The stage MVP is the FINALS MVP — a player from the team that WON the
-  // split / event, judged on the final they lifted (real Finals MVP rule).
-  // Falls back to the volume-based tournament MVP only when the final has no
-  // rated games (manual resolution).
-  const finalsMvp = useMemo(() => computeFinalsMvp(tournament), [tournament]);
-  const mvp = finalsMvp ?? stats.mvp;
+  // The stage MVP is the finals MVP for domestic splits, or the champion-side
+  // tournament MVP for internationals (avg rating across the whole event).
+  const isIntl = useMemo(
+    () =>
+      season.phases.some(
+        (p) =>
+          p.kind === "international" &&
+          p.tournamentIds.includes(tournament.id),
+      ),
+    [season.phases, tournament.id],
+  );
+  const stageMvp = useMemo(
+    () =>
+      isIntl
+        ? computeChampionTeamTournamentMvp(tournament)
+        : computeFinalsMvp(tournament),
+    [isIntl, tournament],
+  );
+  const mvp = stageMvp ?? stats.mvp;
   const champion = seasonTeam(season, stats.championTeamId);
   const runnerUp = seasonTeam(season, stats.runnerUpTeamId);
   const s = stats.summary;
@@ -1794,8 +1808,10 @@ function StageStatsRow({
             label="MVP"
             value={mvp.playerName ?? mvp.displayName}
             sub={
-              finalsMvp
-                ? `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} in the final`
+              stageMvp
+                ? isIntl
+                  ? `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} avg across event`
+                  : `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} in the final`
                 : `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} rating`
             }
             icon={<AwardTeamIcon season={season} teamId={mvp.teamId} />}
@@ -1886,6 +1902,7 @@ function SeasonRecapPanel({
   title?: string;
 }) {
   const stats = useMemo(() => computeSeasonStats(season), [season]);
+  const rookies = useMemo(() => computeSeasonRookiesOfYear(season), [season]);
   const winningest = seasonTeam(season, stats.winningestTeam?.teamId);
   const mostTitled = seasonTeam(season, stats.mostTitledTeam?.teamId);
   const contested = stats.mostContested
@@ -1992,6 +2009,40 @@ function SeasonRecapPanel({
           );
         })}
       </div>
+
+      {rookies.length > 0 && (
+        <>
+          <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
+            Rookie of the Year
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 mb-4">
+            {rookies.map((r) => {
+              const team = seasonTeam(season, r.teamId);
+              return (
+                <div
+                  key={r.lane}
+                  className="border border-rift-blue/30 bg-rift-blue/[0.04] px-2.5 py-2 text-[10px]"
+                >
+                  <div className="text-[8px] uppercase tracking-[0.25em] text-rift-blue/70 mb-1">
+                    {r.lane}
+                  </div>
+                  <div className="font-display text-rift-goldbright truncate">
+                    {r.playerName}
+                  </div>
+                  {team && (
+                    <div className="text-[9px] text-rift-mutedbright/70 truncate mt-0.5">
+                      {team.name}
+                    </div>
+                  )}
+                  <div className="text-[8px] text-rift-muted/70 tabular-nums mt-1">
+                    ★{r.avgRating.toFixed(1)} · {r.splitTitles} split · {r.intlTitles} intl
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Season records — milestones drawn from recap fields that survive a
           save/load (game length, best MVP, biggest swing/stomp/penta). */}

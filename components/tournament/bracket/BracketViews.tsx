@@ -799,27 +799,26 @@ export function PlayoffBracketSection({
           onViewMatch={onViewMatch}
         />
       ) : kind === "single-elim" || kind === "stepladder" ? (
-        <BracketConnectorRoot matches={playoffMatches}>
-          <div className="overflow-x-auto pb-2">
-            <div
-              className="inline-flex items-stretch gap-4 md:gap-6 min-w-full"
-              style={{ minWidth: `${seRoundsByRound.length * 220}px` }}
-            >
-              {seRoundsByRound.map((roundMatches, idx) => (
-                <RoundColumn
-                  key={idx}
-                  round={idx + 1}
-                  totalRounds={seRoundsByRound.length}
-                  matches={roundMatches}
-                  tournament={tournament}
-                  onStartMatch={onStartMatch}
-                  onViewMatch={onViewMatch}
-                  kind={kind === "stepladder" ? "stepladder" : "se"}
-                />
-              ))}
-            </div>
-          </div>
-        </BracketConnectorRoot>
+        <div className="overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+          <BracketConnectorRoot
+            matches={playoffMatches}
+            className="inline-flex items-stretch gap-4 md:gap-6"
+            style={{ minWidth: `${seRoundsByRound.length * 220}px` }}
+          >
+            {seRoundsByRound.map((roundMatches, idx) => (
+              <RoundColumn
+                key={idx}
+                round={idx + 1}
+                totalRounds={seRoundsByRound.length}
+                matches={roundMatches}
+                tournament={tournament}
+                onStartMatch={onStartMatch}
+                onViewMatch={onViewMatch}
+                kind={kind === "stepladder" ? "stepladder" : "se"}
+              />
+            ))}
+          </BracketConnectorRoot>
+        </div>
       ) : (
         // Same unified-scroll fix as DoubleElimView: one overflow-x-auto
         // outside BracketConnectorRoot so the SVG and cards share one scroll

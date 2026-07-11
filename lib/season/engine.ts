@@ -737,6 +737,18 @@ export function qualifiedForInternational(
   season: SeasonState,
   event: InternationalId,
 ): Qualifier[] {
+  // Global Cup seeds the top 32 teams by season-long ranking points — not
+  // per-league split placements.
+  if (event === "global-cup") {
+    const pts = seasonRankingPoints(season);
+    return globalCupQualifiers(season).map((team, i) => ({
+      team,
+      league: team.leagueId,
+      leagueSeed: i + 1,
+      via: "points" as const,
+      points: pts[team.id] ?? 0,
+    }));
+  }
   const split = QUALIFYING_SPLIT[event];
   const count = QUALIFIER_COUNTS[event];
   // Per-league ordered qualifier lists (index 0 = league seed 1).
@@ -838,6 +850,9 @@ export function qualifiedForInternational(
  *  compact QualifierTagView / IntlChampionBadge components instead of
  *  inlining this full text. */
 export function qualifierTag(event: InternationalId, q: Qualifier): string {
+  if (event === "global-cup") {
+    return `#${q.leagueSeed}${q.points != null ? ` · ${q.points} pts` : ""}`;
+  }
   if (q.via === "champion") {
     const feeder = feederEventOf(event);
     return feeder ? `${INTERNATIONAL_LABELS[feeder]} Champion` : "Champion";

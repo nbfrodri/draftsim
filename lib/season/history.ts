@@ -31,6 +31,7 @@ import {
   computePlayerCareerRecords,
   computeSeasonIntlMvps,
   computeSeasonSplitMvps,
+  computeSeasonRookiesOfYear,
   type PlayerSeasonRecord,
 } from "./stats";
 import {
@@ -135,6 +136,20 @@ export interface SeasonHistorySplitMvp {
   games: number;
 }
 
+/** Rookie of the Year for one lane — debut-year players only, scored by titles
+ *  and average grade. Optional — only on seasons archived after this existed. */
+export interface SeasonHistoryRookieOfYear {
+  lane: Lane;
+  playerId?: string;
+  playerName?: string;
+  team: SeasonHistoryTeamRef;
+  avgRating: number;
+  games: number;
+  splitTitles: number;
+  intlTitles: number;
+  score: number;
+}
+
 export interface SeasonHistoryEntry {
   /** Mirrors season.id — archiving the same season upserts its entry. */
   id: string;
@@ -182,6 +197,9 @@ export interface SeasonHistoryEntry {
   /** Finals MVP of each domestic split, per league (a player from the split
    *  champion). Optional — only on seasons archived after the split-MVP expansion. */
   splitMvps?: SeasonHistorySplitMvp[];
+  /** Rookie of the Year per lane (debut-year players). Optional — only on
+   *  seasons archived after the ROTY expansion. */
+  rookieOfYear?: SeasonHistoryRookieOfYear[];
   /** Per-player season records (by stable id) for the all-time CAREER boards —
    *  kills, MVPs, all-pro, split titles, international appearances/titles.
    *  Optional — only on seasons archived after player ids existed. */
@@ -554,6 +572,24 @@ export function buildSeasonHistoryEntry(
       ...(sm > 0 ? { splitMvps: sm } : {}),
     };
   });
+  const rookieOfYear: SeasonHistoryRookieOfYear[] = [];
+  if (tournaments.length > 0) {
+    for (const r of computeSeasonRookiesOfYear(season)) {
+      const ref = teamRef(season, r.teamId);
+      if (!ref) continue;
+      rookieOfYear.push({
+        lane: r.lane,
+        ...(r.playerId ? { playerId: r.playerId } : {}),
+        ...(r.playerName ? { playerName: r.playerName } : {}),
+        team: ref,
+        avgRating: r.avgRating,
+        games: r.games,
+        splitTitles: r.splitTitles,
+        intlTitles: r.intlTitles,
+        score: r.score,
+      });
+    }
+  }
   // Freeze the year's roster moves with team names so they recap forever.
   const transfers: HistoryTransfer[] = [];
   for (const [event, moves] of Object.entries(season.transfersByEvent ?? {}) as Array<
@@ -593,6 +629,7 @@ export function buildSeasonHistoryEntry(
     ...(allProTeams.length > 0 ? { allProTeams } : {}),
     ...(intlMvps.length > 0 ? { intlMvps } : {}),
     ...(splitMvps.length > 0 ? { splitMvps } : {}),
+    ...(rookieOfYear.length > 0 ? { rookieOfYear } : {}),
     ...(playerCareers.length > 0 ? { playerCareers } : {}),
     ...(season.phaseRosters?.length ? { phaseRosters: season.phaseRosters } : {}),
     ...(transfers.length > 0 ? { transfers } : {}),

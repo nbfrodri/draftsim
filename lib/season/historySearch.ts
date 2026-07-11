@@ -33,11 +33,15 @@ function yearOf(entry: SeasonHistoryEntry): string {
 // The richest archived identity (color/icon/logo) for each team, from the refs
 // that carry full identity (champions, finalists, best-team). Newest wins. Used
 // to give player/coach tenure refs proper logos instead of bare shields.
-function buildTeamIdentity(entries: SeasonHistoryEntry[]): Map<string, SeasonHistoryTeamRef> {
+export function buildTeamIdentity(entries: SeasonHistoryEntry[]): Map<string, SeasonHistoryTeamRef> {
   const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
   const byKey = new Map<string, SeasonHistoryTeamRef>();
   const add = (t: SeasonHistoryTeamRef | null | undefined) => {
-    if (t && !byKey.has(teamKey(t))) byKey.set(teamKey(t), t);
+    if (!t) return;
+    const k = teamKey(t);
+    const cur = byKey.get(k);
+    if (!cur) byKey.set(k, t);
+    else if (!cur.logoUrl && t.logoUrl) byKey.set(k, { ...cur, logoUrl: t.logoUrl });
   };
   for (const e of ordered) {
     add(e.champion);
@@ -45,12 +49,23 @@ function buildTeamIdentity(entries: SeasonHistoryEntry[]): Map<string, SeasonHis
     for (const ref of Object.values(e.intlChampions)) add(ref);
     for (const byLeague of Object.values(e.splitChampions)) for (const ref of Object.values(byLeague)) add(ref);
     for (const best of Object.values(e.leagueBestTeams ?? {})) add(best?.team);
+    for (const ph of e.phaseRosters ?? []) {
+      for (const t of ph.teams) {
+        add({
+          name: t.teamName,
+          leagueId: t.leagueId,
+          color: "",
+          iconKey: "shield",
+          ...(t.logoUrl ? { logoUrl: t.logoUrl } : {}),
+        });
+      }
+    }
   }
   return byKey;
 }
 
 // A team ref with the best identity we have, falling back to a bare ref.
-function refFor(
+export function refFor(
   identity: Map<string, SeasonHistoryTeamRef>,
   name: string,
   leagueId: LeagueId,
