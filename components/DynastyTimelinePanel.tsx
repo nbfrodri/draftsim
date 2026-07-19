@@ -24,6 +24,23 @@ import LeagueIcon from "./LeagueIcon";
 const COL_W = 60; // px per year column
 const FRANCHISE_COL_W = 216; // px for sticky franchise column
 
+/** Opaque sticky-column fills — semi-transparent row tints let year icons bleed
+ *  through under franchise names while scrolling horizontally. */
+function stickyFranchiseBg(
+  isLegendary: boolean,
+  isDynasty: boolean,
+  rowIndex: number,
+): string {
+  if (isLegendary) return "bg-[#0c1108] group-hover/row:bg-[#121808]";
+  if (isDynasty) return "bg-[#060e14] group-hover/row:bg-[#0a141c]";
+  return rowIndex % 2 === 0
+    ? "bg-rift-bg group-hover/row:bg-[#061018]"
+    : "bg-rift-paneldark group-hover/row:bg-[#081420]";
+}
+
+const STICKY_COL_SHADOW =
+  "shadow-[4px_0_10px_rgba(0,0,0,0.55)]";
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function tierRank(t: DynastyTier): number {
@@ -208,7 +225,7 @@ function ExpandedDetail({
           }}
         >
           <div
-            className="border border-rift-line/40 bg-rift-panel/90 shadow-[0_4px_24px_rgba(0,0,0,0.35)] overflow-hidden"
+            className="border border-rift-line/40 bg-rift-panel shadow-[0_4px_24px_rgba(0,0,0,0.35)] overflow-hidden"
             style={{ borderLeftWidth: 2, borderLeftColor: accent }}
           >
             {/* Header */}
@@ -311,18 +328,13 @@ function FranchiseRow({
         onClick={onToggle}
         style={{ borderLeft }}
       >
-        {/* Sticky franchise column */}
+        {/* Sticky franchise column — opaque so year cells scroll underneath */}
         <td
           className={[
             "sticky left-0 z-10 border-b border-r border-rift-line/20",
             "px-2 py-1.5 align-middle transition-colors",
-            isLegendary
-              ? "bg-rift-gold/[0.05] group-hover/row:bg-rift-gold/[0.08]"
-              : isDynasty
-                ? "bg-rift-bg/20 group-hover/row:bg-rift-gold/[0.04]"
-                : rowIndex % 2 === 0
-                  ? "bg-rift-bg/10 group-hover/row:bg-rift-line/10"
-                  : "bg-rift-bg group-hover/row:bg-rift-line/10",
+            STICKY_COL_SHADOW,
+            stickyFranchiseBg(isLegendary, isDynasty, rowIndex),
           ].join(" ")}
           style={{ minWidth: FRANCHISE_COL_W, maxWidth: FRANCHISE_COL_W, width: FRANCHISE_COL_W }}
         >
@@ -717,7 +729,7 @@ export default function DynastyTimelinePanel({
               <tr>
                 {/* Franchise column header */}
                 <th
-                  className="sticky left-0 z-20 bg-rift-paneldark border-b border-r border-rift-line/40 px-3 py-2 align-bottom"
+                  className={`sticky left-0 z-20 bg-rift-paneldark border-b border-r border-rift-line/40 px-3 py-2 align-bottom ${STICKY_COL_SHADOW}`}
                   style={{
                     minWidth: FRANCHISE_COL_W,
                     maxWidth: FRANCHISE_COL_W,

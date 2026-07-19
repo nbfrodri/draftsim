@@ -36,6 +36,96 @@ export function isDesktop(): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Persist write gate — blocks empty-state overwrites during async hydrate
+// ---------------------------------------------------------------------------
+//
+// Zustand's persist middleware calls setItem on EVERY set(), including while
+// async getItem is still in flight. DraftApp's mount effect calls
+// setChampions() before the AppData file has been read, which would schedule
+// a debounced write of the empty initial state and wipe realities / season
+// history on disk. Writes stay disabled until enablePersistWrites() runs from
+// onRehydrateStorage (success or failure).
+
+let persistWritesEnabled = false;
+let persistReady = false;
+const persistReadyListeners = new Set<() => void>();
+
+/** Allow Zustand persist setItem calls (call once rehydration finishes). */
+export function enablePersistWrites(): void {
+  persistWritesEnabled = true;
+  if (!persistReady) {
+    persistReady = true;
+    for (const cb of persistReadyListeners) cb();
+  }
+}
+
+/** True after enablePersistWrites — UI should wait for this before empty states. */
+export function isPersistReady(): boolean {
+  return persistReady;
+}
+
+/** Subscribe to persist-ready. Fires immediately if already ready. */
+export function onPersistReady(cb: () => void): () => void {
+  if (persistReady) {
+    cb();
+    return () => {};
+  }
+  persistReadyListeners.add(cb);
+  return () => {
+    persistReadyListeners.delete(cb);
+  };
+}
+
+/**
+ * Subscribe for useSyncExternalStore — never calls the listener
+ * synchronously (getSnapshot / getServerSnapshot cover the current value).
+ */
+export function subscribePersistReady(onStoreChange: () => void): () => void {
+  persistReadyListeners.add(onStoreChange);
+  return () => {
+    persistReadyListeners.delete(onStoreChange);
+  };
+}
+
+/** @internal — test helper to reset gate between cases. */
+export function resetPersistGateForTests(): void {
+  persistWritesEnabled = false;
+  persistReady = false;
+  persistReadyListeners.clear();
+}
+
+/** SSR / no-localStorage fallback — getItem resolves empty, writes no-op. */
+const noopPersistStorage: PersistStorage<unknown> = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+};
+
+/**
+ * Wrap any Zustand PersistStorage so setItem is a no-op until
+ * enablePersistWrites(). getItem/removeItem pass through unchanged.
+ *
+ * `storage` may be undefined: createJSONStorage returns undefined when its
+ * factory throws (Node SSR has no localStorage). Passing that through raw
+ * used to skip hydrate entirely; wrapping undefined used to crash on
+ * getItem. A noop fallback lets rehydration finish so enablePersistWrites
+ * still unlocks the UI gate.
+ */
+export function gatePersistWritesUntilReady<S>(
+  storage: PersistStorage<S> | undefined,
+): PersistStorage<S> {
+  const inner = storage ?? (noopPersistStorage as PersistStorage<S>);
+  return {
+    getItem: (name) => inner.getItem(name),
+    setItem: (name, value) => {
+      if (!persistWritesEnabled) return;
+      return inner.setItem(name, value);
+    },
+    removeItem: (name) => inner.removeItem(name),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Internal write helpers — all async, all dynamic-import Tauri
 // ---------------------------------------------------------------------------
 
@@ -91,6 +181,14 @@ interface PendingWrite {
 
 const pendingWrites = new Map<string, PendingWrite>();
 const DEBOUNCE_MS = 500;
+
+/** Cancel a debounced write for `key` without flushing it. */
+export function cancelPendingWrite(key: string): void {
+  const pending = pendingWrites.get(key);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingWrites.delete(key);
+}
 
 /** Execute a write immediately (bypassing debounce). */
 async function executeWrite(key: string, value: string): Promise<void> {
@@ -253,11 +351,7 @@ export const desktopStorage = {
   async removeItem(key: string): Promise<void> {
     if (!isDesktop()) return;
     // Cancel any pending write for this key.
-    const pending = pendingWrites.get(key);
-    if (pending) {
-      clearTimeout(pending.timer);
-      pendingWrites.delete(key);
-    }
+    cancelPendingWrite(key);
     try {
       const { remove, BaseDirectory, exists } = await fsModule();
       const base = BaseDirectory.AppData;
@@ -289,12 +383,20 @@ export const desktopStorage = {
  * zustand expects from a custom PersistStorage — so the normal version-check/
  * migrate/onRehydrateStorage flow is unchanged.
  *
- * Atomic tmp+rename writes and the beforeunload flush (which stringifies at
- * flush time) are inherited from the shared debounce infrastructure above.
+ * Writes are gated until enablePersistWrites() so a pre-hydration set()
+ * (e.g. setChampions on mount) cannot schedule an empty-state overwrite.
+ * Atomic tmp+rename writes and the beforeunload flush are inherited from the
+ * shared debounce infrastructure above.
  */
 export function createDesktopLazyStorage<S>(): PersistStorage<S> {
   return {
     async getItem(name: string): Promise<StorageValue<S> | null> {
+      // Drop any write scheduled before we finished reading disk — those
+      // snapshots were taken from the empty initial store.
+      cancelPendingWrite(name);
+      // Import localStorage → AppData BEFORE the first read so hydration
+      // sees migrated data (must not run after rehydrate with empty state).
+      await migrateWebStorageToDesktop(name);
       const raw = await desktopStorage.getItem(name);
       if (raw == null) return null;
       try {
@@ -305,12 +407,14 @@ export function createDesktopLazyStorage<S>(): PersistStorage<S> {
       }
     },
     setItem(name: string, value: StorageValue<S>): void {
+      if (!persistWritesEnabled) return;
       if (!isDesktop()) return;
       // Defer serialization into the debounced write — stringify happens at
       // flush time (timer fire or beforeunload), at most once per 500ms.
       scheduleWrite(name, () => JSON.stringify(value));
     },
     removeItem(name: string): Promise<void> {
+      cancelPendingWrite(name);
       return desktopStorage.removeItem(name);
     },
   };
@@ -325,6 +429,10 @@ export function createDesktopLazyStorage<S>(): PersistStorage<S> {
  * (populated by a prior web-build session running in the same origin, e.g.
  * during `tauri dev`), copy it to the desktop file so the user's state
  * carries over. This is a no-op if the file already exists.
+ *
+ * Called from createDesktopLazyStorage.getItem BEFORE the first read so
+ * hydration sees migrated data. Must not run after rehydrate with empty
+ * in-memory state — a later set() could then overwrite the migrated file.
  *
  * In production the Tauri webview starts with an empty localStorage, so
  * this migration is a harmless no-op in that case too.

@@ -12,6 +12,9 @@ import {
   computeAllTimeRivalries,
   computeTeamHeadToHead,
   compareTeams,
+  comparePlayers,
+  computePlayerHeadToHead,
+  computePlayerCareers,
   resolveCanonicalFranchiseKey,
 } from "./historyRecords";
 import type { PlayerSeasonRecord } from "./stats";
@@ -694,5 +697,241 @@ describe("compareTeams", () => {
       intlAppearancesA: 1,
       worldsFinalsA: 1,
     });
+  });
+});
+
+describe("comparePlayers / computePlayerHeadToHead", () => {
+  const rosterPlayer = (
+    id: string,
+    name: string,
+    lane: "top" | "jungle" | "middle" | "bottom" | "support" = "middle",
+  ) => ({ id, name, tier: "S" as const, lane });
+
+  const phase = (
+    scope: "winter" | "spring" | "summer" | "msi" | "worlds",
+    teams: Array<{
+      teamName: string;
+      leagueId?: SeasonHistoryTeamRef["leagueId"];
+      players: ReturnType<typeof rosterPlayer>[];
+    }>,
+    phaseIndex = 0,
+  ) => {
+    const isSplit = scope === "winter" || scope === "spring" || scope === "summer";
+    return {
+      phaseIndex,
+      label: scope,
+      kind: isSplit ? ("split" as const) : ("international" as const),
+      ...(isSplit ? { split: scope } : { event: scope }),
+      teams: teams.map((t, i) => ({
+        teamId: `t${i}`,
+        teamName: t.teamName,
+        leagueId: t.leagueId ?? ("LCK" as const),
+        players: t.players,
+      })),
+    };
+  };
+
+  const career = (
+    playerId: string,
+    playerName: string,
+    extras: Partial<PlayerSeasonRecord> = {},
+  ): PlayerSeasonRecord => ({
+    playerId,
+    playerName,
+    leagueId: "LCK",
+    teamName: extras.teamName ?? "T1",
+    lane: "middle",
+    games: 20,
+    wins: 12,
+    kills: 50,
+    mvps: 2,
+    allPro: 1,
+    splitTitles: 1,
+    intlAppearances: 1,
+    intlTitles: 0,
+    ...extras,
+  });
+
+  it("compares careers side-by-side even without H2H", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      playerCareers: [
+        career("p-faker", "Faker", { teamName: "T1", kills: 80, mvps: 3 }),
+        career("p-chovy", "Chovy", { teamName: "Gen.G", kills: 70, mvps: 1 }),
+      ],
+    });
+    const careers = computePlayerCareers([s1]);
+    const cmp = comparePlayers([s1], careers, "p-faker", "p-chovy");
+    expect(cmp).not.toBeNull();
+    expect(cmp?.playerA.kills).toBe(80);
+    expect(cmp?.playerB.mvps).toBe(1);
+    expect(cmp?.h2h).toBeNull();
+  });
+
+  it("infers player H2H from team meetings + opposing phase rosters", () => {
+    const s1 = entry("s1", "My Reality — Year 1", 1000, {
+      playerCareers: [
+        career("p-faker", "Faker", { teamName: "T1" }),
+        career("p-chovy", "Chovy", { teamName: "Gen.G" }),
+      ],
+      headToHead: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 4,
+          aWins: 3,
+          bWins: 1,
+          byScope: [
+            { scope: "winter", meetings: 2, aWins: 2, bWins: 0 },
+            { scope: "msi", meetings: 2, aWins: 1, bWins: 1 },
+          ],
+        },
+      ],
+      phaseRosters: [
+        phase("winter", [
+          {
+            teamName: "T1",
+            players: [rosterPlayer("p-faker", "Faker")],
+          },
+          {
+            teamName: "Gen.G",
+            players: [rosterPlayer("p-chovy", "Chovy")],
+          },
+        ]),
+        phase(
+          "msi",
+          [
+            {
+              teamName: "T1",
+              players: [rosterPlayer("p-faker", "Faker")],
+            },
+            {
+              teamName: "Gen.G",
+              players: [rosterPlayer("p-chovy", "Chovy")],
+            },
+          ],
+          1,
+        ),
+      ],
+    });
+    const h2h = computePlayerHeadToHead([s1], "p-faker", "p-chovy");
+    expect(h2h).toMatchObject({
+      meetings: 4,
+      aWins: 3,
+      bWins: 1,
+      inferred: true,
+    });
+    expect(h2h?.byScope).toEqual([
+      { scope: "winter", meetings: 2, aWins: 2, bWins: 0 },
+      { scope: "msi", meetings: 2, aWins: 1, bWins: 1 },
+    ]);
+  });
+
+  it("only counts scopes where both players were rostered opponents", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      headToHead: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 4,
+          aWins: 3,
+          bWins: 1,
+          byScope: [
+            { scope: "winter", meetings: 2, aWins: 2, bWins: 0 },
+            { scope: "msi", meetings: 2, aWins: 1, bWins: 1 },
+          ],
+        },
+      ],
+      phaseRosters: [
+        // Both on opposing teams in winter only — Chovy missed MSI
+        phase("winter", [
+          {
+            teamName: "T1",
+            players: [rosterPlayer("p-faker", "Faker")],
+          },
+          {
+            teamName: "Gen.G",
+            players: [rosterPlayer("p-chovy", "Chovy")],
+          },
+        ]),
+        phase(
+          "msi",
+          [
+            {
+              teamName: "T1",
+              players: [rosterPlayer("p-faker", "Faker")],
+            },
+            {
+              teamName: "Gen.G",
+              players: [rosterPlayer("p-other", "Other")],
+            },
+          ],
+          1,
+        ),
+      ],
+    });
+    const h2h = computePlayerHeadToHead([s1], "p-faker", "p-chovy");
+    expect(h2h).toMatchObject({ meetings: 2, aWins: 2, bWins: 0 });
+    expect(h2h?.byScope).toEqual([
+      { scope: "winter", meetings: 2, aWins: 2, bWins: 0 },
+    ]);
+  });
+
+  it("returns null when players never faced as opponents", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      headToHead: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 2,
+          aWins: 1,
+          bWins: 1,
+        },
+      ],
+      phaseRosters: [
+        phase("winter", [
+          {
+            teamName: "T1",
+            players: [rosterPlayer("p-faker", "Faker")],
+          },
+          {
+            teamName: "Gen.G",
+            players: [rosterPlayer("p-chovy", "Chovy")],
+          },
+        ]),
+      ],
+    });
+    // Same player ids → null; unrelated third player never on opposing side
+    expect(computePlayerHeadToHead([s1], "p-faker", "p-faker")).toBeNull();
+    expect(computePlayerHeadToHead([s1], "p-faker", "p-ghost")).toBeNull();
+  });
+
+  it("flips wins when player A is on teamB in the archived row", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      headToHead: [
+        {
+          teamA: team("T1"),
+          teamB: team("Gen.G"),
+          meetings: 2,
+          aWins: 2,
+          bWins: 0,
+          byScope: [{ scope: "winter", meetings: 2, aWins: 2, bWins: 0 }],
+        },
+      ],
+      phaseRosters: [
+        phase("winter", [
+          {
+            teamName: "T1",
+            players: [rosterPlayer("p-faker", "Faker")],
+          },
+          {
+            teamName: "Gen.G",
+            players: [rosterPlayer("p-chovy", "Chovy")],
+          },
+        ]),
+      ],
+    });
+    // Query Chovy first → he was on Gen.G (teamB), so wins flip to 0–2
+    const h2h = computePlayerHeadToHead([s1], "p-chovy", "p-faker");
+    expect(h2h).toMatchObject({ meetings: 2, aWins: 0, bWins: 2 });
   });
 });

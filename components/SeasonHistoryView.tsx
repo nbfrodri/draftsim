@@ -32,6 +32,7 @@ import {
   computeRegionTitleLeaders,
   computeAllTimeRivalries,
   compareTeams,
+  comparePlayers,
   resolveCanonicalFranchiseKey,
   teamRecordKey,
   headToHeadScopeLabel,
@@ -1631,6 +1632,578 @@ function TeamComparePanel({
   );
 }
 
+function PlayerComparePanel({
+  entries,
+  careers,
+  identity,
+  onNavigate,
+}: {
+  entries: SeasonHistoryEntry[];
+  careers: PlayerCareerLine[];
+  identity: Map<string, SeasonHistoryTeamRef>;
+  onNavigate?: NavFn;
+}) {
+  const champions = useDraftStore((s) => s.champions);
+  const champById = useMemo(
+    () => new Map(champions.map((ch) => [ch.id, ch])),
+    [champions],
+  );
+  const [idA, setIdA] = useState("");
+  const [idB, setIdB] = useState("");
+  const [query, setQuery] = useState("");
+  const [laneFilter, setLaneFilter] = useState<Lane | null>(null);
+  const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
+  const [teamFilter, setTeamFilter] = useState<string | null>(null);
+
+  const retired = useMemo(() => retiredPlayerIds(entries), [entries]);
+
+  const playerOptions = useMemo(
+    () =>
+      [...careers].sort(
+        (a, b) =>
+          a.playerName.localeCompare(b.playerName) ||
+          a.playerId.localeCompare(b.playerId),
+      ),
+    [careers],
+  );
+
+  // Franchise chips — scoped to the selected region when one is set.
+  // Prefer logo/icon chips (like league filters) over bare team-name text.
+  const teamOptions = useMemo(() => {
+    const byName = new Map<string, SeasonHistoryTeamRef>();
+    for (const p of playerOptions) {
+      if (!p.teamName || !p.leagueId) continue;
+      if (leagueFilter && p.leagueId !== leagueFilter) continue;
+      if (byName.has(p.teamName)) continue;
+      byName.set(p.teamName, refFor(identity, p.teamName, p.leagueId));
+    }
+    return [...byName.entries()]
+      .map(([name, team]) => ({ name, team }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [playerOptions, leagueFilter, identity]);
+
+  // Drop a team chip selection that no longer exists under the region filter.
+  useEffect(() => {
+    if (teamFilter && !teamOptions.some((t) => t.name === teamFilter)) {
+      setTeamFilter(null);
+    }
+  }, [teamFilter, teamOptions]);
+
+  const q = query.normalize("NFKD").toLowerCase().trim();
+  const filteredPlayers = useMemo(
+    () =>
+      playerOptions.filter((p) => {
+        if (laneFilter && (p.lane ?? null) !== laneFilter) return false;
+        if (leagueFilter && p.leagueId !== leagueFilter) return false;
+        if (teamFilter && p.teamName !== teamFilter) return false;
+        if (!q) return true;
+        return (
+          p.playerName.toLowerCase().includes(q) ||
+          (p.teamName?.toLowerCase().includes(q) ?? false) ||
+          (p.leagueId?.toLowerCase().includes(q) ?? false) ||
+          (p.leagueId
+            ? (LEAGUE_NAMES[p.leagueId]?.toLowerCase().includes(q) ?? false)
+            : false)
+        );
+      }),
+    [playerOptions, laneFilter, leagueFilter, teamFilter, q],
+  );
+
+  const compare = useMemo(
+    () =>
+      idA && idB && idA !== idB
+        ? comparePlayers(entries, careers, idA, idB)
+        : null,
+    [entries, careers, idA, idB],
+  );
+
+  const fmtRate = (n: number | null) =>
+    n == null ? "—" : `${Math.round(n * 100)}%`;
+  const fmtAvg = (sum: number, games: number) =>
+    games > 0 ? (sum / games).toFixed(2) : "—";
+  const fmtGd = (sum: number, games: number) => {
+    if (games <= 0) return "—";
+    const v = Math.round(sum / games);
+    return v > 0 ? `+${v}` : `${v}`;
+  };
+
+  const statRow = (label: string, a: string | number, b: string | number) => {
+    const na = typeof a === "number" ? a : Number(a);
+    const nb = typeof b === "number" ? b : Number(b);
+    const numeric = Number.isFinite(na) && Number.isFinite(nb);
+    return (
+      <div
+        key={label}
+        className="grid grid-cols-[1fr_auto_1fr] gap-2 px-3 py-1.5 text-[11px] items-center border-b border-rift-line/15 last:border-b-0"
+      >
+        <span
+          className={`text-right tabular-nums ${
+            numeric && na > nb
+              ? "text-rift-goldbright font-semibold"
+              : "text-rift-mutedbright"
+          }`}
+        >
+          {a}
+        </span>
+        <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 text-center min-w-[5.5rem]">
+          {label}
+        </span>
+        <span
+          className={`tabular-nums ${
+            numeric && nb > na
+              ? "text-rift-goldbright font-semibold"
+              : "text-rift-mutedbright"
+          }`}
+        >
+          {b}
+        </span>
+      </div>
+    );
+  };
+
+  const pickColumn = (
+    label: string,
+    value: string,
+    onChange: (id: string) => void,
+    disabledId: string,
+  ) => (
+    <div className="min-w-0 flex-1 flex flex-col border border-rift-line/40 bg-rift-bg/30">
+      <div className="px-2.5 py-1.5 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.25em] text-rift-gold/60">
+        {label}
+      </div>
+      <div className="max-h-36 overflow-y-auto divide-y divide-rift-line/15">
+        {filteredPlayers.length === 0 ? (
+          <p className="px-2.5 py-2 text-[10px] italic text-rift-muted">
+            No matches.
+          </p>
+        ) : (
+          filteredPlayers.map((p) => (
+            <button
+              key={p.playerId}
+              type="button"
+              disabled={p.playerId === disabledId}
+              onClick={() => onChange(p.playerId)}
+              className={`w-full text-left px-2.5 py-1.5 flex items-center gap-1.5 transition-colors disabled:opacity-35 disabled:cursor-not-allowed ${
+                value === p.playerId
+                  ? "bg-rift-gold/[0.08] border-l-2 border-l-rift-gold/70"
+                  : "hover:bg-rift-bg/50 border-l-2 border-l-transparent"
+              }`}
+            >
+              {p.lane && (
+                <LaneIcon lane={p.lane} size="xs" className="flex-shrink-0" />
+              )}
+              {p.teamName && (
+                <PlayerTeamIcon
+                  teamName={p.teamName}
+                  leagueId={p.leagueId}
+                  identity={identity}
+                  size={13}
+                />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <span className="block text-[11px] text-rift-mutedbright truncate">
+                    {p.playerName}
+                  </span>
+                  {retired.has(p.playerId) && (
+                    <span
+                      className="text-[7px] uppercase tracking-[0.15em] text-rift-redbright/70 border border-rift-red/40 px-1 shrink-0"
+                      title="Retired"
+                    >
+                      Ret
+                    </span>
+                  )}
+                </span>
+                <span className="flex items-center gap-1 text-[8px] uppercase tracking-[0.15em] text-rift-muted/50">
+                  {p.leagueId && <LeagueIcon league={p.leagueId} size={9} />}
+                  {p.lane ? LANE_SHORT[p.lane] : "—"}
+                  {p.teamName ? ` · ${p.teamName}` : ""}
+                </span>
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  const playerHeader = (p: PlayerCareerLine) => (
+    <span className="min-w-0 flex flex-col gap-1 items-center">
+      <span className="inline-flex items-center gap-1.5 max-w-full">
+        {p.lane && <LaneIcon lane={p.lane} size="xs" className="flex-shrink-0" />}
+        {p.teamName && (
+          <PlayerTeamIcon
+            teamName={p.teamName}
+            leagueId={p.leagueId}
+            identity={identity}
+            size={14}
+            onNavigate={onNavigate}
+          />
+        )}
+        <NavPlayerName
+          name={p.playerName}
+          playerId={p.playerId}
+          onNavigate={onNavigate}
+          className="text-[12px] font-medium text-rift-goldbright truncate"
+        />
+        {retired.has(p.playerId) && (
+          <span
+            className="text-[7px] uppercase tracking-[0.15em] text-rift-redbright/70 border border-rift-red/40 px-1 shrink-0"
+            title="Retired"
+          >
+            Ret
+          </span>
+        )}
+      </span>
+      <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/55">
+        {p.lane ? LANE_SHORT[p.lane] : "—"}
+        {p.leagueId ? ` · ${p.leagueId}` : ""}
+        {p.seasons > 0 ? ` · ${p.seasons} season${p.seasons !== 1 ? "s" : ""}` : ""}
+      </span>
+    </span>
+  );
+
+  const topChamps = (p: PlayerCareerLine) => p.champs.slice(0, 4);
+
+  const champCell = (p: PlayerCareerLine) => {
+    const list = topChamps(p);
+    if (list.length === 0)
+      return <span className="text-[10px] italic text-rift-muted/60">—</span>;
+    return (
+      <div className="flex flex-wrap gap-1 justify-center">
+        {list.map((cs) => {
+          const champ = champById.get(cs.championId);
+          return (
+            <span
+              key={cs.championId}
+              className="inline-flex items-center gap-0.5 text-[9px] text-rift-mutedbright"
+              title={`${champ?.name ?? `#${cs.championId}`} · ${cs.games}g`}
+            >
+              {champ?.iconUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={champ.iconUrl}
+                  alt=""
+                  className="w-3.5 h-3.5 rounded-sm"
+                />
+              ) : null}
+              <span className="tabular-nums text-rift-muted/60">{cs.games}</span>
+            </span>
+          );
+        })}
+      </div>
+    );
+  };
+
+  if (careers.length === 0) {
+    return (
+      <div>
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          Player Compare
+        </div>
+        <p className="text-[10px] italic text-rift-muted">
+          Player careers appear once seasons are archived with player ids —
+          finish and archive a season to unlock face-to-face compare.
+        </p>
+      </div>
+    );
+  }
+
+  const wlA = compare ? careerWinLoss(compare.playerA) : null;
+  const wlB = compare ? careerWinLoss(compare.playerB) : null;
+
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+        Player Compare
+      </div>
+      <p className="text-[9px] italic text-rift-muted mb-2">
+        Pick two players for a career side-by-side. When both were rostered on
+        opposing teams in stages those franchises met, series H2H is inferred
+        from the archive (not match-level player stats).
+      </p>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search by player, team, or region…"
+        className="w-full mb-2 px-2.5 py-1.5 border border-rift-line/60 bg-rift-bg/40 text-[11px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 focus:outline-none"
+      />
+      <div className="flex flex-wrap gap-1 mb-2">
+        <button
+          type="button"
+          onClick={() => setLeagueFilter(null)}
+          className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
+            leagueFilter == null
+              ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+              : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+          }`}
+        >
+          All
+        </button>
+        {LEAGUE_IDS.map((lg) => (
+          <button
+            key={lg}
+            type="button"
+            onClick={() => setLeagueFilter(lg)}
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
+              leagueFilter === lg
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+            }`}
+          >
+            <LeagueIcon league={lg} size={11} />
+            {lg}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1 mb-2">
+        <button
+          type="button"
+          onClick={() => setLaneFilter(null)}
+          className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
+            laneFilter == null
+              ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+              : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+          }`}
+        >
+          All roles
+        </button>
+        {LANES.map(({ lane, label }) => (
+          <button
+            key={lane}
+            type="button"
+            onClick={() => setLaneFilter(lane)}
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
+              laneFilter === lane
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+            }`}
+          >
+            <LaneIcon lane={lane} size="xs" />
+            {label}
+          </button>
+        ))}
+      </div>
+      {teamOptions.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2 max-h-20 overflow-y-auto">
+          <button
+            type="button"
+            onClick={() => setTeamFilter(null)}
+            className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
+              teamFilter == null
+                ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+            }`}
+          >
+            All teams
+          </button>
+          {teamOptions.map(({ name, team }) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => setTeamFilter(name)}
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 border transition-all ${
+                teamFilter === name
+                  ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                  : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+              }`}
+              title={name}
+              aria-label={name}
+            >
+              <TeamIcon
+                iconKey={team.iconKey}
+                logoUrl={resolveTeamLogo(team.name, team.logoUrl)}
+                size={13}
+                color={team.color}
+              />
+              <span className="text-[8px] uppercase tracking-[0.12em] truncate max-w-[5.5rem]">
+                {name}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-col sm:flex-row items-stretch gap-2 mb-3">
+        {pickColumn("Player A", idA, setIdA, idB)}
+        <div className="flex sm:flex-col items-center justify-center px-1 py-1 sm:py-0">
+          <span className="text-[10px] uppercase tracking-[0.3em] text-rift-gold/60">
+            vs
+          </span>
+        </div>
+        {pickColumn("Player B", idB, setIdB, idA)}
+      </div>
+
+      {idA && idB && idA === idB ? (
+        <p className="text-[10px] italic text-rift-muted">
+          Choose two different players.
+        </p>
+      ) : compare ? (
+        <div className="border border-rift-line/40 bg-rift-bg/30 overflow-hidden">
+          <div className="bg-gradient-to-b from-rift-gold/[0.07] via-rift-gold/[0.02] to-transparent px-3 py-4 border-b border-rift-line/30">
+            <div className="text-[8px] uppercase tracking-[0.35em] text-rift-gold/70 text-center mb-3">
+              {compare.h2h ? "Inferred Head-to-Head" : "Career Face-Off"}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 flex justify-end">
+                {playerHeader(compare.playerA)}
+              </span>
+              {compare.h2h ? (
+                <div className="shrink-0 text-center px-2">
+                  <div className="font-display text-2xl text-rift-goldbright tabular-nums leading-none">
+                    {compare.h2h.aWins}–{compare.h2h.bWins}
+                  </div>
+                  <div className="mt-1 text-[8px] uppercase tracking-[0.2em] text-rift-muted/75">
+                    {compare.h2h.meetings} series
+                  </div>
+                </div>
+              ) : (
+                <div className="text-[9px] uppercase tracking-[0.2em] text-rift-muted/70 shrink-0 px-2 text-center">
+                  No meetings
+                  <span className="block text-[8px] normal-case tracking-normal text-rift-muted/55 mt-0.5">
+                    Career stats only
+                  </span>
+                </div>
+              )}
+              <span className="min-w-0 flex-1 flex justify-start">
+                {playerHeader(compare.playerB)}
+              </span>
+            </div>
+            {compare.h2h?.byScope && compare.h2h.byScope.length > 0 && (
+              <div className="mt-3 flex flex-wrap justify-center gap-1">
+                {compare.h2h.byScope.map((s) => (
+                  <span
+                    key={s.scope}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 border border-rift-line/45 bg-rift-bg/50 text-[8px] uppercase tracking-[0.12em] text-rift-mutedbright"
+                    title={`${headToHeadScopeLabel(s.scope)} — ${s.meetings} series`}
+                  >
+                    <span className="text-rift-muted/65">
+                      {headToHeadScopeLabel(s.scope)}
+                    </span>
+                    <span className="text-rift-goldbright tabular-nums">
+                      {s.aWins}–{s.bWins}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {compare.h2h && (
+              <p className="mt-2 text-center text-[8px] italic text-rift-muted/60">
+                Series counted when both players were rostered on opposing
+                franchises in stages those teams met — not individual game
+                matchups.
+              </p>
+            )}
+          </div>
+
+          {compare.h2h && compare.h2h.seasons.length > 0 && (
+            <div className="border-b border-rift-line/25">
+              <div className="px-3 py-1.5 border-b border-rift-line/20 text-[8px] uppercase tracking-[0.3em] text-rift-gold/65">
+                By Season
+              </div>
+              <div className="divide-y divide-rift-line/12 max-h-40 overflow-y-auto">
+                {[...compare.h2h.seasons]
+                  .sort((a, b) => b.archivedAt - a.archivedAt)
+                  .map((s) => (
+                    <div
+                      key={`${s.seasonName}-${s.archivedAt}`}
+                      className="px-3 py-2 text-[10px] flex items-baseline justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <span className="text-rift-mutedbright truncate block">
+                          {s.seasonName}
+                        </span>
+                        {s.franchiseYear != null && (
+                          <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/55">
+                            Franchise Year {s.franchiseYear}
+                          </span>
+                        )}
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <span className="font-display text-sm text-rift-goldbright tabular-nums">
+                          {s.aWins}–{s.bWins}
+                        </span>
+                        <span className="block text-[8px] text-rift-muted/60 tabular-nums">
+                          {s.meetings} series
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <div className="px-3 py-1.5 border-b border-rift-line/20 text-[8px] uppercase tracking-[0.3em] text-rift-gold/65">
+              Career Ledger
+            </div>
+            {statRow("Games", compare.playerA.games, compare.playerB.games)}
+            {statRow(
+              "Win rate",
+              fmtRate(wlA?.rate ?? null),
+              fmtRate(wlB?.rate ?? null),
+            )}
+            {statRow("Kills", compare.playerA.kills, compare.playerB.kills)}
+            {statRow("MVPs", compare.playerA.mvps, compare.playerB.mvps)}
+            {statRow(
+              "Split MVPs",
+              compare.playerA.splitMvps,
+              compare.playerB.splitMvps,
+            )}
+            {statRow(
+              "Intl MVPs",
+              compare.playerA.intlMvps,
+              compare.playerB.intlMvps,
+            )}
+            {statRow("All-Pro", compare.playerA.allPro, compare.playerB.allPro)}
+            {statRow(
+              "Split titles",
+              compare.playerA.splitTitles,
+              compare.playerB.splitTitles,
+            )}
+            {statRow(
+              "Intl titles",
+              compare.playerA.intlTitles,
+              compare.playerB.intlTitles,
+            )}
+            {statRow(
+              "Intl seasons",
+              compare.playerA.intlAppearances,
+              compare.playerB.intlAppearances,
+            )}
+            {statRow(
+              "Avg grade",
+              fmtAvg(compare.playerA.ratingSum, compare.playerA.ratingGames),
+              fmtAvg(compare.playerB.ratingSum, compare.playerB.ratingGames),
+            )}
+            {statRow(
+              "Avg GD@15",
+              fmtGd(compare.playerA.goldDiffSum, compare.playerA.goldDiffGames),
+              fmtGd(compare.playerB.goldDiffSum, compare.playerB.goldDiffGames),
+            )}
+            {statRow(
+              "Pentakills",
+              compare.playerA.pentakills,
+              compare.playerB.pentakills,
+            )}
+            <div className="grid grid-cols-[1fr_auto_1fr] gap-2 px-3 py-2 text-[11px] items-center border-t border-rift-line/20">
+              <div className="flex justify-end">{champCell(compare.playerA)}</div>
+              <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 text-center min-w-[5.5rem]">
+                Top champs
+              </span>
+              <div className="flex justify-start">{champCell(compare.playerB)}</div>
+            </div>
+          </div>
+        </div>
+      ) : idA && idB ? (
+        <p className="text-[10px] italic text-rift-muted">
+          No career data found for that pairing.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function DynastyBadge({ tier }: { tier: DynastyTier }) {
   if (tier === "none") return null;
   const legendary = tier === "legendary";
@@ -2165,6 +2738,13 @@ function RecordsPanel({
       </div>
 
       <TeamComparePanel entries={entries} records={records} onNavigate={onNavigate} />
+
+      <PlayerComparePanel
+        entries={entries}
+        careers={careers}
+        identity={teamIdentity}
+        onNavigate={onNavigate}
+      />
 
       {/* Title streaks & droughts across seasons */}
       <div>
@@ -2906,7 +3486,7 @@ function TitleTallyInline({ titles }: { titles: { splits: SplitId[]; intl: Inter
 }
 
 // A scrollable champion pool: every champion the player has been recorded on,
-// with games played and win rate. Most-played first.
+// with games played, W/L, and win rate. Most-played first.
 function ChampPool({
   champs,
   champById,
@@ -2920,19 +3500,41 @@ function ChampPool({
     <div className="max-h-44 overflow-y-auto pr-1 space-y-0.5">
       {champs.map((cs) => {
         const champ = champById.get(cs.championId);
+        const losses = Math.max(0, cs.games - cs.wins);
         const wr = cs.games > 0 ? Math.round((cs.wins / cs.games) * 100) : 0;
+        const wrTone =
+          wr >= 55
+            ? "text-rift-bluebright"
+            : wr <= 45
+              ? "text-rift-redbright/85"
+              : "text-rift-mutedbright";
         return (
-          <div key={cs.championId} className="flex items-center gap-2 text-[10px]">
+          <div
+            key={cs.championId}
+            className="flex items-center gap-2 text-[10px] py-0.5"
+            title={`${champ?.name ?? `#${cs.championId}`} · ${cs.wins}W–${losses}L (${wr}%)`}
+          >
             {champ?.iconUrl && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={champ.iconUrl} alt="" className="w-4 h-4 rounded-sm flex-shrink-0" />
+              <img
+                src={champ.iconUrl}
+                alt=""
+                className="w-4 h-4 rounded-sm flex-shrink-0 border border-rift-line/40"
+              />
             )}
-            <span className="truncate flex-1 text-rift-mutedbright">
+            <span className="truncate flex-1 min-w-0 text-rift-mutedbright">
               {champ?.name ?? `#${cs.championId}`}
             </span>
-            <span className="tabular-nums text-rift-muted/70 w-8 text-right">{cs.games}g</span>
+            <span className="tabular-nums text-rift-muted/55 w-7 text-right shrink-0 text-[9px]">
+              {cs.games}g
+            </span>
+            <span className="tabular-nums shrink-0 inline-flex items-baseline gap-0.5 w-[4.25rem] justify-end">
+              <span className="text-rift-bluebright font-medium">{cs.wins}W</span>
+              <span className="text-rift-muted/35">–</span>
+              <span className="text-rift-redbright/75">{losses}L</span>
+            </span>
             <span
-              className={`tabular-nums w-9 text-right ${wr >= 50 ? "text-rift-bluebright" : "text-rift-redbright/80"}`}
+              className={`tabular-nums shrink-0 w-8 text-right font-semibold ${wrTone}`}
             >
               {wr}%
             </span>

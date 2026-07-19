@@ -1186,6 +1186,206 @@ export function careerWinLoss(c: PlayerCareerLine): {
   return { wins, games, rate: games > 0 ? wins / games : null };
 }
 
+// ─── Player face-to-face compare ─────────────────────────────────────────────
+
+export interface PlayerHeadToHeadSeason {
+  seasonName: string;
+  franchiseYear?: number;
+  archivedAt: number;
+  meetings: number;
+  aWins: number;
+  bWins: number;
+  byScope?: HistoryRivalryScope[];
+}
+
+export interface PlayerHeadToHead {
+  meetings: number;
+  aWins: number;
+  bWins: number;
+  byScope?: HistoryRivalryScope[];
+  seasons: PlayerHeadToHeadSeason[];
+  /**
+   * True when meetings were inferred from team H2H + phase rosters (players on
+   * opposing franchises in overlapping stages). Match-level player H2H is not
+   * archived — treat counts as series where both were rostered opponents.
+   */
+  inferred: true;
+}
+
+export interface PlayerCompareResult {
+  playerA: PlayerCareerLine;
+  playerB: PlayerCareerLine;
+  h2h: PlayerHeadToHead | null;
+}
+
+/** Scopes (split / intl event) where a player appeared on each franchise key. */
+function playerFranchiseScopes(
+  e: SeasonHistoryEntry,
+  playerId: string,
+): Map<string, Set<SplitId | InternationalId>> {
+  const out = new Map<string, Set<SplitId | InternationalId>>();
+  for (const phase of e.phaseRosters ?? []) {
+    const scope: SplitId | InternationalId | undefined =
+      phase.kind === "split" ? phase.split : phase.event;
+    if (!scope) continue;
+    for (const t of phase.teams) {
+      if (!t.players.some((p) => p.id === playerId)) continue;
+      const key = franchiseKeyFromParts(t.teamName, t.leagueId);
+      let scopes = out.get(key);
+      if (!scopes) {
+        scopes = new Set();
+        out.set(key, scopes);
+      }
+      scopes.add(scope);
+    }
+  }
+  return out;
+}
+
+function findMatchingFranchiseKey(
+  map: Map<string, Set<SplitId | InternationalId>>,
+  targetKey: string,
+): string | undefined {
+  if (map.has(targetKey)) return targetKey;
+  for (const k of map.keys()) {
+    if (franchiseKeysMatch(k, targetKey)) return k;
+  }
+  return undefined;
+}
+
+/**
+ * Career face-to-face between two players. When both were rostered on opposing
+ * franchises during stages where those teams met (archived team H2H), attribute
+ * those series meetings to the players. Returns null when they never overlapped
+ * as opponents. Always pairs with side-by-side careers via `comparePlayers`.
+ */
+export function computePlayerHeadToHead(
+  entries: SeasonHistoryEntry[],
+  playerIdA: string,
+  playerIdB: string,
+): PlayerHeadToHead | null {
+  if (!playerIdA || !playerIdB || playerIdA === playerIdB) return null;
+  const chronological = [...entries].sort((a, b) => a.archivedAt - b.archivedAt);
+
+  let meetings = 0;
+  let aWins = 0;
+  let bWins = 0;
+  const seasons: PlayerHeadToHeadSeason[] = [];
+  const scopeAllTime = new Map<SplitId | InternationalId, HistoryRivalryScope>();
+
+  for (const e of chronological) {
+    const scopesA = playerFranchiseScopes(e, playerIdA);
+    const scopesB = playerFranchiseScopes(e, playerIdB);
+    if (scopesA.size === 0 || scopesB.size === 0) continue;
+
+    let seasonMeetings = 0;
+    let seasonAWins = 0;
+    let seasonBWins = 0;
+    const seasonScopes = new Map<SplitId | InternationalId, HistoryRivalryScope>();
+
+    for (const r of seasonHeadToHeadRows(e)) {
+      const rKeyA = teamRecordKey(r.teamA);
+      const rKeyB = teamRecordKey(r.teamB);
+
+      const aOnA = findMatchingFranchiseKey(scopesA, rKeyA);
+      const bOnB = findMatchingFranchiseKey(scopesB, rKeyB);
+      const aOnB = findMatchingFranchiseKey(scopesA, rKeyB);
+      const bOnA = findMatchingFranchiseKey(scopesB, rKeyA);
+
+      let aIsFirst: boolean | null = null;
+      let aFranchiseKey: string | undefined;
+      let bFranchiseKey: string | undefined;
+      if (aOnA && bOnB) {
+        aIsFirst = true;
+        aFranchiseKey = aOnA;
+        bFranchiseKey = bOnB;
+      } else if (aOnB && bOnA) {
+        aIsFirst = false;
+        aFranchiseKey = aOnB;
+        bFranchiseKey = bOnA;
+      }
+      if (aIsFirst == null || !aFranchiseKey || !bFranchiseKey) continue;
+
+      const aScopes = scopesA.get(aFranchiseKey)!;
+      const bScopes = scopesB.get(bFranchiseKey)!;
+
+      if (r.byScope && r.byScope.length > 0) {
+        for (const s of r.byScope) {
+          if (!aScopes.has(s.scope) || !bScopes.has(s.scope)) continue;
+          const sliceAWins = aIsFirst ? s.aWins : s.bWins;
+          const sliceBWins = aIsFirst ? s.bWins : s.aWins;
+          seasonMeetings += s.meetings;
+          seasonAWins += sliceAWins;
+          seasonBWins += sliceBWins;
+          mergeScopeRows(
+            seasonScopes,
+            [
+              {
+                scope: s.scope,
+                meetings: s.meetings,
+                aWins: sliceAWins,
+                bWins: sliceBWins,
+              },
+            ],
+            false,
+          );
+        }
+      } else {
+        // Legacy rivalry rows: attribute the season total when both sat on those
+        // opposing franchises at any stage of the year.
+        seasonMeetings += r.meetings;
+        seasonAWins += aIsFirst ? r.aWins : r.bWins;
+        seasonBWins += aIsFirst ? r.bWins : r.aWins;
+      }
+    }
+
+    if (seasonMeetings === 0) continue;
+    meetings += seasonMeetings;
+    aWins += seasonAWins;
+    bWins += seasonBWins;
+    mergeScopeRows(scopeAllTime, sortedScopeRows(seasonScopes), false);
+    const byScope = sortedScopeRows(seasonScopes);
+    seasons.push({
+      seasonName: e.name,
+      franchiseYear: franchiseYearFromSeasonName(e.name),
+      archivedAt: e.archivedAt,
+      meetings: seasonMeetings,
+      aWins: seasonAWins,
+      bWins: seasonBWins,
+      ...(byScope.length > 0 ? { byScope } : {}),
+    });
+  }
+
+  if (meetings === 0) return null;
+  const byScope = sortedScopeRows(scopeAllTime);
+  return {
+    meetings,
+    aWins,
+    bWins,
+    ...(byScope.length > 0 ? { byScope } : {}),
+    seasons,
+    inferred: true,
+  };
+}
+
+/** Side-by-side player careers plus inferred opponent H2H when archive data allows. */
+export function comparePlayers(
+  entries: SeasonHistoryEntry[],
+  careers: PlayerCareerLine[],
+  playerIdA: string,
+  playerIdB: string,
+): PlayerCompareResult | null {
+  if (!playerIdA || !playerIdB || playerIdA === playerIdB) return null;
+  const playerA = careers.find((c) => c.playerId === playerIdA);
+  const playerB = careers.find((c) => c.playerId === playerIdB);
+  if (!playerA || !playerB) return null;
+  return {
+    playerA,
+    playerB,
+    h2h: computePlayerHeadToHead(entries, playerIdA, playerIdB),
+  };
+}
+
 // ─── Player titles split by event (Hall of Fame) ────────────────────────────
 
 /** Career title counts per player, broken out by event — domestic splits and

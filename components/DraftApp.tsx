@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useDraftStore, type SavedTournamentEntry } from "@/store/draftStore";
 import { tournamentChampion, type TournamentState } from "@/lib/tournament";
 import type { Champion } from "@/lib/types";
@@ -18,7 +18,12 @@ import SeasonDashboard from "./SeasonDashboard";
 import SeasonHistoryView from "./SeasonHistoryView";
 import RealitiesHub from "./RealitiesHub";
 import Modal from "./Modal";
-import { isDesktop, openFileNative } from "@/lib/desktopStorage";
+import {
+  isDesktop,
+  openFileNative,
+  isPersistReady,
+  subscribePersistReady,
+} from "@/lib/desktopStorage";
 import { hydrateMetaConfigFromDesktopFile } from "@/lib/metaRandomizer";
 
 interface Props {
@@ -54,20 +59,24 @@ export default function DraftApp({ champions }: Props) {
   const setChampions = useDraftStore((s) => s.setChampions);
   const hydrateMetaFromStorage = useDraftStore((s) => s.hydrateMetaFromStorage);
   const [entryView, setEntryView] = useState<EntryView>("menu");
-  // Hydration gate (same pattern as Modal's mounted guard). With static
-  // export, the prebuilt HTML is rendered before the persisted Zustand
-  // store rehydrates from localStorage — without this gate users
-  // mid-tournament would see EntryMenu flash before the dashboard swaps
-  // in. Render a neutral splash until after the first client effect.
-  const [mounted, setMounted] = useState(false);
+  // Wait for Zustand persist rehydration before showing empty menus /
+  // "no realities" — async AppData reads on desktop finish after first
+  // paint, and a premature empty UI (or a pre-hydrate set()) used to
+  // look like lost saves.
+  //
+  // useSyncExternalStore + getServerSnapshot(false) keeps SSR and the
+  // hydration pass on the same splash shell even when sync localStorage
+  // rehydration has already flipped the gate on the client.
+  const persistReady = useSyncExternalStore(
+    subscribePersistReady,
+    isPersistReady,
+    () => false,
+  );
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
+    if (!persistReady) return;
     setChampions(champions);
-  }, [champions, setChampions]);
+  }, [persistReady, champions, setChampions]);
 
   useEffect(() => {
     // Desktop: the meta config (tiers, synergies, counters, spikes) is
@@ -89,7 +98,7 @@ export default function DraftApp({ champions }: Props) {
   // Pre-hydration splash — matches the app's dark backdrop (body is
   // already bg #010a13 via globals.css) so it reads as a brief blank
   // frame rather than a flash of the wrong screen.
-  if (!mounted) {
+  if (!persistReady) {
     return <div aria-hidden="true" className="min-h-screen bg-rift-bg" />;
   }
 

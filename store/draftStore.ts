@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { isDesktop, createDesktopLazyStorage, migrateWebStorageToDesktop } from "@/lib/desktopStorage";
+import { isDesktop, createDesktopLazyStorage, enablePersistWrites, gatePersistWritesUntilReady } from "@/lib/desktopStorage";
 import {
   applyLock,
   applyTimeout,
@@ -3766,9 +3766,17 @@ export const useDraftStore = create<DraftStore>()(
     // operates on serialized strings; web payloads are also much smaller
     // (slim history, cap 5). Bulk-sim batching (≤1 set per match) keeps
     // the per-set stringify acceptable there.
-    storage: isDesktop()
-      ? createDesktopLazyStorage()
-      : createJSONStorage(() => quotaSafeStorage ?? localStorage),
+    //
+    // Both paths gate writes until enablePersistWrites() so a mount-time
+    // set() cannot overwrite disk/localStorage with empty initial state
+    // while async rehydration is still in flight.
+    storage: gatePersistWritesUntilReady(
+      isDesktop()
+        ? createDesktopLazyStorage()
+        // createJSONStorage returns undefined when getStorage() throws
+        // (Node SSR). gatePersistWritesUntilReady falls back to a noop.
+        : createJSONStorage(() => quotaSafeStorage ?? localStorage),
+    ),
     partialize: (state) => ({
       series: state.series,
       soundEnabled: state.soundEnabled,
@@ -3848,7 +3856,15 @@ export const useDraftStore = create<DraftStore>()(
       }
       return ps;
     },
-    onRehydrateStorage: () => (state) => {
+    onRehydrateStorage: () => (state, error) => {
+      // Unlock persist writes whether hydration succeeded or failed — otherwise
+      // a storage error would leave the app unable to save, and the UI gate
+      // waiting on persist-ready would never clear.
+      enablePersistWrites();
+      if (error) {
+        console.warn("[draftsim] persist rehydration failed:", error);
+        return;
+      }
       // Mirror persisted sound prefs onto the imperative SoundPlayer
       // singleton — the store is the source of truth, but `sounds`
       // reads its own state at play() time.
@@ -3895,15 +3911,10 @@ export const useDraftStore = create<DraftStore>()(
           decodeCompactTournament(t),
         );
       }
-      // One-time migration: on first desktop run, import localStorage data
-      // so a user moving from web to desktop build keeps their state.
-      // This is async and runs after hydration so it only affects the
-      // *next* Zustand persist cycle (i.e. the next write will capture
-      // the migrated data). Called here rather than at module scope so
-      // it never runs during SSG.
-      if (isDesktop()) {
-        void migrateWebStorageToDesktop("draftsim-store");
-      }
+      // localStorage → AppData migration runs inside createDesktopLazyStorage
+      // getItem (before the first read), not here — doing it after rehydrate
+      // would leave memory empty while a later set() could overwrite the
+      // just-migrated file.
     },
   },
   ),
