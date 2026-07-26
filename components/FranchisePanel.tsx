@@ -30,6 +30,8 @@ export default function FranchisePanel() {
   const season = useDraftStore((s) => s.season);
   const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
   const [teamFilter, setTeamFilter] = useState<string | null>(null);
+  /** Rookie class disclosure — expanded by default. */
+  const [rookiesOpen, setRookiesOpen] = useState(true);
 
   const filterTeams: FilterTeam[] = useMemo(() => {
     if (!season) return [];
@@ -185,9 +187,28 @@ export default function FranchisePanel() {
 
       {rookies.length > 0 && (
         <div className="px-3 pb-2.5">
-          <div className="text-[8px] uppercase tracking-[0.3em] text-emerald-300/80 mb-1">
-            Rookie Class · Year {fr.year}
-          </div>
+          <button
+            type="button"
+            onClick={() => setRookiesOpen((v) => !v)}
+            aria-expanded={rookiesOpen}
+            className="w-full flex items-center justify-between gap-2 mb-1 text-left"
+          >
+            <span className="text-[8px] uppercase tracking-[0.3em] text-emerald-300/80">
+              Rookie Class · Year {fr.year}
+              <span className="ml-1.5 normal-case tracking-normal text-rift-muted/45 tabular-nums">
+                {filteredRookies.length}
+                {(leagueFilter || teamFilter) &&
+                filteredRookies.length !== rookies.length
+                  ? ` of ${rookies.length}`
+                  : ""}
+              </span>
+            </span>
+            <span className="text-emerald-300/60 text-[10px] leading-none" aria-hidden>
+              {rookiesOpen ? "▴" : "▾"}
+            </span>
+          </button>
+          {rookiesOpen && (
+          <>
           <RegionTeamFilters
             teams={filterTeams}
             leagueFilter={leagueFilter}
@@ -250,6 +271,8 @@ export default function FranchisePanel() {
               })
             )}
           </div>
+          </>
+          )}
         </div>
       )}
     </div>

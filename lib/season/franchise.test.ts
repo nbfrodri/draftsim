@@ -18,6 +18,7 @@ import {
   applyMidSplitDemotions,
   fillFollowedRosterVacancies,
   aiDecideFollowedDemotes,
+  splitFromRosterTimeMark,
 } from "./franchise";
 import {
   USER_MAX_MANUAL_DEMOTES,
@@ -920,5 +921,19 @@ describe("mid-split transfer window academy market", () => {
     const next = applyMidSplitDemotions(season, "winter", champions, () => 0);
     expect(countTeamAcademy(next.franchise!.inactivePool!, me)).toBe(0);
     expect(next.rosterNews?.some((n) => n.marketNote === "academy-rookie" && n.teamId === me)).toBeFalsy();
+  });
+});
+
+describe("splitFromRosterTimeMark", () => {
+  it("maps split labels and windows onto Winter / Spring / Summer / Offseason", () => {
+    expect(splitFromRosterTimeMark("Winter")).toBe("winter");
+    expect(splitFromRosterTimeMark("Spring")).toBe("spring");
+    expect(splitFromRosterTimeMark("Summer")).toBe("summer");
+    expect(splitFromRosterTimeMark("First Stand window")).toBe("winter");
+    expect(splitFromRosterTimeMark("MSI window")).toBe("spring");
+    expect(splitFromRosterTimeMark("Worlds window")).toBe("summer");
+    expect(splitFromRosterTimeMark("Offseason")).toBe("offseason");
+    expect(splitFromRosterTimeMark(undefined)).toBeNull();
+    expect(splitFromRosterTimeMark("—")).toBeNull();
   });
 });

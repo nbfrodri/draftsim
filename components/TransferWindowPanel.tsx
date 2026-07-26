@@ -26,6 +26,10 @@ import {
   type SeasonState,
   type TransferPlayer,
 } from "@/lib/season/types";
+import {
+  splitFromRosterTimeMark,
+  type RosterTimeSplit,
+} from "@/lib/season/franchise";
 import type { Champion, Lane, PlayerTier } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
 import LaneIcon from "./LaneIcon";
@@ -165,6 +169,11 @@ export default function TransferWindowPanel() {
   );
   const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
   const [teamFilter, setTeamFilter] = useState<string | null>(null);
+  const [splitFilter, setSplitFilter] = useState<RosterTimeSplit | null>(null);
+  /** Whole panel disclosure — expanded by default (decisions + recap). */
+  const [panelOpen, setPanelOpen] = useState(true);
+  /** Demotions & roster entries disclosure — expanded by default. */
+  const [rosterNewsOpen, setRosterNewsOpen] = useState(true);
 
   const byId = useMemo(
     () => new Map(champions.map((c) => [c.id, c] as const)),
@@ -292,9 +301,13 @@ export default function TransferWindowPanel() {
   }));
   const teamsById = new Map(filterTeams.map((t) => [t.id, t] as const));
 
-  const filteredRosterNews = rosterNews.filter((n) =>
-    matchesTeamFilters(n.teamId, teamsById, leagueFilter, teamFilter),
-  );
+  const filteredRosterNews = rosterNews.filter((n) => {
+    if (!matchesTeamFilters(n.teamId, teamsById, leagueFilter, teamFilter)) {
+      return false;
+    }
+    if (!splitFilter) return true;
+    return splitFromRosterTimeMark(n.timeMark) === splitFilter;
+  });
 
   const transferMatchesFilter = (tr: PlayerTransfer) => {
     if (teamFilter) {
@@ -319,15 +332,34 @@ export default function TransferWindowPanel() {
 
   return (
     <div className="mb-8 border border-rift-gold/30 bg-rift-gold/[0.03]">
-      <div className="px-3 py-1.5 border-b border-rift-gold/25 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => setPanelOpen((v) => !v)}
+        aria-expanded={panelOpen}
+        className="w-full px-3 py-1.5 border-b border-rift-gold/25 flex items-center gap-2 text-left hover:bg-rift-gold/[0.06] transition-all"
+      >
         <span className="font-display text-sm tracking-wider text-rift-goldbright">
           Transfer Window
         </span>
         <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted/55">
           between splits
         </span>
-      </div>
+        {(windows.length > 0 || rosterNews.length > 0) && (
+          <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/45 tabular-nums">
+            {windows.length > 0
+              ? `${windows.reduce((n, e) => n + (byEvent[e]?.length ?? 0), 0)} moves`
+              : ""}
+            {windows.length > 0 && rosterNews.length > 0 ? " · " : ""}
+            {rosterNews.length > 0 ? `${rosterNews.length} roster` : ""}
+          </span>
+        )}
+        <span className="ml-auto text-rift-gold/70 text-sm leading-none" aria-hidden>
+          {panelOpen ? "▴" : "▾"}
+        </span>
+      </button>
 
+      {panelOpen && (
+      <>
       {/* Followed team's pending decisions */}
       {atWindow && (
         <div className="px-3 py-2 border-b border-rift-gold/20 bg-rift-gold/[0.04]">
@@ -666,6 +698,8 @@ export default function TransferWindowPanel() {
             teamFilter={teamFilter}
             onLeagueFilter={setLeagueFilter}
             onTeamFilter={setTeamFilter}
+            splitFilter={rosterNews.length > 0 ? splitFilter : null}
+            onSplitFilter={rosterNews.length > 0 ? setSplitFilter : undefined}
           />
         )}
         {(atWindow || windows.length > 0) && (
@@ -725,9 +759,27 @@ export default function TransferWindowPanel() {
         {/* Demotions & roster entries (mid-split + post-Worlds offseason). */}
         {rosterNews.length > 0 && (
           <div className="mt-2">
-            <div className="text-[9px] uppercase tracking-[0.25em] text-emerald-300/70 mb-1">
-              Demotions &amp; Roster Entries{yr}
-            </div>
+            <button
+              type="button"
+              onClick={() => setRosterNewsOpen((v) => !v)}
+              aria-expanded={rosterNewsOpen}
+              className="w-full flex items-center justify-between gap-2 mb-1 text-left"
+            >
+              <span className="text-[9px] uppercase tracking-[0.25em] text-emerald-300/70">
+                Demotions &amp; Roster Entries{yr}
+                <span className="ml-1.5 normal-case tracking-normal text-rift-muted/45 tabular-nums">
+                  {filteredRosterNews.length}
+                  {(leagueFilter || teamFilter || splitFilter) &&
+                  filteredRosterNews.length !== rosterNews.length
+                    ? ` of ${rosterNews.length}`
+                    : ""}
+                </span>
+              </span>
+              <span className="text-emerald-300/60 text-[10px] leading-none" aria-hidden>
+                {rosterNewsOpen ? "▴" : "▾"}
+              </span>
+            </button>
+            {rosterNewsOpen && (
             <div className="border border-emerald-500/25 bg-emerald-500/[0.04] divide-y divide-rift-line/15">
               {filteredRosterNews.length === 0 ? (
                 <div className="px-2 py-1.5 text-[10px] italic text-rift-muted/55">
@@ -911,9 +963,12 @@ export default function TransferWindowPanel() {
               })
               )}
             </div>
+            )}
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

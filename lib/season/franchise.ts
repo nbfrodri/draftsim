@@ -89,6 +89,23 @@ export function rosterTimeMarkForSeason(
   return phase?.label ?? "—";
 }
 
+/** Split chip for Demotions & Roster Entries (Winter/Spring/Summer + Offseason). */
+export type RosterTimeSplit = SplitId | "offseason";
+
+/**
+ * Map a roster-news `timeMark` onto Winter / Spring / Summer / Offseason for UI filters.
+ * Transfer windows bucket with the split that fed them; Offseason stays its own bucket.
+ */
+export function splitFromRosterTimeMark(mark?: string): RosterTimeSplit | null {
+  if (!mark) return null;
+  const m = mark.trim().toLowerCase();
+  if (m === "winter" || m.startsWith("first stand")) return "winter";
+  if (m === "spring" || m.startsWith("msi")) return "spring";
+  if (m === "summer" || m.startsWith("worlds")) return "summer";
+  if (m === "offseason") return "offseason";
+  return null;
+}
+
 function makeRealityId(rng: RNG): string {
   return `reality-${Math.floor(rng() * 1e9).toString(36)}`;
 }
