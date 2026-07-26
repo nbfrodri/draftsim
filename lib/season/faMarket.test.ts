@@ -8,6 +8,7 @@ import {
   ROOKIE_VALUE_FLOOR,
   ACADEMY_MAX_PER_TEAM,
   INITIAL_ACADEMY_ROOKIES_PER_TEAM,
+  INITIAL_OPENING_FA_POOL,
   TARGET_FA_POOL,
   FA_OVERFLOW_KEEP_GRADUATES,
   FA_OVERFLOW_ACCEL_ABOVE,
@@ -766,6 +767,7 @@ describe("academy cap 5 + FA↔academy + release", () => {
     expect(ACADEMY_MAX_PER_TEAM).toBe(5);
     expect(INITIAL_ACADEMY_ROOKIES_PER_TEAM).toBe(2);
     expect(INITIAL_ACADEMY_ROOKIES_PER_TEAM).toBeLessThanOrEqual(ACADEMY_MAX_PER_TEAM);
+    expect(INITIAL_OPENING_FA_POOL).toBe(TARGET_FA_POOL.min);
     expect(USER_ACADEMY_ROOKIE_SOFT_MAX).toBe(ACADEMY_MAX_PER_TEAM - 1);
     expect(MAX_AI_ACADEMY_ROOKIE_PER_TEAM).toBe(1);
     expect(AI_ACADEMY_RELEASE_MIN_COUNT).toBe(3);
@@ -1078,6 +1080,40 @@ describe("variable academy tenure + graduate cap (anti-wave)", () => {
     expect(academyTenureYears(weak)).toBe(ACADEMY_YEARS_MIN);
     expect(academyTenureYears(mid)).toBe(ACADEMY_YEARS);
     expect(academyTenureYears(high)).toBe(ACADEMY_YEARS_MAX);
+
+    // Cohort desync shifts the stay, not the badge clock. Weak may drop below
+    // MIN (one full year-end tick) — that is the early-exit half of the stagger.
+    expect(academyTenureYears({ ...weak, academyTenureShift: -1 })).toBe(1);
+    expect(academyTenureYears({ ...mid, academyTenureShift: -1 })).toBe(ACADEMY_YEARS_MIN);
+    expect(academyTenureYears({ ...high, academyTenureShift: -1 })).toBe(ACADEMY_YEARS);
+    expect(academyTenureYears({ ...high, academyTenureShift: 2 })).toBe(ACADEMY_YEARS_MAX);
+  });
+
+  it("tenure shift desyncs the opening cohort without faking the badge clock", () => {
+    // Same twin, one staggered — both minted in year 1 at the honest Acy · 1y.
+    let pool: MarketInactive[] = [-1, 0].map((shift, i) => ({
+      player: player({ id: `b${i}`, name: `b${i}`, tier: "B", potential: "B", age: 20 }),
+      status: "academy" as const,
+      inactiveYears: 1,
+      demotedYear: 1,
+      lastTeamId: "T0",
+      shadowGrade: 5.5,
+      academyTenureShift: shift,
+    }));
+    // Mint year (closing year 1) never ticks the badge for either twin.
+    pool = advanceInactivePool(pool, rng(1), champions, 1);
+    expect(pool.map((e) => e.inactiveYears)).toEqual([1, 1]);
+    expect(pool.every((e) => e.status === "academy")).toBe(true);
+
+    const gradYear = (idx: number): number => {
+      let p = pool;
+      for (let y = 2; y < 12; y++) {
+        p = advanceInactivePool(p, rng(y), champions, y);
+        if (p[idx]!.status === "free-agent") return y;
+      }
+      throw new Error("never graduated");
+    };
+    expect(gradYear(0)).toBeLessThan(gradYear(1));
   });
 
   it("weak D graduates after MIN years; high A can stay to MAX", () => {

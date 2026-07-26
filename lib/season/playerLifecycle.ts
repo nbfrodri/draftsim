@@ -160,6 +160,8 @@ export interface InactivePlayer {
   lastActiveGrade?: number | null;
   /** Shadow form while inactive — blended with lastActive for market/aging. */
   shadowGrade?: number | null;
+  /** Personal offset on the value-based academy stay ({@link academyTenureYears}). */
+  academyTenureShift?: number;
 }
 
 /** Compact archive form for Hall/search (no full champ pools required). */
@@ -498,8 +500,8 @@ function pickReturnee(
  * When `closingYear` is set, entries with `demotedYear === closingYear` still
  * age/tick shadow form but do **not** increment `inactiveYears` or change
  * status — their first calendar year on the inactive path must archive as
- * Acy · 1y (or the intentional opening-seed stagger), not burn 1→2 on the
- * same season they entered.
+ * Acy · 1y, not burn 1→2 on the same season they entered. Cohort desync rides
+ * on `academyTenureShift` (graduation), never on a mint-time badge offset.
  *
  * Also ticks shadow grade, academy development, and light pool drift.
  * Academy tier growth is **only** via ACADEMY_DEV_CHANCE (slower than main

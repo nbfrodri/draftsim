@@ -667,6 +667,74 @@ describe("point-in-time career status (asOfSeasonId)", () => {
     ]);
   });
 
+  it("Career History one-year academy career reads Acy · 1y", () => {
+    // Reported symptom: a player whose whole career is a single archived year
+    // (opening / direct academy mint) must not read Acy · 2y.
+    const entries = withPool(
+      [["a", "b", "c", "d", "e"]],
+      [
+        [
+          {
+            playerId: "rook",
+            playerName: "Rook",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+            debutYear: 1,
+          },
+        ],
+      ],
+    );
+    const profile = playerProfile(entries, "rook")!;
+    expect(profile.tenures).toHaveLength(1);
+    expect(profile.tenures[0]!.academyYears).toBe(1);
+    expect(profile.academyYears).toBe(1);
+    expect(playerCareerStatuses(entries).get("rook")?.academyYears).toBe(1);
+  });
+
+  it("Career History opening FA seed starts at FA · 1y (not Acy)", () => {
+    // Org-less opening FA: inactiveYears = ACADEMY_YEARS + 1 snap, empty lastTeam.
+    const snap = (years: number): InactivePlayerSnapshot[] => [
+      {
+        playerId: "fa1",
+        playerName: "FaOne",
+        lane: "middle",
+        tier: "B",
+        status: "free-agent",
+        inactiveYears: years,
+        demotedYear: 1,
+        lastTeamId: "",
+        debutYear: 1,
+      },
+    ];
+    const entries = withPool(
+      [
+        ["a", "b", "c", "d", "e"],
+        ["a", "b", "c", "d", "e"],
+        ["a", "b", "c", "d", "e"],
+      ],
+      // Year-1 mint skip keeps iy at ACADEMY_YEARS+1; then +1 per closing year.
+      [snap(4), snap(5), snap(6)],
+    );
+    const profile = playerProfile(entries, "fa1")!;
+    expect(
+      profile.tenures.map((t) => ({
+        id: t.seasonId,
+        status: t.careerStatus,
+        fa: t.freeAgentYears,
+        acy: t.academyYears,
+      })),
+    ).toEqual([
+      { id: "S2", status: "free-agent", fa: 3, acy: 3 },
+      { id: "S1", status: "free-agent", fa: 2, acy: 3 },
+      { id: "S0", status: "free-agent", fa: 1, acy: 3 },
+    ]);
+  });
+
   it("Career History stops at the retirement year (no repeated Retired rows)", () => {
     const snap = (
       status: "free-agent" | "retired",

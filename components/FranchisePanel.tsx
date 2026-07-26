@@ -1,12 +1,17 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { computePlayerSeasonLines } from "@/lib/season/stats";
 import { PLAYER_TIER_VALUE } from "@/lib/players";
 import type { PlayerTier } from "@/lib/types";
+import type { LeagueId } from "@/lib/season/types";
 import LaneIcon from "./LaneIcon";
 import TeamIcon from "./TeamIcon";
+import RegionTeamFilters, {
+  matchesTeamFilters,
+  type FilterTeam,
+} from "./season/RegionTeamFilters";
 
 // In-dashboard reality banner: shows which reality/year you're in and, once the
 // year is finished (Worlds done), the button to roll into the next season.
@@ -23,6 +28,25 @@ const TIER_CLS: Record<PlayerTier, string> = {
 
 export default function FranchisePanel() {
   const season = useDraftStore((s) => s.season);
+  const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
+  const [teamFilter, setTeamFilter] = useState<string | null>(null);
+
+  const filterTeams: FilterTeam[] = useMemo(() => {
+    if (!season) return [];
+    return season.teams.map((t) => ({
+      id: t.id,
+      name: t.name,
+      leagueId: t.leagueId,
+      iconKey: t.iconKey,
+      logoUrl: t.logoUrl,
+      color: t.color,
+    }));
+  }, [season]);
+
+  const teamsById = useMemo(
+    () => new Map(filterTeams.map((t) => [t.id, t])),
+    [filterTeams],
+  );
 
   // This year's rookie class — academy-first intake: players stamped with the
   // current franchise year in the academy pool (label Academy) plus any main-
@@ -48,6 +72,7 @@ export default function FranchisePanel() {
       id: string;
       name: string;
       lane: import("@/lib/types").Lane;
+      teamId: string;
       team: { name: string; iconKey: string; logoUrl?: string; color: string };
       debut: PlayerTier | null;
       tier: PlayerTier;
@@ -72,6 +97,7 @@ export default function FranchisePanel() {
         id: p.id,
         name: p.name ?? "—",
         lane: p.lane,
+        teamId: e.lastTeamId,
         team: team
           ? { name: team.name, iconKey: team.iconKey, logoUrl: team.logoUrl, color: team.color }
           : {
@@ -100,6 +126,7 @@ export default function FranchisePanel() {
           id: p.id,
           name: p.name ?? "—",
           lane: p.lane,
+          teamId: t.id,
           team: { name: t.name, iconKey: t.iconKey, logoUrl: t.logoUrl, color: t.color },
           debut,
           tier: p.tier,
@@ -121,6 +148,14 @@ export default function FranchisePanel() {
         (b.avg ?? 0) - (a.avg ?? 0),
     );
   }, [season]);
+
+  const filteredRookies = useMemo(
+    () =>
+      rookies.filter((r) =>
+        matchesTeamFilters(r.teamId, teamsById, leagueFilter, teamFilter),
+      ),
+    [rookies, teamsById, leagueFilter, teamFilter],
+  );
 
   const fr = season?.franchise ?? null;
   if (!fr) return null;
@@ -153,54 +188,67 @@ export default function FranchisePanel() {
           <div className="text-[8px] uppercase tracking-[0.3em] text-emerald-300/80 mb-1">
             Rookie Class · Year {fr.year}
           </div>
+          <RegionTeamFilters
+            teams={filterTeams}
+            leagueFilter={leagueFilter}
+            teamFilter={teamFilter}
+            onLeagueFilter={setLeagueFilter}
+            onTeamFilter={setTeamFilter}
+          />
           <div className="border border-emerald-500/20 bg-emerald-500/[0.03] divide-y divide-rift-line/15">
-            {rookies.map((r) => {
-              const g = growth(r);
-              return (
-                <div key={r.id} className="flex items-center gap-2 px-2.5 py-1 text-[10px]">
-                  <TeamIcon iconKey={r.team.iconKey} logoUrl={r.team.logoUrl} size={13} color={r.team.color} />
-                  <LaneIcon lane={r.lane} size="xs" />
-                  <span className="min-w-0 flex-1 flex flex-col leading-tight">
-                    <span className="truncate text-rift-mutedbright font-medium">{r.name}</span>
-                    {r.replaced && (
-                      <span className="truncate text-[8px] text-rift-redbright/70" title={`${r.replaced} demoted${r.replacedAge != null ? ` at ${r.replacedAge}` : ""}`}>
-                        ↩ replaced {r.replaced}
-                        {r.replacedAge != null ? ` (${r.replacedAge})` : ""}
+            {filteredRookies.length === 0 ? (
+              <div className="px-2.5 py-1.5 text-[10px] italic text-rift-muted/55">
+                No rookies match these filters.
+              </div>
+            ) : (
+              filteredRookies.map((r) => {
+                const g = growth(r);
+                return (
+                  <div key={r.id} className="flex items-center gap-2 px-2.5 py-1 text-[10px]">
+                    <TeamIcon iconKey={r.team.iconKey} logoUrl={r.team.logoUrl} size={13} color={r.team.color} />
+                    <LaneIcon lane={r.lane} size="xs" />
+                    <span className="min-w-0 flex-1 flex flex-col leading-tight">
+                      <span className="truncate text-rift-mutedbright font-medium">{r.name}</span>
+                      {r.replaced && (
+                        <span className="truncate text-[8px] text-rift-redbright/70" title={`${r.replaced} demoted${r.replacedAge != null ? ` at ${r.replacedAge}` : ""}`}>
+                          ↩ replaced {r.replaced}
+                          {r.replacedAge != null ? ` (${r.replacedAge})` : ""}
+                        </span>
+                      )}
+                    </span>
+                    {r.academy && (
+                      <span
+                        className="text-[7px] uppercase tracking-[0.15em] text-amber-300/90 border border-amber-500/45 bg-amber-500/10 px-1 flex-shrink-0"
+                        title="Academy prospect (not yet on main roster)"
+                      >
+                        Academy
                       </span>
                     )}
-                  </span>
-                  {r.academy && (
-                    <span
-                      className="text-[7px] uppercase tracking-[0.15em] text-amber-300/90 border border-amber-500/45 bg-amber-500/10 px-1 flex-shrink-0"
-                      title="Academy prospect (not yet on main roster)"
-                    >
-                      Academy
-                    </span>
-                  )}
-                  {r.transferred && (
-                    <span className="text-[7px] uppercase tracking-[0.15em] text-rift-gold/70 border border-rift-gold/30 px-1 flex-shrink-0" title="Transferred since debut">
-                      ⇄
-                    </span>
-                  )}
-                  {/* Growth: debut tier → current tier. */}
-                  <span className="inline-flex items-center gap-0.5 flex-shrink-0">
-                    {r.debut && r.debut !== r.tier && (
-                      <>
-                        <span className={`px-1 border font-display text-[8px] ${TIER_CLS[r.debut]}`}>{r.debut}</span>
-                        <span className={g > 0 ? "text-emerald-400" : "text-rift-redbright"}>{g > 0 ? "↗" : "↘"}</span>
-                      </>
+                    {r.transferred && (
+                      <span className="text-[7px] uppercase tracking-[0.15em] text-rift-gold/70 border border-rift-gold/30 px-1 flex-shrink-0" title="Transferred since debut">
+                        ⇄
+                      </span>
                     )}
-                    <span className={`px-1 border font-display text-[8px] ${TIER_CLS[r.tier]}`}>{r.tier}</span>
-                  </span>
-                  <span className="w-12 text-right tabular-nums text-rift-gold/80 flex-shrink-0" title="Average rating this season">
-                    {r.avg != null ? r.avg.toFixed(1) : "—"}
-                  </span>
-                  <span className="w-8 text-right tabular-nums text-rift-muted/50 flex-shrink-0" title="Games played">
-                    {r.games}g
-                  </span>
-                </div>
-              );
-            })}
+                    {/* Growth: debut tier → current tier. */}
+                    <span className="inline-flex items-center gap-0.5 flex-shrink-0">
+                      {r.debut && r.debut !== r.tier && (
+                        <>
+                          <span className={`px-1 border font-display text-[8px] ${TIER_CLS[r.debut]}`}>{r.debut}</span>
+                          <span className={g > 0 ? "text-emerald-400" : "text-rift-redbright"}>{g > 0 ? "↗" : "↘"}</span>
+                        </>
+                      )}
+                      <span className={`px-1 border font-display text-[8px] ${TIER_CLS[r.tier]}`}>{r.tier}</span>
+                    </span>
+                    <span className="w-12 text-right tabular-nums text-rift-gold/80 flex-shrink-0" title="Average rating this season">
+                      {r.avg != null ? r.avg.toFixed(1) : "—"}
+                    </span>
+                    <span className="w-8 text-right tabular-nums text-rift-muted/50 flex-shrink-0" title="Games played">
+                      {r.games}g
+                    </span>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       )}

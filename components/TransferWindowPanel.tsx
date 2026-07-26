@@ -21,6 +21,7 @@ import {
 import {
   INTERNATIONAL_LABELS,
   seasonTeam,
+  type LeagueId,
   type PlayerTransfer,
   type SeasonState,
   type TransferPlayer,
@@ -31,6 +32,10 @@ import LaneIcon from "./LaneIcon";
 import { ChemScore, ProjectedChemScore } from "./ChemistryRow";
 import InactiveMarketBoard from "./season/InactiveMarketBoard";
 import VacancyFillPicker from "./season/VacancyFillPicker";
+import RegionTeamFilters, {
+  matchesTeamFilters,
+  type FilterTeam,
+} from "./season/RegionTeamFilters";
 
 // Transfer-window UI: the league-wide recap of roster moves at each window
 // (after First Stand and MSI), plus the followed team's pending decisions with
@@ -158,6 +163,8 @@ export default function TransferWindowPanel() {
   const [boardFocus, setBoardFocus] = useState<{ kind: "fa" | "academy"; lane: Lane } | null>(
     null,
   );
+  const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
+  const [teamFilter, setTeamFilter] = useState<string | null>(null);
 
   const byId = useMemo(
     () => new Map(champions.map((c) => [c.id, c] as const)),
@@ -274,6 +281,30 @@ export default function TransferWindowPanel() {
   // Retirements + demotions + roster entries from mid-split checkpoints and
   // the post-Worlds offseason (aging on), league-wide.
   const rosterNews = season.rosterNews ?? [];
+
+  const filterTeams: FilterTeam[] = season.teams.map((t) => ({
+    id: t.id,
+    name: t.name,
+    leagueId: t.leagueId,
+    iconKey: t.iconKey,
+    logoUrl: t.logoUrl,
+    color: t.color,
+  }));
+  const teamsById = new Map(filterTeams.map((t) => [t.id, t] as const));
+
+  const filteredRosterNews = rosterNews.filter((n) =>
+    matchesTeamFilters(n.teamId, teamsById, leagueFilter, teamFilter),
+  );
+
+  const transferMatchesFilter = (tr: PlayerTransfer) => {
+    if (teamFilter) {
+      return tr.fromTeamId === teamFilter || tr.toTeamId === teamFilter;
+    }
+    if (!leagueFilter) return true;
+    const from = teamsById.get(tr.fromTeamId);
+    const to = teamsById.get(tr.toTeamId);
+    return from?.leagueId === leagueFilter || to?.leagueId === leagueFilter;
+  };
 
   // Nothing to show yet.
   if (!atWindow && windows.length === 0 && rosterNews.length === 0) return null;
@@ -628,6 +659,15 @@ export default function TransferWindowPanel() {
         <div className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/55 mb-1">
           Around the leagues
         </div>
+        {(windows.length > 0 || rosterNews.length > 0) && (
+          <RegionTeamFilters
+            teams={filterTeams}
+            leagueFilter={leagueFilter}
+            teamFilter={teamFilter}
+            onLeagueFilter={setLeagueFilter}
+            onTeamFilter={setTeamFilter}
+          />
+        )}
         {(atWindow || windows.length > 0) && (
           <p className="text-[9px] text-rift-muted/60 mb-2 leading-relaxed">
             Players are valued by skill tier, their grades over the{" "}
@@ -647,7 +687,7 @@ export default function TransferWindowPanel() {
           ) : null
         ) : (
           windows.map((e) => {
-            const moves = byEvent[e] ?? [];
+            const moves = (byEvent[e] ?? []).filter(transferMatchesFilter);
             const isOpen = openEvent === e || windows.length === 1;
             return (
               <div key={e} className="mb-1.5">
@@ -658,14 +698,23 @@ export default function TransferWindowPanel() {
                 >
                   <span>
                     Post {INTERNATIONAL_LABELS[e]}{yr} — {moves.length} move{moves.length === 1 ? "" : "s"}
+                    {(leagueFilter || teamFilter) && (byEvent[e]?.length ?? 0) !== moves.length
+                      ? ` of ${byEvent[e]?.length ?? 0}`
+                      : ""}
                   </span>
                   <span>{isOpen ? "▴" : "▾"}</span>
                 </button>
                 {isOpen && (
                   <div className="px-2 py-1 border border-t-0 border-rift-line/30">
-                    {moves.map((tr, i) => (
-                      <TransferRow key={i} tr={tr} season={season} byId={byId} />
-                    ))}
+                    {moves.length === 0 ? (
+                      <div className="text-[10px] italic text-rift-muted py-0.5">
+                        No transfers match these filters.
+                      </div>
+                    ) : (
+                      moves.map((tr, i) => (
+                        <TransferRow key={i} tr={tr} season={season} byId={byId} />
+                      ))
+                    )}
                   </div>
                 )}
               </div>
@@ -680,7 +729,12 @@ export default function TransferWindowPanel() {
               Demotions &amp; Roster Entries{yr}
             </div>
             <div className="border border-emerald-500/25 bg-emerald-500/[0.04] divide-y divide-rift-line/15">
-              {rosterNews.map((n, i) => {
+              {filteredRosterNews.length === 0 ? (
+                <div className="px-2 py-1.5 text-[10px] italic text-rift-muted/55">
+                  No roster news match these filters.
+                </div>
+              ) : (
+              filteredRosterNews.map((n, i) => {
                 const team = seasonTeam(season, n.teamId);
                 const departed = n.departedName;
                 const departedTier = n.departedTier;
@@ -854,7 +908,8 @@ export default function TransferWindowPanel() {
                     )}
                   </div>
                 );
-              })}
+              })
+              )}
             </div>
           </div>
         )}

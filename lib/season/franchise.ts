@@ -33,6 +33,7 @@ import {
   applyComebackRust,
   inactiveTransferValue,
   INITIAL_ACADEMY_ROOKIES_PER_TEAM,
+  INITIAL_OPENING_FA_POOL,
   ACADEMY_MAX_PER_TEAM,
   AI_OPEN_FA_CHANCE_MID_SPLIT,
   type MarketNote,
@@ -46,6 +47,7 @@ import {
   GRADE_GAP_THRESHOLD,
   makeRookie,
   withRosterTimeMark,
+  ACADEMY_YEARS,
   type SeasonPlayerOutcome,
   type RosterNewsEvent,
 } from "./playerLifecycle";
@@ -55,6 +57,7 @@ import { assignRoleElites } from "./teamGen";
 import { applyPoolDrift } from "./poolDrift";
 import {
   INTERNATIONAL_LABELS,
+  LEAGUE_IDS,
   type SeasonState,
   type SeasonTeam,
   type SplitId,
@@ -295,14 +298,16 @@ export function seedOpeningAcademies(
       const res = executeAddAcademyRookie(working, team.id, team.name, rook, year);
       if (!res.ok) break;
       working = res.inactivePool;
-      // Desync opening cohort: 2nd/4th/… rookies start at Academy · 2y so the
+      // Desync opening cohort: 2nd/4th/… rookies graduate a year early so the
       // year-1 seed does not all hit soft-max FA in the same calendar year.
+      // Shift the personal tenure, never the badge clock — every seed is a
+      // true year-1 prospect and must archive as Academy · 1y.
       if (countTeamAcademy(working, team.id) % 2 === 0) {
         const last = working.length - 1;
         const e = working[last];
         if (e?.status === "academy" && e.lastTeamId === team.id) {
           working = working.map((row, i) =>
-            i === last ? { ...row, inactiveYears: 2 } : row,
+            i === last ? { ...row, academyTenureShift: -1 } : row,
           );
         }
       }
@@ -312,10 +317,53 @@ export function seedOpeningAcademies(
   return working;
 }
 
+/**
+ * Seed an opening unsigned FA board up to {@link INITIAL_OPENING_FA_POOL}
+ * (idempotent: only fills the shortfall). Org-less (`lastTeamId` empty).
+ * Uses the same FA · 1y snap as academy→FA (`inactiveYears =
+ * ACADEMY_YEARS + 1`) plus `demotedYear === year` so year-end
+ * {@link advanceInactivePool} skips the badge tick on the mint season —
+ * archives show FA · 1y, not 2y.
+ */
+export function seedOpeningFreeAgents(
+  pool: readonly MarketInactive[],
+  champions: readonly Champion[],
+  rng: RNG,
+  taken: Set<string>,
+  year: number,
+  count: number = INITIAL_OPENING_FA_POOL,
+  regions: readonly string[] = LEAGUE_IDS,
+): MarketInactive[] {
+  if (count <= 0 || champions.length === 0) return [...pool];
+  const existing = pool.filter((e) => e.status === "free-agent").length;
+  const need = count - existing;
+  if (need <= 0) return [...pool];
+
+  const working: MarketInactive[] = [...pool];
+  for (let i = 0; i < need; i++) {
+    const lane = LANE_ORDER[i % LANE_ORDER.length]!;
+    const region =
+      regions.length > 0 ? regions[i % regions.length] : undefined;
+    const rook = makeRookie(lane, champions, rng, taken, region);
+    rook.debutYear = year;
+    working.push({
+      player: { ...rook, badStreak: 0 },
+      status: "free-agent",
+      // FA · 1y snap — same as toFreeAgentFromAcademy / academy graduate.
+      inactiveYears: ACADEMY_YEARS + 1,
+      demotedYear: year,
+      lastTeamId: "",
+    });
+    if (rook.name) taken.add(rook.name);
+  }
+  return working;
+}
+
 /** Turn a freshly-created season into Year 1 of a reality: stamp every player
  *  with an age + potential and attach the franchise context. When aging is on
  *  and champions are provided, each team also starts with
- *  {@link INITIAL_ACADEMY_ROOKIES_PER_TEAM} academy rookies. */
+ *  {@link INITIAL_ACADEMY_ROOKIES_PER_TEAM} academy rookies and the league
+ *  opens with {@link INITIAL_OPENING_FA_POOL} unsigned free agents. */
 export function seedFranchise(
   season: SeasonState,
   name: string,
@@ -335,7 +383,13 @@ export function seedFranchise(
   }
   const inactivePool =
     aging && champions.length > 0
-      ? seedOpeningAcademies(teams, [], champions, rng, usedNames, 1)
+      ? seedOpeningFreeAgents(
+          seedOpeningAcademies(teams, [], champions, rng, usedNames, 1),
+          champions,
+          rng,
+          usedNames,
+          1,
+        )
       : [];
   return {
     ...season,

@@ -67,6 +67,13 @@ export interface MarketInactive {
   lastTeamName?: string;
   lastActiveGrade?: number | null;
   shadowGrade?: number | null;
+  /**
+   * Personal offset on the value-based academy stay ({@link academyTenureYears}).
+   * Desyncs graduation waves *without* faking the badge clock — the opening
+   * cohort stagger uses −1 so half the seed graduates a year early while every
+   * mint still starts (and archives) at Academy · 1y.
+   */
+  academyTenureShift?: number;
 }
 
 export interface MarketTeamInput {
@@ -206,6 +213,13 @@ export const AI_ACADEMY_RELEASE_CHANCE = 0.36;
  * - FA > {@link FA_OVERFLOW_ACCEL_ABOVE} → weak long-tenure FA retire early
  */
 export const TARGET_FA_POOL = { min: 22, max: 48 };
+/**
+ * Unsigned free agents seeded when a reality starts (aging on).
+ * Matches {@link TARGET_FA_POOL}.min so year-1 boards have usable depth
+ * without waiting for academy→FA waves (~1 FA per ~2–3 teams in a
+ * 40–60 team league). Tunable — keep near the FA board floor.
+ */
+export const INITIAL_OPENING_FA_POOL = TARGET_FA_POOL.min;
 /**
  * When unsigned FA count is already ≥ {@link TARGET_FA_POOL}.max at year-end
  * academy→FA, keep at most this many new graduates (highest value); the rest
@@ -1926,13 +1940,22 @@ function graduatePressureValue(entry: MarketInactive): number {
 
 /**
  * Personal academy stay before year-end clock can send them to FA.
- * Weak → {@link ACADEMY_YEARS_MIN}, typical → soft 3, high-value → {@link ACADEMY_YEARS_MAX}.
+ * Weak → {@link ACADEMY_YEARS_MIN}, typical → soft 3, high-value → {@link ACADEMY_YEARS_MAX},
+ * then shifted by {@link MarketInactive.academyTenureShift} (cohort desync).
+ * A shift may push below {@link ACADEMY_YEARS_MIN} — that is the point: an
+ * early-exit prospect leaves after one full year-end tick.
  */
 export function academyTenureYears(entry: MarketInactive): number {
   const v = graduatePressureValue(entry);
-  if (v < ACADEMY_EARLY_EXIT_MAX_VALUE) return ACADEMY_YEARS_MIN;
-  if (v >= ACADEMY_EXTEND_MIN_VALUE) return ACADEMY_YEARS_MAX;
-  return ACADEMY_YEARS;
+  const base =
+    v < ACADEMY_EARLY_EXIT_MAX_VALUE
+      ? ACADEMY_YEARS_MIN
+      : v >= ACADEMY_EXTEND_MIN_VALUE
+        ? ACADEMY_YEARS_MAX
+        : ACADEMY_YEARS;
+  const shift = entry.academyTenureShift ?? 0;
+  if (shift === 0) return base;
+  return Math.max(1, Math.min(ACADEMY_YEARS_MAX, base + shift));
 }
 
 /**

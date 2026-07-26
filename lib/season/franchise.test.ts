@@ -7,6 +7,7 @@ import { createSeason } from "./engine";
 import {
   seedFranchise,
   seedOpeningAcademies,
+  seedOpeningFreeAgents,
   startNextSeason,
   continuityFormBonus,
   CONTINUITY_FORM_BONUS,
@@ -23,12 +24,20 @@ import {
   ACADEMY_MAX_PER_TEAM,
   USER_ACADEMY_ROOKIE_SOFT_MAX,
   INITIAL_ACADEMY_ROOKIES_PER_TEAM,
+  INITIAL_OPENING_FA_POOL,
   isRosterVacancy,
   listTeamAcademy,
   countTeamAcademy,
   buildAcademyBoard,
   NEUTRAL_META,
 } from "./faMarket";
+import {
+  ACADEMY_YEARS,
+  yearsAsFreeAgent,
+  yearsInAcademy,
+  advanceInactivePool,
+  inactiveSnapshotsForArchivedYear,
+} from "./playerLifecycle";
 import {
   LEAGUE_IDS,
   type SeasonConfig,
@@ -110,9 +119,11 @@ describe("seedFranchise", () => {
     for (const t of s.teams) {
       const acy = pool.filter((e) => e.status === "academy" && e.lastTeamId === t.id);
       expect(acy).toHaveLength(INITIAL_ACADEMY_ROOKIES_PER_TEAM);
-      // Opening desync: odd slots start at 1y, even at 2y (stagger soft-max waves).
-      const years = acy.map((e) => e.inactiveYears).sort((a, b) => a - b);
-      expect(years).toEqual([1, 2]);
+      // Every seed is a true year-1 prospect — the cohort desync shifts the
+      // personal tenure (even slots graduate a year early), never the badge.
+      expect(acy.map((e) => e.inactiveYears)).toEqual([1, 1]);
+      const shifts = acy.map((e) => e.academyTenureShift ?? 0).sort((a, b) => a - b);
+      expect(shifts).toEqual([-1, 0]);
       for (const e of acy) {
         expect(e.player.id).toBeTruthy();
         expect(e.player.name).toBeTruthy();
@@ -150,6 +161,123 @@ describe("seedFranchise", () => {
     for (const t of s.teams) {
       expect(countTeamAcademy(again, t.id)).toBe(INITIAL_ACADEMY_ROOKIES_PER_TEAM);
     }
+  });
+
+  it(`seeds ${INITIAL_OPENING_FA_POOL} opening free agents at FA · 1y when aging is on`, () => {
+    const s = makeReality(true);
+    const pool = s.franchise!.inactivePool ?? [];
+    const fas = pool.filter((e) => e.status === "free-agent");
+    expect(INITIAL_OPENING_FA_POOL).toBe(22);
+    expect(fas).toHaveLength(INITIAL_OPENING_FA_POOL);
+    const laneCounts = new Map<string, number>();
+    for (const e of fas) {
+      expect(e.lastTeamId).toBe("");
+      expect(e.lastTeamName).toBeUndefined();
+      // FA · 1y snap (ACADEMY_YEARS + 1), not raw 1 — raw 1 stalls the FA clock.
+      expect(e.inactiveYears).toBe(ACADEMY_YEARS + 1);
+      expect(yearsAsFreeAgent("free-agent", e.inactiveYears)).toBe(1);
+      expect(e.demotedYear).toBe(1);
+      expect(e.player.debutYear).toBe(1);
+      expect(e.player.id).toBeTruthy();
+      expect(e.player.name).toBeTruthy();
+      laneCounts.set(e.player.lane, (laneCounts.get(e.player.lane) ?? 0) + 1);
+    }
+    // Mix roles across the five lanes.
+    expect(laneCounts.size).toBe(LANE_ORDER.length);
+    for (const lane of LANE_ORDER) {
+      expect(laneCounts.get(lane) ?? 0).toBeGreaterThan(0);
+    }
+    const names = fas.map((e) => e.player.name!).filter(Boolean);
+    expect(new Set(names).size).toBe(names.length);
+    for (const n of names) expect(s.franchise!.usedNames).toContain(n);
+  });
+
+  it("is idempotent when seedOpeningFreeAgents is re-run", () => {
+    const s = makeReality(true);
+    const taken = new Set(s.franchise!.usedNames ?? []);
+    const again = seedOpeningFreeAgents(
+      s.franchise!.inactivePool ?? [],
+      champions,
+      rngFrom(42),
+      taken,
+      1,
+    );
+    expect(again.filter((e) => e.status === "free-agent")).toHaveLength(
+      INITIAL_OPENING_FA_POOL,
+    );
+    expect(again).toHaveLength((s.franchise!.inactivePool ?? []).length);
+  });
+
+  it("opening FA mint-year skip archives as FA · 1y (not 2y)", () => {
+    const s = makeReality(true);
+    const fa = (s.franchise!.inactivePool ?? []).find((e) => e.status === "free-agent")!;
+    expect(yearsAsFreeAgent("free-agent", fa.inactiveYears)).toBe(1);
+    // Same demotedYear skip as academy mint: closing year 1 does not tick badge.
+    const advanced = advanceInactivePool(
+      s.franchise!.inactivePool ?? [],
+      rngFrom(7),
+      champions,
+      1,
+    );
+    const still = advanced.find((e) => e.player.id === fa.player.id)!;
+    expect(still.inactiveYears).toBe(ACADEMY_YEARS + 1);
+    expect(yearsAsFreeAgent("free-agent", still.inactiveYears)).toBe(1);
+    const snaps = inactiveSnapshotsForArchivedYear(
+      s.franchise!.inactivePool ?? [],
+      advanced,
+      1,
+    );
+    const snap = snaps.find((x) => x.playerId === fa.player.id)!;
+    expect(snap.status).toBe("free-agent");
+    expect(snap.inactiveYears).toBe(ACADEMY_YEARS + 1);
+  });
+
+  it("archives every year-1 academy seed as Acy · 1y (stagger must not inflate the badge)", () => {
+    const y1 = makeReality(true);
+    const prePool = y1.franchise!.inactivePool ?? [];
+    const seeded = new Set(
+      prePool.filter((e) => e.status === "academy").map((e) => e.player.id!),
+    );
+    expect(seeded.size).toBeGreaterThan(0);
+    const y2 = startNextSeason(y1, champions, rngFrom(11));
+    const snaps = inactiveSnapshotsForArchivedYear(
+      prePool,
+      y2.franchise!.inactivePool ?? [],
+      1,
+    );
+    const yearOne = snaps.filter(
+      (s) => seeded.has(s.playerId) && s.status === "academy",
+    );
+    expect(yearOne.length).toBeGreaterThan(0);
+    for (const s of yearOne) {
+      expect(yearsInAcademy("academy", s.inactiveYears)).toBe(1);
+    }
+  });
+
+  it("archived academy badge always equals real tenure (every mint path, 5 years)", () => {
+    let season = makeReality(true);
+    let checked = 0;
+    for (let year = 1; year <= 5; year++) {
+      const prePool = season.franchise!.inactivePool ?? [];
+      const next = startNextSeason(season, champions, rngFrom(100 + year));
+      const snaps = inactiveSnapshotsForArchivedYear(
+        prePool,
+        next.franchise!.inactivePool ?? [],
+        year,
+      );
+      for (const s of snaps) {
+        if (s.status !== "academy") continue;
+        checked++;
+        // 1-based tenure from the intake year — never inflated by a mint-time
+        // clock offset, never burned by the closing-year tick.
+        expect([s.playerId, s.inactiveYears]).toEqual([
+          s.playerId,
+          year - s.demotedYear + 1,
+        ]);
+      }
+      season = next;
+    }
+    expect(checked).toBeGreaterThan(50);
   });
 });
 
@@ -456,8 +584,18 @@ describe("aiDecideFollowedDemotes", () => {
   });
 
   it("does nothing when no FA/academy clears the replace gap", () => {
-    const season = offseasonFollowed();
+    let season = offseasonFollowed();
     const me = season.config.controlledTeamId!;
+    // Drop opening FA board — this case asserts no upgrade exists to trigger AI demote.
+    season = {
+      ...season,
+      franchise: {
+        ...season.franchise!,
+        inactivePool: (season.franchise!.inactivePool ?? []).filter(
+          (e) => e.status !== "free-agent",
+        ),
+      },
+    };
     const before = season.teams.find((t) => t.id === me)!.players.map((p) => p.id);
     const next = aiDecideFollowedDemotes(season, champions, rngFrom(3));
     const after = next.teams.find((t) => t.id === me)!.players.map((p) => p.id);
