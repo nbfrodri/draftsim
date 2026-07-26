@@ -365,6 +365,7 @@ export default function MyTeamPanel() {
                 n.marketNote === "academy-release" ||
                 n.marketNote === "became-fa" ||
                 n.marketNote === "academy-bump";
+              const retired = n.marketNote === "retired";
               const faToAcademy =
                 n.marketNote === "fa-academy" ||
                 n.marketNote === "academy-stash" ||
@@ -381,6 +382,23 @@ export default function MyTeamPanel() {
                       : n.marketNote === "rookie-gate"
                         ? " · rookie's door"
                         : "";
+              if (retired) {
+                return (
+                  <div key={`${n.lane}-${i}`} className="flex flex-wrap items-center gap-x-2 text-[10px]">
+                    <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
+                      {n.timeMark ?? "—"}
+                    </span>
+                    <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
+                    <span className="text-rift-mutedbright">
+                      <span className="text-rift-redbright/80">{n.departedName ?? n.entrantName}</span>{" "}
+                      <span className="text-rift-muted/60">
+                        ({n.departedTier ?? n.entrantTier}) retired
+                        {n.departedAge != null ? ` · age ${n.departedAge}` : ""}
+                      </span>
+                    </span>
+                  </div>
+                );
+              }
               if (becameFa) {
                 const label =
                   n.marketNote === "academy-release"

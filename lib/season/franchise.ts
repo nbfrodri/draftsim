@@ -15,6 +15,7 @@ import {
   USER_MAX_FA_SIGNS,
   USER_MAX_MANUAL_DEMOTES,
   FA_OPEN_REPLACE_GAP,
+  ACADEMY_OPEN_REPLACE_GAP,
   executeUserFaSign,
   executeUserAcademyRecall,
   executeUserFaToAcademy,
@@ -33,6 +34,7 @@ import {
   inactiveTransferValue,
   INITIAL_ACADEMY_ROOKIES_PER_TEAM,
   ACADEMY_MAX_PER_TEAM,
+  AI_OPEN_FA_CHANCE_MID_SPLIT,
   type MarketNote,
   type MarketInactive,
 } from "./faMarket";
@@ -180,8 +182,10 @@ function buildSplitCheckpointOutcomes(
 /**
  * Mid-split demotion checkpoint (franchise aging only): evaluate underperformance
  * for the just-finished split, demote / fill slots, AI academy release/stash/
- * rookies, append roster news. Does NOT age players, advance academy→FA→retire,
- * or run open-FA roster replaces (year-end only — preserves user-first FA).
+ * rookies, light open-FA replaces, append roster news. Does NOT age players or
+ * advance academy→FA→retire (year-end only). Open FA uses a low per-team chance
+ * ({@link AI_OPEN_FA_CHANCE_MID_SPLIT}) so FA→academy stash stays the main
+ * mid-season FA path; deferred followed teams still skip AI after shopping.
  *
  * When winter/spring demotions were deferred for a followed team
  * (`pendingMidSplitDemotion`), that org is skipped for AI academy maintenance
@@ -226,7 +230,9 @@ export function applyMidSplitDemotions(
       advancePool: false,
       meta: season.currentMeta,
       competitiveMarket: false,
-      openFaMarket: false,
+      // Sparse FA→main mid-season; academy stash (maintenance) is the bulk path.
+      openFaMarket: true,
+      openFaAttemptChance: AI_OPEN_FA_CHANCE_MID_SPLIT,
       academyMaintenance: true,
       ...(skipFollowed ? { skipOpenFaTeamIds: skipFollowed } : {}),
     },
@@ -367,7 +373,8 @@ export function startNextSeason(
   };
 
   const aging = prev.franchise?.aging ?? false;
-  const nextYear = (prev.franchise?.year ?? 1) + 1;
+  const closingYear = prev.franchise?.year ?? 1;
+  const nextYear = closingYear + 1;
   let working = prev;
   let evolvedTeams: SeasonTeam[] = working.teams;
   const rosterNews: Array<RosterNewsEvent & { teamId: string }> = [];
@@ -399,12 +406,15 @@ export function startNextSeason(
       champions,
       rng,
       taken,
-      nextYear,
+      closingYear,
       GRADE_GAP_THRESHOLD,
       working.currentMeta,
-      working.config.controlledTeamId
-        ? { skipOpenFaTeamIds: new Set([working.config.controlledTeamId]) }
-        : undefined,
+      {
+        intakeYear: nextYear,
+        ...(working.config.controlledTeamId
+          ? { skipOpenFaTeamIds: new Set([working.config.controlledTeamId]) }
+          : {}),
+      },
     );
     const byId = new Map(result.teams.map((t) => [t.id, t.players]));
     evolvedTeams = working.teams.map((t) => ({
@@ -978,7 +988,8 @@ export function applyUserRookieSign(
 
 /**
  * Best followed-team lane where a scored FA / same-org academy beats the
- * incumbent by FA_OPEN_REPLACE_GAP (same bar as open-FA / user FA sign).
+ * incumbent by the open-market gap (FA uses {@link FA_OPEN_REPLACE_GAP};
+ * academy uses the looser {@link ACADEMY_OPEN_REPLACE_GAP}).
  * Same-window demotees are excluded from the upgrade pool.
  * Same-window rookies cannot be benched (mirrors applyUserManualDemote).
  */
@@ -1012,7 +1023,9 @@ function pickBestAiDemoteLane(
     const upgrade =
       inactiveTransferValue(pick.entry, byId, meta) -
       transferValue(incumbent, grades[slot] ?? null, byId, meta);
-    if (upgrade < FA_OPEN_REPLACE_GAP) continue;
+    const needGap =
+      pick.entry.status === "academy" ? ACADEMY_OPEN_REPLACE_GAP : FA_OPEN_REPLACE_GAP;
+    if (upgrade < needGap) continue;
     if (!best || upgrade > best.upgrade) best = { lane, upgrade };
   }
   return best?.lane ?? null;
@@ -1021,7 +1034,7 @@ function pickBestAiDemoteLane(
 /**
  * "Let AI decide" roster reshape for the followed team: voluntarily bench up to
  * USER_MAX_MANUAL_DEMOTES weak lanes when a clear FA/academy upgrade exists
- * (FA_OPEN_REPLACE_GAP), then AI-fill vacancies (excluding same-window demotees).
+ * (FA/academy open-replace gaps), then AI-fill vacancies (excluding same-window demotees).
  * Does not run deferred mid-split underperformance demotions — those stay on Proceed.
  * Manual FA shopping is unchanged; this is opt-in via AI decide only.
  */

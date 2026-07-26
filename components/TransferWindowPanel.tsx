@@ -695,6 +695,7 @@ export default function TransferWindowPanel() {
                   n.marketNote === "academy-release" ||
                   n.marketNote === "became-fa" ||
                   n.marketNote === "academy-bump";
+                const retired = n.marketNote === "retired";
                 const faToAcademy =
                   n.marketNote === "fa-academy" ||
                   n.marketNote === "academy-stash" ||
@@ -711,6 +712,32 @@ export default function TransferWindowPanel() {
                         : n.marketNote === "rookie-gate"
                           ? " · rookie's door"
                           : "";
+                if (retired) {
+                  return (
+                    <div
+                      key={`${n.teamId}-${n.lane}-${i}`}
+                      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 text-[10px]"
+                    >
+                      <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
+                        {n.timeMark ?? "—"}
+                      </span>
+                      <TeamIcon
+                        iconKey={team?.iconKey ?? "shield"}
+                        logoUrl={team?.logoUrl}
+                        size={13}
+                        color={team?.color}
+                      />
+                      <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
+                      <span className="text-rift-mutedbright">
+                        <span className="text-rift-redbright/80">{departed ?? entrant}</span>{" "}
+                        <span className="text-rift-muted/60">
+                          ({departedTier ?? entrantTier}) retired
+                          {departedAge != null ? ` · age ${departedAge}` : ""}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                }
                 if (becameFa) {
                   const label =
                     n.marketNote === "academy-release"

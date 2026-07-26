@@ -21,7 +21,88 @@ import {
   type InactivePlayer,
   type SeasonPlayerOutcome,
 } from "./playerLifecycle";
-import { NEUTRAL_META } from "./faMarket";
+import {
+  NEUTRAL_META,
+  AI_OPEN_FA_CHANCE_MID_SPLIT,
+  TARGET_FA_POOL,
+} from "./faMarket";
+import { seedOpeningAcademies } from "./franchise";
+
+/**
+ * Count underperformance demotion → slot fills only. Ignores FA/academy
+ * maintenance, clock transitions, and open-FA replaces so the rate band stays
+ * about underperformance — not market activity.
+ */
+function countDemotionFillNews(
+  news: readonly { marketNote?: string; departedId?: string; entrantId?: string }[],
+): number {
+  const ignore = new Set([
+    "open-fa",
+    "academy-stash",
+    "academy-release",
+    "academy-bump",
+    "became-fa",
+    "retired",
+    "fa-academy",
+    "manual-demote",
+    "ai-demote",
+  ]);
+  return news.filter((n) => {
+    if (n.marketNote && ignore.has(n.marketNote)) return false;
+    // True demotion fills replace a departed roster player with someone else.
+    // Depth-only academy-rookie intake has no departedId and is excluded here.
+    return !!n.departedId && !!n.entrantId && n.departedId !== n.entrantId;
+  }).length;
+}
+
+/** FA signed / stashed into academy (not main roster). */
+function isFaToAcademy(
+  n: { marketNote?: string; entrantSource?: string },
+): boolean {
+  return n.marketNote === "academy-stash" || n.marketNote === "fa-academy";
+}
+
+/** FA signed onto main roster (open replace, vacancy sign, or pass-over-academy). */
+function isFaToMain(
+  n: { marketNote?: string; entrantSource?: string },
+): boolean {
+  if (isFaToAcademy(n)) return false;
+  if (
+    n.marketNote === "open-fa" ||
+    n.marketNote === "fa-sign" ||
+    n.marketNote === "academy-pass"
+  ) {
+    return true;
+  }
+  return n.entrantSource === "free-agent";
+}
+
+export interface FaPhaseCounts {
+  faToAcademy: number;
+  faToMain: number;
+  /** Subset: AI academy-stash news. */
+  academyStash: number;
+  /** Subset: AI open-fa replace news. */
+  openFa: number;
+  /** Subset: fa-sign / academy-pass / unmarked FA vacancy fills. */
+  faSign: number;
+}
+
+export interface LifecycleFaMetrics {
+  /** Aggregate mid-split FA events (all years). */
+  mid: FaPhaseCounts;
+  /** Aggregate year-end offseason FA events (all years). */
+  offseason: FaPhaseCounts;
+  /** Per-year totals (mid + offseason combined). */
+  perYear: Array<FaPhaseCounts & { year: number; faPool: number }>;
+  /** Mean unsigned FA count sampled after each year-end. */
+  avgFaPool: number;
+  /** Median year-end FA count. */
+  medianFaPool: number;
+  /** Min / max year-end FA count. */
+  minFaPool: number;
+  maxFaPool: number;
+}
 
 const LANES: Lane[] = ["top", "jungle", "middle", "bottom", "support"];
 /** Mid-split checkpoints per year (winter / spring / summer). */
@@ -111,6 +192,28 @@ export interface LifecycleSimReport {
    * count — only years the player appeared on a team's active 5.
    */
   avgPlayingSeasons: number | null;
+  /** Present when {@link simulateLifecycleYears} ran with `faMarket: true`. */
+  fa?: LifecycleFaMetrics;
+}
+
+function emptyPhase(): FaPhaseCounts {
+  return { faToAcademy: 0, faToMain: 0, academyStash: 0, openFa: 0, faSign: 0 };
+}
+
+function tallyFaNews(
+  news: readonly { marketNote?: string; entrantSource?: string }[],
+  into: FaPhaseCounts,
+): void {
+  for (const n of news) {
+    if (isFaToAcademy(n)) {
+      into.faToAcademy += 1;
+      if (n.marketNote === "academy-stash") into.academyStash += 1;
+    } else if (isFaToMain(n)) {
+      into.faToMain += 1;
+      if (n.marketNote === "open-fa") into.openFa += 1;
+      else into.faSign += 1;
+    }
+  }
 }
 
 /** Run `years` synthetic seasons (3 mid-split demotion passes + 1 offseason). */
@@ -119,9 +222,16 @@ export function simulateLifecycleYears(opts: {
   teamCount: number;
   seed: number;
   gradeGap?: number;
+  /**
+   * When true, mirror production mid-split / offseason FA market (academy
+   * stash + sparse open-FA + year-end open FA) and seed opening academies.
+   * Default false keeps the demotion-rate harness isolated from market noise.
+   */
+  faMarket?: boolean;
 }): LifecycleSimReport {
   const r = rng(opts.seed);
   const gradeGap = opts.gradeGap ?? GRADE_GAP_THRESHOLD;
+  const faMarket = opts.faMarket ?? false;
   let teams = Array.from({ length: opts.teamCount }, (_, i) => ({
     id: `T${i}`,
     name: `Team ${i}`,
@@ -137,6 +247,14 @@ export function simulateLifecycleYears(opts: {
   const retireAges: number[] = [];
   const retirePlaying: number[] = [];
   const alreadyRetired = new Set<string>();
+  const midAgg = emptyPhase();
+  const offAgg = emptyPhase();
+  const perYear: LifecycleFaMetrics["perYear"] = [];
+  const faPoolSamples: number[] = [];
+
+  if (faMarket) {
+    pool = seedOpeningAcademies(teams, pool, champions, r, taken, 1) as InactivePlayer[];
+  }
 
   const bumpPlaying = (roster: { players: Player[] }[]) => {
     for (const t of roster) {
@@ -160,6 +278,8 @@ export function simulateLifecycleYears(opts: {
   for (let y = 1; y <= opts.years; y++) {
     activeSum += teams.reduce((n, t) => n + t.players.length, 0);
     bumpPlaying(teams);
+    const yearMid = emptyPhase();
+    const yearOff = emptyPhase();
 
     // Mid-split checkpoints (no aging / no pool advance).
     for (let s = 0; s < MID_SPLIT_CHECKS; s++) {
@@ -174,9 +294,21 @@ export function simulateLifecycleYears(opts: {
         r,
         taken,
         y,
-        { ageActives: false, advancePool: false, gradeGap },
+        faMarket
+          ? {
+              ageActives: false,
+              advancePool: false,
+              gradeGap,
+              competitiveMarket: false,
+              openFaMarket: true,
+              openFaAttemptChance: AI_OPEN_FA_CHANCE_MID_SPLIT,
+              academyMaintenance: true,
+              meta: NEUTRAL_META,
+            }
+          : { ageActives: false, advancePool: false, gradeGap },
       );
-      demotions += mid.news.filter((n) => n.marketNote !== "open-fa").length;
+      demotions += countDemotionFillNews(mid.news);
+      if (faMarket) tallyFaNews(mid.news, yearMid);
       pool = mid.inactivePool;
       noteRetirements(pool);
       const byId = new Map(mid.teams.map((t) => [t.id, t.players]));
@@ -197,18 +329,53 @@ export function simulateLifecycleYears(opts: {
       y + 1,
       gradeGap,
       NEUTRAL_META,
-      { openFaMarket: false },
+      // Demotion-rate mode isolates underperformance; FA metrics mode uses
+      // the production default (open FA + academy maintenance).
+      faMarket ? undefined : { openFaMarket: false },
     );
-    demotions += result.news.filter((n) => n.marketNote !== "open-fa").length;
+    demotions += countDemotionFillNews(result.news);
+    if (faMarket) tallyFaNews(result.news, yearOff);
     pool = result.inactivePool;
     noteRetirements(pool);
     const byId = new Map(result.teams.map((t) => [t.id, t.players]));
     teams = teams.map((t) => ({ ...t, players: byId.get(t.id) ?? t.players }));
+
+    if (faMarket) {
+      midAgg.faToAcademy += yearMid.faToAcademy;
+      midAgg.faToMain += yearMid.faToMain;
+      midAgg.academyStash += yearMid.academyStash;
+      midAgg.openFa += yearMid.openFa;
+      midAgg.faSign += yearMid.faSign;
+      offAgg.faToAcademy += yearOff.faToAcademy;
+      offAgg.faToMain += yearOff.faToMain;
+      offAgg.academyStash += yearOff.academyStash;
+      offAgg.openFa += yearOff.openFa;
+      offAgg.faSign += yearOff.faSign;
+      const faPool = pool.filter((p) => p.status === "free-agent").length;
+      faPoolSamples.push(faPool);
+      perYear.push({
+        year: y,
+        faToAcademy: yearMid.faToAcademy + yearOff.faToAcademy,
+        faToMain: yearMid.faToMain + yearOff.faToMain,
+        academyStash: yearMid.academyStash + yearOff.academyStash,
+        openFa: yearMid.openFa + yearOff.openFa,
+        faSign: yearMid.faSign + yearOff.faSign,
+        faPool,
+      });
+    }
   }
 
   const activePerYear = activeSum / opts.years;
   const mean = (xs: number[]) =>
     xs.length === 0 ? null : xs.reduce((s, n) => s + n, 0) / xs.length;
+  const sortedFa = [...faPoolSamples].sort((a, b) => a - b);
+  const medianFa =
+    sortedFa.length === 0
+      ? 0
+      : sortedFa.length % 2 === 1
+        ? sortedFa[(sortedFa.length - 1) / 2]!
+        : (sortedFa[sortedFa.length / 2 - 1]! + sortedFa[sortedFa.length / 2]!) / 2;
+
   return {
     years: opts.years,
     activePerYear,
@@ -221,6 +388,19 @@ export function simulateLifecycleYears(opts: {
     retireeCount: retireAges.length,
     avgRetireAge: mean(retireAges),
     avgPlayingSeasons: mean(retirePlaying),
+    ...(faMarket
+      ? {
+          fa: {
+            mid: midAgg,
+            offseason: offAgg,
+            perYear,
+            avgFaPool: mean(faPoolSamples) ?? 0,
+            medianFaPool: medianFa,
+            minFaPool: sortedFa[0] ?? 0,
+            maxFaPool: sortedFa[sortedFa.length - 1] ?? 0,
+          },
+        }
+      : {}),
   };
 }
 
@@ -662,4 +842,112 @@ describe("lifecycle sim (tune GRADE_GAP_THRESHOLD)", () => {
     expect(stillAcademy?.status).toBe("academy");
     expect(stillAcademy?.inactiveYears).toBe(1);
   });
+});
+
+describe("lifecycle FA market metrics (mid-split + offseason)", () => {
+  it(
+    "documents FA→academy / FA→main rates, retire age, and FA pool vs TARGET",
+    () => {
+    // ~40–60 team band that TARGET_FA_POOL was tuned for; 5×40 years.
+    const seeds = [1, 7, 42, 99, 1234];
+    const years = 40;
+    const teamCount = 48;
+    const reports = seeds.map((seed) =>
+      simulateLifecycleYears({ years, teamCount, seed, faMarket: true }),
+    );
+
+    const sumMid = emptyPhase();
+    const sumOff = emptyPhase();
+    let retireeN = 0;
+    let ageW = 0;
+    let playW = 0;
+    let faPoolSum = 0;
+    const allYearRows: LifecycleFaMetrics["perYear"] = [];
+
+    for (const rep of reports) {
+      expect(rep.fa).toBeDefined();
+      const fa = rep.fa!;
+      for (const key of Object.keys(sumMid) as (keyof FaPhaseCounts)[]) {
+        sumMid[key] += fa.mid[key];
+        sumOff[key] += fa.offseason[key];
+      }
+      faPoolSum += fa.avgFaPool;
+      retireeN += rep.retireeCount;
+      ageW += (rep.avgRetireAge ?? 0) * rep.retireeCount;
+      playW += (rep.avgPlayingSeasons ?? 0) * rep.retireeCount;
+      allYearRows.push(...fa.perYear);
+    }
+
+    const nSeeds = reports.length;
+    const totalYears = nSeeds * years;
+    const perYr = (n: number) => n / totalYears;
+    const avgFaPool = faPoolSum / nSeeds;
+    const avgRetireAge = ageW / Math.max(1, retireeN);
+    const avgPlaying = playW / Math.max(1, retireeN);
+
+    // Per-year averages across seeds (for the table).
+    const byYear = Array.from({ length: years }, (_, i) => {
+      const rows = allYearRows.filter((r) => r.year === i + 1);
+      const n = rows.length || 1;
+      return {
+        year: i + 1,
+        faToAcademy: rows.reduce((s, r) => s + r.faToAcademy, 0) / n,
+        faToMain: rows.reduce((s, r) => s + r.faToMain, 0) / n,
+        academyStash: rows.reduce((s, r) => s + r.academyStash, 0) / n,
+        openFa: rows.reduce((s, r) => s + r.openFa, 0) / n,
+        faPool: rows.reduce((s, r) => s + r.faPool, 0) / n,
+      };
+    });
+
+    const yearTable = byYear
+      .filter((y) => y.year <= 10 || y.year % 5 === 0 || y.year === years)
+      .map(
+        (y) =>
+          `Y${String(y.year).padStart(2)} acy=${y.faToAcademy.toFixed(1)} ` +
+          `main=${y.faToMain.toFixed(1)} stash=${y.academyStash.toFixed(1)} ` +
+          `openFa=${y.openFa.toFixed(1)} pool=${y.faPool.toFixed(1)}`,
+      )
+      .join(" | ");
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[fa-metrics] seeds=${nSeeds}×${years}y teams=${teamCount}\n` +
+        `  mid/yr:   FA→acy=${perYr(sumMid.faToAcademy).toFixed(2)} ` +
+        `(stash=${perYr(sumMid.academyStash).toFixed(2)}) ` +
+        `FA→main=${perYr(sumMid.faToMain).toFixed(2)} ` +
+        `(openFa=${perYr(sumMid.openFa).toFixed(2)} sign=${perYr(sumMid.faSign).toFixed(2)}) ` +
+        `totals mid acy=${sumMid.faToAcademy} main=${sumMid.faToMain}\n` +
+        `  off/yr:   FA→acy=${perYr(sumOff.faToAcademy).toFixed(2)} ` +
+        `(stash=${perYr(sumOff.academyStash).toFixed(2)}) ` +
+        `FA→main=${perYr(sumOff.faToMain).toFixed(2)} ` +
+        `(openFa=${perYr(sumOff.openFa).toFixed(2)} sign=${perYr(sumOff.faSign).toFixed(2)}) ` +
+        `totals off acy=${sumOff.faToAcademy} main=${sumOff.faToMain}\n` +
+        `  FA pool:  avg=${avgFaPool.toFixed(1)} ` +
+        `seedAvgs=[${reports.map((r) => r.fa!.avgFaPool.toFixed(0)).join(",")}] ` +
+        `seedMed=[${reports.map((r) => String(r.fa!.medianFaPool)).join(",")}] ` +
+        `range≈${Math.min(...reports.map((r) => r.fa!.minFaPool))}–` +
+        `${Math.max(...reports.map((r) => r.fa!.maxFaPool))} ` +
+        `TARGET=${TARGET_FA_POOL.min}–${TARGET_FA_POOL.max}\n` +
+        `  retire:   age≈${avgRetireAge.toFixed(1)} playingSeasons≈${avgPlaying.toFixed(1)} N=${retireeN}\n` +
+        `  perYear:  ${yearTable}`,
+    );
+
+    // Mid-season FA activity must be meaningfully > 0 (was ~none before gates).
+    expect(sumMid.faToAcademy + sumMid.faToMain).toBeGreaterThan(100);
+    expect(perYr(sumMid.faToMain)).toBeGreaterThan(2);
+    // Sparse mid open-FA gate should still produce some replaces over 5×40y.
+    expect(sumMid.openFa).toBeGreaterThan(0);
+    // Offseason is the heavy FA→main window (full attemptChance).
+    expect(sumOff.faToMain).toBeGreaterThan(sumMid.faToMain);
+    // FA pool should live near the tuned board depth for a 48-team league.
+    expect(avgFaPool).toBeGreaterThanOrEqual(TARGET_FA_POOL.min * 0.5);
+    expect(avgFaPool).toBeLessThanOrEqual(TARGET_FA_POOL.max * 1.5);
+    expect(retireeN).toBeGreaterThan(80);
+    expect(avgRetireAge).toBeGreaterThan(22);
+    expect(avgRetireAge).toBeLessThan(45);
+    expect(avgPlaying).toBeGreaterThan(1);
+    expect(avgPlaying).toBeLessThan(30);
+    },
+    20_000,
+  );
 });

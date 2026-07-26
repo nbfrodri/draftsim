@@ -48,6 +48,8 @@ export type MarketNote =
   | "became-fa"
   /** Generated rookie parked directly into org academy (not main roster). */
   | "academy-rookie"
+  /** Unsigned inactive path ended (FA max / graduate overflow / cull). */
+  | "retired"
   | "rookie-gate"
   | "open-fa"
   /** Followed-team manual bench — slot left open until FA / academy / AI fill. */
@@ -94,14 +96,37 @@ export interface MarketNewsEvent {
 }
 
 // ── Tunable knobs ───────────────────────────────────────────────────────────
-/** FA must beat same-org academy by this transferValue gap to win the slot. */
-export const ACADEMY_PASS_GAP = 0.8;
-/** Returnee below this value loses to a rookie (weak FA / cold pool). */
-export const ROOKIE_VALUE_FLOOR = -0.35;
-/** AI/user open-market: FA must beat incumbent by this much (choice A). */
+/**
+ * FA must beat same-org academy by this transferValue gap to win a vacancy.
+ * Raised from 0.8 → 1.05 so affiliate recalls lock unless FA is clearly better.
+ */
+export const ACADEMY_PASS_GAP = 1.05;
+/**
+ * Returnee below this value loses to the rookie / mint path (weak FA / cold).
+ * Loosened from -0.35 → -0.55 so mid academy still fills vacancies.
+ */
+export const ROOKIE_VALUE_FLOOR = -0.55;
+/**
+ * AI/user open-market: FA must beat incumbent by this much (tight FA valve).
+ * Unchanged — academy call-ups use {@link ACADEMY_OPEN_REPLACE_GAP} instead.
+ */
 export const FA_OPEN_REPLACE_GAP = 0.9;
+/**
+ * Academy call-up / AI promote vs incumbent transferValue gain required.
+ * Was sharing FA's 0.9 bar; lowered to 0.55 so modest upgrades over weak
+ * starters fire more often without loosening FA signs.
+ */
+export const ACADEMY_OPEN_REPLACE_GAP = 0.55;
 /** Max AI open-market FA replaces per team per offseason. */
 export const MAX_OPEN_FA_REPLACES_PER_TEAM = 1;
+/** Max AI academy→roster promotes per team per academy-promote pass. */
+export const MAX_OPEN_ACADEMY_PROMOTES_PER_TEAM = 1;
+/**
+ * Per-team chance the AI attempts an academy promote when a clear upgrade
+ * exists (mid-split / offseason academy maintenance). Raised willingness
+ * without guaranteeing a promote every checkpoint.
+ */
+export const AI_ACADEMY_PROMOTE_CHANCE = 0.62;
 /** Max user FA signs (followed team) per offseason window. */
 export const USER_MAX_FA_SIGNS = 2;
 /**
@@ -126,8 +151,27 @@ export const MAX_AI_ACADEMY_STASH_PER_TEAM = 1;
 /**
  * Minimum inactiveTransferValue for AI to stash an FA in academy when the
  * main roster does not need them (no open-replace win on that lane).
+ * Lowered 1.15 → 0.55 so solid B+/A board depth parks in academy instead of
+ * sitting unsigned — FA→academy is the default mid-season path.
  */
-export const AI_ACADEMY_STASH_MIN_VALUE = 1.15;
+export const AI_ACADEMY_STASH_MIN_VALUE = 0.55;
+/**
+ * Per-team chance the AI attempts an FA→academy stash when eligible
+ * (offseason / default). High — year-end is the big academy stock window.
+ */
+export const AI_ACADEMY_STASH_CHANCE = 0.78;
+/**
+ * Mid-split stash willingness (3 checkpoints/year). Lower than offseason so
+ * FA board isn't drained every international, but high enough that mid-season
+ * FA→academy news actually appears.
+ */
+export const AI_ACADEMY_STASH_CHANCE_MID_SPLIT = 0.42;
+/**
+ * Per-team chance an AI open-FA roster replace is attempted at a mid-split
+ * checkpoint. Sparse on purpose — FA→main stays rare vs academy stash;
+ * {@link FA_OPEN_REPLACE_GAP} stays the strict upgrade bar.
+ */
+export const AI_OPEN_FA_CHANCE_MID_SPLIT = 0.14;
 /** Max AI academy→FA releases per team per maintenance pass. */
 export const MAX_AI_ACADEMY_RELEASE_PER_TEAM = 1;
 /**
@@ -400,6 +444,25 @@ export function makeBecameFaNews(
   };
 }
 
+/** Roster-news row when an inactive player retires (FA clock / overflow valves). */
+export function makeRetiredNews(entry: MarketInactive): MarketNewsEvent {
+  const p = entry.player;
+  return {
+    teamId: entry.lastTeamId,
+    lane: p.lane,
+    ...(p.name ? { departedName: p.name } : {}),
+    departedTier: p.tier,
+    ...(p.age != null ? { departedAge: p.age } : {}),
+    ...(p.id ? { departedId: p.id } : {}),
+    entrantName: p.name ?? "",
+    entrantTier: p.tier,
+    entrantPotential: p.potential ?? p.tier,
+    ...(p.id ? { entrantId: p.id } : {}),
+    entrantSource: "free-agent",
+    marketNote: "retired",
+  };
+}
+
 /**
  * Release a specific academy player belonging to `teamId` → free-agent.
  * Does not mutate `pool`.
@@ -432,9 +495,10 @@ export const COMEBACK_RUST_PER_YEAR = 0.08;
  * Intentionally slower than main-roster CHANGE_RATE (~0.6 in
  * playerLifecycle): academy kids improve for real, but not as fast as
  * active-lane aging/growth. Call-up / main roster is the fast path —
- * there is no academy turbo. Combined with smaller shadow bumps below.
+ * there is no academy turbo. Bumped 0.36 → 0.45 so affiliates compete for
+ * call-ups more often while still trailing the main-roster growth rate.
  */
-export const ACADEMY_DEV_CHANCE = 0.28;
+export const ACADEMY_DEV_CHANCE = 0.45;
 /**
  * Within an academy-dev roll, chance the bump is a full tier step toward
  * potential (else potential ceiling only, or a light shadow nudge).
@@ -815,7 +879,7 @@ export function runOpenFaReplacePass(
   outcomesById: Map<string, { grade: number | null }>,
   rng: RNG,
   year: number,
-  opts?: { skipTeamIds?: ReadonlySet<string> },
+  opts?: { skipTeamIds?: ReadonlySet<string>; attemptChance?: number },
 ): {
   teams: { id: string; players: Player[] }[];
   inactivePool: MarketInactive[];
@@ -827,6 +891,13 @@ export function runOpenFaReplacePass(
   const teamReplaces = new Map<number, number>();
   const usedSlot = new Set<string>();
   const skip = opts?.skipTeamIds;
+  const attemptChance = opts?.attemptChance ?? 1;
+  // Roll once per team so mid-split light chance doesn't re-roll every bid.
+  const allowTeam = new Set<string>();
+  for (const t of teams) {
+    if (skip?.has(t.id)) continue;
+    if (attemptChance >= 1 || rng() < attemptChance) allowTeam.add(t.id);
+  }
 
   type Bid = {
     teamIdx: number;
@@ -841,7 +912,7 @@ export function runOpenFaReplacePass(
   while (guard-- > 0) {
     let best: Bid | null = null;
     for (let ti = 0; ti < resultTeams.length; ti++) {
-      if (skip?.has(teams[ti]!.id)) continue;
+      if (!allowTeam.has(teams[ti]!.id)) continue;
       const used = teamReplaces.get(ti) ?? 0;
       if (used >= MAX_OPEN_FA_REPLACES_PER_TEAM) continue;
       const roster = resultTeams[ti]!.players;
@@ -903,6 +974,134 @@ export function runOpenFaReplacePass(
       ...(entrant.id ? { entrantId: entrant.id } : {}),
       entrantSource: "free-agent",
       marketNote: "open-fa",
+      ...(best.incumbent.name ? { beatenNames: [best.incumbent.name] } : {}),
+    });
+  }
+
+  return { teams: resultTeams, inactivePool: working, news };
+}
+
+/**
+ * AI academy promote pass: swap a same-org academy prospect onto the main
+ * roster when they clear {@link ACADEMY_OPEN_REPLACE_GAP} vs the incumbent.
+ * Runs during academy maintenance (mid-split + offseason). Per-team chance
+ * {@link AI_ACADEMY_PROMOTE_CHANCE}; at most
+ * {@link MAX_OPEN_ACADEMY_PROMOTES_PER_TEAM}. Cap / FA valves unchanged —
+ * this only makes affiliate call-ups less rare.
+ * `excludePlayerIds` blocks same-pass demotees from instant re-call.
+ */
+export function runOpenAcademyReplacePass(
+  teams: { id: string; name: string; leagueId?: string; players: Player[] }[],
+  pool: MarketInactive[],
+  byId: Map<number, Champion>,
+  meta: SeasonMetaSnapshot,
+  outcomesById: Map<string, { grade: number | null }>,
+  rng: RNG,
+  year: number,
+  opts?: { skipTeamIds?: ReadonlySet<string>; excludePlayerIds?: ReadonlySet<string> },
+): {
+  teams: { id: string; players: Player[] }[];
+  inactivePool: MarketInactive[];
+  news: Array<MarketNewsEvent>;
+} {
+  let working = [...pool];
+  const news: Array<MarketNewsEvent> = [];
+  const resultTeams = teams.map((t) => ({ id: t.id, players: [...t.players] }));
+  const teamPromotes = new Map<number, number>();
+  const usedSlot = new Set<string>();
+  const skip = opts?.skipTeamIds;
+  const exclude = opts?.excludePlayerIds;
+  /** Teams that already rolled (and maybe skipped) this pass. */
+  const rolled = new Set<number>();
+
+  type Bid = {
+    teamIdx: number;
+    slot: number;
+    poolIdx: number;
+    gain: number;
+    acy: MarketInactive;
+    incumbent: Player;
+  };
+
+  let guard = teams.length * MAX_OPEN_ACADEMY_PROMOTES_PER_TEAM + 2;
+  while (guard-- > 0) {
+    let best: Bid | null = null;
+    for (let ti = 0; ti < resultTeams.length; ti++) {
+      if (skip?.has(teams[ti]!.id)) continue;
+      const used = teamPromotes.get(ti) ?? 0;
+      if (used >= MAX_OPEN_ACADEMY_PROMOTES_PER_TEAM) continue;
+      if (!rolled.has(ti)) {
+        rolled.add(ti);
+        if (rng() > AI_ACADEMY_PROMOTE_CHANCE) {
+          teamPromotes.set(ti, MAX_OPEN_ACADEMY_PROMOTES_PER_TEAM);
+          continue;
+        }
+      }
+      const roster = resultTeams[ti]!.players;
+      const teamId = teams[ti]!.id;
+      for (let slot = 0; slot < roster.length; slot++) {
+        if (usedSlot.has(`${ti}:${slot}`)) continue;
+        const incumbent = roster[slot]!;
+        if (isRosterVacancy(incumbent)) continue;
+        const incV = transferValue(
+          incumbent,
+          incumbent.id ? (outcomesById.get(incumbent.id)?.grade ?? null) : null,
+          byId,
+          meta,
+        );
+        for (let pi = 0; pi < working.length; pi++) {
+          const acy = working[pi]!;
+          if (
+            acy.status !== "academy" ||
+            acy.lastTeamId !== teamId ||
+            acy.player.lane !== incumbent.lane ||
+            !acy.player.id
+          ) {
+            continue;
+          }
+          if (exclude?.has(acy.player.id)) continue;
+          const gain = inactiveTransferValue(acy, byId, meta) - incV;
+          if (gain >= ACADEMY_OPEN_REPLACE_GAP && (!best || gain > best.gain)) {
+            best = { teamIdx: ti, slot, poolIdx: pi, gain, acy, incumbent };
+          }
+        }
+      }
+    }
+    if (!best) break;
+
+    const team = teams[best.teamIdx]!;
+    const entrant = applyComebackRust(best.acy.player, best.acy.inactiveYears, team.leagueId);
+    const grade = best.incumbent.id
+      ? (outcomesById.get(best.incumbent.id)?.grade ?? null)
+      : null;
+    working.splice(best.poolIdx, 1);
+    const parked = addToTeamAcademy(working, {
+      player: { ...best.incumbent, badStreak: 0 },
+      status: "academy",
+      inactiveYears: 1,
+      demotedYear: year,
+      lastTeamId: team.id,
+      lastTeamName: team.name,
+      ...(grade != null ? { lastActiveGrade: grade, shadowGrade: grade } : {}),
+    });
+    working = parked.pool;
+    if (parked.bumped) news.push(makeBecameFaNews(parked.bumped, "academy-bump"));
+    resultTeams[best.teamIdx]!.players[best.slot] = entrant;
+    teamPromotes.set(best.teamIdx, (teamPromotes.get(best.teamIdx) ?? 0) + 1);
+    usedSlot.add(`${best.teamIdx}:${best.slot}`);
+    news.push({
+      teamId: team.id,
+      lane: entrant.lane,
+      ...(best.incumbent.name ? { departedName: best.incumbent.name } : {}),
+      departedTier: best.incumbent.tier,
+      ...(best.incumbent.age != null ? { departedAge: best.incumbent.age } : {}),
+      ...(best.incumbent.id ? { departedId: best.incumbent.id } : {}),
+      entrantName: entrant.name ?? "",
+      entrantTier: entrant.tier,
+      entrantPotential: entrant.potential ?? entrant.tier,
+      ...(entrant.id ? { entrantId: entrant.id } : {}),
+      entrantSource: "academy",
+      marketNote: "academy-recall",
       ...(best.incumbent.name ? { beatenNames: [best.incumbent.name] } : {}),
     });
   }
@@ -1221,8 +1420,9 @@ export function executeUserFaSign(
 }
 
 /**
- * User recalls their own academy player into a lane when they clearly beat the
- * incumbent (same FA_OPEN_REPLACE_GAP). Same-org exclusivity enforced.
+ * User recalls their own academy player into a lane when they beat the
+ * incumbent by {@link ACADEMY_OPEN_REPLACE_GAP} (looser than FA's
+ * {@link FA_OPEN_REPLACE_GAP}). Same-org exclusivity enforced.
  * Incumbent drops to this org's academy. Vacant slots skip the gap / stub park.
  * Same-window demotees cannot be recalled (`excludePlayerIds`).
  */
@@ -1274,7 +1474,7 @@ export function executeUserAcademyRecall(
     const gain =
       inactiveTransferValue(acy, byId, meta) -
       transferValue(incumbent, incGrade, byId, meta);
-    if (gain < FA_OPEN_REPLACE_GAP) {
+    if (gain < ACADEMY_OPEN_REPLACE_GAP) {
       return { ...passthrough, ok: false, reason: "gap" };
     }
   }
@@ -1615,6 +1815,8 @@ export function shallowestAcademyLane(
  * AI: stash a desirable FA into academy when the main roster does not need
  * them (FA does not clear {@link FA_OPEN_REPLACE_GAP} vs same-lane incumbent)
  * and the org has academy room. At most {@link MAX_AI_ACADEMY_STASH_PER_TEAM}.
+ * Mid-split uses {@link AI_ACADEMY_STASH_CHANCE_MID_SPLIT}; offseason uses
+ * {@link AI_ACADEMY_STASH_CHANCE}.
  */
 export function runAiAcademyStashPass(
   teams: { id: string; name: string; leagueId?: string; players: Player[] }[],
@@ -1623,7 +1825,7 @@ export function runAiAcademyStashPass(
   meta: SeasonMetaSnapshot,
   rng: RNG,
   year: number,
-  opts?: { skipTeamIds?: ReadonlySet<string> },
+  opts?: { skipTeamIds?: ReadonlySet<string>; midSplit?: boolean },
 ): {
   inactivePool: MarketInactive[];
   news: Array<MarketNewsEvent>;
@@ -1632,6 +1834,14 @@ export function runAiAcademyStashPass(
   const news: Array<MarketNewsEvent> = [];
   const skip = opts?.skipTeamIds;
   const stashedByTeam = new Map<string, number>();
+  const midSplit = opts?.midSplit ?? false;
+  const chance = midSplit ? AI_ACADEMY_STASH_CHANCE_MID_SPLIT : AI_ACADEMY_STASH_CHANCE;
+  // Roll once per team so mid-split chance doesn't re-roll every bid.
+  const allowTeam = new Set<string>();
+  for (const t of teams) {
+    if (skip?.has(t.id)) continue;
+    if (chance >= 1 || rng() < chance) allowTeam.add(t.id);
+  }
 
   // Don't drain a thin FA board — orgs still need vacancy fills.
   const faCount = working.filter((e) => e.status === "free-agent").length;
@@ -1645,7 +1855,7 @@ export function runAiAcademyStashPass(
     let best: Bid | null = null;
     for (let ti = 0; ti < teams.length; ti++) {
       const team = teams[ti]!;
-      if (skip?.has(team.id)) continue;
+      if (!allowTeam.has(team.id)) continue;
       if ((stashedByTeam.get(team.id) ?? 0) >= MAX_AI_ACADEMY_STASH_PER_TEAM) continue;
       if (!teamAcademyHasRoom(working, team.id)) continue;
 

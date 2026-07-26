@@ -743,6 +743,25 @@ export interface PlayerTenure {
   affiliateTeam?: SeasonHistoryTeamRef | null;
 }
 
+/**
+ * Career History is newest-first. After retirement the inactive pool keeps
+ * carrying the player as `retired` every later archive — collapse that to a
+ * single retirement year (keep the earliest retired row, drop newer repeats).
+ */
+export function trimRetiredCareerTenures<
+  T extends { careerStatus: PlayerHit["careerStatus"] },
+>(tenuresNewestFirst: readonly T[]): T[] {
+  let lead = 0;
+  while (
+    lead < tenuresNewestFirst.length &&
+    tenuresNewestFirst[lead]!.careerStatus === "retired"
+  ) {
+    lead++;
+  }
+  if (lead <= 1) return [...tenuresNewestFirst];
+  return [tenuresNewestFirst[lead - 1]!, ...tenuresNewestFirst.slice(lead)];
+}
+
 // One season's per-player numbers, for the profile's season-by-season readout
 // (age over the years, All-Pro splits/season, champion pool that season).
 export interface PlayerSeasonStat {
@@ -882,6 +901,8 @@ export function playerProfile(
       });
     }
   }
+  // One retirement row is enough — drop newer years that only repeat Retired.
+  const trimmedTenures = trimRetiredCareerTenures(tenures);
   // Per-season stat lines (age, All-Pro splits/season, champion pool), newest
   // first, from the archived per-season records.
   const seasons: PlayerSeasonStat[] = [];
@@ -905,7 +926,7 @@ export function playerProfile(
     });
   }
   // Most-recent stint = last stint of the newest season (stages are play-order).
-  const recent = tenures[0]?.stints.at(-1);
+  const recent = trimmedTenures[0]?.stints.at(-1);
   const st =
     playerCareerStatuses(entries, opts).get(playerId) ?? { status: "active" as const };
   // Newest inactive snapshot for form / years-left storytelling (Hall, then live).
@@ -929,7 +950,7 @@ export function playerProfile(
     inactiveLane = liveInactive.lane;
     inactiveTier = liveInactive.tier;
   }
-  if (!career && tenures.length === 0 && !liveInactive) return null;
+  if (!career && trimmedTenures.length === 0 && !liveInactive) return null;
   if (!name) name = liveInactive?.playerName || playerId;
   const iy = st.inactiveYears ?? 0;
   const yearsLeftToFa =
@@ -959,7 +980,7 @@ export function playerProfile(
     splitTitles,
     intlTitles,
     career,
-    tenures,
+    tenures: trimmedTenures,
     seasons,
   };
 }

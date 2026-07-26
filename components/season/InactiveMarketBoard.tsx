@@ -6,6 +6,7 @@ import {
   ACADEMY_MAX_PER_TEAM,
   USER_ACADEMY_ROOKIE_SOFT_MAX,
   FA_OPEN_REPLACE_GAP,
+  ACADEMY_OPEN_REPLACE_GAP,
   USER_MAX_FA_SIGNS,
   type FaBoardRow,
 } from "@/lib/season/faMarket";
@@ -84,6 +85,7 @@ export default function InactiveMarketBoard({
   const actionOk = isFa
     ? "Sign this FA (releases your current player to academy, or fills a vacant slot)"
     : "Call up this academy player (releases your current player to academy, or fills a vacant slot)";
+  const replaceGap = isFa ? FA_OPEN_REPLACE_GAP : ACADEMY_OPEN_REPLACE_GAP;
   const filtered =
     lane === "all" ? board : board.filter((r) => r.entry.player.lane === lane);
   const recFiltered =
@@ -94,7 +96,7 @@ export default function InactiveMarketBoard({
   const academyFull = academyCount >= ACADEMY_MAX_PER_TEAM;
   const academyRookieSoftFull = academyCount >= USER_ACADEMY_ROOKIE_SOFT_MAX;
   const canAct = (row: FaBoardRow) =>
-    signsUsed < USER_MAX_FA_SIGNS && (row.upgradeVsSlot ?? 0) >= FA_OPEN_REPLACE_GAP;
+    signsUsed < USER_MAX_FA_SIGNS && (row.upgradeVsSlot ?? 0) >= replaceGap;
   const canSignToAcademy =
     isFa &&
     !!onSignToAcademy &&
@@ -130,7 +132,7 @@ export default function InactiveMarketBoard({
             {row.upgradeVsSlot != null && (
               <span
                 className={
-                  row.upgradeVsSlot >= FA_OPEN_REPLACE_GAP
+                  row.upgradeVsSlot >= replaceGap
                     ? "text-emerald-400/90"
                     : "text-rift-muted/45"
                 }
@@ -193,7 +195,7 @@ export default function InactiveMarketBoard({
                 ? "Benched this window — cannot call up until the next shopping window"
                 : ok
                   ? actionOk
-                  : `Need +${FA_OPEN_REPLACE_GAP} value over your slot`
+                  : `Need +${replaceGap} value over your slot`
             }
             className={`px-2 py-0.5 text-[8px] uppercase tracking-[0.2em] transition-all disabled:opacity-35 disabled:cursor-not-allowed ${
               featured
@@ -216,7 +218,7 @@ export default function InactiveMarketBoard({
           Academy {academyCount}/{ACADEMY_MAX_PER_TEAM}
           <span className="text-rift-muted/40"> · </span>
           {signsUsed}/{USER_MAX_FA_SIGNS} signed
-          <span className="text-rift-muted/40"> · gap ≥{FA_OPEN_REPLACE_GAP}</span>
+          <span className="text-rift-muted/40"> · gap ≥{replaceGap}</span>
         </span>
         {!isFa && onAddAcademyRookie && !academyRookieSoftFull && (
           <button

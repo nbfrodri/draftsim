@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Champion, Lane, Player } from "../types";
 import {
   ACADEMY_PASS_GAP,
+  ACADEMY_OPEN_REPLACE_GAP,
   FA_OPEN_REPLACE_GAP,
   NEUTRAL_META,
   ROOKIE_VALUE_FLOOR,
@@ -16,6 +17,11 @@ import {
   USER_ACADEMY_ROOKIE_SOFT_MAX,
   MAX_AI_ACADEMY_ROOKIE_PER_TEAM,
   AI_ACADEMY_RELEASE_MIN_COUNT,
+  AI_ACADEMY_PROMOTE_CHANCE,
+  AI_ACADEMY_STASH_MIN_VALUE,
+  AI_ACADEMY_STASH_CHANCE_MID_SPLIT,
+  AI_OPEN_FA_CHANCE_MID_SPLIT,
+  ACADEMY_DEV_CHANCE,
   addToTeamAcademy,
   academyReleaseScore,
   academyTenureYears,
@@ -29,13 +35,16 @@ import {
   executeUserFaSign,
   executeUserFaToAcademy,
   executeUserAcademyRelease,
+  executeUserAcademyRecall,
   inactiveTransferValue,
   listFreeAgents,
   listTeamAcademy,
   pickScoredReturnee,
   resolveCompetitiveFills,
   runAiAcademyReleasePass,
+  runAiAcademyStashPass,
   runOpenFaReplacePass,
+  runOpenAcademyReplacePass,
   tickInactiveYear,
   type MarketInactive,
 } from "./faMarket";
@@ -375,9 +384,228 @@ describe("academy development track", () => {
         bumps++;
       }
     }
-    // ACADEMY_DEV_CHANCE ~0.28 → expect some development, not near-every-year.
-    expect(bumps).toBeGreaterThan(8);
+    // ACADEMY_DEV_CHANCE ~0.45 → expect meaningful development, not near-every-year.
+    expect(ACADEMY_DEV_CHANCE).toBeGreaterThan(0.36);
+    expect(ACADEMY_DEV_CHANCE).toBeLessThan(0.6);
+    expect(bumps).toBeGreaterThan(15);
     expect(bumps).toBeLessThan(55);
+  });
+});
+
+describe("mid-split FA→academy stash", () => {
+  it("keeps stash bar below elite-only and mid-split chance light", () => {
+    expect(AI_ACADEMY_STASH_MIN_VALUE).toBeLessThan(1.0);
+    expect(AI_ACADEMY_STASH_CHANCE_MID_SPLIT).toBeLessThan(0.7);
+    expect(AI_OPEN_FA_CHANCE_MID_SPLIT).toBeLessThan(0.25);
+    expect(AI_OPEN_FA_CHANCE_MID_SPLIT).toBeGreaterThan(0);
+  });
+
+  it("stashes a solid FA into academy when mid-split chance fires", () => {
+    // Enough FAs so thin-floor doesn't bail; one clear stash candidate.
+    const fas: MarketInactive[] = Array.from({ length: TARGET_FA_POOL.min }, (_, i) => ({
+      player: player({
+        id: `fa-${i}`,
+        name: `Fa${i}`,
+        lane: i === 0 ? "middle" : "top",
+        tier: i === 0 ? "A" : "C",
+        age: 22,
+      }),
+      status: "free-agent" as const,
+      inactiveYears: ACADEMY_YEARS + 1,
+      demotedYear: 1,
+      lastTeamId: "OLD",
+      lastActiveGrade: 6,
+      shadowGrade: 6,
+    }));
+    const roster = LANES.map((lane) =>
+      player({
+        lane,
+        id: `r-${lane}`,
+        name: `r-${lane}`,
+        // Strong mid so FA does not clear FA_OPEN_REPLACE_GAP (stash path).
+        tier: lane === "middle" ? "S" : "B",
+        age: 24,
+      }),
+    );
+    // rng → 0 always clears mid-split stash chance.
+    const res = runAiAcademyStashPass(
+      [{ id: "T0", name: "T0", leagueId: "LCK", players: roster }],
+      fas,
+      byId,
+      NEUTRAL_META,
+      () => 0,
+      3,
+      { midSplit: true },
+    );
+    expect(res.news.some((n) => n.marketNote === "academy-stash")).toBe(true);
+    expect(res.inactivePool.some((e) => e.status === "academy" && e.player.id === "fa-0")).toBe(
+      true,
+    );
+    expect(res.inactivePool.some((e) => e.status === "free-agent" && e.player.id === "fa-0")).toBe(
+      false,
+    );
+  });
+
+  it("light mid-split open-FA can replace when chance fires and gap clears", () => {
+    const weak = player({
+      id: "weak-mid",
+      name: "WeakMid",
+      lane: "middle",
+      tier: "D",
+      age: 28,
+    });
+    const roster = LANES.map((lane) =>
+      lane === "middle"
+        ? weak
+        : player({ lane, id: `ok-${lane}`, name: `ok-${lane}`, tier: "B", age: 24 }),
+    );
+    const fa: MarketInactive = {
+      player: player({ id: "star-fa", name: "StarFa", lane: "middle", tier: "S", age: 23 }),
+      status: "free-agent",
+      inactiveYears: ACADEMY_YEARS + 1,
+      demotedYear: 1,
+      lastTeamId: "OLD",
+      lastActiveGrade: 8,
+      shadowGrade: 8,
+    };
+    const outcomes = new Map([["weak-mid", { grade: 3.0 }]]);
+    const opened = runOpenFaReplacePass(
+      [{ id: "T0", name: "T0", leagueId: "LCK", players: roster }],
+      [fa],
+      byId,
+      NEUTRAL_META,
+      outcomes,
+      () => 0,
+      4,
+      { attemptChance: AI_OPEN_FA_CHANCE_MID_SPLIT },
+    );
+    expect(opened.teams[0]!.players.find((p) => p.lane === "middle")?.id).toBe("star-fa");
+    expect(opened.news.some((n) => n.marketNote === "open-fa")).toBe(true);
+  });
+
+  it("mid-split open-FA attemptChance can skip an otherwise clear upgrade", () => {
+    const weak = player({
+      id: "weak-mid",
+      name: "WeakMid",
+      lane: "middle",
+      tier: "D",
+      age: 28,
+    });
+    const roster = LANES.map((lane) =>
+      lane === "middle"
+        ? weak
+        : player({ lane, id: `ok-${lane}`, name: `ok-${lane}`, tier: "B", age: 24 }),
+    );
+    const fa: MarketInactive = {
+      player: player({ id: "star-fa", name: "StarFa", lane: "middle", tier: "S", age: 23 }),
+      status: "free-agent",
+      inactiveYears: ACADEMY_YEARS + 1,
+      demotedYear: 1,
+      lastTeamId: "OLD",
+      lastActiveGrade: 8,
+      shadowGrade: 8,
+    };
+    const outcomes = new Map([["weak-mid", { grade: 3.0 }]]);
+    // rng → 0.99 fails attemptChance 0.14
+    const opened = runOpenFaReplacePass(
+      [{ id: "T0", name: "T0", leagueId: "LCK", players: roster }],
+      [fa],
+      byId,
+      NEUTRAL_META,
+      outcomes,
+      () => 0.99,
+      4,
+      { attemptChance: AI_OPEN_FA_CHANCE_MID_SPLIT },
+    );
+    expect(opened.teams[0]!.players.find((p) => p.lane === "middle")?.id).toBe("weak-mid");
+    expect(opened.news.some((n) => n.marketNote === "open-fa")).toBe(false);
+  });
+});
+
+describe("academy open-replace gap (looser than FA)", () => {
+  it("exposes a lower call-up bar than FA signs", () => {
+    expect(ACADEMY_OPEN_REPLACE_GAP).toBeLessThan(FA_OPEN_REPLACE_GAP);
+    expect(ACADEMY_OPEN_REPLACE_GAP).toBeGreaterThan(0);
+    expect(ACADEMY_PASS_GAP).toBeGreaterThan(FA_OPEN_REPLACE_GAP);
+    expect(AI_ACADEMY_PROMOTE_CHANCE).toBeGreaterThan(0.5);
+    expect(ROOKIE_VALUE_FLOOR).toBeLessThan(-0.35);
+  });
+
+  it("user academy recall succeeds with a modest upgrade over incumbent", () => {
+    const incumbent = player({
+      id: "inc-weak",
+      name: "IncWeak",
+      lane: "middle",
+      tier: "D",
+      age: 27,
+    });
+    const acy: MarketInactive = {
+      player: player({ id: "acy-ok", name: "AcyOk", lane: "middle", tier: "C", age: 20 }),
+      status: "academy",
+      inactiveYears: 2,
+      demotedYear: 1,
+      lastTeamId: "T0",
+      lastActiveGrade: 5,
+      shadowGrade: 5.2,
+    };
+    const roster = LANES.map((lane) =>
+      lane === "middle"
+        ? incumbent
+        : player({ lane, id: `ok-${lane}`, name: `ok-${lane}`, tier: "B", age: 24 }),
+    );
+    const result = executeUserAcademyRecall(
+      [{ id: "T0", name: "T0", leagueId: "LCK", players: roster }],
+      [acy],
+      "T0",
+      "middle",
+      "acy-ok",
+      byId,
+      NEUTRAL_META,
+      3,
+      () => 3.0,
+    );
+    expect(result.ok).toBe(true);
+    expect(result.teams[0]!.players.find((p) => p.lane === "middle")?.id).toBe("acy-ok");
+  });
+
+  it("AI academy promote pass swaps a clear upgrade when chance fires", () => {
+    const weak = player({
+      id: "weak-mid",
+      name: "WeakMid",
+      lane: "middle",
+      tier: "D",
+      age: 28,
+    });
+    const roster = LANES.map((lane) =>
+      lane === "middle"
+        ? weak
+        : player({ lane, id: `ok-${lane}`, name: `ok-${lane}`, tier: "B", age: 24 }),
+    );
+    const acy: MarketInactive = {
+      player: player({ id: "hot-acy", name: "HotAcy", lane: "middle", tier: "A", age: 21 }),
+      status: "academy",
+      inactiveYears: 2,
+      demotedYear: 1,
+      lastTeamId: "T0",
+      lastActiveGrade: 7,
+      shadowGrade: 7,
+    };
+    const outcomes = new Map([["weak-mid", { grade: 3.0 }]]);
+    // rng always < chance → promote attempts fire.
+    const always = () => 0.01;
+    const opened = runOpenAcademyReplacePass(
+      [{ id: "T0", name: "T0", leagueId: "LCK", players: roster }],
+      [acy],
+      byId,
+      NEUTRAL_META,
+      outcomes,
+      always,
+      4,
+    );
+    expect(opened.teams[0]!.players.find((p) => p.lane === "middle")?.id).toBe("hot-acy");
+    expect(opened.news.some((n) => n.marketNote === "academy-recall")).toBe(true);
+    const cut = opened.inactivePool.find((p) => p.player.id === "weak-mid");
+    expect(cut?.status).toBe("academy");
   });
 });
 

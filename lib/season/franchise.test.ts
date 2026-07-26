@@ -674,7 +674,7 @@ describe("mid-split transfer window academy market", () => {
     expect(applyUserAcademyRecall(recalled!, champions, lane, before.id!)).toBeNull();
   });
 
-  it("mid-split demotions mint AI academy rookies when depth is low (no open-FA)", () => {
+  it("mid-split demotions mint AI academy rookies when depth is low (open-FA stays chance-gated)", () => {
     let season = transferFollowed();
     const other = season.teams.find((t) => t.id !== season.config.controlledTeamId)!;
     // Empty that org's academy so depth-below triggers intake.
@@ -691,13 +691,76 @@ describe("mid-split transfer window academy market", () => {
     };
     expect(countTeamAcademy(season.franchise!.inactivePool!, other.id)).toBe(0);
 
-    const next = applyMidSplitDemotions(season, "summer", champions, () => 0);
+    // rng → 0.99 fails AI_OPEN_FA_CHANCE_MID_SPLIT (~0.14) so open-fa stays quiet
+    // while academy-rookie (mid-split depth path) still fires on low rolls via
+    // its own chance — use a sequence that fails open-FA but passes rookie.
+    let n = 0;
+    const rng = () => {
+      // First rolls: open-FA allowTeam (high → skip). Later: promote/stash/rookie.
+      n += 1;
+      return n <= 80 ? 0.99 : 0;
+    };
+    const next = applyMidSplitDemotions(season, "summer", champions, rng);
     expect(countTeamAcademy(next.franchise!.inactivePool!, other.id)).toBeGreaterThan(0);
     expect(next.rosterNews?.some((n) => n.marketNote === "academy-rookie" && n.teamId === other.id)).toBe(
       true,
     );
-    // Open-FA replaces stay year-end only.
+    // Open-FA is chance-gated mid-split — this rng fails the attempt.
     expect(next.rosterNews?.some((n) => n.marketNote === "open-fa")).toBeFalsy();
+  });
+
+  it("mid-split demotions can stash FA into academy", () => {
+    let season = transferFollowed();
+    const other = season.teams.find((t) => t.id !== season.config.controlledTeamId)!;
+    // Enough FAs to clear thin floor; A-mid parks via stash (not open-FA).
+    const fas = Array.from({ length: 24 }, (_, i) => ({
+      player: {
+        id: `mid-fa-${i}`,
+        name: `MidFa${i}`,
+        lane: (i === 0 ? "middle" : "top") as Lane,
+        tier: (i === 0 ? "A" : "C") as const,
+        age: 21,
+        goodChamps: [] as number[],
+        badChamps: [] as number[],
+      },
+      status: "free-agent" as const,
+      inactiveYears: 4,
+      demotedYear: 1,
+      lastTeamId: "OLD",
+      lastActiveGrade: 6.5,
+      shadowGrade: 6.5,
+    }));
+    season = {
+      ...season,
+      franchise: {
+        ...season.franchise!,
+        pendingMidSplitDemotion: undefined,
+        inactivePool: [
+          // Drop existing FAs + clear other's academy so stash has room.
+          ...(season.franchise!.inactivePool ?? []).filter(
+            (e) =>
+              e.status !== "free-agent" &&
+              !(e.status === "academy" && e.lastTeamId === other.id),
+          ),
+          ...fas,
+        ],
+      },
+      // Strong middles league-wide so A-mid FA never clears FA_OPEN_REPLACE_GAP.
+      teams: season.teams.map((t) => ({
+        ...t,
+        players: t.players.map((p) =>
+          p.lane === "middle" ? { ...p, tier: "S" as const, age: 24 } : p,
+        ),
+      })),
+    };
+
+    const next = applyMidSplitDemotions(season, "summer", champions, () => 0);
+    expect(next.rosterNews?.some((n) => n.marketNote === "academy-stash")).toBe(true);
+    expect(
+      next.franchise!.inactivePool!.some(
+        (e) => e.status === "academy" && e.player.id?.startsWith("mid-fa-"),
+      ),
+    ).toBe(true);
   });
 
   it("deferred Proceed skips followed team for AI academy intake", () => {

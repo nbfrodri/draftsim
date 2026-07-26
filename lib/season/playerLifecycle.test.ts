@@ -351,6 +351,26 @@ describe("academy → FA → retired year counting", () => {
     expect(yearsAsFreeAgent("retired", 8)).toBe(4);
   });
 
+  it("skips the year clock on the mint/demotion calendar year (Acy 1 archives as 1)", () => {
+    let pool = [baseEntry({ demotedYear: 1, inactiveYears: 1 })];
+    // Closing year 1 = demotedYear → age only, keep Academy · 1y
+    pool = advanceInactivePool(pool, rng(1), [], 1);
+    expect(pool[0]!.status).toBe("academy");
+    expect(pool[0]!.inactiveYears).toBe(1);
+    expect(pool[0]!.player.age).toBe(26);
+    // Next close advances normally
+    pool = advanceInactivePool(pool, rng(2), [], 2);
+    expect(pool[0]!.inactiveYears).toBe(2);
+  });
+
+  it("preserves opening-seed stagger (Acy · 2y) across the mint-year skip", () => {
+    let pool = [baseEntry({ demotedYear: 1, inactiveYears: 2 })];
+    pool = advanceInactivePool(pool, rng(1), [], 1);
+    expect(pool[0]!.inactiveYears).toBe(2);
+    pool = advanceInactivePool(pool, rng(2), [], 2);
+    expect(pool[0]!.inactiveYears).toBe(3);
+  });
+
   it("does not burn an academy year in the same offseason a player is demoted", () => {
     const roster = LANES.map((lane, i) =>
       player({
@@ -780,6 +800,50 @@ describe("same-pass demotee never fills own vacancy", () => {
     expect(parked?.status).toBe("academy");
     expect(parked?.inactiveYears).toBe(1);
   });
+  it("emits retired roster news when FA clock / valves retire a player", () => {
+    const fa: InactivePlayer = {
+      player: player({ id: "old-fa", name: "OldFa", lane: "top", tier: "C", age: 30 }),
+      status: "free-agent",
+      inactiveYears: TOTAL_INACTIVE_BEFORE_RETIRE,
+      demotedYear: 1,
+      lastTeamId: "T1",
+      lastTeamName: "T1",
+    };
+    const roster = LANES.map((lane) =>
+      player({ lane, id: `ok-${lane}`, name: `ok-${lane}`, tier: "A", age: 24 }),
+    );
+    const outcomes = new Map<string, SeasonPlayerOutcome>(
+      roster.map((p) => [
+        p.id!,
+        {
+          playerId: p.id!,
+          grade: 7,
+          tier: p.tier,
+          lane: p.lane,
+          splitTitles: 0,
+          intlTitles: 0,
+        },
+      ]),
+    );
+    const result = runOffseasonLifecycle(
+      [{ id: "T1", name: "T1", players: roster, leagueId: "LCK" }],
+      outcomes,
+      { top: 6, jungle: 6, middle: 6, bottom: 6, support: 6 },
+      [fa],
+      champions,
+      rng(3),
+      new Set(),
+      8,
+    );
+    expect(result.inactivePool.find((e) => e.player.id === "old-fa")?.status).toBe(
+      "retired",
+    );
+    expect(
+      result.news.some(
+        (n) => n.marketNote === "retired" && n.departedId === "old-fa",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("inactiveSnapshotsForArchivedYear", () => {
@@ -842,7 +906,7 @@ describe("inactiveSnapshotsForArchivedYear", () => {
     };
     live = [demoted];
     archives.push(
-      ...inactiveSnapshotsForArchivedYear([], live).map((s) => ({
+      ...inactiveSnapshotsForArchivedYear([], live, 1).map((s) => ({
         inactiveYears: s.inactiveYears,
         status: s.status,
       })),
@@ -850,10 +914,11 @@ describe("inactiveSnapshotsForArchivedYear", () => {
 
     // Years 2–4 closes: advance then stamp post onto that year's Hall row.
     for (let i = 0; i < 3; i++) {
+      const closingYear = 2 + i;
       const pre = live;
-      live = advanceInactivePool(pre, rng(10 + i), champions);
+      live = advanceInactivePool(pre, rng(10 + i), champions, closingYear);
       archives.push(
-        ...inactiveSnapshotsForArchivedYear(pre, live).map((s) => ({
+        ...inactiveSnapshotsForArchivedYear(pre, live, closingYear).map((s) => ({
           inactiveYears: s.inactiveYears,
           status: s.status,
         })),
@@ -870,5 +935,50 @@ describe("inactiveSnapshotsForArchivedYear", () => {
     expect(yearsInAcademy("academy", 2)).toBe(2);
     expect(yearsInAcademy("academy", 3)).toBe(3);
     expect(yearsAsFreeAgent("free-agent", 4)).toBe(1);
+  });
+
+  it("academy mint first year archives as Acy · 1y (not 2y)", () => {
+    // Opening / mid-season mint: demotedYear = season year, inactiveYears = 1.
+    let live: InactivePlayer[] = [
+      {
+        player: player({ id: "rook", name: "Rook", lane: "top", tier: "C", age: 18 }),
+        status: "academy",
+        inactiveYears: 1,
+        demotedYear: 1,
+        lastTeamId: "T1",
+      },
+    ];
+    const archives: number[] = [];
+    for (let closingYear = 1; closingYear <= 3; closingYear++) {
+      const pre = live;
+      live = advanceInactivePool(pre, rng(20 + closingYear), champions, closingYear);
+      archives.push(
+        ...inactiveSnapshotsForArchivedYear(pre, live, closingYear).map(
+          (s) => s.inactiveYears,
+        ),
+      );
+    }
+    expect(archives).toEqual([1, 2, 3]);
+  });
+
+  it("excludes next-season intake (demotedYear after archived year)", () => {
+    const post: InactivePlayer[] = [
+      {
+        player: player({ id: "stay", name: "Stay", lane: "top", tier: "C", age: 20 }),
+        status: "academy",
+        inactiveYears: 1,
+        demotedYear: 1,
+        lastTeamId: "T1",
+      },
+      {
+        player: player({ id: "next", name: "Next", lane: "jungle", tier: "C", age: 18 }),
+        status: "academy",
+        inactiveYears: 1,
+        demotedYear: 2, // minted for upcoming year during year-1 offseason
+        lastTeamId: "T1",
+      },
+    ];
+    const snaps = inactiveSnapshotsForArchivedYear([], post, 1);
+    expect(snaps.map((s) => s.playerId)).toEqual(["stay"]);
   });
 });

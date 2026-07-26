@@ -11,6 +11,7 @@ import {
   coachProfile,
   playerCareerStatuses,
   playerCareerStatus,
+  trimRetiredCareerTenures,
 } from "./historySearch";
 import { computePlayerTitlesByEvent } from "./historyRecords";
 import { computeCoachRecords } from "./historySearch";
@@ -630,6 +631,92 @@ describe("point-in-time career status (asOfSeasonId)", () => {
     ]);
     expect(profile.tenures[0]!.affiliateTeam?.name).toBe("T1");
     expect(profile.tenures[3]!.stints.length).toBeGreaterThan(0);
+  });
+
+  it("Career History academy mint starts at Acy · 1y then progresses", () => {
+    // Never rostered — opening academy seed only appears in inactive snapshots.
+    const snap = (years: number): InactivePlayerSnapshot[] => [
+      {
+        playerId: "rook",
+        playerName: "Rook",
+        lane: "jungle",
+        tier: "C",
+        status: "academy",
+        inactiveYears: years,
+        demotedYear: 1,
+        lastTeamId: "T1",
+        lastTeamName: "T1",
+        debutYear: 1,
+      },
+    ];
+    const entries = withPool(
+      [
+        ["a", "b", "c", "d", "e"],
+        ["a", "b", "c", "d", "e"],
+        ["a", "b", "c", "d", "e"],
+      ],
+      [snap(1), snap(2), snap(3)],
+    );
+    const profile = playerProfile(entries, "rook")!;
+    expect(
+      profile.tenures.map((t) => ({ id: t.seasonId, acy: t.academyYears })),
+    ).toEqual([
+      { id: "S2", acy: 3 },
+      { id: "S1", acy: 2 },
+      { id: "S0", acy: 1 },
+    ]);
+  });
+
+  it("Career History stops at the retirement year (no repeated Retired rows)", () => {
+    const snap = (
+      status: "free-agent" | "retired",
+      years: number,
+    ): InactivePlayerSnapshot[] => [
+      {
+        playerId: "vet",
+        playerName: "Vet",
+        lane: "top",
+        tier: "C",
+        status,
+        inactiveYears: years,
+        demotedYear: 1,
+        lastTeamId: "T1",
+        lastTeamName: "T1",
+      },
+    ];
+    const entries = withPool(
+      [
+        ["vet", "b", "c", "d", "e"],
+        ["r1", "b", "c", "d", "e"],
+        ["r2", "b", "c", "d", "e"],
+        ["r3", "b", "c", "d", "e"],
+      ],
+      [
+        undefined,
+        snap("free-agent", 7),
+        snap("retired", 8),
+        snap("retired", 8), // later archive still carries retired
+      ],
+    );
+    const profile = playerProfile(entries, "vet")!;
+    expect(
+      profile.tenures.map((t) => ({ id: t.seasonId, status: t.careerStatus })),
+    ).toEqual([
+      { id: "S2", status: "retired" },
+      { id: "S1", status: "free-agent" },
+      { id: "S0", status: "active" },
+    ]);
+  });
+
+  it("trimRetiredCareerTenures keeps a single retirement row", () => {
+    expect(
+      trimRetiredCareerTenures([
+        { careerStatus: "retired" as const },
+        { careerStatus: "retired" as const },
+        { careerStatus: "free-agent" as const },
+        { careerStatus: "active" as const },
+      ]).map((t) => t.careerStatus),
+    ).toEqual(["retired", "free-agent", "active"]);
   });
 
   it("teamProfile seasons expose seasonId for as-of stage lookups", () => {

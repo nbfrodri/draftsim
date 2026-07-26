@@ -1668,7 +1668,11 @@ export const useDraftStore = create<DraftStore>()(
     // Always set the field when aging is on (even []) so search won't fall
     // back to the legacy "missing from roster = retired" heuristic.
     const inactivePlayers = next.franchise?.aging
-      ? inactiveSnapshotsForArchivedYear(prePool, next.franchise.inactivePool ?? [])
+      ? inactiveSnapshotsForArchivedYear(
+          prePool,
+          next.franchise.inactivePool ?? [],
+          season.franchise.year,
+        )
       : undefined;
     const archived =
       inactivePlayers != null ? { ...entry, inactivePlayers } : entry;

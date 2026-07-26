@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import {
   FA_OPEN_REPLACE_GAP,
+  ACADEMY_OPEN_REPLACE_GAP,
   USER_MAX_FA_SIGNS,
   type FaBoardRow,
 } from "@/lib/season/faMarket";
@@ -53,8 +54,10 @@ export default function VacancyFillPicker({
 }: Props) {
   const [tab, setTab] = useState<FillTab>("academy");
   const signsOk = signsUsed < USER_MAX_FA_SIGNS;
-  const canAct = (row: FaBoardRow) =>
-    signsOk && (row.upgradeVsSlot ?? 0) >= FA_OPEN_REPLACE_GAP;
+  const canAct = (row: FaBoardRow, kind: "academy" | "fa") =>
+    signsOk &&
+    (row.upgradeVsSlot ?? 0) >=
+      (kind === "academy" ? ACADEMY_OPEN_REPLACE_GAP : FA_OPEN_REPLACE_GAP);
 
   const renderList = (
     rows: FaBoardRow[],
@@ -65,11 +68,12 @@ export default function VacancyFillPicker({
     if (rows.length === 0) {
       return <div className="text-[9px] italic text-rift-muted px-1 py-1">{empty}</div>;
     }
+    const needGap = kind === "academy" ? ACADEMY_OPEN_REPLACE_GAP : FA_OPEN_REPLACE_GAP;
     return (
       <div className="space-y-1 max-h-40 overflow-y-auto">
         {rows.slice(0, 12).map((row) => {
           const p = row.entry.player;
-          const ok = canAct(row);
+          const ok = canAct(row, kind);
           return (
             <div
               key={`${kind}-vac-${p.id}`}
@@ -94,7 +98,7 @@ export default function VacancyFillPicker({
                     ? `${action} into vacant ${lane}`
                     : !signsOk
                       ? `Sign cap (${USER_MAX_FA_SIGNS}/window) reached`
-                      : `Need +${FA_OPEN_REPLACE_GAP} value over slot`
+                      : `Need +${needGap} value over slot`
                 }
                 className="ml-auto px-2 py-0.5 border border-rift-line text-rift-mutedbright text-[8px] uppercase tracking-[0.2em] hover:border-rift-gold/50 hover:text-rift-goldbright transition-all disabled:opacity-35 disabled:cursor-not-allowed"
               >
