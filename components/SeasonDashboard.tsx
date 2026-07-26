@@ -47,6 +47,7 @@ import SeasonStoryCard from "./SeasonStoryCard";
 import MyTeamPanel from "./MyTeamPanel";
 import TransferWindowPanel from "./TransferWindowPanel";
 import TeamBrowserPanel from "./TeamBrowserPanel";
+import FreeAgentsPanel from "./FreeAgentsPanel";
 import FranchisePanel from "./FranchisePanel";
 import OffseasonView from "./OffseasonView";
 import {
@@ -95,7 +96,6 @@ export default function SeasonDashboard() {
   const season = useDraftStore((s) => s.season)!;
   const champions = useDraftStore((s) => s.champions);
   const simulating = useDraftStore((s) => s.simulating);
-  const simProgress = useDraftStore((s) => s.simProgress);
   const openSeasonTournament = useDraftStore((s) => s.openSeasonTournament);
   const simSeason = useDraftStore((s) => s.simSeason);
   const simSeasonMatchday = useDraftStore((s) => s.simSeasonMatchday);
@@ -429,10 +429,19 @@ export default function SeasonDashboard() {
         </div>
 
         {/* Transfer window — followed-team decisions + league-wide recap */}
-        <TransferWindowPanel />
+        <div className="cv-auto">
+          <TransferWindowPanel />
+        </div>
 
         {/* Browse every region's teams + full rosters */}
-        <TeamBrowserPanel />
+        <div className="cv-auto">
+          <TeamBrowserPanel />
+        </div>
+
+        {/* League-wide free-agent pool (aging franchise) */}
+        <div className="cv-auto">
+          <FreeAgentsPanel />
+        </div>
 
         {/* Sim controls — hidden while a transfer window is open (nothing to
             sim; the window's "Proceed" button advances the season). */}
@@ -481,66 +490,86 @@ export default function SeasonDashboard() {
             >
               Season Stats {statsOpen ? "▴" : "▾"}
             </button>
-            {simProgress && (
-              <span className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/70 tabular-nums">
-                {simProgress.done}/{simProgress.total}
-              </span>
-            )}
+            <SimProgressLabel />
           </div>
         )}
 
         {/* Latest matchday results, per region (updates each matchday). */}
         {seasonMatchday && season.status !== "complete" && (
-          <LatestMatchdayPanel
-            matchday={seasonMatchday}
-            onViewReplay={(tournamentId, matchId) =>
-              setMatchReplay({ tournamentId, matchId })
-            }
-          />
+          <div className="cv-auto">
+            <LatestMatchdayPanel
+              matchday={seasonMatchday}
+              onViewReplay={(tournamentId, matchId) =>
+                setMatchReplay({ tournamentId, matchId })
+              }
+            />
+          </div>
         )}
 
         {/* Season-wide stats, available any time once games exist. */}
         {season.status !== "complete" && statsOpen && (
-          <SeasonRecapPanel
-            season={season}
-            championsById={championsById}
-            title="Season So Far"
-          />
+          <div className="cv-auto">
+            <SeasonRecapPanel
+              season={season}
+              championsById={championsById}
+              title="Season So Far"
+            />
+          </div>
         )}
 
         {/* The season's narrative recap, once it's over. */}
-        {season.status === "complete" && <SeasonStoryCard story={seasonStory} />}
+        {season.status === "complete" && (
+          <div className="cv-auto">
+            <SeasonStoryCard story={seasonStory} />
+          </div>
+        )}
 
         {/* All-Pro Team of the Year — best per lane across the whole season. */}
-        {season.status === "complete" && <SeasonOfTheYear season={season} />}
+        {season.status === "complete" && (
+          <div className="cv-auto">
+            <SeasonOfTheYear season={season} />
+          </div>
+        )}
 
         {/* Season-wide recap — the year in numbers, once it's over. */}
         {season.status === "complete" && (
-          <SeasonRecapPanel season={season} championsById={championsById} />
+          <div className="cv-auto">
+            <SeasonRecapPanel season={season} championsById={championsById} />
+          </div>
         )}
 
         {/* Narrative power rankings — form + results + light meta-fit. */}
-        <PowerRankingsPanel season={season} champions={champions} />
+        <div className="cv-auto">
+          <PowerRankingsPanel season={season} champions={champions} />
+        </div>
 
         {/* The season's evolving meta: view/edit tiers & pairings,
-            export codes, save to the libraries. */}
+            export codes, save to the libraries. No content-visibility here —
+            it opens the tier-list / meta-editor / synergy modals, and paint
+            containment would make this div their containing block, trapping
+            the `fixed inset-0` overlays inside the panel. It's collapsed by
+            default anyway, so there's little to skip. */}
         <SeasonMetaPanel />
 
         {/* Current phase */}
         {phase && season.status !== "complete" && (
-          <PhasePanel
-            season={season}
-            phase={phase}
-            onOpen={openSeasonTournament}
-          />
+          <div className="cv-auto">
+            <PhasePanel
+              season={season}
+              phase={phase}
+              onOpen={openSeasonTournament}
+            />
+          </div>
         )}
 
         {/* Past phases / results */}
-        <PastResults
-          season={season}
-          championsById={championsById}
-          onOpen={openSeasonTournament}
-        />
+        <div className="cv-auto">
+          <PastResults
+            season={season}
+            championsById={championsById}
+            onOpen={openSeasonTournament}
+          />
+        </div>
       </div>
 
       <Modal
@@ -571,6 +600,18 @@ export default function SeasonDashboard() {
         </Suspense>
       )}
     </div>
+  );
+}
+
+/** Owns the simProgress store subscription so tick updates don't re-render
+ *  the entire season dashboard tree (panels, rankings, meta, etc.). */
+function SimProgressLabel() {
+  const simProgress = useDraftStore((s) => s.simProgress);
+  if (!simProgress) return null;
+  return (
+    <span className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/70 tabular-nums">
+      {simProgress.done}/{simProgress.total}
+    </span>
   );
 }
 
@@ -985,28 +1026,48 @@ function PowerRankingsPanel({
   season: SeasonState;
   champions: readonly Champion[];
 }) {
-  const [open, setOpen] = useState(true);
-  // Every team in the season, ranked — scrollable rather than capped, so the
-  // whole field is visible with each team's blended score.
+  // Collapsed by default — full-field rankings are expensive to compute and
+  // paint; mid-sim season commits shouldn't pay for a closed panel.
+  const [open, setOpen] = useState(false);
   const rows = useMemo(
-    () => computePowerRankings(season, champions),
-    [season, champions],
+    () => (open ? computePowerRankings(season, champions) : []),
+    [season, champions, open],
   );
-  if (rows.length === 0) return null;
-  const min = rows[rows.length - 1].score;
-  const spread = rows[0].score - min;
+  const min = rows.length > 0 ? rows[rows.length - 1].score : 0;
+  const spread = rows.length > 0 ? rows[0].score - min : 0;
   return (
     <div className="mb-8">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2 hover:text-rift-goldbright transition-colors"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`group w-full flex items-center justify-between gap-3 border px-3 py-2.5 text-left transition-all ${
+          open
+            ? "border-rift-gold/55 bg-rift-gold/[0.08] text-rift-goldbright"
+            : "border-rift-line/60 bg-rift-bg/40 text-rift-mutedbright hover:border-rift-gold/50 hover:bg-rift-gold/[0.06] hover:text-rift-goldbright"
+        }`}
       >
-        <span>Power Rankings · {rows.length} Teams</span>
-        <span>{open ? "▴" : "▾"}</span>
+        <span className="min-w-0">
+          <span className="block text-[10px] uppercase tracking-[0.4em]">
+            Power Rankings{open && rows.length > 0 ? ` · ${rows.length} Teams` : ""}
+          </span>
+          <span className="mt-0.5 block text-[8px] uppercase tracking-[0.22em] text-rift-muted/55 group-hover:text-rift-mutedbright/70 transition-colors">
+            {open ? "Click to collapse" : "Click to expand"}
+          </span>
+        </span>
+        <span
+          className={`flex h-7 w-7 flex-shrink-0 items-center justify-center border text-sm leading-none transition-all ${
+            open
+              ? "border-rift-gold/60 bg-rift-gold/15 text-rift-goldbright"
+              : "border-rift-line/70 bg-rift-panel/40 text-rift-gold/80 group-hover:border-rift-gold/50 group-hover:text-rift-goldbright"
+          }`}
+          aria-hidden
+        >
+          {open ? "▴" : "▾"}
+        </span>
       </button>
-      {open && (
-        <div className="border border-rift-line/40 bg-rift-bg/30 px-3 py-2">
+      {open && rows.length > 0 && (
+        <div className="mt-2 border border-rift-line/40 bg-rift-bg/30 px-3 py-2">
           <div className="space-y-1 max-h-80 overflow-y-auto pr-1">
             {rows.map((row) => (
               <PowerRankRow
@@ -1141,7 +1202,7 @@ function TournamentCard({
         ? Math.round((100 * done) / total)
         : 0;
   return (
-    <div className="border border-rift-line/50 bg-rift-bg/40 hover:border-rift-gold/40 transition-colors flex flex-col">
+    <div className="border border-rift-line/50 bg-rift-bg/40 hover:border-rift-gold/40 transition-colors flex flex-col cv-auto">
       {/* Completion strip — quick visual read of how far this stage is. */}
       <div className="h-1 bg-rift-line/25 overflow-hidden">
         <div

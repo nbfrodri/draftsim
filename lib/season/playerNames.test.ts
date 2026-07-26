@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateHandle, nameRoster, realPlayersForTeam } from "./playerNames";
+import { generateHandle, nameRoster, realPlayersForTeam, isValidHandle } from "./playerNames";
 import type { Player } from "../types";
 
 const rng = (seed: number) => {
@@ -26,6 +26,16 @@ describe("generateHandle", () => {
     const taken = new Set<string>();
     const handles = Array.from({ length: 300 }, () => generateHandle(r, taken));
     expect(new Set(handles).size).toBe(handles.length);
+  });
+
+  it("never ends with a digit or Roman suffix", () => {
+    const r = rng(99);
+    const taken = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const h = generateHandle(r, taken, i % 2 === 0 ? "LCK" : undefined);
+      expect(isValidHandle(h)).toBe(true);
+      expect(/\d$/.test(h)).toBe(false);
+    }
   });
 });
 

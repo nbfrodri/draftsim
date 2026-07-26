@@ -10,6 +10,15 @@ import {
   USER_MAX_TRANSFERS_PER_WINDOW,
 } from "@/lib/season/transfers";
 import {
+  buildFaBoard,
+  buildAcademyBoard,
+  recommendedFasForTeam,
+  recommendedAcademyForTeam,
+  USER_MAX_MANUAL_DEMOTES,
+  countTeamAcademy,
+  isRosterVacancy,
+} from "@/lib/season/faMarket";
+import {
   INTERNATIONAL_LABELS,
   seasonTeam,
   type PlayerTransfer,
@@ -20,6 +29,8 @@ import type { Champion, Lane, PlayerTier } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
 import LaneIcon from "./LaneIcon";
 import { ChemScore, ProjectedChemScore } from "./ChemistryRow";
+import InactiveMarketBoard from "./season/InactiveMarketBoard";
+import VacancyFillPicker from "./season/VacancyFillPicker";
 
 // Transfer-window UI: the league-wide recap of roster moves at each window
 // (after First Stand and MSI), plus the followed team's pending decisions with
@@ -131,8 +142,22 @@ export default function TransferWindowPanel() {
   const aiDecideSeasonTransfers = useDraftStore((s) => s.aiDecideSeasonTransfers);
   const advanceSeasonTransfers = useDraftStore((s) => s.advanceSeasonTransfers);
   const shopSeasonTransfer = useDraftStore((s) => s.shopSeasonTransfer);
+  const shopOffseasonFa = useDraftStore((s) => s.shopOffseasonFa);
+  const shopFaToAcademy = useDraftStore((s) => s.shopFaToAcademy);
+  const shopAcademyRecall = useDraftStore((s) => s.shopAcademyRecall);
+  const shopAcademyRelease = useDraftStore((s) => s.shopAcademyRelease);
+  const shopAcademyRookie = useDraftStore((s) => s.shopAcademyRookie);
+  const shopRookie = useDraftStore((s) => s.shopRookie);
+  const demoteFollowedPlayer = useDraftStore((s) => s.demoteFollowedPlayer);
   const [openEvent, setOpenEvent] = useState<string | null>(null);
   const [shopLane, setShopLane] = useState<Lane | null>(null);
+  const [confirmDemoteLane, setConfirmDemoteLane] = useState<Lane | null>(null);
+  /** Vacant lane whose fill picker is open (auto after demote). */
+  const [fillLane, setFillLane] = useState<Lane | null>(null);
+  /** Deep-link focus for InactiveMarketBoard lane filter. */
+  const [boardFocus, setBoardFocus] = useState<{ kind: "fa" | "academy"; lane: Lane } | null>(
+    null,
+  );
 
   const byId = useMemo(
     () => new Map(champions.map((c) => [c.id, c] as const)),
@@ -144,11 +169,86 @@ export default function TransferWindowPanel() {
     [season, champions, shopLane],
   );
 
+  const phase = season?.phases[season.phaseIndex];
+  const atWindow = phase?.kind === "transfer" && phase.status === "in-progress";
+  const controlledId = season?.config.controlledTeamId;
+  const showInactiveBoards =
+    !!atWindow && !!season?.franchise?.aging && !!controlledId;
+
+  const faBoard = useMemo(() => {
+    if (!showInactiveBoards || !season || !controlledId) return [];
+    const team = seasonTeam(season, controlledId);
+    if (!team) return [];
+    const exclude = new Set(season.franchise?.sameWindowDemoteIds ?? []);
+    return buildFaBoard(
+      season.franchise?.inactivePool ?? [],
+      "all",
+      byId,
+      season.currentMeta,
+      null,
+      null,
+      team.players,
+      exclude,
+    );
+  }, [showInactiveBoards, season, controlledId, byId]);
+
+  const faRecommended = useMemo(() => {
+    if (!showInactiveBoards || !season || !controlledId) return [];
+    const team = seasonTeam(season, controlledId);
+    if (!team) return [];
+    const exclude = new Set(season.franchise?.sameWindowDemoteIds ?? []);
+    return recommendedFasForTeam(
+      season.franchise?.inactivePool ?? [],
+      team.players,
+      byId,
+      season.currentMeta,
+    ).filter((r) => !r.entry.player.id || !exclude.has(r.entry.player.id));
+  }, [showInactiveBoards, season, controlledId, byId]);
+
+  const academyBoard = useMemo(() => {
+    if (!showInactiveBoards || !season || !controlledId) return [];
+    const team = seasonTeam(season, controlledId);
+    if (!team) return [];
+    // Do NOT exclude sameWindowDemoteIds from the display board — benched
+    // players must appear under Academy N/5 immediately. Call-up is gated
+    // via blockedCallUpIds on InactiveMarketBoard / VacancyFillPicker.
+    return buildAcademyBoard(
+      season.franchise?.inactivePool ?? [],
+      controlledId,
+      "all",
+      byId,
+      season.currentMeta,
+      null,
+      null,
+      team.players,
+    );
+  }, [showInactiveBoards, season, controlledId, byId]);
+
+  const sameWindowDemoteIds = useMemo(
+    () => new Set(season?.franchise?.sameWindowDemoteIds ?? []),
+    [season?.franchise?.sameWindowDemoteIds],
+  );
+
+  const academyRecommended = useMemo(() => {
+    if (!showInactiveBoards || !season || !controlledId) return [];
+    const team = seasonTeam(season, controlledId);
+    if (!team) return [];
+    return recommendedAcademyForTeam(
+      season.franchise?.inactivePool ?? [],
+      controlledId,
+      team.players,
+      byId,
+      season.currentMeta,
+    ).filter((r) => !r.entry.player.id || !sameWindowDemoteIds.has(r.entry.player.id));
+  }, [showInactiveBoards, season, controlledId, byId, sameWindowDemoteIds]);
+
   if (!season || !season.config.playerTransfers) return null;
 
-  const phase = season.phases[season.phaseIndex];
-  const atWindow = phase?.kind === "transfer" && phase.status === "in-progress";
   const controlled = seasonTeam(season, season.config.controlledTeamId);
+  const academyCount =
+    controlled && season.franchise?.aging
+      ? countTeamAcademy(season.franchise.inactivePool ?? [], controlled.id)
+      : 0;
   const byEvent = season.transfersByEvent ?? {};
   // Roles your team has already used this window — one move per role.
   const movedLanes = new Set<Lane>();
@@ -171,9 +271,8 @@ export default function TransferWindowPanel() {
     (e) => (byEvent[e]?.length ?? 0) > 0,
   );
 
-  // Retirements + rookie debuts from this year's post-Worlds offseason (aging
-  // on), league-wide — surfaced here so the user sees who hung it up and who
-  // broke in, not just on their own team.
+  // Retirements + demotions + roster entries from mid-split checkpoints and
+  // the post-Worlds offseason (aging on), league-wide.
   const rosterNews = season.rosterNews ?? [];
 
   // Nothing to show yet.
@@ -210,7 +309,7 @@ export default function TransferWindowPanel() {
                 type="button"
                 onClick={() => aiDecideSeasonTransfers()}
                 className="ml-auto px-2 py-0.5 border border-rift-blue/50 text-rift-bluebright text-[8px] uppercase tracking-[0.2em] hover:bg-rift-blue/10 transition-all"
-                title="Let the AI resolve your proposals and shop the best upgrades for you"
+                title="Let the AI resolve proposals, shop upgrades, and bench weak lanes for FA/academy fills"
               >
                 Let AI decide
               </button>
@@ -278,26 +377,62 @@ export default function TransferWindowPanel() {
                 >
                   {usedCount}/{USER_MAX_TRANSFERS_PER_WINDOW} signed
                 </span>
+                {showInactiveBoards && (
+                  <span
+                    className={`text-[8px] uppercase tracking-[0.2em] tabular-nums ${
+                      (season.franchise?.manualDemotesThisWindow ?? 0) >= USER_MAX_MANUAL_DEMOTES
+                        ? "text-rift-redbright/80"
+                        : "text-rift-muted/60"
+                    }`}
+                    title={`Up to ${USER_MAX_MANUAL_DEMOTES} manual demotes to academy per window`}
+                  >
+                    {season.franchise?.manualDemotesThisWindow ?? 0}/{USER_MAX_MANUAL_DEMOTES} demoted
+                  </span>
+                )}
               </div>
               <div className="space-y-1">
                 {LANE_ORDER.map((lane, li) => {
                   const p = controlled.players[li];
                   if (!p) return null;
+                  const vacant = isRosterVacancy(p);
                   const open = shopLane === lane;
                   const willing = candidates.filter((c) => c.willing);
+                  const demoteCap =
+                    !showInactiveBoards ||
+                    (season.franchise?.manualDemotesThisWindow ?? 0) >= USER_MAX_MANUAL_DEMOTES;
+                  const sameWindowRookie =
+                    !!p.id && (season.franchise?.sameWindowRookieIds ?? []).includes(p.id);
+                  const demoteBlocked = demoteCap || sameWindowRookie;
+                  const confirming = confirmDemoteLane === lane;
                   return (
                     <div key={lane}>
                       <div className="flex items-center gap-2 text-[10px]">
                         <LaneIcon lane={lane} size="sm" className="shrink-0" />
-                        <PlayerChip
-                          p={{ name: p.name, tier: p.tier, grade: null, goodChamps: p.goodChamps }}
-                          byId={byId}
-                        />
-                        <ChemScore me={p} roster={controlled.players} />
+                        {vacant ? (
+                          <span className="text-[9px] uppercase tracking-[0.2em] text-amber-300/80">
+                            Vacant — Academy / FA / Rookie or leave for AI
+                          </span>
+                        ) : (
+                          <>
+                            <PlayerChip
+                              p={{ name: p.name, tier: p.tier, grade: null, goodChamps: p.goodChamps }}
+                              byId={byId}
+                            />
+                            <ChemScore me={p} roster={controlled.players} />
+                          </>
+                        )}
                         {movedLanes.has(lane) ? (
                           <span className="ml-auto text-[8px] uppercase tracking-[0.2em] text-emerald-400/80">
                             ✓ signed this window
                           </span>
+                        ) : vacant ? (
+                          <button
+                            type="button"
+                            onClick={() => setFillLane(fillLane === lane ? null : lane)}
+                            className="ml-auto px-2 py-0.5 border border-amber-500/40 text-amber-200/90 text-[8px] uppercase tracking-[0.2em] hover:border-amber-400/70 hover:bg-amber-500/10 transition-all"
+                          >
+                            {fillLane === lane ? "Close fill" : "Fill slot"}
+                          </button>
                         ) : capReached ? (
                           <span className="ml-auto text-[8px] uppercase tracking-[0.2em] text-rift-muted/50">
                             cap reached
@@ -311,8 +446,79 @@ export default function TransferWindowPanel() {
                             {open ? "Close" : "Find transfers"}
                           </button>
                         )}
+                        {showInactiveBoards && !vacant && !movedLanes.has(lane) && (
+                          confirming ? (
+                            <span className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  demoteFollowedPlayer(lane);
+                                  setConfirmDemoteLane(null);
+                                  setShopLane(null);
+                                  setFillLane(lane);
+                                }}
+                                className="px-2 py-0.5 border border-rift-red/60 bg-rift-red/10 text-rift-redbright text-[8px] uppercase tracking-[0.2em] hover:bg-rift-red/20 transition-all"
+                              >
+                                Confirm bench
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDemoteLane(null)}
+                                className="px-2 py-0.5 border border-rift-line text-rift-mutedbright text-[8px] uppercase tracking-[0.2em] hover:text-rift-goldbright transition-all"
+                              >
+                                Cancel
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={demoteBlocked}
+                              onClick={() => setConfirmDemoteLane(lane)}
+                              title={
+                                sameWindowRookie
+                                  ? "Can't bench a rookie signed this window"
+                                  : demoteCap
+                                    ? `Demote cap (${USER_MAX_MANUAL_DEMOTES}/window) reached`
+                                    : "Send to academy · opens vacancy for Academy / FA / Rookie / AI"
+                              }
+                              className="px-2 py-0.5 border border-rift-line text-rift-mutedbright text-[8px] uppercase tracking-[0.2em] hover:border-rift-red/50 hover:text-rift-redbright transition-all disabled:opacity-35 disabled:cursor-not-allowed"
+                            >
+                              Bench
+                            </button>
+                          )
+                        )}
                       </div>
-                      {open && !movedLanes.has(lane) && (
+                      {vacant && fillLane === lane && showInactiveBoards && (
+                        <VacancyFillPicker
+                          lane={lane}
+                          academyRows={academyBoard.filter(
+                            (r) =>
+                              r.entry.player.lane === lane &&
+                              (!r.entry.player.id ||
+                                !sameWindowDemoteIds.has(r.entry.player.id)),
+                          )}
+                          faRows={faBoard.filter((r) => r.entry.player.lane === lane)}
+                          signsUsed={season.franchise?.faSignsThisWindow ?? 0}
+                          onAcademy={(id) => {
+                            shopAcademyRecall(lane, id);
+                            setFillLane(null);
+                          }}
+                          onFa={(id) => {
+                            shopOffseasonFa(lane, id);
+                            setFillLane(null);
+                          }}
+                          onRookie={() => {
+                            shopRookie(lane);
+                            setFillLane(null);
+                          }}
+                          onLeaveForAi={() => setFillLane(null)}
+                          onBrowseBoard={(kind) => {
+                            setBoardFocus({ kind, lane });
+                            setFillLane(null);
+                          }}
+                        />
+                      )}
+                      {open && !movedLanes.has(lane) && !vacant && (
                         <div className="ml-8 mt-1 space-y-1">
                           {willing.length === 0 ? (
                             <div className="text-[9px] italic text-rift-muted">
@@ -374,10 +580,43 @@ export default function TransferWindowPanel() {
             </div>
           )}
 
+          {/* FA + Academy — user shops first; demotions/AI fills run on Proceed */}
+          {showInactiveBoards && controlled && (
+            <>
+              <InactiveMarketBoard
+                kind="fa"
+                board={faBoard}
+                recommended={faRecommended}
+                signsUsed={season.franchise?.faSignsThisWindow ?? 0}
+                academyCount={academyCount}
+                onSign={shopOffseasonFa}
+                onSignToAcademy={shopFaToAcademy}
+                focusLane={boardFocus?.kind === "fa" ? boardFocus.lane : null}
+              />
+              <InactiveMarketBoard
+                kind="academy"
+                board={academyBoard}
+                recommended={academyRecommended}
+                signsUsed={season.franchise?.faSignsThisWindow ?? 0}
+                academyCount={academyCount}
+                onSign={shopAcademyRecall}
+                onReleaseToFa={shopAcademyRelease}
+                onAddAcademyRookie={() => shopAcademyRookie()}
+                blockedCallUpIds={sameWindowDemoteIds}
+                focusLane={boardFocus?.kind === "academy" ? boardFocus.lane : null}
+              />
+            </>
+          )}
+
           <button
             type="button"
             onClick={() => advanceSeasonTransfers()}
             className="w-full py-1.5 border border-rift-gold bg-rift-gold/10 text-rift-goldbright text-[10px] uppercase tracking-[0.25em] hover:bg-rift-gold/20 transition-all"
+            title={
+              season.franchise?.pendingMidSplitDemotion
+                ? "Confirm your moves — league demotions & FA fills run after you proceed"
+                : undefined
+            }
           >
             Proceed to {nextLabel} →
           </button>
@@ -434,22 +673,115 @@ export default function TransferWindowPanel() {
           })
         )}
 
-        {/* Post-Worlds offseason: who retired and the rookies who took their
-            slots, across every team. Shown at the year-start (pre-season)
-            context only — not repeated during the later in-season windows. */}
-        {rosterNews.length > 0 && !atWindow && (
+        {/* Demotions & roster entries (mid-split + post-Worlds offseason). */}
+        {rosterNews.length > 0 && (
           <div className="mt-2">
             <div className="text-[9px] uppercase tracking-[0.25em] text-emerald-300/70 mb-1">
-              Retirements &amp; Rookie Debuts{yr}
+              Demotions &amp; Roster Entries{yr}
             </div>
             <div className="border border-emerald-500/25 bg-emerald-500/[0.04] divide-y divide-rift-line/15">
               {rosterNews.map((n, i) => {
                 const team = seasonTeam(season, n.teamId);
+                const departed = n.departedName;
+                const departedTier = n.departedTier;
+                const departedAge = n.departedAge;
+                const entrant = n.entrantName;
+                const entrantTier = n.entrantTier;
+                const entrantPotential = n.entrantPotential;
+                const source = n.entrantSource;
+                const vacancyDemote =
+                  n.marketNote === "manual-demote" || n.marketNote === "ai-demote";
+                const becameFa =
+                  n.marketNote === "academy-release" ||
+                  n.marketNote === "became-fa" ||
+                  n.marketNote === "academy-bump";
+                const faToAcademy =
+                  n.marketNote === "fa-academy" ||
+                  n.marketNote === "academy-stash" ||
+                  n.marketNote === "academy-rookie";
+                const sourceLabel =
+                  source === "academy" ? "returnee (academy)" : source === "free-agent" ? "returnee (FA)" : "rookie";
+                const bidNote =
+                  n.marketNote === "academy-pass" && n.passedAcademyName
+                    ? ` · passed academy ${n.passedAcademyName}`
+                    : n.beatenNames && n.beatenNames.length > 0
+                      ? ` · over ${n.beatenNames.join(", ")}`
+                      : n.marketNote === "open-fa"
+                        ? " · open FA upgrade"
+                        : n.marketNote === "rookie-gate"
+                          ? " · rookie's door"
+                          : "";
+                if (becameFa) {
+                  const label =
+                    n.marketNote === "academy-release"
+                      ? "released to free agency"
+                      : n.marketNote === "academy-bump"
+                        ? "became a free agent (academy full)"
+                        : "became a free agent";
+                  return (
+                    <div
+                      key={`${n.teamId}-${n.lane}-${i}`}
+                      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 text-[10px]"
+                    >
+                      <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
+                        {n.timeMark ?? "—"}
+                      </span>
+                      <TeamIcon
+                        iconKey={team?.iconKey ?? "shield"}
+                        logoUrl={team?.logoUrl}
+                        size={13}
+                        color={team?.color}
+                      />
+                      <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
+                      <span className="text-rift-mutedbright">
+                        <span className="text-amber-300/90">{departed ?? entrant}</span>{" "}
+                        <span className="text-rift-muted/60">
+                          ({departedTier ?? entrantTier}) {label}
+                          {departedAge != null ? ` · age ${departedAge}` : ""}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                }
+                if (faToAcademy) {
+                  const academyLabel =
+                    n.marketNote === "academy-rookie"
+                      ? "academy rookie"
+                      : n.marketNote === "academy-stash"
+                        ? "signed to academy · AI stash"
+                        : "signed to academy";
+                  return (
+                    <div
+                      key={`${n.teamId}-${n.lane}-${i}`}
+                      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 text-[10px]"
+                    >
+                      <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
+                        {n.timeMark ?? "—"}
+                      </span>
+                      <TeamIcon
+                        iconKey={team?.iconKey ?? "shield"}
+                        logoUrl={team?.logoUrl}
+                        size={13}
+                        color={team?.color}
+                      />
+                      <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
+                      <span className="text-rift-mutedbright">
+                        <span className="text-sky-400/90">{entrant}</span>{" "}
+                        <span className="text-rift-muted/60">
+                          ({entrantTier}) {academyLabel}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                }
                 return (
                   <div
                     key={`${n.teamId}-${n.lane}-${i}`}
                     className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 text-[10px]"
                   >
+                    <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
+                      {n.timeMark ?? "—"}
+                    </span>
                     <TeamIcon
                       iconKey={team?.iconKey ?? "shield"}
                       logoUrl={team?.logoUrl}
@@ -457,24 +789,42 @@ export default function TransferWindowPanel() {
                       color={team?.color}
                     />
                     <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
-                    {n.retiredName ? (
+                    {departed ? (
                       <span className="text-rift-mutedbright">
-                        <span className="text-rift-redbright/80">{n.retiredName}</span>{" "}
+                        <span className="text-rift-redbright/80">{departed}</span>{" "}
                         <span className="text-rift-muted/60">
-                          ({n.retiredTier}) retired{n.retiredAge != null ? ` at ${n.retiredAge}` : ""}
+                          ({departedTier}) demoted to academy
+                          {departedAge != null ? ` · age ${departedAge}` : ""}
                         </span>
                       </span>
                     ) : (
                       <span className="text-rift-muted/60">Slot opened</span>
                     )}
-                    <span className="text-rift-muted/40">→</span>
-                    <span className="text-rift-mutedbright">
-                      rookie <span className="text-emerald-400/90">{n.rookieName}</span>
-                    </span>
-                    <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">
-                      {n.rookieTier}
-                      {n.rookiePotential !== n.rookieTier ? ` ↗${n.rookiePotential}` : ""} debuts
-                    </span>
+                    {vacancyDemote ? (
+                      <span className="text-[8px] uppercase tracking-[0.15em] text-amber-300/75">
+                        {n.marketNote === "ai-demote"
+                          ? "→ AI bench · market fill"
+                          : "→ slot open · fill via FA / academy or leave for AI"}
+                      </span>
+                    ) : (
+                      <>
+                        <span className="text-rift-muted/40">→</span>
+                        <span className="text-rift-mutedbright">
+                          {sourceLabel}{" "}
+                          <span className={source === "rookie" ? "text-emerald-400/90" : "text-sky-400/90"}>
+                            {entrant}
+                          </span>
+                        </span>
+                        <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">
+                          {entrantTier}
+                          {entrantPotential !== entrantTier ? ` ↗${entrantPotential}` : ""}
+                          {source === "rookie" ? " debuts" : " returns"}
+                          {bidNote && (
+                            <span className="normal-case tracking-normal text-rift-muted/50">{bidNote}</span>
+                          )}
+                        </span>
+                      </>
+                    )}
                   </div>
                 );
               })}

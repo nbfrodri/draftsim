@@ -129,7 +129,8 @@ import {
 } from "@/lib/season/transfers";
 import { advanceTransferWindow } from "@/lib/season/engine";
 import { swapCoaches } from "@/lib/season/coach";
-import { seedFranchise, startNextSeason } from "@/lib/season/franchise";
+import { seedFranchise, startNextSeason, applyUserFaSign, applyUserAcademyRecall, applyUserFaToAcademy, applyUserAcademyRelease, applyUserAcademyRookie, applyUserManualDemote, applyUserRookieSign, aiDecideFollowedDemotes } from "@/lib/season/franchise";
+import { inactiveSnapshotsForArchivedYear } from "@/lib/season/playerLifecycle";
 import { ensureTeamIdentities } from "@/lib/season/teamGen";
 import {
   buildSeasonHistoryEntry,
@@ -628,6 +629,20 @@ interface DraftStore {
   shopSeasonTransfer: (lane: Lane, otherTeamId: string) => void;
   // Same, but for the post-Worlds OFFSEASON on a completed reality season.
   shopOffseasonTransfer: (lane: Lane, otherTeamId: string) => void;
+  /** Sign an FA into a followed-team lane (offseason or mid-season transfer; value-gap gated). */
+  shopOffseasonFa: (lane: Lane, faPlayerId: string) => void;
+  /** Sign an FA into the followed team's academy (not roster; academy must have room). */
+  shopFaToAcademy: (faPlayerId: string) => void;
+  /** Call up own academy player into a followed-team lane (same windows / gap as FA). */
+  shopAcademyRecall: (lane: Lane, academyPlayerId: string) => void;
+  /** Release own academy player to free agency. */
+  shopAcademyRelease: (academyPlayerId: string) => void;
+  /** Generate a rookie into the followed team's academy (room required). */
+  shopAcademyRookie: (lane?: Lane) => void;
+  /** Fill a vacant followed-team lane with a generated rookie (transfer / offseason). */
+  shopRookie: (lane: Lane) => void;
+  /** Manually bench a followed-team player to academy (opens vacancy; max 2/window). */
+  demoteFollowedPlayer: (lane: Lane) => void;
   // Offseason coach market: swap the user's coach with another team's coach.
   shopOffseasonCoach: (otherTeamId: string) => void;
   // Edit the completed reality season's config (split/intl formats) so the
@@ -1351,7 +1366,9 @@ export const useDraftStore = create<DraftStore>()(
     // If this season was started from the Realities hub, promote it to Year 1
     // of a new continuous timeline and register the reality save.
     const pending = state.pendingReality;
-    const season = pending ? seedFranchise(built, pending.name, pending.aging) : built;
+    const season = pending
+      ? seedFranchise(built, pending.name, pending.aging, Math.random, state.champions)
+      : built;
     const realityPatch =
       pending && season.franchise
         ? {
@@ -1510,13 +1527,16 @@ export const useDraftStore = create<DraftStore>()(
   aiDecideSeasonTransfers: () => {
     const { season, champions } = get();
     if (!season) return;
-    set({ season: aiResolveUserTransferWindow(season, champions) });
+    let next = aiResolveUserTransferWindow(season, champions);
+    next = aiDecideFollowedDemotes(next, champions);
+    set({ season: next });
   },
 
   aiDecideOffseason: () => {
     const { season, champions } = get();
     if (!season?.franchise || season.status !== "complete") return;
     let next = aiResolveUserOffseason(season, champions);
+    next = aiDecideFollowedDemotes(next, champions);
     const me = next.config.controlledTeamId;
     const hire = bestCoachHire(next);
     if (me && hire) next = { ...next, teams: swapCoaches(next.teams, me, hire) };
@@ -1524,9 +1544,9 @@ export const useDraftStore = create<DraftStore>()(
   },
 
   advanceSeasonTransfers: () => {
-    const season = get().season;
+    const { season, champions } = get();
     if (!season) return;
-    set({ season: advanceTransferWindow(season) });
+    set({ season: advanceTransferWindow(season, champions) });
   },
 
   shopSeasonTransfer: (lane, otherTeamId) => {
@@ -1539,6 +1559,55 @@ export const useDraftStore = create<DraftStore>()(
     const { season, champions } = get();
     if (!season) return;
     set({ season: executeOffseasonUserTransfer(season, champions, lane, otherTeamId) });
+  },
+
+  shopOffseasonFa: (lane, faPlayerId) => {
+    const { season, champions } = get();
+    if (!season) return;
+    const next = applyUserFaSign(season, champions, lane, faPlayerId);
+    if (next) set({ season: next });
+  },
+
+  shopFaToAcademy: (faPlayerId) => {
+    const { season } = get();
+    if (!season) return;
+    const next = applyUserFaToAcademy(season, faPlayerId);
+    if (next) set({ season: next });
+  },
+
+  shopAcademyRecall: (lane, academyPlayerId) => {
+    const { season, champions } = get();
+    if (!season) return;
+    const next = applyUserAcademyRecall(season, champions, lane, academyPlayerId);
+    if (next) set({ season: next });
+  },
+
+  shopAcademyRelease: (academyPlayerId) => {
+    const { season } = get();
+    if (!season) return;
+    const next = applyUserAcademyRelease(season, academyPlayerId);
+    if (next) set({ season: next });
+  },
+
+  shopAcademyRookie: (lane) => {
+    const { season, champions } = get();
+    if (!season) return;
+    const next = applyUserAcademyRookie(season, champions, lane);
+    if (next) set({ season: next });
+  },
+
+  shopRookie: (lane) => {
+    const { season, champions } = get();
+    if (!season) return;
+    const next = applyUserRookieSign(season, champions, lane);
+    if (next) set({ season: next });
+  },
+
+  demoteFollowedPlayer: (lane) => {
+    const { season } = get();
+    if (!season) return;
+    const next = applyUserManualDemote(season, lane);
+    if (next) set({ season: next });
   },
 
   shopOffseasonCoach: (otherTeamId) => {
@@ -1566,9 +1635,9 @@ export const useDraftStore = create<DraftStore>()(
   // `seasonHistory` is the one-off Season mode's Hall and is never touched by
   // realities, so the two never mix.
   startReality: (name, aging) => {
-    const season = get().season;
+    const { season, champions } = get();
     if (!season) return;
-    const seeded = seedFranchise(season, name, aging);
+    const seeded = seedFranchise(season, name, aging, Math.random, champions);
     const id = seeded.franchise!.id;
     set((s) => ({
       season: seeded,
@@ -1588,11 +1657,22 @@ export const useDraftStore = create<DraftStore>()(
     const prevHistory = get().realities.find((r) => r.id === rid)?.history ?? [];
     // Archive the finished year into THIS reality's Hall, then roll forward.
     const entry = buildSeasonHistoryEntry(season, Date.now());
-    const history = [entry, ...prevHistory.filter((e) => e.id !== entry.id)].slice(
+    const historyBase = [entry, ...prevHistory.filter((e) => e.id !== entry.id)].slice(
       0,
       seasonHistoryCap(),
     );
+    const prePool = season.franchise.inactivePool ?? [];
     const next = startNextSeason(season, champions);
+    // Hall badges for the year that ended: stamp the year-end advance tick
+    // onto this archive (ACY 1→2→3→FA) and include new demotees/cuts at 1y.
+    // Always set the field when aging is on (even []) so search won't fall
+    // back to the legacy "missing from roster = retired" heuristic.
+    const inactivePlayers = next.franchise?.aging
+      ? inactiveSnapshotsForArchivedYear(prePool, next.franchise.inactivePool ?? [])
+      : undefined;
+    const archived =
+      inactivePlayers != null ? { ...entry, inactivePlayers } : entry;
+    const history = historyBase.map((e) => (e.id === archived.id ? archived : e));
     set((s) => ({
       season: next,
       realities: s.realities.map((r) =>

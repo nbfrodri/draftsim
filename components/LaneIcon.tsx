@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import type { Lane } from "@/lib/types";
 
 // Riot's lane position icons from CommunityDragon (support = "utility").
@@ -21,13 +23,17 @@ const SIZE: Record<NonNullable<Props["size"]>, string> = {
   md: "w-4 h-4 md:w-5 md:h-5",
 };
 
-export default function LaneIcon({ lane, size = "sm", className = "" }: Props) {
+function LaneIcon({ lane, size = "sm", className = "" }: Props) {
   return (
     <img
       src={LANE_ICON_URL[lane]}
       alt={lane}
       aria-hidden
+      loading="lazy"
+      decoding="async"
       className={`${SIZE[size]} shrink-0 ${className}`}
     />
   );
 }
+
+export default memo(LaneIcon);

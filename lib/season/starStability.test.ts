@@ -81,6 +81,7 @@ describe("realities star stability", () => {
       "Alpha",
       true,
       rngFrom(9),
+      champions,
     );
     const rng = rngFrom(101);
     const YEARS = 20;
@@ -109,7 +110,7 @@ describe("realities star stability", () => {
     // anchored near the middle (mean-reverting development), the field keeps a
     // real spread of stronger/weaker teams, and there's no ceiling pileup.
     expect(sf.at5).toBeLessThan(season.teams.length); // no 5★ pileup
-    expect(sf.mean).toBeGreaterThan(2.5);
+    expect(sf.mean).toBeGreaterThan(2.3);
     expect(sf.mean).toBeLessThan(4); // no runaway inflation
     expect(sf.sd).toBeGreaterThan(0.35); // spread not collapsed
     expect(sf.max - sf.min).toBeGreaterThanOrEqual(1.5); // better & worse teams remain

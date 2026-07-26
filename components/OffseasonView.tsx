@@ -9,6 +9,15 @@ import {
   userTransferCount,
   USER_MAX_TRANSFERS_OFFSEASON,
 } from "@/lib/season/transfers";
+import {
+  buildFaBoard,
+  buildAcademyBoard,
+  recommendedFasForTeam,
+  recommendedAcademyForTeam,
+  USER_MAX_MANUAL_DEMOTES,
+  countTeamAcademy,
+  isRosterVacancy,
+} from "@/lib/season/faMarket";
 import { coachPlaystyle } from "@/lib/season/coach";
 import { computeSeasonStats } from "@/lib/season/stats";
 import { intlConfigFor } from "@/lib/season/engine";
@@ -27,6 +36,8 @@ import LaneIcon from "./LaneIcon";
 import { ProjectedChemScore } from "./ChemistryRow";
 import { LeagueConfigCard, IntlConfigCard, GlobalCupConfigCard, INTL_IDS } from "./season/configCards";
 import TeamPicker from "./season/TeamPicker";
+import InactiveMarketBoard from "./season/InactiveMarketBoard";
+import VacancyFillPicker from "./season/VacancyFillPicker";
 
 // The post-Worlds OFFSEASON for a reality: the year is decided, and before
 // rolling into the next one the user sees the season's headline stats and runs
@@ -47,11 +58,23 @@ export default function OffseasonView() {
   const season = useDraftStore((s) => s.season);
   const champions = useDraftStore((s) => s.champions);
   const shopOffseasonTransfer = useDraftStore((s) => s.shopOffseasonTransfer);
+  const shopOffseasonFa = useDraftStore((s) => s.shopOffseasonFa);
+  const shopFaToAcademy = useDraftStore((s) => s.shopFaToAcademy);
+  const shopAcademyRecall = useDraftStore((s) => s.shopAcademyRecall);
+  const shopAcademyRelease = useDraftStore((s) => s.shopAcademyRelease);
+  const shopAcademyRookie = useDraftStore((s) => s.shopAcademyRookie);
+  const shopRookie = useDraftStore((s) => s.shopRookie);
+  const demoteFollowedPlayer = useDraftStore((s) => s.demoteFollowedPlayer);
   const shopOffseasonCoach = useDraftStore((s) => s.shopOffseasonCoach);
   const aiDecideOffseason = useDraftStore((s) => s.aiDecideOffseason);
   const updateSeasonConfig = useDraftStore((s) => s.updateSeasonConfig);
   const continueSeasonToNextYear = useDraftStore((s) => s.continueSeasonToNextYear);
   const [shopLane, setShopLane] = useState<Lane | null>(null);
+  const [confirmDemoteLane, setConfirmDemoteLane] = useState<Lane | null>(null);
+  const [fillLane, setFillLane] = useState<Lane | null>(null);
+  const [boardFocus, setBoardFocus] = useState<{ kind: "fa" | "academy"; lane: Lane } | null>(
+    null,
+  );
   const [coachOpen, setCoachOpen] = useState(false);
   const [fmtOpen, setFmtOpen] = useState(false);
 
@@ -72,11 +95,75 @@ export default function OffseasonView() {
     () => (active && season && shopLane ? offseasonCandidates(season, champions, shopLane) : []),
     [active, season, champions, shopLane],
   );
+  const controlledId = season?.config.controlledTeamId;
+  const faBoard = useMemo(() => {
+    if (!active || !season || !controlledId) return [];
+    const team = seasonTeam(season, controlledId);
+    if (!team) return [];
+    const exclude = new Set(season.franchise?.sameWindowDemoteIds ?? []);
+    return buildFaBoard(
+      season.franchise?.inactivePool ?? [],
+      "all",
+      byId,
+      season.currentMeta,
+      null,
+      null,
+      team.players,
+      exclude,
+    );
+  }, [active, season, controlledId, byId]);
+  const faRecommended = useMemo(() => {
+    if (!active || !season || !controlledId) return [];
+    const team = seasonTeam(season, controlledId);
+    if (!team) return [];
+    const exclude = new Set(season.franchise?.sameWindowDemoteIds ?? []);
+    return recommendedFasForTeam(
+      season.franchise?.inactivePool ?? [],
+      team.players,
+      byId,
+      season.currentMeta,
+    ).filter((r) => !r.entry.player.id || !exclude.has(r.entry.player.id));
+  }, [active, season, controlledId, byId]);
+  const academyBoard = useMemo(() => {
+    if (!active || !season || !controlledId) return [];
+    const team = seasonTeam(season, controlledId);
+    if (!team) return [];
+    // Include same-window demotees on the board; block call-up separately.
+    return buildAcademyBoard(
+      season.franchise?.inactivePool ?? [],
+      controlledId,
+      "all",
+      byId,
+      season.currentMeta,
+      null,
+      null,
+      team.players,
+    );
+  }, [active, season, controlledId, byId]);
+  const sameWindowDemoteIds = useMemo(
+    () => new Set(season?.franchise?.sameWindowDemoteIds ?? []),
+    [season?.franchise?.sameWindowDemoteIds],
+  );
+  const academyRecommended = useMemo(() => {
+    if (!active || !season || !controlledId) return [];
+    const team = seasonTeam(season, controlledId);
+    if (!team) return [];
+    return recommendedAcademyForTeam(
+      season.franchise?.inactivePool ?? [],
+      controlledId,
+      team.players,
+      byId,
+      season.currentMeta,
+    ).filter((r) => !r.entry.player.id || !sameWindowDemoteIds.has(r.entry.player.id));
+  }, [active, season, controlledId, byId, sameWindowDemoteIds]);
 
   if (!active || !season) return null;
 
   const fr = season.franchise!; // guaranteed by `active`
   const controlled = seasonTeam(season, season.config.controlledTeamId);
+  const academyCount = controlled
+    ? countTeamAcademy(fr.inactivePool ?? [], controlled.id)
+    : 0;
   const championTeam = seasonTeam(season, season.champion);
   const movedLanes = new Set<Lane>();
   if (controlled) {
@@ -139,7 +226,7 @@ export default function OffseasonView() {
               type="button"
               onClick={() => aiDecideOffseason()}
               className="ml-auto px-2 py-0.5 border border-rift-blue/50 text-rift-bluebright text-[8px] uppercase tracking-[0.2em] hover:bg-rift-blue/10 transition-all"
-              title="Let the AI shop the best upgrades and hire a better coach for you"
+              title="Let the AI shop upgrades, bench weak lanes for FA/academy fills, and hire a better coach"
             >
               Let AI decide
             </button>
@@ -149,36 +236,71 @@ export default function OffseasonView() {
             >
               {usedCount}/{USER_MAX_TRANSFERS_OFFSEASON} signed
             </span>
+            {fr.aging && (
+              <span
+                className={`text-[8px] uppercase tracking-[0.2em] tabular-nums ${
+                  (fr.manualDemotesThisWindow ?? 0) >= USER_MAX_MANUAL_DEMOTES
+                    ? "text-rift-redbright/80"
+                    : "text-rift-muted/60"
+                }`}
+                title={`Up to ${USER_MAX_MANUAL_DEMOTES} manual demotes to academy per window`}
+              >
+                {fr.manualDemotesThisWindow ?? 0}/{USER_MAX_MANUAL_DEMOTES} demoted
+              </span>
+            )}
           </div>
           <div className="space-y-1">
             {LANE_ORDER.map((lane, li) => {
               const p = controlled.players[li];
               if (!p) return null;
+              const vacant = isRosterVacancy(p);
               const open = shopLane === lane;
               const moved = movedLanes.has(lane);
               const willing = candidates.filter((c) => c.willing);
+              const demoteCap =
+                !fr.aging || (fr.manualDemotesThisWindow ?? 0) >= USER_MAX_MANUAL_DEMOTES;
+              const sameWindowRookie =
+                !!p.id && (fr.sameWindowRookieIds ?? []).includes(p.id);
+              const demoteBlocked = demoteCap || sameWindowRookie;
+              const confirming = confirmDemoteLane === lane;
               return (
                 <div key={lane}>
                   <div className="flex items-center gap-2 text-[10px]">
                     <LaneIcon lane={lane} size="sm" className="shrink-0" />
-                    <span className={`w-5 text-center border font-display ${TIER_CLS[p.tier]}`}>{p.tier}</span>
-                    {p.name && (
-                      <span className="text-rift-mutedbright font-medium max-w-[110px] truncate" title={p.name}>
-                        {p.name}
+                    {vacant ? (
+                      <span className="text-[9px] uppercase tracking-[0.2em] text-amber-300/80">
+                        Vacant — Academy / FA / Rookie or leave for AI
                       </span>
+                    ) : (
+                      <>
+                        <span className={`w-5 text-center border font-display ${TIER_CLS[p.tier]}`}>{p.tier}</span>
+                        {p.name && (
+                          <span className="text-rift-mutedbright font-medium max-w-[110px] truncate" title={p.name}>
+                            {p.name}
+                          </span>
+                        )}
+                        <span className="inline-flex gap-0.5">
+                          {p.goodChamps.slice(0, 3).map((id, i) => {
+                            const c = byId.get(id);
+                            if (!c) return null;
+                            return (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img key={id} src={c.iconUrl} alt={c.name} className={`w-4 h-4 object-cover border border-rift-line/40 ${i >= MAIN_POOL ? "opacity-50" : ""}`} />
+                            );
+                          })}
+                        </span>
+                      </>
                     )}
-                    <span className="inline-flex gap-0.5">
-                      {p.goodChamps.slice(0, 3).map((id, i) => {
-                        const c = byId.get(id);
-                        if (!c) return null;
-                        return (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img key={id} src={c.iconUrl} alt={c.name} className={`w-4 h-4 object-cover border border-rift-line/40 ${i >= MAIN_POOL ? "opacity-50" : ""}`} />
-                        );
-                      })}
-                    </span>
                     {moved ? (
                       <span className="ml-auto text-[8px] uppercase tracking-[0.2em] text-emerald-400/80">✓ signed</span>
+                    ) : vacant ? (
+                      <button
+                        type="button"
+                        onClick={() => setFillLane(fillLane === lane ? null : lane)}
+                        className="ml-auto px-2 py-0.5 border border-amber-500/40 text-amber-200/90 text-[8px] uppercase tracking-[0.2em] hover:border-amber-400/70 hover:bg-amber-500/10 transition-all"
+                      >
+                        {fillLane === lane ? "Close fill" : "Fill slot"}
+                      </button>
                     ) : capReached ? (
                       <span className="ml-auto text-[8px] uppercase tracking-[0.2em] text-rift-muted/50">cap reached</span>
                     ) : (
@@ -190,8 +312,78 @@ export default function OffseasonView() {
                         {open ? "Close" : "Find transfers"}
                       </button>
                     )}
+                    {fr.aging && !vacant && !moved && (
+                      confirming ? (
+                        <span className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              demoteFollowedPlayer(lane);
+                              setConfirmDemoteLane(null);
+                              setShopLane(null);
+                              setFillLane(lane);
+                            }}
+                            className="px-2 py-0.5 border border-rift-red/60 bg-rift-red/10 text-rift-redbright text-[8px] uppercase tracking-[0.2em] hover:bg-rift-red/20 transition-all"
+                          >
+                            Confirm bench
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDemoteLane(null)}
+                            className="px-2 py-0.5 border border-rift-line text-rift-mutedbright text-[8px] uppercase tracking-[0.2em] hover:text-rift-goldbright transition-all"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={demoteBlocked}
+                          onClick={() => setConfirmDemoteLane(lane)}
+                          title={
+                            sameWindowRookie
+                              ? "Can't bench a rookie signed this window"
+                              : demoteCap
+                                ? `Demote cap (${USER_MAX_MANUAL_DEMOTES}/window) reached`
+                                : "Send to academy · opens vacancy for Academy / FA / Rookie / AI"
+                          }
+                          className="px-2 py-0.5 border border-rift-line text-rift-mutedbright text-[8px] uppercase tracking-[0.2em] hover:border-rift-red/50 hover:text-rift-redbright transition-all disabled:opacity-35 disabled:cursor-not-allowed"
+                        >
+                          Bench
+                        </button>
+                      )
+                    )}
                   </div>
-                  {open && !moved && (
+                  {vacant && fillLane === lane && fr.aging && (
+                    <VacancyFillPicker
+                      lane={lane}
+                      academyRows={academyBoard.filter(
+                        (r) =>
+                          r.entry.player.lane === lane &&
+                          (!r.entry.player.id || !sameWindowDemoteIds.has(r.entry.player.id)),
+                      )}
+                      faRows={faBoard.filter((r) => r.entry.player.lane === lane)}
+                      signsUsed={fr.faSignsThisWindow ?? 0}
+                      onAcademy={(id) => {
+                        shopAcademyRecall(lane, id);
+                        setFillLane(null);
+                      }}
+                      onFa={(id) => {
+                        shopOffseasonFa(lane, id);
+                        setFillLane(null);
+                      }}
+                      onRookie={() => {
+                        shopRookie(lane);
+                        setFillLane(null);
+                      }}
+                      onLeaveForAi={() => setFillLane(null)}
+                      onBrowseBoard={(kind) => {
+                        setBoardFocus({ kind, lane });
+                        setFillLane(null);
+                      }}
+                    />
+                  )}
+                  {open && !moved && !vacant && (
                     <div className="ml-8 mt-1 space-y-1">
                       {willing.length === 0 ? (
                         <div className="text-[9px] italic text-rift-muted">No team will trade for this slot.</div>
@@ -234,6 +426,34 @@ export default function OffseasonView() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Free-agent + Academy boards — user shops before AI market on continue */}
+      {controlled && fr.aging && (
+        <div className="px-3 py-2">
+          <InactiveMarketBoard
+            kind="fa"
+            board={faBoard}
+            recommended={faRecommended}
+            signsUsed={fr.faSignsThisWindow ?? 0}
+            academyCount={academyCount}
+            onSign={shopOffseasonFa}
+            onSignToAcademy={shopFaToAcademy}
+            focusLane={boardFocus?.kind === "fa" ? boardFocus.lane : null}
+          />
+          <InactiveMarketBoard
+            kind="academy"
+            board={academyBoard}
+            recommended={academyRecommended}
+            signsUsed={fr.faSignsThisWindow ?? 0}
+            academyCount={academyCount}
+            onSign={shopAcademyRecall}
+            onReleaseToFa={shopAcademyRelease}
+            onAddAcademyRookie={() => shopAcademyRookie()}
+            blockedCallUpIds={sameWindowDemoteIds}
+            focusLane={boardFocus?.kind === "academy" ? boardFocus.lane : null}
+          />
         </div>
       )}
 
@@ -435,7 +655,7 @@ export default function OffseasonView() {
           Finalize Offseason → Year {fr.year + 1}
         </button>
         <p className="text-[8px] text-rift-muted/55 mt-1 text-center">
-          The rest of the league's offseason{fr.aging ? ", player aging, retirements & rookies," : ""} resolve as the next season begins.
+          The rest of the league's offseason{fr.aging ? ", player aging, demotions & rookies/returnees," : ""} resolve as the next season begins.
         </p>
       </div>
     </div>

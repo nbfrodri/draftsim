@@ -1,29 +1,80 @@
 // Player careers for franchise/reality mode: stable ids, ageing, growth and
-// decline, retirement, and incoming rookies. Pure and deterministic given an
-// RNG. Runs once per YEAR (the post-Worlds offseason), distinct from the
-// per-split tier drift in applyPlayerDevelopment.
+// decline, performance-based demotion (academy → free agency → retired), and
+// slot fills (returnees preferred over rookies). Pure and deterministic given
+// an RNG.
 //
-// The model in one line: young players climb toward a hidden `potential`,
-// veterans slide down, and a good (bad) season speeds growth (decline) — so a
-// star's arc and a journeyman's fade both emerge from age × performance.
+// Demotion checkpoints: after each split (winter/spring/summer) AND the
+// post-Worlds offseason. Aging + academy→FA→retire advances only at the
+// year-end offseason.
+//
+// Age influences growth/decline only — there is NO age-forced retirement.
+// Demotion: UNDERPERFORM_STREAK_TO_DEMOTE consecutive underperforming
+// checkpoints → academy. An international title resets the bad streak.
+// Path: Active → Academy (3y, same-org recall only) → FA (4y, any team) →
+// Retired if unsigned (~7 inactive years). inactiveYears is 1-based from
+// demotion day (Academy · 1y immediately; after 3 year-ends → FA · 1y).
 
 import type { Champion, Lane, Player, PlayerTier } from "../types";
 import {
   PLAYER_TIER_VALUE,
   PLAYER_TIERS,
+  LANE_ORDER,
   valueToTier,
   randomizeChampPools,
   makePlayerId,
   type RNG,
 } from "../players";
-import { generateHandle } from "./playerNames";
+import { generateHandle, isValidHandle } from "./playerNames";
+// Re-export for callers that imported isValidHandle from lifecycle.
+export { isValidHandle } from "./playerNames";
 import rookiePool from "./rookieNames.json";
+import type { SeasonMetaSnapshot } from "./types";
+import {
+  NEUTRAL_META,
+  applyComebackRust,
+  inactiveMarketGrade,
+  pickScoredReturnee,
+  resolveCompetitiveFills,
+  runOpenFaReplacePass,
+  runAiAcademyReleasePass,
+  runAiAcademyStashPass,
+  executeAddAcademyRookie,
+  shallowestAcademyLane,
+  teamAcademyHasRoom,
+  countTeamAcademy,
+  addToTeamAcademy,
+  makeBecameFaNews,
+  tickInactiveYear,
+  MAX_AI_ACADEMY_ROOKIE_PER_TEAM,
+  AI_ACADEMY_ROOKIE_CHANCE,
+  AI_ACADEMY_ROOKIE_CHANCE_MID_SPLIT,
+  AI_ACADEMY_ROOKIE_FA_THIN,
+  AI_ACADEMY_ROOKIE_DEPTH_BELOW,
+  countAcademyRookiesMintedInYear,
+  applyFaGraduatePressure,
+  cullWeakFaWhenOversized,
+  academyTenureYears,
+  applyAcademyGraduateCap,
+  ACADEMY_YEARS_MIN,
+  ACADEMY_YEARS_MAX,
+  ACADEMY_GRADUATE_CAP_PER_YEAR,
+  type MarketNote as FaMarketNote,
+  type MarketVacancy,
+  type MarketInactive,
+} from "./faMarket";
+
+export {
+  ACADEMY_YEARS_MIN,
+  ACADEMY_YEARS_MAX,
+  ACADEMY_GRADUATE_CAP_PER_YEAR,
+  academyTenureYears,
+  applyAcademyGraduateCap,
+};
 
 // Real sub/academy/prospect handles, bucketed BY LANE so a debut gets a
 // position-authentic name (a real top laner debuts top, not support). The pool
 // ships either flat (legacy, no position data) or as { lane: string[] } from
-// `npm run fetch-rookie-names`; normalize both. A flat pool shares one list
-// across all lanes (old behavior); a keyed pool is position-correct.
+// `npm run fetch-rookie-names`; normalize both.
 // ponytail: drop the flat-array branch once the regenerated keyed file lands.
 const LANE_KEYS: readonly Lane[] = ["top", "jungle", "middle", "bottom", "support"];
 const POOL_BY_LANE: Record<Lane, string[]> = (() => {
@@ -39,56 +90,175 @@ const POOL_BY_LANE: Record<Lane, string[]> = (() => {
   return byLane;
 })();
 
-// An unused handle for `lane`: pick from that lane's pool, else synthesize.
-// Falling back to generateHandle (not another lane) keeps positions authentic.
-function rookieName(lane: Lane, rng: RNG, taken: Set<string>): string {
+function rookieName(lane: Lane, rng: RNG, taken: Set<string>, region?: string): string {
   const pool = POOL_BY_LANE[lane];
   for (let i = 0; i < 12 && pool.length > 0; i++) {
     const n = pool[Math.floor(rng() * pool.length)];
-    if (!taken.has(n)) {
+    if (!taken.has(n) && isValidHandle(n)) {
       taken.add(n);
       return n;
     }
   }
-  return generateHandle(rng, taken);
+  return generateHandle(rng, taken, region);
 }
 
 // ── Tunable knobs (ponytail: tune here, not in the logic) ───────────────────
 const DEBUT_AGE_MIN = 17;
-const PRIME_FROM = 20; //   growth window: young & below potential climb
-const GROWTH_UNTIL = 23; // past this, no more youth growth bonus
-const DECLINE_FROM = 29; // veterans start sliding (prime holds through 28)
-const RETIRE_FROM = 32; //  retirement risk begins (careers run into the mid-30s)
-// Very rare generational ceiling: the chance an elite young prospect carries
-// S+ upside (a once-in-a-generation talent). Reaching S+ still requires them to
-// actually develop into it, so true S+ players are rarer than this.
+const PRIME_FROM = 20;
+const GROWTH_UNTIL = 23;
+const DECLINE_FROM = 29;
+// Rare generational S+ upside for young prospects.
 const SPLUS_POTENTIAL_CHANCE = 0.03;
-const CHANGE_RATE = 0.6; // chance a player's tier moves at all in a given year
-const PERF_NEUTRAL = 5.5; // a 1-10 season grade at this is "as expected"
-const PERF_WEIGHT = 0.18; // how hard a season's grade tilts the tier move
+const CHANGE_RATE = 0.6; // active roster tier change/year — academy uses slower ACADEMY_DEV_CHANCE
+const PERF_NEUTRAL = 5.5;
+const PERF_WEIGHT = 0.18;
 const ROOKIE_AGE_MAX = 19;
+
+/** Grade must be this far below the role's mean to count as "well below".
+ *  Tuned via lifecycleSim (3 mid-split + 1 offseason checkpoints/year) with
+ *  same-org academy recalls: target ~3–5% of actives demoted/year. */
+export const GRADE_GAP_THRESHOLD = 0.9;
+/** Consecutive underperforming checkpoints before demotion to academy. */
+export const UNDERPERFORM_STREAK_TO_DEMOTE = 5;
+/** Years in academy before moving to free agency (soft / typical mid-value).
+ *  Personal tenure is 2–4 via {@link academyTenureYears}; hard ceiling
+ *  {@link ACADEMY_YEARS_MAX}. League-wide {@link ACADEMY_GRADUATE_CAP_PER_YEAR}
+ *  caps synchronized waves. */
+export const ACADEMY_YEARS = 3;
+/** Years in free agency (after academy) before true retirement if unsigned. */
+export const FREE_AGENT_YEARS = 4;
+/** Total inactive years (academy + FA) before retirement (3 + 4 = 7). */
+export const TOTAL_INACTIVE_BEFORE_RETIRE = ACADEMY_YEARS + FREE_AGENT_YEARS;
+
+/** Target demotion rate band used by the sim harness (fraction of actives/year).
+ *  Upper bound widened after competitive FA/rookie fills and the 3y academy
+ *  stay (more affiliate recalls recycle into later demotions). Still rare-but-real
+ *  vs a mass-churn sim — do not raise demotion knobs to "fix" this band. */
+export const TARGET_DEMOTION_RATE = { min: 0.03, max: 0.16 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
-// Retirement chance ramps with age; weaker players fade a touch sooner.
-function retireChance(age: number, tierVal: number): number {
-  if (age < RETIRE_FROM) return 0;
-  const base = (age - (RETIRE_FROM - 1)) * 0.12; // 32→.12, 35→.48, 38→.84
-  const weak = tierVal <= -1 ? 0.08 : 0;
-  return clamp(base + weak, 0, 0.95);
+export type CareerStatus = "active" | "academy" | "free-agent" | "retired";
+
+/** Snapshot of a player off the active roster (academy / FA / retired). */
+export interface InactivePlayer {
+  player: Player;
+  status: "academy" | "free-agent" | "retired";
+  /**
+   * 1-based years on the inactive path (badge years). Set to 1 on demotion day
+   * so the UI shows "Academy · 1y" immediately; increments each year-end while
+   * unsigned. Academy badges use 1…ACADEMY_YEARS; FA badges use
+   * (inactiveYears − ACADEMY_YEARS) → 1…FREE_AGENT_YEARS.
+   */
+  inactiveYears: number;
+  demotedYear: number;
+  lastTeamId: string;
+  lastTeamName?: string;
+  /** Last active-season grade at demotion (frozen form signal). */
+  lastActiveGrade?: number | null;
+  /** Shadow form while inactive — blended with lastActive for market/aging. */
+  shadowGrade?: number | null;
+}
+
+/** Compact archive form for Hall/search (no full champ pools required). */
+export interface InactivePlayerSnapshot {
+  playerId: string;
+  playerName?: string;
+  lane: Lane;
+  tier: PlayerTier;
+  age?: number;
+  /** Peak / growth ceiling — same richness as active roster rows. */
+  potential?: PlayerTier;
+  goodChamps?: number[];
+  badChamps?: number[];
+  /** Franchise year minted as a rookie (academy or safety); unset for founders. */
+  debutYear?: number;
+  status: "academy" | "free-agent" | "retired";
+  inactiveYears: number;
+  demotedYear: number;
+  lastTeamId: string;
+  lastTeamName?: string;
+  lastActiveGrade?: number | null;
+  shadowGrade?: number | null;
+}
+
+export function toInactiveSnapshot(p: InactivePlayer): InactivePlayerSnapshot {
+  return {
+    playerId: p.player.id ?? "",
+    ...(p.player.name ? { playerName: p.player.name } : {}),
+    lane: p.player.lane,
+    tier: p.player.tier,
+    ...(p.player.age != null ? { age: p.player.age } : {}),
+    ...(p.player.potential ? { potential: p.player.potential } : {}),
+    ...(p.player.goodChamps?.length ? { goodChamps: [...p.player.goodChamps] } : {}),
+    ...(p.player.badChamps?.length ? { badChamps: [...p.player.badChamps] } : {}),
+    ...(p.player.debutYear != null ? { debutYear: p.player.debutYear } : {}),
+    status: p.status,
+    inactiveYears: p.inactiveYears,
+    demotedYear: p.demotedYear,
+    lastTeamId: p.lastTeamId,
+    ...(p.lastTeamName ? { lastTeamName: p.lastTeamName } : {}),
+    ...(p.lastActiveGrade != null ? { lastActiveGrade: p.lastActiveGrade } : {}),
+    ...(p.shadowGrade != null ? { shadowGrade: p.shadowGrade } : {}),
+  };
+}
+
+/**
+ * Inactive-pool snapshot for a just-completed year about to be archived.
+ *
+ * Year-end offseason advances academy→FA→retire on the closing tick. Hall
+ * Career History must stamp that tick onto the year that just ended so badges
+ * progress monotonically (ACY 1Y → 2Y → 3Y → FA 1Y → …), not repeat ACY 1Y.
+ *
+ * `postOffseason` is the source of truth (includes the advance + new
+ * demotees/cuts at Academy · 1y). `preOffseason` documents the pre-tick pool
+ * at the call site; continuing players are identified only for clarity — their
+ * archived years/status come from post.
+ */
+export function inactiveSnapshotsForArchivedYear(
+  _preOffseason: readonly InactivePlayer[],
+  postOffseason: readonly InactivePlayer[],
+): InactivePlayerSnapshot[] {
+  // Hall stamps the post-advance clock (see doc comment). Pre is kept so
+  // continueSeasonToNextYear stays explicit about pre vs post pools.
+  return postOffseason.map(toInactiveSnapshot);
+}
+
+/** One season's outcome for underperformance evaluation. */
+export interface SeasonPlayerOutcome {
+  playerId: string;
+  grade: number | null;
+  tier: PlayerTier;
+  lane: Lane;
+  splitTitles: number;
+  intlTitles: number;
+}
+
+/** Mean grade per lane across a set of outcomes (for role-relative underperformance). */
+export function computeRoleMeans(
+  outcomes: Iterable<SeasonPlayerOutcome>,
+): Partial<Record<Lane, number>> {
+  const sum: Partial<Record<Lane, number>> = {};
+  const cnt: Partial<Record<Lane, number>> = {};
+  for (const o of outcomes) {
+    if (o.grade == null) continue;
+    sum[o.lane] = (sum[o.lane] ?? 0) + o.grade;
+    cnt[o.lane] = (cnt[o.lane] ?? 0) + 1;
+  }
+  const out: Partial<Record<Lane, number>> = {};
+  for (const lane of LANE_KEYS) {
+    const c = cnt[lane];
+    if (c && c > 0) out[lane] = (sum[lane] ?? 0) / c;
+  }
+  return out;
 }
 
 // A starting age + potential for an EXISTING player when a reality begins.
-// Younger players get more headroom above their current tier.
 export function initCareer(player: Player, rng: RNG): Player {
-  // Respect an age the creator set by hand (reality setup); otherwise roll one
-  // in 18–25, the bulk of a real field.
   const age = player.age ?? 18 + Math.floor(rng() * 8);
   const tierVal = PLAYER_TIER_VALUE[player.tier];
   const headroom = age <= GROWTH_UNTIL ? Math.floor(rng() * 3) : Math.floor(rng() * 2);
   let potVal = clamp(tierVal + headroom, -2, 2);
-  // An already-S+ elite keeps S+ potential (so they stay elite rather than
-  // instantly regressing); a young S-tier prospect can rarely carry S+ upside.
   if (player.tier === "S+") potVal = 3;
   else if (potVal >= 2 && age <= GROWTH_UNTIL && rng() < SPLUS_POTENTIAL_CHANCE) potVal = 3;
   const potential = valueToTier(potVal);
@@ -97,6 +267,7 @@ export function initCareer(player: Player, rng: RNG): Player {
     id: player.id ?? makePlayerId(rng),
     age,
     potential,
+    badStreak: player.badStreak ?? 0,
   };
 }
 
@@ -105,47 +276,44 @@ export function seedRosterCareers(roster: readonly Player[], rng: RNG): Player[]
   return roster.map((p) => initCareer(p, rng));
 }
 
-// A fresh rookie for a lane: young, modest tier now, real upside.
 export function makeRookie(
   lane: Lane,
   champions: readonly Champion[],
   rng: RNG,
   taken: Set<string>,
+  region?: string,
 ): Player {
   const age = DEBUT_AGE_MIN + Math.floor(rng() * (ROOKIE_AGE_MAX - DEBUT_AGE_MIN + 1));
-  // Start C..A, weighted low; potential adds 1–3 tiers of upside.
-  const startVal = clamp(-1 + Math.floor(rng() * 3), -2, 1); // C, B, or A
+  const startVal = clamp(-1 + Math.floor(rng() * 3), -2, 1);
   const tier = valueToTier(startVal);
   let potVal = clamp(startVal + 1 + Math.floor(rng() * 3), -2, 2);
-  // A rare rookie is a generational prospect with S+ upside.
   if (potVal >= 2 && rng() < SPLUS_POTENTIAL_CHANCE) potVal = 3;
   const potential = valueToTier(potVal);
   const pools = randomizeChampPools(lane, champions, rng, tier);
   return {
     id: makePlayerId(rng),
-    name: rookieName(lane, rng, taken),
+    name: rookieName(lane, rng, taken, region),
     lane,
     tier,
     age,
     potential,
+    badStreak: 0,
     goodChamps: pools.goodChamps,
     badChamps: pools.badChamps,
+    ...(region ? { homeRegion: region } : {}),
+    acclimation: 1,
   };
 }
 
-// Age one player a year. Returns the evolved player, or null if they retired.
-// `perf` is last season's average grade (1-10) for this player, or null.
-export function agePlayer(player: Player, perf: number | null, rng: RNG): Player | null {
+/** Age one player a year. Age never forces retirement — only growth/decline. */
+export function agePlayer(player: Player, perf: number | null, rng: RNG): Player {
   const age = (player.age ?? 22) + 1;
   const tierVal = PLAYER_TIER_VALUE[player.tier];
-  if (rng() < retireChance(age, tierVal)) return null;
-
   const potVal = PLAYER_TIER_VALUE[player.potential ?? player.tier];
-  // Signed pressure: + favours a tier up, − a tier down.
   let pressure = 0;
   if (age >= PRIME_FROM && age <= GROWTH_UNTIL && tierVal < potVal) pressure += 0.45;
   if (age >= DECLINE_FROM) pressure -= 0.35 * ((age - (DECLINE_FROM - 1)) / 3);
-  pressure -= 0.1 * (tierVal / 2); // gentle regression to the mean
+  pressure -= 0.1 * (tierVal / 2);
   if (perf != null) pressure += PERF_WEIGHT * (perf - PERF_NEUTRAL);
 
   let tier: PlayerTier = player.tier;
@@ -153,30 +321,721 @@ export function agePlayer(player: Player, perf: number | null, rng: RNG): Player
     const pUp = clamp(0.5 + pressure, 0.05, 0.95);
     const dir = rng() < pUp ? 1 : -1;
     let nextVal = tierVal + dir;
-    if (dir > 0) nextVal = Math.min(nextVal, potVal); // youth can't exceed potential
-    nextVal = clamp(nextVal, -2, 3); // S+ (3) reachable only with S+ potential (gated above)
+    if (dir > 0) nextVal = Math.min(nextVal, potVal);
+    nextVal = clamp(nextVal, -2, 3);
     tier = valueToTier(nextVal);
   }
   return { ...player, age, tier };
 }
 
-// One retirement→debut event from an offseason: who hung it up and the rookie
-// who took the slot. Surfaced to the user for their followed team.
-export interface RookieDebut {
+/**
+ * Underperforming checkpoint = at least 2 of 3 factors, and the grade factor
+ * MUST be one of them (otherwise C/D + untitled journeymen mass-demote). Tuned
+ * via lifecycleSim so ~3–5% of actives demote per year.
+ *  1. Grade ≥ GRADE_GAP_THRESHOLD below role mean  (required)
+ *  2. Ends checkpoint at tier C or D
+ *  3. No split title AND no international title
+ */
+export function isUnderperformingSeason(
+  outcome: {
+    grade: number | null;
+    tier: PlayerTier;
+    splitTitles: number;
+    intlTitles: number;
+  },
+  roleMean: number | null,
+  gradeGap: number = GRADE_GAP_THRESHOLD,
+): boolean {
+  const gradeBelow =
+    outcome.grade != null &&
+    roleMean != null &&
+    outcome.grade <= roleMean - gradeGap;
+  if (!gradeBelow) return false;
+  let hits = 1; // grade already counted
+  if (outcome.tier === "C" || outcome.tier === "D") hits += 1;
+  if (outcome.splitTitles <= 0 && outcome.intlTitles <= 0) hits += 1;
+  return hits >= 2;
+}
+
+/** Update badStreak from this season's outcome. Intl title always resets. */
+export function nextBadStreak(
+  prev: number | undefined,
+  outcome: {
+    grade: number | null;
+    tier: PlayerTier;
+    splitTitles: number;
+    intlTitles: number;
+  },
+  roleMean: number | null,
+  gradeGap: number = GRADE_GAP_THRESHOLD,
+): number {
+  if (outcome.intlTitles > 0) return 0;
+  if (isUnderperformingSeason(outcome, roleMean, gradeGap)) return (prev ?? 0) + 1;
+  return 0;
+}
+
+export type EntrantSource = "rookie" | "academy" | "free-agent";
+
+/** Why this entrant won the slot (FA auction / academy pass / rookie gate). */
+export type MarketNote = FaMarketNote;
+
+/** Offseason roster news: demotion + who entered (rookie vs returnee). */
+export interface RosterNewsEvent {
   lane: Lane;
+  departedName?: string;
+  departedTier?: PlayerTier;
+  departedAge?: number;
+  departedId?: string;
+  entrantName: string;
+  entrantTier: PlayerTier;
+  entrantPotential: PlayerTier;
+  entrantId?: string;
+  entrantSource: EntrantSource;
+  /** Same-org academy available but passed for a clearly better FA. */
+  passedAcademyName?: string;
+  /** Rival FAs / incumbent beaten in bidding copy. */
+  beatenNames?: string[];
+  marketNote?: MarketNote;
+  /**
+   * Split / window label when the event happened (e.g. "Winter",
+   * "First Stand window", "Offseason"). Optional for older saves.
+   */
+  timeMark?: string;
+}
+
+/** Stamp `timeMark` on news rows that lack one (additive; preserves existing). */
+export function withRosterTimeMark<T extends { timeMark?: string }>(
+  items: readonly T[],
+  mark: string,
+): T[] {
+  if (!mark) return [...items];
+  return items.map((n) => (n.timeMark ? n : { ...n, timeMark: mark }));
+}
+
+/** @deprecated Alias kept for older imports — prefer RosterNewsEvent. */
+export type RookieDebut = RosterNewsEvent & {
+  /** Legacy field names used by older UI — mapped from RosterNewsEvent. */
   retiredName?: string;
   retiredTier: PlayerTier;
-  retiredAge?: number; // the age they hung it up at
+  retiredAge?: number;
   rookieName: string;
   rookieTier: PlayerTier;
   rookiePotential: PlayerTier;
+};
+
+/** Adapt a RosterNewsEvent into the legacy RookieDebut shape for older UI. */
+export function asRookieDebut(n: RosterNewsEvent): RookieDebut {
+  return {
+    ...n,
+    ...(n.departedName ? { retiredName: n.departedName } : {}),
+    retiredTier: n.departedTier ?? n.entrantTier,
+    ...(n.departedAge != null ? { retiredAge: n.departedAge } : {}),
+    rookieName: n.entrantName,
+    rookieTier: n.entrantTier,
+    rookiePotential: n.entrantPotential,
+  };
 }
 
-/** Evolve a full roster through one offseason: age everyone, replace retirees
- *  with rookies at the same lane. `gradesByLane` is last season's per-lane
- *  grade (1-10) in positional lane order; `taken` keeps generated rookie
- *  handles unique across the league/reality. When `debuts` is passed, each
- *  retirement→rookie swap is pushed onto it (so callers can surface the news). */
+export interface OffseasonTeamInput {
+  id: string;
+  name: string;
+  players: readonly Player[];
+  /** Region / league id — flavors generated handles. */
+  leagueId?: string;
+}
+
+export interface OffseasonLifecycleResult {
+  teams: { id: string; players: Player[] }[];
+  inactivePool: InactivePlayer[];
+  news: Array<RosterNewsEvent & { teamId: string }>;
+}
+
+/**
+ * Pick a returnee for `teamId`'s open lane slot (mid-split / non-competitive).
+ * Scores with transferValue when meta is available; academy pass-for-better-FA
+ * still applies locally. Prefer same-org academy unless FA clears the gap.
+ * `excludePlayerIds` blocks same-pass demotees from instant recall.
+ */
+function pickReturnee(
+  pool: InactivePlayer[],
+  lane: Lane,
+  teamId: string,
+  rng: RNG,
+  byId: Map<number, Champion>,
+  meta: SeasonMetaSnapshot,
+  excludePlayerIds?: ReadonlySet<string>,
+): {
+  idx: number;
+  entry: InactivePlayer;
+  passedAcademyName?: string;
+  marketNote?: MarketNote;
+} | null {
+  return pickScoredReturnee(pool, lane, teamId, byId, meta, rng, excludePlayerIds);
+}
+
+/** Age inactive players one year and advance academy → FA → retired.
+ *
+ * Counting is 1-based from demotion (`inactiveYears` starts at 1):
+ *   demote → Academy 1y
+ *   +1 year-end → Academy 2y
+ *   +1 year-end → Academy 3y (typical soft max)
+ *   +1 year-end → FA 1y  (or stay to 4y if high-value / graduate-capped)
+ *   … FA 2y, 3y, 4y
+ *   +1 year-end → Retired
+ * Personal tenure: weak may hit FA after {@link ACADEMY_YEARS_MIN}; high-value
+ * may stay through {@link ACADEMY_YEARS_MAX}. Soft default remains
+ * {@link ACADEMY_YEARS}. Callers should run {@link applyAcademyGraduateCap}
+ * after this to throttle synchronized waves.
+ * So FA while `inactiveYears <= TOTAL_INACTIVE_BEFORE_RETIRE` (after snap),
+ * else retired. Legacy saves with `inactiveYears === 0` are treated as 1
+ * before incrementing.
+ *
+ * Also ticks shadow grade, academy development, and light pool drift.
+ * Academy tier growth is **only** via ACADEMY_DEV_CHANCE (slower than main
+ * roster CHANGE_RATE) — call-up is the fast development path.
+ */
+export function advanceInactivePool(
+  pool: readonly InactivePlayer[],
+  rng: RNG,
+  champions: readonly Champion[] = [],
+): InactivePlayer[] {
+  const out: InactivePlayer[] = [];
+  for (const entry of pool) {
+    if (entry.status === "retired") {
+      out.push(entry);
+      continue;
+    }
+    const tick = tickInactiveYear(entry, champions, rng);
+    const perf = inactiveMarketGrade({
+      ...entry,
+      player: tick.player,
+      shadowGrade: tick.shadowGrade,
+    });
+    // Academy: chronological age only — no agePlayer CHANGE_RATE growth/decline.
+    // Slow ACADEMY_DEV_CHANCE is the affiliate track; main roster is the turbo.
+    const aged =
+      entry.status === "academy"
+        ? { ...tick.player, age: (tick.player.age ?? 22) + 1 }
+        : agePlayer(tick.player, perf, rng);
+    // Normalize legacy 0-based storage to 1-based before the year-end tick.
+    const baseYears = entry.inactiveYears < 1 ? 1 : entry.inactiveYears;
+    const inactiveYears = baseYears + 1;
+    let status: InactivePlayer["status"] = entry.status;
+    if (status === "academy") {
+      const tenure = academyTenureYears({
+        ...entry,
+        player: aged,
+        inactiveYears,
+        shadowGrade: tick.shadowGrade,
+      });
+      // Strict `>` so years 1…tenure stay academy.
+      if (inactiveYears > tenure) status = "free-agent";
+    }
+    if (inactiveYears > TOTAL_INACTIVE_BEFORE_RETIRE) status = "retired";
+    out.push({
+      ...entry,
+      player: aged,
+      inactiveYears,
+      status,
+      shadowGrade: tick.shadowGrade,
+    });
+  }
+  return out;
+}
+
+/**
+ * Display years in academy (1…ACADEMY_YEARS_MAX while academy). Active → 0.
+ * Legacy `inactiveYears === 0` academy rows display as 1y. FA/retired use soft
+ * {@link ACADEMY_YEARS} (clock snaps to FA · 1y on transition).
+ */
+export function yearsInAcademy(
+  status: CareerStatus | InactivePlayer["status"],
+  inactiveYears: number,
+): number {
+  if (status === "active") return 0;
+  if (status === "academy") return Math.min(ACADEMY_YEARS_MAX, Math.max(1, inactiveYears));
+  return Math.min(Math.max(1, inactiveYears), ACADEMY_YEARS);
+}
+
+/**
+ * Display years as free agent after academy (1…FREE_AGENT_YEARS).
+ * `inactiveYears − ACADEMY_YEARS`, floored at 1 for FA/retired badges so a
+ * just-transitioned FA never shows 0y. Clamped to FREE_AGENT_YEARS when retired.
+ */
+export function yearsAsFreeAgent(
+  status: CareerStatus | InactivePlayer["status"],
+  inactiveYears: number,
+): number {
+  if (status !== "free-agent" && status !== "retired") return 0;
+  const raw = inactiveYears - ACADEMY_YEARS;
+  if (raw <= 0) return status === "free-agent" ? 1 : 0;
+  return Math.min(FREE_AGENT_YEARS, raw);
+}
+
+export interface DemotionPassOptions {
+  /** When true, age each active before evaluating underperformance (year-end). */
+  ageActives?: boolean;
+  /** When true, advance academy → FA → retired on the unsigned pool (year-end). */
+  advancePool?: boolean;
+  gradeGap?: number;
+  /** Current patch meta for poolFit / transferValue scoring. */
+  meta?: SeasonMetaSnapshot;
+  /**
+   * Year-end: resolve FA fills league-wide (each FA once). Mid-split keeps
+   * local scored fills when false.
+   */
+  competitiveMarket?: boolean;
+  /**
+   * Year-end: AI open FA replaces for clearly weaker lanes. Mid-split keeps
+   * this false so deferred user shopping retains FA priority.
+   */
+  openFaMarket?: boolean;
+  /**
+   * AI academy release / stash / rookie intake. Defaults to {@link openFaMarket}.
+   * Mid-split enables this while leaving open FA replaces off.
+   */
+  academyMaintenance?: boolean;
+  /**
+   * Teams the AI open-FA / academy-maintenance passes must not touch (followed
+   * team already shopped during the offseason / transfer window).
+   */
+  skipOpenFaTeamIds?: ReadonlySet<string>;
+}
+
+/**
+ * Demotion pass: evaluate underperformance streaks, demote to academy, fill
+ * slots via scored academy/FA market (competitive at year-end). Used mid-split
+ * (no aging / no pool advance; optional academy maintenance) and at the
+ * year-end offseason (with aging + pool advance + optional open FA window).
+ */
+export function runDemotionPass(
+  teams: readonly OffseasonTeamInput[],
+  outcomesById: Map<string, SeasonPlayerOutcome>,
+  roleMeans: Partial<Record<Lane, number | null>>,
+  inactivePoolIn: readonly InactivePlayer[],
+  champions: readonly Champion[],
+  rng: RNG,
+  taken: Set<string>,
+  year: number,
+  opts: DemotionPassOptions = {},
+): OffseasonLifecycleResult {
+  const gradeGap = opts.gradeGap ?? GRADE_GAP_THRESHOLD;
+  const ageActives = opts.ageActives ?? false;
+  const advancePool = opts.advancePool ?? false;
+  const meta = opts.meta ?? NEUTRAL_META;
+  const byId = new Map(champions.map((c) => [c.id, c]));
+  const competitive = opts.competitiveMarket ?? advancePool;
+  const openFa = opts.openFaMarket ?? advancePool;
+  const academyMaint = opts.academyMaintenance ?? openFa;
+
+  // Advance the *existing* unsigned pool before demotions so a player demoted
+  // this offseason starts at inactiveYears=1 (Academy · 1y) and still gets
+  // three full year-end advances before FA (1→2→3 academy, 3→4 FA). Advancing
+  // after demote would burn 1→2 in the same pass and shorten academy stay.
+  const news: Array<RosterNewsEvent & { teamId: string }> = [];
+  let pool: InactivePlayer[];
+  if (advancePool) {
+    const before = inactivePoolIn;
+    let advanced = advanceInactivePool(before, rng, champions);
+    // Structural desync: league-wide graduate cap, then soft FA pressure valves.
+    advanced = applyAcademyGraduateCap(before, advanced);
+    advanced = applyFaGraduatePressure(before, advanced);
+    advanced = cullWeakFaWhenOversized(advanced);
+    pool = advanced;
+    // Announce academy → FA transitions from the year-end clock (skip retirees).
+    const beforeById = new Map(
+      before.filter((e) => e.player.id).map((e) => [e.player.id!, e] as const),
+    );
+    for (const after of pool) {
+      if (after.status !== "free-agent" || !after.player.id) continue;
+      const prev = beforeById.get(after.player.id);
+      if (prev?.status === "academy") {
+        news.push(makeBecameFaNews(after as MarketInactive, "became-fa"));
+      }
+    }
+  } else {
+    pool = [...inactivePoolIn];
+  }
+  const resultTeams: { id: string; players: (Player | null)[] }[] = [];
+  const vacancies: MarketVacancy[] = [];
+  // Players demoted this pass must not fill vacancies (no leave→instant return).
+  const samePassDemoteIds = new Set<string>();
+
+  for (const team of teams) {
+    const nextPlayers: (Player | null)[] = [];
+    for (let slotIndex = 0; slotIndex < team.players.length; slotIndex++) {
+      const p = team.players[slotIndex]!;
+      if (p.name) taken.add(p.name);
+      const outcome = p.id ? outcomesById.get(p.id) : undefined;
+      const grade = outcome?.grade ?? null;
+      const base = ageActives ? agePlayer(p, grade, rng) : p;
+      const laneMean = roleMeans[base.lane] ?? null;
+      const streak = nextBadStreak(
+        base.badStreak,
+        {
+          grade,
+          tier: base.tier,
+          splitTitles: outcome?.splitTitles ?? 0,
+          intlTitles: outcome?.intlTitles ?? 0,
+        },
+        laneMean,
+        gradeGap,
+      );
+      const withStreak = { ...base, badStreak: streak };
+
+      if (streak >= UNDERPERFORM_STREAK_TO_DEMOTE && withStreak.id) {
+        samePassDemoteIds.add(withStreak.id);
+        // Cap: bump oldest academy → FA if this org is already at max.
+        const parked = addToTeamAcademy(pool, {
+          player: { ...withStreak, badStreak: 0 },
+          status: "academy",
+          // 1-based: badge shows Academy · 1y on demotion day.
+          inactiveYears: 1,
+          demotedYear: year,
+          lastTeamId: team.id,
+          lastTeamName: team.name,
+          ...(grade != null ? { lastActiveGrade: grade, shadowGrade: grade } : {}),
+        });
+        pool = parked.pool;
+        if (parked.bumped) news.push(makeBecameFaNews(parked.bumped, "academy-bump"));
+        vacancies.push({
+          teamId: team.id,
+          teamName: team.name,
+          leagueId: team.leagueId,
+          lane: withStreak.lane,
+          slotIndex: nextPlayers.length,
+          ...(withStreak.name ? { departedName: withStreak.name } : {}),
+          departedTier: withStreak.tier,
+          ...(withStreak.age != null ? { departedAge: withStreak.age } : {}),
+          departedId: withStreak.id,
+          departedGrade: grade,
+        });
+        nextPlayers.push(null);
+      } else {
+        nextPlayers.push(withStreak);
+      }
+    }
+    resultTeams.push({ id: team.id, players: nextPlayers });
+  }
+
+  const teamIndex = new Map(resultTeams.map((t, i) => [t.id, i]));
+
+  if (competitive && vacancies.length > 0) {
+    const { fills, remainingPool } = resolveCompetitiveFills(
+      vacancies,
+      pool,
+      byId,
+      meta,
+      rng,
+      samePassDemoteIds,
+    );
+    pool = remainingPool;
+    for (const fill of fills) {
+      const ti = teamIndex.get(fill.vacancy.teamId);
+      if (ti == null || !fill.entrant) continue;
+      if (fill.entrant.name) taken.add(fill.entrant.name);
+      resultTeams[ti]!.players[fill.vacancy.slotIndex] = fill.entrant;
+      news.push({
+        teamId: fill.vacancy.teamId,
+        lane: fill.vacancy.lane,
+        ...(fill.vacancy.departedName ? { departedName: fill.vacancy.departedName } : {}),
+        ...(fill.vacancy.departedTier ? { departedTier: fill.vacancy.departedTier } : {}),
+        ...(fill.vacancy.departedAge != null ? { departedAge: fill.vacancy.departedAge } : {}),
+        ...(fill.vacancy.departedId ? { departedId: fill.vacancy.departedId } : {}),
+        entrantName: fill.entrant.name ?? "",
+        entrantTier: fill.entrant.tier,
+        entrantPotential: fill.entrant.potential ?? fill.entrant.tier,
+        ...(fill.entrant.id ? { entrantId: fill.entrant.id } : {}),
+        entrantSource: fill.source,
+        ...(fill.passedAcademyName ? { passedAcademyName: fill.passedAcademyName } : {}),
+        ...(fill.beatenNames ? { beatenNames: fill.beatenNames } : {}),
+        ...(fill.marketNote ? { marketNote: fill.marketNote } : {}),
+      });
+    }
+  } else {
+    // Mid-split: local scored fill per vacancy (academy/FA only — no main-roster mint).
+    for (const v of vacancies) {
+      const ti = teamIndex.get(v.teamId);
+      if (ti == null) continue;
+      const pick = pickReturnee(
+        pool,
+        v.lane,
+        v.teamId,
+        rng,
+        byId,
+        meta,
+        samePassDemoteIds,
+      );
+      if (!pick) continue; // leave null — academy-first mint / retry / safety below
+      const [takenEntry] = pool.splice(pick.idx, 1);
+      const entrant = applyComebackRust(
+        takenEntry!.player,
+        takenEntry!.inactiveYears,
+        v.leagueId,
+      );
+      const source: EntrantSource =
+        takenEntry!.status === "academy" ? "academy" : "free-agent";
+      if (entrant.name) taken.add(entrant.name);
+      resultTeams[ti]!.players[v.slotIndex] = entrant;
+      news.push({
+        teamId: v.teamId,
+        lane: v.lane,
+        ...(v.departedName ? { departedName: v.departedName } : {}),
+        ...(v.departedTier ? { departedTier: v.departedTier } : {}),
+        ...(v.departedAge != null ? { departedAge: v.departedAge } : {}),
+        ...(v.departedId ? { departedId: v.departedId } : {}),
+        entrantName: entrant.name ?? "",
+        entrantTier: entrant.tier,
+        entrantPotential: entrant.potential ?? entrant.tier,
+        ...(entrant.id ? { entrantId: entrant.id } : {}),
+        entrantSource: source,
+        ...(pick.passedAcademyName ? { passedAcademyName: pick.passedAcademyName } : {}),
+        ...(pick.marketNote ? { marketNote: pick.marketNote } : {}),
+      });
+    }
+  }
+
+  // Academy-first vacancy mint: park a prospect in org academy, then call them
+  // up into the open slot (never a direct main-roster rookie-gate).
+  const vacancyBySlot = new Map(
+    vacancies.map((v) => [`${v.teamId}:${v.slotIndex}`, v] as const),
+  );
+  for (const t of resultTeams) {
+    const src = teams.find((x) => x.id === t.id);
+    for (let i = 0; i < t.players.length; i++) {
+      if (t.players[i]) continue;
+      const lane = src?.players[i]?.lane ?? LANE_KEYS[i]!;
+      const vac = vacancyBySlot.get(`${t.id}:${i}`);
+      if (!teamAcademyHasRoom(pool, t.id)) continue;
+      const rook = makeRookie(lane, champions, rng, taken, src?.leagueId);
+      rook.debutYear = year;
+      const parked = executeAddAcademyRookie(
+        pool,
+        t.id,
+        src?.name ?? t.id,
+        rook,
+        year,
+      );
+      if (!parked.ok) continue;
+      // Immediately call up the just-minted academy prospect into the vacancy.
+      pool = parked.inactivePool.filter((e) => e.player.id !== rook.id);
+      t.players[i] = rook;
+      news.push({
+        teamId: t.id,
+        lane,
+        ...(vac?.departedName ? { departedName: vac.departedName } : {}),
+        ...(vac?.departedTier ? { departedTier: vac.departedTier } : {}),
+        ...(vac?.departedAge != null ? { departedAge: vac.departedAge } : {}),
+        ...(vac?.departedId ? { departedId: vac.departedId } : {}),
+        entrantName: rook.name ?? "",
+        entrantTier: rook.tier,
+        entrantPotential: rook.potential ?? rook.tier,
+        ...(rook.id ? { entrantId: rook.id } : {}),
+        entrantSource: "academy",
+        marketNote: "academy-rookie",
+      });
+    }
+  }
+
+  let finalTeams: { id: string; players: Player[] }[] = resultTeams.map((t) => ({
+    id: t.id,
+    // Temporary: keep safety for open-FA / academy-maint which need full rosters.
+    // True safety-rookie mint happens only after academy maintenance below.
+    players: t.players.map((p, i) => {
+      if (p) return p;
+      const src = teams.find((x) => x.id === t.id);
+      const lane = src?.players[i]?.lane ?? LANE_KEYS[i]!;
+      const vac = vacancyBySlot.get(`${t.id}:${i}`);
+      const rook = makeRookie(lane, champions, rng, taken, src?.leagueId);
+      rook.debutYear = year;
+      news.push({
+        teamId: t.id,
+        lane,
+        ...(vac?.departedName ? { departedName: vac.departedName } : {}),
+        ...(vac?.departedTier ? { departedTier: vac.departedTier } : {}),
+        ...(vac?.departedAge != null ? { departedAge: vac.departedAge } : {}),
+        ...(vac?.departedId ? { departedId: vac.departedId } : {}),
+        entrantName: rook.name ?? "",
+        entrantTier: rook.tier,
+        entrantPotential: rook.potential ?? rook.tier,
+        ...(rook.id ? { entrantId: rook.id } : {}),
+        entrantSource: "rookie",
+        // Hard safety only: academy was full / mint failed — games need 5 bodies.
+        marketNote: "rookie-gate",
+      });
+      return rook;
+    }),
+  }));
+
+  if (openFa) {
+    const opened = runOpenFaReplacePass(
+      finalTeams.map((t) => {
+        const src = teams.find((x) => x.id === t.id);
+        return {
+          id: t.id,
+          name: src?.name ?? t.id,
+          leagueId: src?.leagueId,
+          players: t.players,
+        };
+      }),
+      pool,
+      byId,
+      meta,
+      outcomesById,
+      rng,
+      year,
+      opts.skipOpenFaTeamIds ? { skipTeamIds: opts.skipOpenFaTeamIds } : undefined,
+    );
+    finalTeams = opened.teams;
+    pool = opened.inactivePool;
+    news.push(...opened.news);
+  }
+
+  if (academyMaint) {
+    const teamInputs = finalTeams.map((t) => {
+      const src = teams.find((x) => x.id === t.id);
+      return {
+        id: t.id,
+        name: src?.name ?? t.id,
+        leagueId: src?.leagueId,
+        players: t.players,
+      };
+    });
+    const skipOpts = opts.skipOpenFaTeamIds
+      ? { skipTeamIds: opts.skipOpenFaTeamIds }
+      : undefined;
+    // Rare declutter: strategic academy→FA near the cap (feeds FA pool).
+    const released = runAiAcademyReleasePass(teamInputs, pool, byId, meta, rng, skipOpts);
+    pool = released.inactivePool;
+    news.push(...released.news);
+    // Stash desirable FAs the roster does not need (respects academy cap;
+    // skips when FA board is thin).
+    const stashed = runAiAcademyStashPass(
+      teamInputs,
+      pool,
+      byId,
+      meta,
+      rng,
+      year,
+      skipOpts,
+    );
+    pool = stashed.inactivePool;
+    news.push(...stashed.news);
+    // Mint academy rookies when FA is thin or org academy is shallow.
+    // Mid-split uses a lower chance + yearly cap (see runAiAcademyRookiePass).
+    const rookied = runAiAcademyRookiePass(
+      teamInputs,
+      pool,
+      champions,
+      rng,
+      taken,
+      year,
+      {
+        ...(skipOpts ?? {}),
+        midSplit: !advancePool,
+      },
+    );
+    pool = rookied.inactivePool;
+    news.push(...rookied.news);
+  }
+
+  return { teams: finalTeams, inactivePool: pool, news };
+}
+
+/**
+ * AI: park a generated rookie into academy (not main roster) when the org has
+ * room and either the FA board is thin ({@link AI_ACADEMY_ROOKIE_FA_THIN},
+ * offseason only) or academy depth is low ({@link AI_ACADEMY_ROOKIE_DEPTH_BELOW}).
+ * At most {@link MAX_AI_ACADEMY_ROOKIE_PER_TEAM} per team per calendar year
+ * (counted via {@link countAcademyRookiesMintedInYear}). Mid-split uses
+ * {@link AI_ACADEMY_ROOKIE_CHANCE_MID_SPLIT} and depth-only eligibility.
+ */
+export function runAiAcademyRookiePass(
+  teams: { id: string; name: string; leagueId?: string }[],
+  pool: InactivePlayer[],
+  champions: readonly Champion[],
+  rng: RNG,
+  taken: Set<string>,
+  year: number,
+  opts?: { skipTeamIds?: ReadonlySet<string>; midSplit?: boolean },
+): {
+  inactivePool: InactivePlayer[];
+  news: Array<RosterNewsEvent & { teamId: string }>;
+} {
+  let working: InactivePlayer[] = [...pool];
+  const news: Array<RosterNewsEvent & { teamId: string }> = [];
+  const skip = opts?.skipTeamIds;
+  const midSplit = opts?.midSplit ?? false;
+  const chance = midSplit ? AI_ACADEMY_ROOKIE_CHANCE_MID_SPLIT : AI_ACADEMY_ROOKIE_CHANCE;
+  const faCount = working.filter((e) => e.status === "free-agent").length;
+  const faThin = !midSplit && faCount < AI_ACADEMY_ROOKIE_FA_THIN;
+
+  for (const team of teams) {
+    if (skip?.has(team.id)) continue;
+    if (countAcademyRookiesMintedInYear(working, team.id, year) >= MAX_AI_ACADEMY_ROOKIE_PER_TEAM) {
+      continue;
+    }
+    if (!teamAcademyHasRoom(working, team.id)) continue;
+    const acyN = countTeamAcademy(working, team.id);
+    const needDepth = acyN < AI_ACADEMY_ROOKIE_DEPTH_BELOW;
+    if (!faThin && !needDepth) continue;
+    if (rng() > chance) continue;
+
+    const lane = shallowestAcademyLane(working, team.id, LANE_ORDER, rng);
+    const rook = makeRookie(lane, champions, rng, taken, team.leagueId);
+    rook.debutYear = year;
+    const res = executeAddAcademyRookie(working, team.id, team.name, rook, year);
+    if (!res.ok) continue;
+    working = res.inactivePool as InactivePlayer[];
+    news.push(...(res.news as Array<RosterNewsEvent & { teamId: string }>));
+  }
+
+  return { inactivePool: working, news };
+}
+
+/**
+ * Full league offseason: age actives, evaluate demotions, competitive FA
+ * market, open FA replaces, advance the inactive pool.
+ */
+export function runOffseasonLifecycle(
+  teams: readonly OffseasonTeamInput[],
+  outcomesById: Map<string, SeasonPlayerOutcome>,
+  roleMeans: Partial<Record<Lane, number | null>>,
+  inactivePoolIn: readonly InactivePlayer[],
+  champions: readonly Champion[],
+  rng: RNG,
+  taken: Set<string>,
+  year: number,
+  gradeGap: number = GRADE_GAP_THRESHOLD,
+  meta: SeasonMetaSnapshot = NEUTRAL_META,
+  opts?: { openFaMarket?: boolean; skipOpenFaTeamIds?: ReadonlySet<string> },
+): OffseasonLifecycleResult {
+  return runDemotionPass(
+    teams,
+    outcomesById,
+    roleMeans,
+    inactivePoolIn,
+    champions,
+    rng,
+    taken,
+    year,
+    {
+      ageActives: true,
+      advancePool: true,
+      gradeGap,
+      meta,
+      competitiveMarket: true,
+      openFaMarket: opts?.openFaMarket ?? true,
+      ...(opts?.skipOpenFaTeamIds ? { skipOpenFaTeamIds: opts.skipOpenFaTeamIds } : {}),
+    },
+  );
+}
+
+/**
+ * @deprecated Prefer runOffseasonLifecycle. Kept for call sites that only
+ * age a single roster without demotion/pool (tests / aging-off paths).
+ * Never demotes — ages in place; does not replace anyone.
+ */
 export function offseasonEvolveRoster(
   roster: readonly Player[],
   gradesByLane: readonly (number | null)[],
@@ -186,26 +1045,15 @@ export function offseasonEvolveRoster(
   debuts?: RookieDebut[],
   debutYear?: number,
 ): Player[] {
+  // Legacy behavior for tests that still expect age-forced retirement was
+  // replaced: we age everyone and never drop slots. `debuts` stays empty.
+  void champions;
+  void debuts;
+  void debutYear;
   return roster.map((p, i) => {
     if (p.name) taken.add(p.name);
-    const aged = agePlayer(p, gradesByLane[i] ?? null, rng);
-    if (aged) return aged;
-    const rookie = makeRookie(p.lane, champions, rng, taken);
-    // Stamp the debut year so the Hall can badge them as a rookie of this year.
-    if (debutYear != null) rookie.debutYear = debutYear;
-    debuts?.push({
-      lane: p.lane,
-      ...(p.name ? { retiredName: p.name } : {}),
-      retiredTier: p.tier,
-      // agePlayer retires them at age+1 (it ages, then rolls retirement).
-      retiredAge: (p.age ?? 22) + 1,
-      rookieName: rookie.name ?? "",
-      rookieTier: rookie.tier,
-      rookiePotential: rookie.potential ?? rookie.tier,
-    });
-    return rookie;
+    return agePlayer(p, gradesByLane[i] ?? null, rng);
   });
 }
 
-// Convenience for tests / callers that just need every tier in order.
 export const ALL_TIERS = PLAYER_TIERS;

@@ -7,37 +7,54 @@
   --panel-w: clamp(160px, 18vw, 260px);
 }
 
+html {
+  background-color: #010a13;
+}
+
 html,
 body {
-  background-color: #010a13;
   color: #f0e6d2;
   min-height: 100%;
 }
 
 body {
   font-family: var(--font-body), system-ui, sans-serif;
+  min-height: 100svh;
+}
+
+/* Atmosphere. Both layers are fixed, pointer-transparent, and sit behind the
+   app on their own compositing layers. Painting them as `background-attachment:
+   fixed` on <body> instead forced the whole viewport to repaint on every scroll
+   frame, which pushed scrolling onto the main thread app-wide. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  /* Forces each into its own composited layer so scrolling reuses the
+     already-painted texture instead of re-rasterising gradients + mask. */
+  transform: translateZ(0);
+}
+
+body::before {
   background:
     radial-gradient(ellipse 60% 50% at 50% -10%, rgba(10, 200, 185, 0.10), transparent 60%),
     radial-gradient(ellipse 60% 50% at 50% 110%, rgba(232, 64, 87, 0.10), transparent 60%),
     radial-gradient(ellipse 100% 80% at 50% 50%, rgba(200, 170, 110, 0.04), transparent 70%),
     linear-gradient(180deg, #010a13 0%, #02111d 50%, #010a13 100%);
-  background-attachment: fixed;
-  min-height: 100svh;
 }
 
 /* Hex grid overlay — adds "rift" atmosphere */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
+body::after {
   opacity: 0.04;
   background-image:
     linear-gradient(90deg, rgba(200, 170, 110, 0.4) 1px, transparent 1px),
     linear-gradient(0deg, rgba(200, 170, 110, 0.4) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 0%, transparent 90%);
-  z-index: 0;
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 0%, transparent 90%);
 }
 
 .font-display {
@@ -267,6 +284,29 @@ body::before {
 .group:hover .reveal,
 .group:focus-visible .reveal {
   opacity: 1;
+}
+
+/* Offscreen section skip — season/tournament dashboards mount large panel
+   trees; content-visibility lets the browser skip layout/paint for cards
+   and sections that aren't near the viewport (safe: no sticky/absolute
+   positioning that depends on continuous layout). */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
+}
+
+/* Same idea, sized for the tall record/leaderboard sections in the Hall of
+   Seasons (each one is hundreds of rows). `auto <size>` makes the browser
+   remember the real size once rendered, so the scrollbar stays stable. */
+.cv-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 480px;
+}
+
+/* Single list rows / cards inside a long list. */
+.cv-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 34px;
 }
 
 /* Tabular numbers for timer */

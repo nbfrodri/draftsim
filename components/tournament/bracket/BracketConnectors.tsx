@@ -37,6 +37,18 @@ function strokeFor(active: boolean): string {
   return active ? "rgba(240, 200, 100, 0.88)" : "rgba(240, 200, 100, 0.26)";
 }
 
+function pathsEqual(a: DrawnPath[], b: DrawnPath[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.key !== y.key || x.d !== y.d || x.active !== y.active || x.kind !== y.kind) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function BracketConnectorSvg({
   rootRef,
   anchorsRef,
@@ -76,17 +88,31 @@ function BracketConnectorSvg({
           active: fromMatch?.winner != null,
         });
       }
-      setPaths(next);
+      setPaths((prev) => (pathsEqual(prev, next) ? prev : next));
+    };
+
+    // Paths are root-relative (getBoundingClientRect delta). When the whole
+    // BracketConnectorRoot scrolls together (page vertical scroll OR the
+    // unified overflow-x wrapper outside this root), relative geometry is
+    // unchanged — a capture-phase window scroll listener only forced
+    // layout + setState on every wheel tick. ResizeObserver covers real
+    // layout changes (card size, flex reflow, window resize).
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        recompute();
+      });
     };
 
     recompute();
-    const ro = new ResizeObserver(recompute);
+    const ro = new ResizeObserver(schedule);
     ro.observe(root);
     for (const el of anchorsRef.current.values()) ro.observe(el);
-    window.addEventListener("scroll", recompute, true);
     return () => {
+      if (raf) cancelAnimationFrame(raf);
       ro.disconnect();
-      window.removeEventListener("scroll", recompute, true);
     };
   }, [rootRef, anchorsRef, edges, matchById, layoutVersion]);
 
@@ -133,6 +159,7 @@ export function BracketConnectorRoot({
   const rootRef = useRef<HTMLDivElement>(null);
   const anchorsRef = useRef<AnchorRegistry>(new Map());
   const [layoutVersion, setLayoutVersion] = useState(0);
+  const bumpRafRef = useRef(0);
   const edges = useMemo(() => bracketConnectorEdges(matches), [matches]);
   const matchById = useMemo(
     () => new Map(matches.map((m) => [m.id, m])),
@@ -144,7 +171,18 @@ export function BracketConnectorRoot({
     if (prev === el) return;
     if (el) anchorsRef.current.set(id, el);
     else anchorsRef.current.delete(id);
-    setLayoutVersion((v) => v + 1);
+    // Coalesce many MatchAnchor mounts into one layout pass.
+    if (bumpRafRef.current) return;
+    bumpRafRef.current = requestAnimationFrame(() => {
+      bumpRafRef.current = 0;
+      setLayoutVersion((v) => v + 1);
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    return () => {
+      if (bumpRafRef.current) cancelAnimationFrame(bumpRafRef.current);
+    };
   }, []);
 
   const contextValue = useMemo(() => ({ register }), [register]);

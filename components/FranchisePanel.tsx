@@ -24,9 +24,10 @@ const TIER_CLS: Record<PlayerTier, string> = {
 export default function FranchisePanel() {
   const season = useDraftStore((s) => s.season);
 
-  // This year's rookie class — players stamped with the current franchise year,
-  // their current team (reflects any mid-year transfer), growth vs. debut tier,
-  // and this season's average rating once they've played.
+  // This year's rookie class — academy-first intake: players stamped with the
+  // current franchise year in the academy pool (label Academy) plus any main-
+  // roster debuts (safety call-ups / same-year promotions). Growth vs debut
+  // tier and season rating once they've played.
   const rookies = useMemo(() => {
     const fr = season?.franchise;
     if (!season || !fr) return [];
@@ -36,13 +37,13 @@ export default function FranchisePanel() {
     const retiredName = new Map<string, string>();
     const retiredAge = new Map<string, number>();
     for (const n of season.rosterNews ?? []) {
-      debutTier.set(n.rookieName, n.rookieTier);
-      debutTeam.set(n.rookieName, n.teamId);
-      // The veteran this rookie replaced — surfaced regardless of the transfers
-      // setting, so retirements are visible even when the transfer window isn't.
-      if (n.retiredName) retiredName.set(n.rookieName, n.retiredName);
-      if (n.retiredAge != null) retiredAge.set(n.rookieName, n.retiredAge);
+      if (!n.entrantName) continue;
+      debutTier.set(n.entrantName, n.entrantTier);
+      debutTeam.set(n.entrantName, n.teamId);
+      if (n.departedName) retiredName.set(n.entrantName, n.departedName);
+      if (n.departedAge != null) retiredAge.set(n.entrantName, n.departedAge);
     }
+    const teamById = new Map(season.teams.map((t) => [t.id, t]));
     const out: Array<{
       id: string;
       name: string;
@@ -55,10 +56,44 @@ export default function FranchisePanel() {
       transferred: boolean;
       replaced: string | null;
       replacedAge: number | null;
+      academy: boolean;
     }> = [];
+    const seen = new Set<string>();
+    // Academy rookies (primary intake under academy-first).
+    for (const e of fr.inactivePool ?? []) {
+      if (e.status !== "academy") continue;
+      const p = e.player;
+      if (p.debutYear !== fr.year || !p.id || seen.has(p.id)) continue;
+      seen.add(p.id);
+      const team = teamById.get(e.lastTeamId);
+      const line = lines.get(p.id);
+      const debut = (p.name && debutTier.get(p.name)) || null;
+      out.push({
+        id: p.id,
+        name: p.name ?? "—",
+        lane: p.lane,
+        team: team
+          ? { name: team.name, iconKey: team.iconKey, logoUrl: team.logoUrl, color: team.color }
+          : {
+              name: e.lastTeamName ?? "Academy",
+              iconKey: "shield",
+              color: "#666",
+            },
+        debut,
+        tier: p.tier,
+        avg: line?.avgRating ?? null,
+        games: line?.games ?? 0,
+        transferred: false,
+        replaced: p.name ? retiredName.get(p.name) ?? null : null,
+        replacedAge: p.name ? retiredAge.get(p.name) ?? null : null,
+        academy: true,
+      });
+    }
+    // Main-roster debuts (same-year call-ups / rare safety rookies).
     for (const t of season.teams) {
       for (const p of t.players) {
-        if (p.debutYear !== fr.year || !p.id) continue;
+        if (p.debutYear !== fr.year || !p.id || seen.has(p.id)) continue;
+        seen.add(p.id);
         const line = lines.get(p.id);
         const debut = (p.name && debutTier.get(p.name)) || null;
         out.push({
@@ -73,12 +108,14 @@ export default function FranchisePanel() {
           transferred: !!(p.name && debutTeam.get(p.name) && debutTeam.get(p.name) !== t.id),
           replaced: p.name ? retiredName.get(p.name) ?? null : null,
           replacedAge: p.name ? retiredAge.get(p.name) ?? null : null,
+          academy: false,
         });
       }
     }
     // Best risers first: tier growth, then current tier, then rating.
     return out.sort(
       (a, b) =>
+        Number(b.academy) - Number(a.academy) ||
         growth(b) - growth(a) ||
         PLAYER_TIER_VALUE[b.tier] - PLAYER_TIER_VALUE[a.tier] ||
         (b.avg ?? 0) - (a.avg ?? 0),
@@ -126,12 +163,20 @@ export default function FranchisePanel() {
                   <span className="min-w-0 flex-1 flex flex-col leading-tight">
                     <span className="truncate text-rift-mutedbright font-medium">{r.name}</span>
                     {r.replaced && (
-                      <span className="truncate text-[8px] text-rift-redbright/70" title={`${r.replaced} retired${r.replacedAge != null ? ` at ${r.replacedAge}` : ""}`}>
+                      <span className="truncate text-[8px] text-rift-redbright/70" title={`${r.replaced} demoted${r.replacedAge != null ? ` at ${r.replacedAge}` : ""}`}>
                         ↩ replaced {r.replaced}
                         {r.replacedAge != null ? ` (${r.replacedAge})` : ""}
                       </span>
                     )}
                   </span>
+                  {r.academy && (
+                    <span
+                      className="text-[7px] uppercase tracking-[0.15em] text-amber-300/90 border border-amber-500/45 bg-amber-500/10 px-1 flex-shrink-0"
+                      title="Academy prospect (not yet on main roster)"
+                    >
+                      Academy
+                    </span>
+                  )}
                   {r.transferred && (
                     <span className="text-[7px] uppercase tracking-[0.15em] text-rift-gold/70 border border-rift-gold/30 px-1 flex-shrink-0" title="Transferred since debut">
                       ⇄

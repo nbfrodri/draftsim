@@ -14,7 +14,7 @@ import type {
   Lane,
 } from "../types";
 import type { MetaOverride, Synergy, CounterPair } from "../championMeta";
-import type { RookieDebut } from "./playerLifecycle";
+import type { InactivePlayer, RosterNewsEvent } from "./playerLifecycle";
 import type { Coach } from "./coach";
 import type { TournamentFormat, TournamentState } from "../tournament";
 
@@ -351,11 +351,41 @@ export interface SeasonState {
   // Franchise/"reality" context: present when this season is one year of a
   // continuous timeline (teams + careers carry across years). Absent for a
   // classic one-off season. `aging` (chosen at reality creation) decides
-  // whether the offseason ages players / retires veterans / introduces rookies.
-  // usedNames: every player/coach handle that has EVER existed in this reality
-  // (actives + everyone retired), so rookie generation never reuses a name —
-  // regardless of position. Accumulates each offseason.
-  franchise?: { id: string; name: string; year: number; aging: boolean; usedNames?: string[] };
+  // whether the offseason ages players / demotes underperformers / introduces
+  // rookies or returnees. usedNames: every player/coach handle that has EVER
+  // existed in this reality, so generation never reuses a name. inactivePool:
+  // academy / free-agent / retired players waiting for a slot (or archived).
+  franchise?: {
+    id: string;
+    name: string;
+    year: number;
+    aging: boolean;
+    usedNames?: string[];
+    inactivePool?: InactivePlayer[];
+    /** User FA / academy signs in the current window (mid-season transfer or offseason). */
+    faSignsThisWindow?: number;
+    /**
+     * Manual bench/demotes the followed team made this shopping window
+     * (cap: USER_MAX_MANUAL_DEMOTES in faMarket).
+     */
+    manualDemotesThisWindow?: number;
+    /**
+     * Player ids demoted this window (auto or manual) — blocked from FA /
+     * academy fills until the window quota resets (no instant return).
+     */
+    sameWindowDemoteIds?: string[];
+    /**
+     * Player ids signed as rookies this window (shopRookie / applyUserRookieSign).
+     * Cannot be benched in the same window — no instant sign-then-demote.
+     */
+    sameWindowRookieIds?: string[];
+    /**
+     * When a followed team has transfer windows, winter/spring demotions are
+     * deferred until the user finishes that window — so they can shop FA /
+     * academy before AI vacancy fills snatch free agents.
+     */
+    pendingMidSplitDemotion?: SplitId;
+  };
   // Snapshot of every team's roster as each split / international COMPLETED, so
   // the Hall can show who played each stage (rosters shift between stages via
   // transfer windows). Captured at phase completion; archived into history.
@@ -370,10 +400,10 @@ export interface SeasonState {
   // ever changes by the user's call. Cleared as each window is resolved or a
   // new one opens. [playerTransfers + controlledTeamId]
   proposedTransfers?: ProposedTransfer[];
-  // Retirements + rookie debuts from THIS year's offseason (aging on), tagged by
-  // team. Surfaced to the user for their followed team at the start of the year.
-  // Regenerated each offseason; absent when aging is off or nobody retired.
-  rosterNews?: Array<RookieDebut & { teamId: string }>;
+  // Demotions + entrants from THIS year's offseason (aging on), tagged by team.
+  // Distinguishes rookie debuts from academy/FA returnees. Regenerated each
+  // offseason; absent when aging is off or nobody was demoted.
+  rosterNews?: Array<RosterNewsEvent & { teamId: string }>;
 }
 
 // A snapshot of a moving player at transfer time, so each record renders its
@@ -423,7 +453,17 @@ export interface TeamRosterSnapshot {
   // The team's coach at this stage (name + rating + playstyle label), when it
   // had one. `playstyle` is optional — only on snapshots saved after it existed.
   coach?: { name: string; rating: number; playstyle?: string };
-  players: Array<{ id?: string; name?: string; tier: PlayerTier; lane: Lane; age?: number; debutYear?: number }>;
+  players: Array<{
+    id?: string;
+    name?: string;
+    tier: PlayerTier;
+    lane: Lane;
+    age?: number;
+    debutYear?: number;
+    potential?: PlayerTier;
+    goodChamps?: number[];
+    badChamps?: number[];
+  }>;
 }
 
 // Every team's roster as a given split / international completed.

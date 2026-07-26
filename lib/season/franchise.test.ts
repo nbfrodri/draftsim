@@ -6,10 +6,29 @@ import { generateSeasonTeams } from "./teamGen";
 import { createSeason } from "./engine";
 import {
   seedFranchise,
+  seedOpeningAcademies,
   startNextSeason,
   continuityFormBonus,
   CONTINUITY_FORM_BONUS,
+  applyUserManualDemote,
+  applyUserAcademyRecall,
+  applyUserRookieSign,
+  applyUserAcademyRookie,
+  applyMidSplitDemotions,
+  fillFollowedRosterVacancies,
+  aiDecideFollowedDemotes,
 } from "./franchise";
+import {
+  USER_MAX_MANUAL_DEMOTES,
+  ACADEMY_MAX_PER_TEAM,
+  USER_ACADEMY_ROOKIE_SOFT_MAX,
+  INITIAL_ACADEMY_ROOKIES_PER_TEAM,
+  isRosterVacancy,
+  listTeamAcademy,
+  countTeamAcademy,
+  buildAcademyBoard,
+  NEUTRAL_META,
+} from "./faMarket";
 import {
   LEAGUE_IDS,
   type SeasonConfig,
@@ -66,7 +85,7 @@ const meta = { metaOverride: null, metaEnabled: true, synergyOverride: null, cou
 function makeReality(aging = true) {
   const teams = generateSeasonTeams(champions, rngFrom(3));
   const base = createSeason({ config: makeConfig(), teams, activeMeta: meta });
-  return seedFranchise(base, "Alpha", aging, rngFrom(9));
+  return seedFranchise(base, "Alpha", aging, rngFrom(9), champions);
 }
 
 describe("seedFranchise", () => {
@@ -80,6 +99,56 @@ describe("seedFranchise", () => {
         expect(p.potential).toBeTruthy();
         expect(p.id).toBeTruthy();
       }
+    }
+  });
+
+  it(`seeds ${INITIAL_ACADEMY_ROOKIES_PER_TEAM} academy rookies per team when aging is on`, () => {
+    const s = makeReality(true);
+    expect(s.franchise?.aging).toBe(true);
+    const pool = s.franchise!.inactivePool ?? [];
+    expect(INITIAL_ACADEMY_ROOKIES_PER_TEAM).toBeLessThanOrEqual(ACADEMY_MAX_PER_TEAM);
+    for (const t of s.teams) {
+      const acy = pool.filter((e) => e.status === "academy" && e.lastTeamId === t.id);
+      expect(acy).toHaveLength(INITIAL_ACADEMY_ROOKIES_PER_TEAM);
+      // Opening desync: odd slots start at 1y, even at 2y (stagger soft-max waves).
+      const years = acy.map((e) => e.inactiveYears).sort((a, b) => a - b);
+      expect(years).toEqual([1, 2]);
+      for (const e of acy) {
+        expect(e.player.id).toBeTruthy();
+        expect(e.player.name).toBeTruthy();
+        expect(typeof e.player.age).toBe("number");
+        expect(e.player.potential).toBeTruthy();
+        expect(e.player.debutYear).toBe(1);
+      }
+    }
+    // All academy handles are unique and recorded in usedNames.
+    const names = pool
+      .filter((e) => e.status === "academy")
+      .map((e) => e.player.name!)
+      .filter(Boolean);
+    expect(new Set(names).size).toBe(names.length);
+    for (const n of names) expect(s.franchise!.usedNames).toContain(n);
+  });
+
+  it("skips opening academy when aging is off", () => {
+    const s = makeReality(false);
+    expect(s.franchise?.inactivePool ?? []).toEqual([]);
+  });
+
+  it("is idempotent when seedOpeningAcademies is re-run", () => {
+    const s = makeReality(true);
+    const taken = new Set(s.franchise!.usedNames ?? []);
+    const again = seedOpeningAcademies(
+      s.teams,
+      s.franchise!.inactivePool ?? [],
+      champions,
+      rngFrom(99),
+      taken,
+      1,
+    );
+    expect(again).toHaveLength((s.franchise!.inactivePool ?? []).length);
+    for (const t of s.teams) {
+      expect(countTeamAcademy(again, t.id)).toBe(INITIAL_ACADEMY_ROOKIES_PER_TEAM);
     }
   });
 });
@@ -98,7 +167,7 @@ describe("continuityFormBonus", () => {
     const cfg = { ...makeConfig(), formDrift: true };
     const teams = generateSeasonTeams(champions, rngFrom(3));
     const base = createSeason({ config: cfg, teams, activeMeta: meta });
-    const y1 = seedFranchise(base, "Alpha", true, rngFrom(9));
+    const y1 = seedFranchise(base, "Alpha", true, rngFrom(9), champions);
     const y2 = startNextSeason(y1, champions, rngFrom(11));
     const forms = Object.values(y2.teamForm ?? {});
     // Most rosters survive an offseason largely intact → at least one team
@@ -150,5 +219,505 @@ describe("startNextSeason", () => {
     expect(ageById.size).toBe(before.length); // no retirements / new rookies
     // No birthdays: each player's age is identical year-over-year (by id).
     for (const p of before) expect(ageById.get(p.id!)).toBe(p.age);
+  });
+});
+
+describe("applyUserManualDemote", () => {
+  function offseasonFollowed() {
+    const base = makeReality(true);
+    const teamId = base.teams[0]!.id;
+    return {
+      ...base,
+      status: "complete" as const,
+      config: { ...base.config, controlledTeamId: teamId },
+    };
+  }
+
+  it("parks demotee in academy at 1y, opens vacancy, blocks same-window recall", () => {
+    const season = offseasonFollowed();
+    const me = season.config.controlledTeamId!;
+    const lane = "middle" as Lane;
+    const before = season.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    expect(before.id).toBeTruthy();
+
+    const next = applyUserManualDemote(season, lane);
+    expect(next).not.toBeNull();
+    const slot = next!.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    expect(isRosterVacancy(slot)).toBe(true);
+
+    const parked = next!.franchise!.inactivePool!.find((e) => e.player.id === before.id);
+    expect(parked?.status).toBe("academy");
+    expect(parked?.inactiveYears).toBe(1);
+    expect(parked?.lastTeamId).toBe(me);
+    expect(next!.franchise!.sameWindowDemoteIds).toContain(before.id);
+    expect(next!.franchise!.manualDemotesThisWindow).toBe(1);
+    expect(next!.rosterNews?.some((n) => n.marketNote === "manual-demote")).toBe(true);
+    expect(
+      next!.rosterNews?.find((n) => n.marketNote === "manual-demote")?.timeMark,
+    ).toBe("Offseason");
+
+    // Display helpers must still list the demotee (UI exclude is call-up only).
+    const listed = listTeamAcademy(next!.franchise!.inactivePool!, me);
+    expect(listed.some((e) => e.player.id === before.id)).toBe(true);
+    const board = buildAcademyBoard(
+      next!.franchise!.inactivePool!,
+      me,
+      "all",
+      new Map(),
+      NEUTRAL_META,
+    );
+    expect(board.some((r) => r.entry.player.id === before.id)).toBe(true);
+
+    // Same-window recall of the demotee must fail.
+    const recall = applyUserAcademyRecall(next!, champions, lane, before.id!);
+    expect(recall).toBeNull();
+  });
+
+  it(`caps at ${USER_MAX_MANUAL_DEMOTES} demotes per window`, () => {
+    let season = offseasonFollowed();
+    const lanes: Lane[] = ["top", "jungle", "middle"];
+    for (let i = 0; i < USER_MAX_MANUAL_DEMOTES; i++) {
+      const next = applyUserManualDemote(season, lanes[i]!);
+      expect(next).not.toBeNull();
+      season = next!;
+    }
+    expect(applyUserManualDemote(season, lanes[USER_MAX_MANUAL_DEMOTES]!)).toBeNull();
+  });
+
+  it("AI-fills vacancies without recalling same-window demotee", () => {
+    const season = offseasonFollowed();
+    const me = season.config.controlledTeamId!;
+    const lane = "support" as Lane;
+    const before = season.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    const demoted = applyUserManualDemote(season, lane)!;
+    const filled = fillFollowedRosterVacancies(demoted, champions, rngFrom(42));
+    const slot = filled.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    expect(isRosterVacancy(slot)).toBe(false);
+    expect(slot.id).not.toBe(before.id);
+    expect(
+      filled.franchise!.inactivePool!.some(
+        (e) => e.player.id === before.id && e.status === "academy",
+      ),
+    ).toBe(true);
+  });
+
+  it("user rookie fills vacant lane without consuming FA signs", () => {
+    const season = offseasonFollowed();
+    const me = season.config.controlledTeamId!;
+    const lane = "jungle" as Lane;
+    const demoted = applyUserManualDemote(season, lane)!;
+    expect(demoted.franchise!.faSignsThisWindow ?? 0).toBe(0);
+
+    const next = applyUserRookieSign(demoted, champions, lane, rngFrom(7));
+    expect(next).not.toBeNull();
+    const slot = next!.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    expect(isRosterVacancy(slot)).toBe(false);
+    expect(slot.name).toBeTruthy();
+    expect(slot.age).toBeDefined();
+    expect(slot.id).toBeTruthy();
+    expect(next!.franchise!.faSignsThisWindow ?? 0).toBe(0);
+    expect(next!.franchise!.sameWindowRookieIds).toContain(slot.id);
+    expect(next!.rosterNews?.some((n) => n.marketNote === "academy-rookie")).toBe(true);
+    // Non-vacant: no-op
+    expect(applyUserRookieSign(next!, champions, lane, rngFrom(8))).toBeNull();
+  });
+
+  it("user academy rookie parks in academy without touching main roster", () => {
+    const season = offseasonFollowed();
+    const me = season.config.controlledTeamId!;
+    const beforeCount = countTeamAcademy(season.franchise!.inactivePool ?? [], me);
+    const beforeIds = season.teams
+      .find((t) => t.id === me)!
+      .players.map((p) => p.id)
+      .join(",");
+    const next = applyUserAcademyRookie(season, champions, "middle", rngFrom(21));
+    expect(next).not.toBeNull();
+    expect(
+      next!.teams.find((t) => t.id === me)!.players.map((p) => p.id).join(","),
+    ).toBe(beforeIds);
+    expect(next!.franchise!.faSignsThisWindow ?? 0).toBe(0);
+    const acy = next!.franchise!.inactivePool!.filter(
+      (e) => e.status === "academy" && e.lastTeamId === me,
+    );
+    expect(acy.length).toBe(beforeCount + 1);
+    const minted = acy.find(
+      (e) =>
+        e.player.debutYear === season.franchise!.year &&
+        next!.rosterNews?.some(
+          (n) => n.marketNote === "academy-rookie" && n.entrantId === e.player.id,
+        ),
+    );
+    expect(minted?.inactiveYears).toBe(1);
+    expect(next!.rosterNews?.some((n) => n.marketNote === "academy-rookie")).toBe(true);
+
+    // Fill to soft cap then block (leaves one hard-cap slot for demotions).
+    let full = next!;
+    const room = USER_ACADEMY_ROOKIE_SOFT_MAX - acy.length;
+    for (let i = 0; i < room; i++) {
+      full = applyUserAcademyRookie(full, champions, undefined, rngFrom(30 + i))!;
+    }
+    expect(countTeamAcademy(full.franchise!.inactivePool!, me)).toBe(USER_ACADEMY_ROOKIE_SOFT_MAX);
+    expect(applyUserAcademyRookie(full, champions, "top", rngFrom(99))).toBeNull();
+  });
+
+  it("rejects benching a rookie signed in the same window", () => {
+    const season = offseasonFollowed();
+    const me = season.config.controlledTeamId!;
+    const lane = "top" as Lane;
+    const demoted = applyUserManualDemote(season, lane)!;
+    const signed = applyUserRookieSign(demoted, champions, lane, rngFrom(11))!;
+    const rookie = signed.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    expect(signed.franchise!.sameWindowRookieIds).toContain(rookie.id);
+
+    expect(applyUserManualDemote(signed, lane)).toBeNull();
+    // Cap counter and roster unchanged.
+    expect(signed.franchise!.manualDemotesThisWindow).toBe(1);
+    const still = signed.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    expect(still.id).toBe(rookie.id);
+  });
+});
+
+describe("aiDecideFollowedDemotes", () => {
+  function offseasonFollowed() {
+    const base = makeReality(true);
+    const teamId = base.teams[0]!.id;
+    return {
+      ...base,
+      status: "complete" as const,
+      config: { ...base.config, controlledTeamId: teamId },
+    };
+  }
+
+  it("benches a weak lane when FA beats incumbent by open-FA gap, then fills", () => {
+    let season = offseasonFollowed();
+    const me = season.config.controlledTeamId!;
+    const lane = "middle" as Lane;
+    const weak = {
+      id: "ai-weak-mid",
+      name: "AiWeakMid",
+      lane,
+      tier: "D" as const,
+      age: 28,
+      goodChamps: [] as number[],
+      badChamps: [] as number[],
+      potential: "D" as const,
+    };
+    season = {
+      ...season,
+      teams: season.teams.map((t) =>
+        t.id !== me
+          ? t
+          : {
+              ...t,
+              players: t.players.map((p) => (p.lane === lane ? { ...weak } : p)),
+            },
+      ),
+      franchise: {
+        ...season.franchise!,
+        inactivePool: [
+          {
+            player: {
+              id: "ai-star-fa",
+              name: "AiStarFa",
+              lane,
+              tier: "S",
+              age: 23,
+              goodChamps: champions.filter((c) => c.lanes.includes(lane)).slice(0, 3).map((c) => c.id),
+              badChamps: [],
+              potential: "S",
+            },
+            status: "free-agent",
+            inactiveYears: 3,
+            demotedYear: 1,
+            lastTeamId: "TX",
+            lastActiveGrade: 8.5,
+            shadowGrade: 8,
+          },
+        ],
+      },
+    };
+
+    const next = aiDecideFollowedDemotes(season, champions, rngFrom(7));
+    const slot = next.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    expect(isRosterVacancy(slot)).toBe(false);
+    expect(slot.id).toBe("ai-star-fa");
+    expect(next.franchise!.sameWindowDemoteIds).toContain("ai-weak-mid");
+    expect(next.franchise!.manualDemotesThisWindow).toBeGreaterThanOrEqual(1);
+    expect(next.rosterNews?.some((n) => n.marketNote === "ai-demote" && n.departedId === "ai-weak-mid")).toBe(
+      true,
+    );
+    expect(
+      next.franchise!.inactivePool!.some(
+        (e) => e.player.id === "ai-weak-mid" && e.status === "academy",
+      ),
+    ).toBe(true);
+    // Same-window demotee never returns.
+    expect(slot.id).not.toBe("ai-weak-mid");
+  });
+
+  it("does nothing when no FA/academy clears the replace gap", () => {
+    const season = offseasonFollowed();
+    const me = season.config.controlledTeamId!;
+    const before = season.teams.find((t) => t.id === me)!.players.map((p) => p.id);
+    const next = aiDecideFollowedDemotes(season, champions, rngFrom(3));
+    const after = next.teams.find((t) => t.id === me)!.players.map((p) => p.id);
+    expect(after).toEqual(before);
+    expect(next.franchise!.manualDemotesThisWindow ?? 0).toBe(0);
+    expect(next.rosterNews?.some((n) => n.marketNote === "ai-demote")).toBeFalsy();
+  });
+
+  it(`respects the ${USER_MAX_MANUAL_DEMOTES} demote cap shared with manual benches`, () => {
+    let season = offseasonFollowed();
+    const me = season.config.controlledTeamId!;
+    // Spend the full manual demote budget first.
+    for (const lane of ["top", "jungle"] as Lane[]) {
+      season = applyUserManualDemote(season, lane)!;
+    }
+    expect(season.franchise!.manualDemotesThisWindow).toBe(USER_MAX_MANUAL_DEMOTES);
+
+    // Plant a clear FA upgrade — AI still must not demote past the cap.
+    season = {
+      ...season,
+      franchise: {
+        ...season.franchise!,
+        inactivePool: [
+          ...(season.franchise!.inactivePool ?? []),
+          {
+            player: {
+              id: "capped-fa",
+              name: "CappedFa",
+              lane: "middle" as Lane,
+              tier: "S",
+              age: 22,
+              goodChamps: [],
+              badChamps: [],
+              potential: "S",
+            },
+            status: "free-agent",
+            inactiveYears: 3,
+            demotedYear: 1,
+            lastTeamId: "TX",
+            lastActiveGrade: 9,
+            shadowGrade: 9,
+          },
+        ],
+      },
+      teams: season.teams.map((t) =>
+        t.id !== me
+          ? t
+          : {
+              ...t,
+              players: t.players.map((p) =>
+                p.lane === "middle"
+                  ? { ...p, id: "still-weak", name: "StillWeak", tier: "D" as const }
+                  : p,
+              ),
+            },
+      ),
+    };
+
+    const next = aiDecideFollowedDemotes(season, champions, rngFrom(5));
+    expect(next.franchise!.manualDemotesThisWindow).toBe(USER_MAX_MANUAL_DEMOTES);
+    expect(next.rosterNews?.some((n) => n.marketNote === "ai-demote")).toBeFalsy();
+    expect(next.teams.find((t) => t.id === me)!.players.find((p) => p.lane === "middle")!.id).toBe(
+      "still-weak",
+    );
+  });
+
+  it("does not bench a same-window rookie even with a clear FA upgrade", () => {
+    let season = offseasonFollowed();
+    const me = season.config.controlledTeamId!;
+    const lane = "middle" as Lane;
+    season = applyUserManualDemote(season, lane)!;
+    season = applyUserRookieSign(season, champions, lane, rngFrom(13))!;
+    const rookie = season.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    expect(season.franchise!.sameWindowRookieIds).toContain(rookie.id);
+
+    // Plant a star FA that would otherwise justify an AI demote.
+    season = {
+      ...season,
+      franchise: {
+        ...season.franchise!,
+        inactivePool: [
+          ...(season.franchise!.inactivePool ?? []),
+          {
+            player: {
+              id: "rook-upgrade-fa",
+              name: "RookUpgradeFa",
+              lane,
+              tier: "S" as const,
+              age: 22,
+              goodChamps: champions.filter((c) => c.lanes.includes(lane)).slice(0, 3).map((c) => c.id),
+              badChamps: [],
+              potential: "S" as const,
+            },
+            status: "free-agent",
+            inactiveYears: 3,
+            demotedYear: 1,
+            lastTeamId: "TX",
+            lastActiveGrade: 9,
+            shadowGrade: 9,
+          },
+        ],
+      },
+    };
+
+    const next = aiDecideFollowedDemotes(season, champions, rngFrom(9));
+    const slot = next.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    expect(slot.id).toBe(rookie.id);
+    expect(next.rosterNews?.some((n) => n.marketNote === "ai-demote" && n.departedId === rookie.id)).toBeFalsy();
+  });
+});
+
+describe("mid-split transfer window academy market", () => {
+  function transferFollowed(pending?: "winter" | "spring") {
+    const base = makeReality(true);
+    const teamId = base.teams[0]!.id;
+    const phases = [...base.phases];
+    // Find or inject an in-progress transfer phase as current.
+    const transferIdx = phases.findIndex((p) => p.kind === "transfer");
+    const idx = transferIdx >= 0 ? transferIdx : 0;
+    if (transferIdx < 0) {
+      phases[0] = {
+        kind: "transfer",
+        event: "first-stand",
+        label: "Transfer",
+        tournamentIds: [],
+        status: "in-progress",
+      };
+    } else {
+      phases[idx] = { ...phases[idx]!, status: "in-progress" };
+    }
+    return {
+      ...base,
+      status: "in-progress" as const,
+      phaseIndex: idx,
+      phases,
+      config: {
+        ...base.config,
+        controlledTeamId: teamId,
+        playerTransfers: true,
+      },
+      franchise: {
+        ...base.franchise!,
+        ...(pending ? { pendingMidSplitDemotion: pending } : {}),
+      },
+    };
+  }
+
+  it("user can add academy rookie during First Stand / MSI transfer window", () => {
+    const season = transferFollowed();
+    const me = season.config.controlledTeamId!;
+    const before = countTeamAcademy(season.franchise!.inactivePool ?? [], me);
+    const next = applyUserAcademyRookie(season, champions, "support", rngFrom(44));
+    expect(next).not.toBeNull();
+    expect(countTeamAcademy(next!.franchise!.inactivePool!, me)).toBe(before + 1);
+    const rook = next!.franchise!.inactivePool!.find(
+      (e) =>
+        e.status === "academy" &&
+        e.lastTeamId === me &&
+        e.player.debutYear === season.franchise!.year &&
+        next!.rosterNews?.some(
+          (n) => n.marketNote === "academy-rookie" && n.entrantId === e.player.id,
+        ),
+    );
+    expect(rook?.inactiveYears).toBe(1);
+    expect(rook?.lastTeamId).toBe(me);
+    expect(next!.franchise!.usedNames).toContain(rook!.player.name!);
+  });
+
+  it("user can bench and call up during transfer window", () => {
+    let season = transferFollowed();
+    const me = season.config.controlledTeamId!;
+    const lane = "top" as Lane;
+    const before = season.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    // Ensure a same-lane academy prospect exists to call up (not the demotee).
+    season = {
+      ...season,
+      franchise: {
+        ...season.franchise!,
+        inactivePool: [
+          ...(season.franchise!.inactivePool ?? []),
+          {
+            player: {
+              id: "acy-callup-top",
+              name: "AcyCallupTop",
+              lane,
+              tier: "B" as const,
+              age: 19,
+              goodChamps: [],
+              badChamps: [],
+              potential: "A" as const,
+            },
+            status: "academy" as const,
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: me,
+            lastTeamName: season.teams.find((t) => t.id === me)!.name,
+          },
+        ],
+      },
+    };
+    const demoted = applyUserManualDemote(season, lane);
+    expect(demoted).not.toBeNull();
+    expect(isRosterVacancy(demoted!.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!)).toBe(
+      true,
+    );
+    expect(demoted!.franchise!.sameWindowDemoteIds).toContain(before.id);
+
+    const recalled = applyUserAcademyRecall(demoted!, champions, lane, "acy-callup-top");
+    expect(recalled).not.toBeNull();
+    const slot = recalled!.teams.find((t) => t.id === me)!.players.find((p) => p.lane === lane)!;
+    expect(slot.id).toBe("acy-callup-top");
+    expect(isRosterVacancy(slot)).toBe(false);
+    // Same-window demotee still blocked.
+    expect(applyUserAcademyRecall(recalled!, champions, lane, before.id!)).toBeNull();
+  });
+
+  it("mid-split demotions mint AI academy rookies when depth is low (no open-FA)", () => {
+    let season = transferFollowed();
+    const other = season.teams.find((t) => t.id !== season.config.controlledTeamId)!;
+    // Empty that org's academy so depth-below triggers intake.
+    season = {
+      ...season,
+      franchise: {
+        ...season.franchise!,
+        inactivePool: (season.franchise!.inactivePool ?? []).filter(
+          (e) => !(e.status === "academy" && e.lastTeamId === other.id),
+        ),
+        // Immediate path (no pending) — all teams eligible including followed.
+        pendingMidSplitDemotion: undefined,
+      },
+    };
+    expect(countTeamAcademy(season.franchise!.inactivePool!, other.id)).toBe(0);
+
+    const next = applyMidSplitDemotions(season, "summer", champions, () => 0);
+    expect(countTeamAcademy(next.franchise!.inactivePool!, other.id)).toBeGreaterThan(0);
+    expect(next.rosterNews?.some((n) => n.marketNote === "academy-rookie" && n.teamId === other.id)).toBe(
+      true,
+    );
+    // Open-FA replaces stay year-end only.
+    expect(next.rosterNews?.some((n) => n.marketNote === "open-fa")).toBeFalsy();
+  });
+
+  it("deferred Proceed skips followed team for AI academy intake", () => {
+    let season = transferFollowed("winter");
+    const me = season.config.controlledTeamId!;
+    // Strip followed academy so they would otherwise qualify for intake.
+    season = {
+      ...season,
+      franchise: {
+        ...season.franchise!,
+        pendingMidSplitDemotion: "winter",
+        inactivePool: (season.franchise!.inactivePool ?? []).filter(
+          (e) => !(e.status === "academy" && e.lastTeamId === me),
+        ),
+      },
+    };
+    expect(countTeamAcademy(season.franchise!.inactivePool!, me)).toBe(0);
+
+    const next = applyMidSplitDemotions(season, "winter", champions, () => 0);
+    expect(countTeamAcademy(next.franchise!.inactivePool!, me)).toBe(0);
+    expect(next.rosterNews?.some((n) => n.marketNote === "academy-rookie" && n.teamId === me)).toBeFalsy();
   });
 });

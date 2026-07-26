@@ -8,6 +8,12 @@ import { sideFormsFor } from "@/lib/playerForm";
 import { teamSeasonGrades } from "@/lib/season/stats";
 import { seasonTeam, type SeasonState } from "@/lib/season/types";
 import {
+  ACADEMY_MAX_PER_TEAM,
+  USER_ACADEMY_ROOKIE_SOFT_MAX,
+  listTeamAcademy,
+  isRosterVacancy,
+} from "@/lib/season/faMarket";
+import {
   computeTeamChampionWR,
   type TournamentChampionWREntry,
   type TournamentMatch,
@@ -16,6 +22,7 @@ import {
 import type { Champion, Lane, PlayerTier } from "@/lib/types";
 import TeamIcon from "./TeamIcon";
 import LaneIcon from "./LaneIcon";
+import InactiveBrowseRow from "./season/InactiveBrowseRow";
 
 // "My Team" dashboard panel for the controlled team: the live roster with
 // tier badges (and ▲/▼ shift arrows when a tier moved this split) + current
@@ -199,6 +206,9 @@ export default function MyTeamPanel() {
   const playerForms = useDraftStore((s) => s.playerForms);
   const openSeasonTournament = useDraftStore((s) => s.openSeasonTournament);
   const startMatch = useDraftStore((s) => s.startMatch);
+  const shopAcademyRelease = useDraftStore((s) => s.shopAcademyRelease);
+  const shopAcademyRecall = useDraftStore((s) => s.shopAcademyRecall);
+  const shopAcademyRookie = useDraftStore((s) => s.shopAcademyRookie);
   const [champOpen, setChampOpen] = useState(false);
 
   const controlled = season
@@ -221,6 +231,27 @@ export default function MyTeamPanel() {
         ? teamChampionWR(season, controlled.name, champions)
         : null,
     [season, controlled, champions],
+  );
+
+  const academy = useMemo(() => {
+    if (!season?.franchise?.aging || !controlled) return [];
+    return listTeamAcademy(season.franchise.inactivePool ?? [], controlled.id);
+  }, [season, controlled]);
+
+  const shopping = useMemo(() => {
+    if (!season?.franchise?.aging) return false;
+    if (season.status === "complete") return true;
+    const phase = season.phases[season.phaseIndex];
+    return (
+      season.status === "in-progress" &&
+      phase?.kind === "transfer" &&
+      phase.status === "in-progress"
+    );
+  }, [season]);
+
+  const sameWindowDemoteIds = useMemo(
+    () => new Set(season?.franchise?.sameWindowDemoteIds ?? []),
+    [season?.franchise?.sameWindowDemoteIds],
   );
 
   if (!season || !controlled) return null;
@@ -326,29 +357,118 @@ export default function MyTeamPanel() {
             Offseason roster news
           </div>
           <div className="space-y-0.5">
-            {news.map((n, i) => (
+            {news.map((n, i) => {
+              const source = n.entrantSource;
+              const vacancyDemote =
+                n.marketNote === "manual-demote" || n.marketNote === "ai-demote";
+              const becameFa =
+                n.marketNote === "academy-release" ||
+                n.marketNote === "became-fa" ||
+                n.marketNote === "academy-bump";
+              const faToAcademy =
+                n.marketNote === "fa-academy" ||
+                n.marketNote === "academy-stash" ||
+                n.marketNote === "academy-rookie";
+              const sourceLabel =
+                source === "academy" ? "returnee (academy)" : source === "free-agent" ? "returnee (FA)" : "rookie";
+              const bidNote =
+                n.marketNote === "academy-pass" && n.passedAcademyName
+                  ? ` · passed academy ${n.passedAcademyName}`
+                  : n.beatenNames && n.beatenNames.length > 0
+                    ? ` · over ${n.beatenNames.join(", ")}`
+                    : n.marketNote === "open-fa"
+                      ? " · open FA upgrade"
+                      : n.marketNote === "rookie-gate"
+                        ? " · rookie's door"
+                        : "";
+              if (becameFa) {
+                const label =
+                  n.marketNote === "academy-release"
+                    ? "released to free agency"
+                    : n.marketNote === "academy-bump"
+                      ? "became a free agent (academy full)"
+                      : "became a free agent";
+                return (
+                  <div key={`${n.lane}-${i}`} className="flex flex-wrap items-center gap-x-2 text-[10px]">
+                    <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
+                      {n.timeMark ?? "—"}
+                    </span>
+                    <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
+                    <span className="text-rift-mutedbright">
+                      <span className="text-amber-300/90">{n.departedName ?? n.entrantName}</span>{" "}
+                      <span className="text-rift-muted/60">
+                        ({n.departedTier ?? n.entrantTier}) {label}
+                        {n.departedAge != null ? ` · age ${n.departedAge}` : ""}
+                      </span>
+                    </span>
+                  </div>
+                );
+              }
+              if (faToAcademy) {
+                const academyLabel =
+                  n.marketNote === "academy-rookie"
+                    ? "academy rookie"
+                    : n.marketNote === "academy-stash"
+                      ? "signed to academy · AI stash"
+                      : "signed to academy";
+                return (
+                  <div key={`${n.lane}-${i}`} className="flex flex-wrap items-center gap-x-2 text-[10px]">
+                    <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
+                      {n.timeMark ?? "—"}
+                    </span>
+                    <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
+                    <span className="text-rift-mutedbright">
+                      <span className="text-sky-400/90">{n.entrantName}</span>{" "}
+                      <span className="text-rift-muted/60">
+                        ({n.entrantTier}) {academyLabel}
+                      </span>
+                    </span>
+                  </div>
+                );
+              }
+              return (
               <div key={`${n.lane}-${i}`} className="flex flex-wrap items-center gap-x-2 text-[10px]">
+                <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
+                  {n.timeMark ?? "—"}
+                </span>
                 <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
-                {n.retiredName ? (
+                {n.departedName ? (
                   <span className="text-rift-mutedbright">
-                    <span className="text-rift-redbright/80">{n.retiredName}</span>{" "}
+                    <span className="text-rift-redbright/80">{n.departedName}</span>{" "}
                     <span className="text-rift-muted/60">
-                      ({n.retiredTier}) retired{n.retiredAge != null ? ` at ${n.retiredAge}` : ""}
+                      ({n.departedTier}) demoted to academy
+                      {n.departedAge != null ? ` · age ${n.departedAge}` : ""}
                     </span>
                   </span>
                 ) : (
                   <span className="text-rift-muted/60">Slot opened</span>
                 )}
-                <span className="text-rift-muted/40">→</span>
-                <span className="text-rift-mutedbright">
-                  rookie <span className="text-emerald-400/90">{n.rookieName}</span>
-                </span>
-                <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">
-                  {n.rookieTier}
-                  {n.rookiePotential !== n.rookieTier ? ` ↗${n.rookiePotential}` : ""} debuts
-                </span>
+                {vacancyDemote ? (
+                  <span className="text-[8px] uppercase tracking-[0.15em] text-amber-300/75">
+                    {n.marketNote === "ai-demote"
+                      ? "→ AI bench · market fill"
+                      : "→ slot open · fill via FA / academy or leave for AI"}
+                  </span>
+                ) : (
+                  <>
+                    <span className="text-rift-muted/40">→</span>
+                    <span className="text-rift-mutedbright">
+                      {sourceLabel}{" "}
+                      <span className={source === "rookie" ? "text-emerald-400/90" : "text-sky-400/90"}>
+                        {n.entrantName}
+                      </span>
+                    </span>
+                    <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">
+                      {n.entrantTier}
+                      {n.entrantPotential !== n.entrantTier ? ` ↗${n.entrantPotential}` : ""}
+                      {source === "rookie" ? " debuts" : " returns"}
+                      {bidNote && <span className="normal-case tracking-normal text-rift-muted/50">{bidNote}</span>}
+                    </span>
+                  </>
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -447,6 +567,83 @@ export default function MyTeamPanel() {
               </div>
             );
           })}
+          {season.franchise?.aging && (
+            <div className="mt-2 pt-2 border-t border-amber-500/20">
+              <div className="flex items-baseline justify-between mb-1 gap-2 flex-wrap">
+                <span className="text-[8px] uppercase tracking-[0.3em] text-amber-300/75">
+                  Academy
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="text-[7px] uppercase tracking-[0.2em] text-rift-muted/45 tabular-nums">
+                    {academy.length}/{ACADEMY_MAX_PER_TEAM}
+                  </span>
+                  {shopping && academy.length < USER_ACADEMY_ROOKIE_SOFT_MAX && (
+                    <button
+                      type="button"
+                      onClick={() => shopAcademyRookie()}
+                      title={`Generate a rookie into academy (soft cap ${USER_ACADEMY_ROOKIE_SOFT_MAX}/${ACADEMY_MAX_PER_TEAM} — leaves a demotion slot)`}
+                      className="px-1.5 py-0.5 text-[7px] uppercase tracking-[0.12em] border border-rift-line/60 text-rift-muted/70 hover:border-emerald-500/50 hover:text-emerald-400/90 transition-all"
+                    >
+                      Add academy rookie
+                    </button>
+                  )}
+                </span>
+              </div>
+              {academy.length === 0 ? (
+                <div className="text-[9px] italic text-rift-muted/55 px-0.5">
+                  No academy players
+                </div>
+              ) : (
+                <div className="space-y-0.5 -mx-1">
+                  {academy.map((entry) => {
+                    const pid = entry.player.id;
+                    const blocked = !!pid && sameWindowDemoteIds.has(pid);
+                    const vacantLane = controlled.players.find(
+                      (p) => p.lane === entry.player.lane && isRosterVacancy(p),
+                    );
+                    return (
+                      <InactiveBrowseRow
+                        key={pid ?? entry.player.name}
+                        entry={entry}
+                        actions={
+                          shopping ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={!pid}
+                                onClick={() => pid && shopAcademyRelease(pid)}
+                                title="Release this academy player to free agency"
+                                className="px-1.5 py-0.5 text-[7px] uppercase tracking-[0.12em] border border-rift-line/60 text-rift-muted/70 hover:border-amber-500/50 hover:text-amber-300/90 transition-all disabled:opacity-35"
+                              >
+                                Release
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!pid || blocked || !vacantLane}
+                                onClick={() =>
+                                  pid && shopAcademyRecall(entry.player.lane, pid)
+                                }
+                                title={
+                                  blocked
+                                    ? "Benched this window — cannot call up until next window"
+                                    : vacantLane
+                                      ? `Call up into vacant ${entry.player.lane} (develops faster on main roster)`
+                                      : "Need a vacant lane (Bench first) or use academy board to replace"
+                                }
+                                className="px-1.5 py-0.5 text-[7px] uppercase tracking-[0.12em] border border-rift-line/60 text-rift-muted/70 hover:border-rift-gold/50 hover:text-rift-goldbright transition-all disabled:opacity-35"
+                              >
+                                Call up
+                              </button>
+                            </>
+                          ) : undefined
+                        }
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         {/* Next match — play or watch */}
         <div className="md:border-l border-rift-line/20 md:pl-3">

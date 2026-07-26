@@ -425,9 +425,11 @@ export interface RegionStrength {
   splitTitles: number;
   intlTitles: number;
   worldsTitles: number;
+  /** Global Cup titles won by any team of this region. */
+  globalCupTitles: number;
   /** Worlds finals reached by any team of this region (wins + losses). */
   worldsFinals: number;
-  /** Weighted score used for the ranking (Worlds ≫ intl ≫ split). */
+  /** Weighted score used for the ranking (GC ≫ Worlds ≫ intl ≫ split). */
   score: number;
 }
 
@@ -444,6 +446,7 @@ export function computeRegionStrength(
       splitTitles: 0,
       intlTitles: 0,
       worldsTitles: 0,
+      globalCupTitles: 0,
       worldsFinals: 0,
       score: 0,
     });
@@ -454,6 +457,7 @@ export function computeRegionStrength(
     row.splitTitles += r.splitTitles;
     row.intlTitles += r.intlTotal;
     row.worldsTitles += r.worldsTitles;
+    row.globalCupTitles += r.intlTitles["global-cup"] ?? 0;
   }
   // Worlds finals appearances = champion + runner-up of each season.
   for (const e of entries) {
@@ -466,6 +470,7 @@ export function computeRegionStrength(
   const out = [...rows.values()];
   for (const row of out) {
     row.score =
+      row.globalCupTitles * 8 +
       row.worldsTitles * 6 +
       row.intlTitles * 3 +
       row.worldsFinals * 1.5 +

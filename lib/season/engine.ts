@@ -71,6 +71,7 @@ import {
   driftSynergiesOverTime,
   assignSynergies,
 } from "../chemistry";
+import { applyMidSplitDemotions, fillFollowedRosterVacancies } from "./franchise";
 
 export function makeSeasonId(): string {
   return `season-${Date.now().toString(36)}-${Math.random()
@@ -1803,6 +1804,20 @@ function startPhase(season: SeasonState, index: number): SeasonState {
         : p,
     );
     let s = { ...season, phases, phaseIndex: index, updatedAt: Date.now() };
+    // Fresh FA-sign / manual-demote / same-window-rookie quota for this window
+    // (shared with offseason).
+    if (pending && s.franchise?.aging) {
+      s = {
+        ...s,
+        franchise: {
+          ...s.franchise,
+          faSignsThisWindow: 0,
+          manualDemotesThisWindow: 0,
+          sameWindowDemoteIds: [],
+          sameWindowRookieIds: [],
+        },
+      };
+    }
     // No followed team → the window closes immediately, so award the
     // roster-stability bonus now. With a followed team it's deferred to
     // advanceTransferWindow (after they accept/decline their proposals).
@@ -2066,6 +2081,9 @@ export function applyTournamentUpdate(
               lane: p.lane,
               ...(p.age != null ? { age: p.age } : {}),
               ...(p.debutYear != null ? { debutYear: p.debutYear } : {}),
+              ...(p.potential ? { potential: p.potential } : {}),
+              ...(p.goodChamps?.length ? { goodChamps: [...p.goodChamps] } : {}),
+              ...(p.badChamps?.length ? { badChamps: [...p.badChamps] } : {}),
             })),
           })),
         },
@@ -2086,6 +2104,19 @@ export function applyTournamentUpdate(
       status: "complete",
       champion: next.intlResults.worlds?.[0] ?? null,
       transfersByEvent: events,
+      // Fresh FA-sign / manual-demote / same-window-rookie quota for the
+      // post-Worlds offseason browse window.
+      ...(next.franchise?.aging
+        ? {
+            franchise: {
+              ...next.franchise,
+              faSignsThisWindow: 0,
+              manualDemotesThisWindow: 0,
+              sameWindowDemoteIds: [],
+              sameWindowRookieIds: [],
+            },
+          }
+        : {}),
       updatedAt: Date.now(),
     };
   }
@@ -2114,6 +2145,28 @@ export function applyTournamentUpdate(
     // instead of carrying the same champs all year. Auto-driven (living sim),
     // independent of the playerDevelopment skill-growth toggle.
     next = applyPoolDrift(next, champions);
+    // Mid-split demotion checkpoint (franchise aging). Winter/spring are
+    // deferred when a followed team has transfer windows — user shops FA /
+    // academy first; demotions + AI fills run in advanceTransferWindow.
+    // Summer has no transfer window after it, so it still runs immediately.
+    if (phase.split) {
+      const deferForUser =
+        (phase.split === "winter" || phase.split === "spring") &&
+        !!next.config.controlledTeamId &&
+        !!next.config.playerTransfers &&
+        !!next.franchise?.aging;
+      if (deferForUser && next.franchise) {
+        next = {
+          ...next,
+          franchise: {
+            ...next.franchise,
+            pendingMidSplitDemotion: phase.split,
+          },
+        };
+      } else {
+        next = applyMidSplitDemotions(next, phase.split, champions);
+      }
+    }
   }
   // [T] Free-agency window: opens as First Stand / MSI wrap (the transfer
   // phase that follows). Standouts move up, weak links down; pool fit under
@@ -2146,7 +2199,13 @@ export function phaseProgress(
 // Close an in-progress transfer window and advance to the next split. Any
 // proposals the user left unresolved are treated as declined (dropped). No-op
 // unless the current phase is an in-progress transfer window.
-export function advanceTransferWindow(season: SeasonState): SeasonState {
+// When winter/spring demotions were deferred for a followed team, they run
+// HERE — after the user has shopped FA / academy — so AI vacancy fills cannot
+// snipe free agents the user might have wanted.
+export function advanceTransferWindow(
+  season: SeasonState,
+  champions: readonly Champion[] = [],
+): SeasonState {
   const phase = season.phases[season.phaseIndex];
   if (phase?.kind !== "transfer" || phase.status !== "in-progress") return season;
   const phases = season.phases.map((p, i) =>
@@ -2157,5 +2216,23 @@ export function advanceTransferWindow(season: SeasonState): SeasonState {
   // transfer record, so a declined proposal correctly counts as sitting out.
   let s: SeasonState = { ...season, phases, proposedTransfers: [], updatedAt: Date.now() };
   if (phase.event) s = awardStabilityBonus(s, phase.event);
+
+  // Fill manual-demote vacancies before deferred mid-split demotions so stubs
+  // are never evaluated as roster players.
+  if (s.franchise?.aging && champions.length > 0) {
+    s = fillFollowedRosterVacancies(s, champions);
+  }
+
+  const pending = s.franchise?.pendingMidSplitDemotion;
+  if (pending && s.franchise?.aging && champions.length > 0) {
+    s = applyMidSplitDemotions(s, pending, champions);
+    if (s.franchise) {
+      s = {
+        ...s,
+        franchise: { ...s.franchise, pendingMidSplitDemotion: undefined },
+      };
+    }
+  }
+
   return startPhase(s, season.phaseIndex + 1);
 }

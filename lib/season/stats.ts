@@ -1301,6 +1301,8 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 export function teamSeasonGrades(
   season: SeasonState,
   teamId: string,
+  /** When set, only games from these tournaments count toward averages. */
+  onlyTournamentIds?: readonly string[],
 ): TeamGrades {
   const team = season.teams.find((t) => t.id === teamId);
   const roster = team?.players ?? [];
@@ -1326,8 +1328,15 @@ export function teamSeasonGrades(
     m.set(id, (m.get(id) ?? 0) + by);
   };
 
+  const onlySet =
+    onlyTournamentIds && onlyTournamentIds.length > 0
+      ? new Set(onlyTournamentIds)
+      : null;
   const tids: string[] = [];
-  for (const phase of season.phases) for (const id of phase.tournamentIds) tids.push(id);
+  for (const phase of season.phases) for (const id of phase.tournamentIds) {
+    if (onlySet && !onlySet.has(id)) continue;
+    tids.push(id);
+  }
 
   for (const tid of tids) {
     const t = season.tournaments[tid];

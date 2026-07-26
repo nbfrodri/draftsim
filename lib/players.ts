@@ -415,6 +415,14 @@ export function normalizeRoster(
       const id = typeof rawId === "string" && rawId ? rawId : undefined;
       const rawAge = (entry as { age?: unknown }).age;
       const age = typeof rawAge === "number" && Number.isFinite(rawAge) ? rawAge : undefined;
+      const rawDebut = (entry as { debutYear?: unknown }).debutYear;
+      const debutYear =
+        typeof rawDebut === "number" && Number.isFinite(rawDebut) ? rawDebut : undefined;
+      const rawStreak = (entry as { badStreak?: unknown }).badStreak;
+      const badStreak =
+        typeof rawStreak === "number" && Number.isFinite(rawStreak) && rawStreak >= 0
+          ? Math.floor(rawStreak)
+          : undefined;
       const rawPot = (entry as { potential?: unknown }).potential;
       const potential = PLAYER_TIERS.includes(rawPot as PlayerTier)
         ? (rawPot as PlayerTier)
@@ -442,6 +450,8 @@ export function normalizeRoster(
         ...(id ? { id } : {}),
         ...(name ? { name } : {}),
         ...(age != null ? { age } : {}),
+        ...(debutYear != null ? { debutYear } : {}),
+        ...(badStreak != null ? { badStreak } : {}),
         ...(potential ? { potential } : {}),
         ...(homeRegion ? { homeRegion } : {}),
         ...(acclimation != null ? { acclimation } : {}),

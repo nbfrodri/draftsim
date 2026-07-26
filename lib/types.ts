@@ -48,13 +48,17 @@ export interface Player {
   // generated one otherwise.
   name?: string;
   // Age in years. Drives between-season growth (young) and decline (veteran)
-  // and eventual retirement in franchise mode. Optional — only stamped on
-  // franchise/reality rosters; one-off seasons leave it unset.
+  // in franchise mode — never forces retirement by itself. Optional — only
+  // stamped on franchise/reality rosters; one-off seasons leave it unset.
   age?: number;
   // Franchise year this player DEBUTED as a rookie (entered the league via the
   // offseason rookie system). Only set on rookies; founding/Year-1 rosters and
   // one-off seasons leave it unset, so its presence marks a true rookie.
   debutYear?: number;
+  // Consecutive underperforming seasons (franchise offseason). Hits the
+  // demotion threshold → academy. Reset by an international title or a
+  // non-underperforming year. Optional — absent on legacy/one-off rosters.
+  badStreak?: number;
   // Hidden ceiling tier a player can grow toward while young; once reached,
   // age + performance govern whether they hold it or decline. Optional, like
   // age. Defaults to the current tier when absent (no headroom).

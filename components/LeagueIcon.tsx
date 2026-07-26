@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useState } from "react";
 import GlobalCupBadge from "@/components/GlobalCupBadge";
 import type { LeagueId, InternationalId } from "@/lib/season/types";
 
@@ -8,7 +8,7 @@ import type { LeagueId, InternationalId } from "@/lib/season/types";
 // public/league-logos/<id>.png (LeagueId: LCK…; InternationalId:
 // first-stand/msi/worlds). On a load error we render nothing so a missing
 // file never leaves a broken-image box next to the label.
-export default function LeagueIcon({
+function LeagueIcon({
   league,
   size = 14,
   className = "",
@@ -17,12 +17,14 @@ export default function LeagueIcon({
   size?: number;
   className?: string;
 }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [league]);
+  // Store WHICH league failed rather than a boolean + reset effect: the Hall
+  // of Seasons mounts thousands of these, and an effect per icon is pure
+  // overhead on every mount.
+  const [failedFor, setFailedFor] = useState<string | null>(null);
   if (league === "global-cup") {
     return <GlobalCupBadge size={size} className={className} />;
   }
-  if (failed) return null;
+  if (failedFor === league) return null;
   return (
     // eslint-disable-next-line @next/next/no-img-element -- static bundled
     // asset; next/image offers no win for a tiny inline mark.
@@ -31,9 +33,13 @@ export default function LeagueIcon({
       alt=""
       width={size}
       height={size}
+      loading="lazy"
+      decoding="async"
       className={className}
       style={{ width: size, height: size, objectFit: "contain" }}
-      onError={() => setFailed(true)}
+      onError={() => setFailedFor(league)}
     />
   );
 }
+
+export default memo(LeagueIcon);

@@ -24,6 +24,7 @@ import {
   type SplitId,
 } from "./types";
 import { isGlobalCupYear } from "./engine";
+import { toInactiveSnapshot } from "./playerLifecycle";
 import {
   computeSeasonStats,
   computeSeasonHeadToHead,
@@ -228,6 +229,10 @@ export interface SeasonHistoryEntry {
    *  seasons archived after the full-H2H expansion; older entries fall back to
    *  `rivalries` (top pairings, often without scope detail). */
   headToHead?: HistoryRivalry[];
+  /** Academy / free-agent / retired pool after the offseason that closed this
+   *  year. Optional — absent on pre-lifecycle archives; search falls back to
+   *  the legacy "missing from latest roster" retired heuristic. */
+  inactivePlayers?: import("./playerLifecycle").InactivePlayerSnapshot[];
 }
 
 /** Per-stage slice of a frozen head-to-head (split or international). */
@@ -632,6 +637,11 @@ export function buildSeasonHistoryEntry(
     ...(rookieOfYear.length > 0 ? { rookieOfYear } : {}),
     ...(playerCareers.length > 0 ? { playerCareers } : {}),
     ...(season.phaseRosters?.length ? { phaseRosters: season.phaseRosters } : {}),
+    ...(season.franchise?.aging
+      ? {
+          inactivePlayers: (season.franchise.inactivePool ?? []).map(toInactiveSnapshot),
+        }
+      : {}),
     ...(transfers.length > 0 ? { transfers } : {}),
     ...(rivalryArchive.length > 0 ? { rivalries: rivalryArchive } : {}),
     ...(headToHeadArchive.length > 0 ? { headToHead: headToHeadArchive } : {}),

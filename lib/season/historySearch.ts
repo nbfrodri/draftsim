@@ -23,6 +23,13 @@ import {
   type TeamRecord,
 } from "./historyRecords";
 import type { PlayerChampStat } from "./stats";
+import {
+  ACADEMY_YEARS,
+  TOTAL_INACTIVE_BEFORE_RETIRE,
+  yearsAsFreeAgent,
+  yearsInAcademy,
+  type InactivePlayerSnapshot,
+} from "./playerLifecycle";
 
 const teamKey = (t: { name: string; leagueId: LeagueId }) => `${t.leagueId}:${t.name}`;
 function yearOf(entry: SeasonHistoryEntry): string {
@@ -91,7 +98,24 @@ export interface PlayerHit {
   team: SeasonHistoryTeamRef | null; // most-recent team, for a logo
   lane: Lane | null; // primary (most-recent) position, for the lane filter/icon
   tier: PlayerTier | null; // most-recent skill tier
-  retired: boolean; // no longer on a roster in the latest archived season
+  /** @deprecated Prefer `careerStatus` — true when status === "retired". */
+  retired: boolean;
+  /** Active / academy / free-agent / retired. Legacy archives without an
+   *  inactive pool fall back to active vs retired (missing from latest roster). */
+  careerStatus: "active" | "academy" | "free-agent" | "retired";
+  /** Total years since demotion when academy / FA / retired; unset when active. */
+  inactiveYears?: number;
+  /** Years spent in academy (0…ACADEMY_YEARS); set when academy / FA / retired. */
+  academyYears?: number;
+  /** Years spent as free agent after academy; set when FA / retired. */
+  freeAgentYears?: number;
+  /** Last active grade when demoted (from inactive snapshot). */
+  lastActiveGrade?: number | null;
+  /** Shadow form while inactive. */
+  shadowGrade?: number | null;
+  /** Years remaining until FA (academy) or retirement (academy/FA). */
+  yearsLeftToFa?: number;
+  yearsLeftToRetire?: number;
   debutYear?: number; // franchise year they debuted as a rookie (badge); unset for founders
   // Career totals, so the search list can be ordered by accolades/stats.
   titles: number; // split + international titles
@@ -112,69 +136,398 @@ export interface PlayerHit {
 // rosters across years, so this is meaningful there; one-off season Halls
 // rarely reuse player ids, so few (if any) get flagged.
 export function retiredPlayerIds(entries: SeasonHistoryEntry[]): Set<string> {
-  const withRosters = entries.filter((e) => (e.phaseRosters?.length ?? 0) > 0);
-  if (withRosters.length < 2) return new Set();
-  const latest = withRosters.reduce((a, b) => (b.archivedAt > a.archivedAt ? b : a));
-  const active = new Set<string>();
-  for (const ph of latest.phaseRosters ?? [])
-    for (const t of ph.teams) for (const p of t.players) if (p.id) active.add(p.id);
-  const retired = new Set<string>();
-  for (const e of withRosters) {
-    if (e.id === latest.id) continue;
-    for (const ph of e.phaseRosters ?? [])
-      for (const t of ph.teams)
-        for (const p of t.players) if (p.id && !active.has(p.id)) retired.add(p.id);
-  }
-  return retired;
+  const status = playerCareerStatuses(entries);
+  const out = new Set<string>();
+  for (const [id, s] of status) if (s.status === "retired") out.add(id);
+  return out;
 }
 
-// Each player's most-recent lane + tier + team, from the newest roster appearance.
-function playerMeta(
+export type CareerStatusInfo = {
+  status: PlayerHit["careerStatus"];
+  inactiveYears?: number;
+  academyYears?: number;
+  freeAgentYears?: number;
+};
+
+export interface PlayerCareerStatusOpts {
+  /** When set, resolve status from that archived season only (point-in-time). */
+  asOfSeasonId?: string;
+  /**
+   * End-of-season truth: inactive-pool membership wins even if the player also
+   * appeared on a phase roster that year (demoted in the closing offseason).
+   * Default false — roster membership ⇒ active (correct for stage lineup sheets).
+   */
+  preferInactive?: boolean;
+  /**
+   * Live franchise inactive pool — overlays *current* Search status only.
+   * Never used for as-of / year-history tenure rows.
+   */
+  liveInactive?: readonly InactivePlayerSnapshot[];
+  /** Live roster ids — signed-back players clear inactive overlay. */
+  liveRosterIds?: ReadonlySet<string>;
+}
+
+/** Completed Hall archives only — unfinished seasons are not year-history. */
+function completedEntries(entries: SeasonHistoryEntry[]): SeasonHistoryEntry[] {
+  return entries.filter((e) => e.complete);
+}
+
+function rosterPlayerIds(entry: SeasonHistoryEntry): Set<string> {
+  const active = new Set<string>();
+  for (const ph of entry.phaseRosters ?? [])
+    for (const t of ph.teams) for (const p of t.players) if (p.id) active.add(p.id);
+  return active;
+}
+
+function inactiveStatusInfo(
+  status: "academy" | "free-agent" | "retired",
+  inactiveYears: number,
+): CareerStatusInfo {
+  const academyYears = yearsInAcademy(status, inactiveYears);
+  const freeAgentYears = yearsAsFreeAgent(status, inactiveYears);
+  return {
+    status,
+    inactiveYears,
+    academyYears,
+    ...(status === "free-agent" || status === "retired" ? { freeAgentYears } : {}),
+  };
+}
+
+/** Resolve career status from the newest inactive-pool snapshot, falling back
+ *  to the legacy "missing from latest roster ⇒ retired" heuristic only when no
+ *  archive carries an inactive pool (pre-lifecycle Hall entries).
+ *
+ *  Current (no asOf) status uses **completed** archives only, then optionally
+ *  overlays `liveInactive` for Search filters mid-season. Year-history /
+ *  as-of lookups never see the live unfinished season.
+ *
+ *  Pass `asOfSeasonId` for point-in-time status on a specific archived year
+ *  (stage rosters / year-history rows). Legacy as-of seasons without an
+ *  `inactivePlayers` snapshot only mark rostered players active — academy/FA
+ *  distinction is omitted. */
+export function playerCareerStatuses(
   entries: SeasonHistoryEntry[],
-): Map<string, { lane: Lane; tier: PlayerTier; teamName: string; leagueId: LeagueId; logoUrl?: string; debutYear?: number }> {
+  opts?: PlayerCareerStatusOpts,
+): Map<string, CareerStatusInfo> {
+  const out = new Map<string, CareerStatusInfo>();
+  const asOfId = opts?.asOfSeasonId;
+  const preferInactive = opts?.preferInactive === true;
+
+  // ── Point-in-time for one archived season ─────────────────────────────────
+  if (asOfId != null) {
+    const entry = entries.find((e) => e.id === asOfId);
+    if (!entry) return out;
+    const active = rosterPlayerIds(entry);
+    const pool = entry.inactivePlayers;
+
+    if (preferInactive && pool != null) {
+      for (const p of pool) {
+        if (!p.playerId) continue;
+        out.set(p.playerId, inactiveStatusInfo(p.status, p.inactiveYears));
+      }
+      for (const id of active) {
+        if (!out.has(id)) out.set(id, { status: "active" });
+      }
+      return out;
+    }
+
+    if (pool != null) {
+      for (const p of pool) {
+        if (!p.playerId || active.has(p.playerId)) continue;
+        out.set(p.playerId, inactiveStatusInfo(p.status, p.inactiveYears));
+      }
+    }
+    // Legacy as-of (no pool): roster ⇒ active only; no cross-season retired guess.
+    for (const id of active) {
+      if (!out.has(id)) out.set(id, { status: "active" });
+    }
+    return out;
+  }
+
+  // ── Current (latest) career status — completed archives only ──────────────
+  // End-of-season truth: the newest inactivePlayers snapshot wins for anyone
+  // in the pool (demoted / FA / retired), even if they still appear on that
+  // year's phaseRosters (they played, then were benched/demoted in the
+  // closing offseason). Stale pools from older archives do NOT override a
+  // player who is rostered on a newer season (promoted / signed back).
+  const hall = completedEntries(entries);
+  const withRosters = hall.filter((e) => (e.phaseRosters?.length ?? 0) > 0);
+  const withPool = [...hall]
+    .filter((e) => e.inactivePlayers != null)
+    .sort((a, b) => b.archivedAt - a.archivedAt)[0];
+  const hasLifecycleSnapshots = withPool != null;
+
+  // No roster-bearing archives and no pool → nothing from Hall yet.
+  if (withRosters.length === 0 && !withPool) {
+    // Still allow live overlay when Hall is empty / mid Year 1.
+  } else {
+    const latest =
+      withRosters.length > 0
+        ? withRosters.reduce((a, b) => (b.archivedAt > a.archivedAt ? b : a))
+        : withPool!;
+    const active = rosterPlayerIds(latest);
+    // Pool is current when it belongs to the newest roster season (or there is
+    // no newer roster-only archive). Otherwise treat it as stale.
+    const poolIsCurrent =
+      withPool != null && withPool.archivedAt >= latest.archivedAt;
+
+    if (withPool?.inactivePlayers) {
+      for (const p of withPool.inactivePlayers) {
+        if (!p.playerId) continue;
+        // Stale pool: a player back on a newer roster is active again.
+        if (!poolIsCurrent && active.has(p.playerId)) continue;
+        out.set(p.playerId, inactiveStatusInfo(p.status, p.inactiveYears));
+      }
+    }
+
+    // Legacy fallback: anyone who appeared before but isn't on the latest roster
+    // and isn't already tagged from the inactive pool → retired. Only when no
+    // archive has lifecycle snapshots (otherwise missing ⇒ not in pool / active).
+    if (!hasLifecycleSnapshots && withRosters.length >= 2) {
+      for (const e of withRosters) {
+        if (e.id === latest.id) continue;
+        for (const ph of e.phaseRosters ?? [])
+          for (const t of ph.teams)
+            for (const p of t.players) {
+              if (!p.id || active.has(p.id) || out.has(p.id)) continue;
+              out.set(p.id, { status: "retired" });
+            }
+      }
+    }
+
+    for (const id of active) {
+      if (!out.has(id)) out.set(id, { status: "active" });
+    }
+  }
+
+  // Live franchise overlay for Search "current status" only.
+  if (opts?.liveInactive) {
+    const liveRoster = opts.liveRosterIds;
+    for (const p of opts.liveInactive) {
+      if (!p.playerId) continue;
+      if (liveRoster?.has(p.playerId)) continue;
+      out.set(p.playerId, inactiveStatusInfo(p.status, p.inactiveYears));
+    }
+    if (liveRoster) {
+      for (const id of liveRoster) {
+        out.set(id, { status: "active" });
+      }
+    }
+  }
+
+  return out;
+}
+
+/** Single-player status — current, or point-in-time when `asOfSeasonId` is set. */
+export function playerCareerStatus(
+  entries: SeasonHistoryEntry[],
+  playerId: string,
+  opts?: PlayerCareerStatusOpts,
+): CareerStatusInfo | undefined {
+  return playerCareerStatuses(entries, opts).get(playerId);
+}
+
+type PlayerMeta = {
+  lane: Lane;
+  tier: PlayerTier;
+  teamName?: string;
+  leagueId?: LeagueId;
+  logoUrl?: string;
+  debutYear?: number;
+  name?: string;
+};
+
+// Each player's most-recent lane + tier + team, from the newest roster
+// appearance, falling back to inactive-pool affiliate identity.
+function playerMeta(entries: SeasonHistoryEntry[]): Map<string, PlayerMeta> {
   const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
-  const out = new Map<string, { lane: Lane; tier: PlayerTier; teamName: string; leagueId: LeagueId; logoUrl?: string; debutYear?: number }>();
+  const identity = buildTeamIdentity(entries);
+  const out = new Map<string, PlayerMeta>();
   for (const e of ordered) {
     for (const phase of [...(e.phaseRosters ?? [])].sort((a, b) => b.phaseIndex - a.phaseIndex)) {
       for (const t of phase.teams)
         for (const p of t.players)
           if (p.id && !out.has(p.id))
-            out.set(p.id, { lane: p.lane, tier: p.tier, teamName: t.teamName, leagueId: t.leagueId, ...(t.logoUrl ? { logoUrl: t.logoUrl } : {}), ...(p.debutYear != null ? { debutYear: p.debutYear } : {}) });
+            out.set(p.id, {
+              lane: p.lane,
+              tier: p.tier,
+              teamName: t.teamName,
+              leagueId: t.leagueId,
+              ...(t.logoUrl ? { logoUrl: t.logoUrl } : {}),
+              ...(p.debutYear != null ? { debutYear: p.debutYear } : {}),
+              ...(p.name ? { name: p.name } : {}),
+            });
+    }
+  }
+  // Fill gaps (and pool-only players) from the newest inactive snapshots.
+  for (const e of ordered) {
+    for (const snap of e.inactivePlayers ?? []) {
+      if (!snap.playerId || out.has(snap.playerId)) continue;
+      const affiliate = teamRefFromInactive(identity, entries, snap);
+      out.set(snap.playerId, {
+        lane: snap.lane,
+        tier: snap.tier,
+        ...(affiliate
+          ? {
+              teamName: affiliate.name,
+              leagueId: affiliate.leagueId,
+              ...(affiliate.logoUrl ? { logoUrl: affiliate.logoUrl } : {}),
+            }
+          : snap.lastTeamName
+            ? { teamName: snap.lastTeamName }
+            : {}),
+        ...(snap.debutYear != null ? { debutYear: snap.debutYear } : {}),
+        ...(snap.playerName ? { name: snap.playerName } : {}),
+      });
     }
   }
   return out;
 }
 
-/** Every player who appears in any archived career, newest identity first. */
-export function listPlayers(entries: SeasonHistoryEntry[]): PlayerHit[] {
+function hitFromCareer(
+  c: PlayerCareerLine,
+  meta: Map<string, PlayerMeta>,
+  statuses: Map<string, CareerStatusInfo>,
+  identity: Map<string, SeasonHistoryTeamRef>,
+): PlayerHit {
+  const m = meta.get(c.playerId);
+  const wl = careerWinLoss(c);
+  const st = statuses.get(c.playerId) ?? { status: "active" as const };
+  const leagueId = m?.leagueId ?? c.leagueId;
+  const teamName = m?.teamName ?? c.teamName;
+  return {
+    id: c.playerId,
+    name: c.playerName || m?.name || c.playerId,
+    leagueId,
+    team:
+      teamName && leagueId
+        ? refFor(identity, teamName, leagueId, m?.logoUrl)
+        : null,
+    lane: m?.lane ?? c.lane ?? null,
+    tier: m?.tier ?? null,
+    retired: st.status === "retired",
+    careerStatus: st.status,
+    ...(st.inactiveYears != null ? { inactiveYears: st.inactiveYears } : {}),
+    ...(st.academyYears != null ? { academyYears: st.academyYears } : {}),
+    ...(st.freeAgentYears != null ? { freeAgentYears: st.freeAgentYears } : {}),
+    ...(m?.debutYear != null ? { debutYear: m.debutYear } : {}),
+    titles: c.splitTitles + c.intlTitles,
+    mvps: c.mvps,
+    allPro: c.allPro,
+    pentakills: c.pentakills,
+    kills: c.kills,
+    games: c.games,
+    gamesWon: wl.wins,
+    winRate: wl.rate,
+    grade: c.ratingGames > 0 ? Math.round((c.ratingSum / c.ratingGames) * 10) / 10 : 0,
+  };
+}
+
+/** Empty career shell for inactive-pool players with no archived playerCareers. */
+function emptyCareerShell(
+  playerId: string,
+  name: string,
+  leagueId: LeagueId | null,
+  teamName: string | undefined,
+  lane: Lane | null,
+): PlayerCareerLine {
+  return {
+    playerId,
+    playerName: name,
+    leagueId,
+    ...(teamName ? { teamName } : {}),
+    ...(lane ? { lane } : {}),
+    seasons: 0,
+    games: 0,
+    wins: 0,
+    winsGames: 0,
+    kills: 0,
+    mvps: 0,
+    allPro: 0,
+    allProSplit: 0,
+    allProSeason: 0,
+    intlMvps: 0,
+    splitMvps: 0,
+    champs: [],
+    splitTitles: 0,
+    intlAppearances: 0,
+    intlTitles: 0,
+    deaths: 0,
+    assists: 0,
+    pentakills: 0,
+    ratingSum: 0,
+    ratingGames: 0,
+    goldDiffSum: 0,
+    goldDiffGames: 0,
+  };
+}
+
+/** Every player who appears in any archived career OR inactive pool
+ *  (academy / free-agent / retired), newest identity first. */
+export function listPlayers(
+  entries: SeasonHistoryEntry[],
+  opts?: Pick<PlayerCareerStatusOpts, "liveInactive" | "liveRosterIds">,
+): PlayerHit[] {
   const identity = buildTeamIdentity(entries);
   const meta = playerMeta(entries);
-  const retired = retiredPlayerIds(entries);
-  return computePlayerCareers(entries)
-    .map((c) => {
-      const m = meta.get(c.playerId);
-      const wl = careerWinLoss(c);
-      return {
-        id: c.playerId,
-        name: c.playerName,
-        leagueId: m?.leagueId ?? c.leagueId,
-        team: m ? refFor(identity, m.teamName, m.leagueId, m.logoUrl) : null,
-        lane: m?.lane ?? null,
-        tier: m?.tier ?? null,
-        retired: retired.has(c.playerId),
-        ...(m?.debutYear != null ? { debutYear: m.debutYear } : {}),
-        titles: c.splitTitles + c.intlTitles,
-        mvps: c.mvps,
-        allPro: c.allPro,
-        pentakills: c.pentakills,
-        kills: c.kills,
-        games: c.games,
-        gamesWon: wl.wins,
-        winRate: wl.rate,
-        grade: c.ratingGames > 0 ? Math.round((c.ratingSum / c.ratingGames) * 10) / 10 : 0,
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const statuses = playerCareerStatuses(entries, opts);
+  const byId = new Map<string, PlayerHit>();
+
+  for (const c of computePlayerCareers(entries)) {
+    byId.set(c.playerId, hitFromCareer(c, meta, statuses, identity));
+  }
+
+  // Include academy / FA / retired players who never got a playerCareers row
+  // (or only exist in the inactive pool of the newest lifecycle snapshot).
+  const hall = completedEntries(entries);
+  const withPool = [...hall]
+    .filter((e) => e.inactivePlayers != null)
+    .sort((a, b) => b.archivedAt - a.archivedAt)[0];
+  for (const snap of withPool?.inactivePlayers ?? []) {
+    if (!snap.playerId || byId.has(snap.playerId)) continue;
+    const m = meta.get(snap.playerId);
+    const name = snap.playerName || m?.name || snap.playerId;
+    const leagueId = m?.leagueId ?? null;
+    const teamName = m?.teamName ?? snap.lastTeamName;
+    const shell = emptyCareerShell(
+      snap.playerId,
+      name,
+      leagueId,
+      teamName,
+      snap.lane,
+    );
+    if (!statuses.has(snap.playerId)) {
+      statuses.set(
+        snap.playerId,
+        inactiveStatusInfo(snap.status, snap.inactiveYears),
+      );
+    }
+    byId.set(snap.playerId, hitFromCareer(shell, meta, statuses, identity));
+  }
+
+  // Live-only inactive players (demoted mid Year 1 before any complete archive).
+  for (const snap of opts?.liveInactive ?? []) {
+    if (!snap.playerId || byId.has(snap.playerId)) continue;
+    if (opts?.liveRosterIds?.has(snap.playerId)) continue;
+    const m = meta.get(snap.playerId);
+    const name = snap.playerName || m?.name || snap.playerId;
+    const shell = emptyCareerShell(
+      snap.playerId,
+      name,
+      m?.leagueId ?? null,
+      m?.teamName ?? snap.lastTeamName,
+      snap.lane,
+    );
+    if (!statuses.has(snap.playerId)) {
+      statuses.set(
+        snap.playerId,
+        inactiveStatusInfo(snap.status, snap.inactiveYears),
+      );
+    }
+    byId.set(snap.playerId, hitFromCareer(shell, meta, statuses, identity));
+  }
+
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // 1..5 star rating from a roster's tiers (mirrors players.deriveStar without
@@ -373,9 +726,21 @@ export interface PlayerStint {
 
 export interface PlayerTenure {
   season: string;
+  /** Archived season entry id — for point-in-time status lookups. */
+  seasonId: string;
   archivedAt: number;
-  stints: PlayerStint[]; // ≥1; more than one = transferred mid-year
+  stints: PlayerStint[]; // 0 when inactive-only that year; >1 = transferred mid-year
   titles: TitleTally; // titles won while rostered for that stage
+  /**
+   * End-of-season career status for this year (from `inactivePlayers` when
+   * present). Career History rows cover active / academy / FA / retired.
+   */
+  careerStatus: PlayerHit["careerStatus"];
+  inactiveYears?: number;
+  academyYears?: number;
+  freeAgentYears?: number;
+  /** Last club from the inactive snapshot when academy / FA / retired that year. */
+  affiliateTeam?: SeasonHistoryTeamRef | null;
 }
 
 // One season's per-player numbers, for the profile's season-by-season readout
@@ -400,22 +765,60 @@ export interface PlayerProfile {
   age?: number; // most-recent known age
   debutYear?: number; // franchise year they debuted as a rookie; unset for founders
   retired: boolean; // absent from the latest archived season's rosters
+  careerStatus: "active" | "academy" | "free-agent" | "retired";
+  inactiveYears?: number;
+  academyYears?: number;
+  freeAgentYears?: number;
+  lastActiveGrade?: number | null;
+  shadowGrade?: number | null;
+  yearsLeftToFa?: number;
+  yearsLeftToRetire?: number;
   splitTitles: number;
   intlTitles: Partial<Record<InternationalId, number>>; // by event
   career: PlayerCareerLine | null;
-  tenures: PlayerTenure[]; // newest first
+  /** Per completed season, newest first — Career History timeline (roster + academy/FA). */
+  tenures: PlayerTenure[];
   seasons: PlayerSeasonStat[]; // newest first, only seasons with recorded stats
 }
 
-export function playerProfile(entries: SeasonHistoryEntry[], playerId: string): PlayerProfile | null {
+function teamRefFromInactive(
+  identity: Map<string, SeasonHistoryTeamRef>,
+  entries: SeasonHistoryEntry[],
+  snap: { lastTeamId: string; lastTeamName?: string },
+): SeasonHistoryTeamRef | null {
+  // Prefer matching the archived teamId on any phase roster (stable franchise id).
+  for (const e of entries) {
+    for (const ph of e.phaseRosters ?? []) {
+      for (const t of ph.teams) {
+        if (t.teamId === snap.lastTeamId) {
+          return refFor(identity, t.teamName, t.leagueId, t.logoUrl);
+        }
+      }
+    }
+  }
+  if (snap.lastTeamName) {
+    for (const ref of identity.values()) {
+      if (ref.name === snap.lastTeamName) return ref;
+    }
+  }
+  return null;
+}
+
+export function playerProfile(
+  entries: SeasonHistoryEntry[],
+  playerId: string,
+  opts?: Pick<PlayerCareerStatusOpts, "liveInactive" | "liveRosterIds">,
+): PlayerProfile | null {
   const identity = buildTeamIdentity(entries);
   const career = computePlayerCareers(entries).find((c) => c.playerId === playerId) ?? null;
-  const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
+  const ordered = [...completedEntries(entries)].sort((a, b) => b.archivedAt - a.archivedAt);
   const tenures: PlayerTenure[] = [];
   const intlTitles: Partial<Record<InternationalId, number>> = {};
   let splitTitles = 0;
   let name = career?.playerName ?? "";
   let debutYear: number | undefined; // set from any snapshot carrying it (invariant)
+  let inactiveLane: Lane | null = null;
+  let inactiveTier: PlayerTier | null = null;
   for (const e of ordered) {
     // Walk stages in PLAY ORDER so within-year transfers read left→right.
     const phases = [...(e.phaseRosters ?? [])].sort((a, b) => a.phaseIndex - b.phaseIndex);
@@ -447,9 +850,38 @@ export function playerProfile(entries: SeasonHistoryEntry[], playerId: string): 
         intlTitles[phase.event] = (intlTitles[phase.event] ?? 0) + 1;
       }
     }
-    if (stints.length) tenures.push({ season: yearOf(e), archivedAt: e.archivedAt, stints, titles });
+
+    // End-of-season lifecycle status (prefer inactive pool over roster).
+    const asOf = playerCareerStatus(entries, playerId, {
+      asOfSeasonId: e.id,
+      preferInactive: true,
+    });
+    const snap = e.inactivePlayers?.find((p) => p.playerId === playerId);
+    if (snap?.playerName) name = snap.playerName;
+    if (snap) {
+      inactiveLane = snap.lane;
+      inactiveTier = snap.tier;
+      if (snap.debutYear != null) debutYear = snap.debutYear;
+    }
+    const affiliate =
+      snap != null ? teamRefFromInactive(identity, entries, snap) : null;
+    // Emit a year row when they played OR spent the year in the inactive pool.
+    if (stints.length > 0 || snap != null) {
+      const status = asOf ?? { status: "active" as const };
+      tenures.push({
+        season: yearOf(e),
+        seasonId: e.id,
+        archivedAt: e.archivedAt,
+        stints,
+        titles,
+        careerStatus: status.status,
+        ...(status.inactiveYears != null ? { inactiveYears: status.inactiveYears } : {}),
+        ...(status.academyYears != null ? { academyYears: status.academyYears } : {}),
+        ...(status.freeAgentYears != null ? { freeAgentYears: status.freeAgentYears } : {}),
+        ...(affiliate ? { affiliateTeam: affiliate } : {}),
+      });
+    }
   }
-  if (!career && tenures.length === 0) return null;
   // Per-season stat lines (age, All-Pro splits/season, champion pool), newest
   // first, from the archived per-season records.
   const seasons: PlayerSeasonStat[] = [];
@@ -474,14 +906,56 @@ export function playerProfile(entries: SeasonHistoryEntry[], playerId: string): 
   }
   // Most-recent stint = last stint of the newest season (stages are play-order).
   const recent = tenures[0]?.stints.at(-1);
+  const st =
+    playerCareerStatuses(entries, opts).get(playerId) ?? { status: "active" as const };
+  // Newest inactive snapshot for form / years-left storytelling (Hall, then live).
+  let lastActiveGrade: number | null | undefined;
+  let shadowGrade: number | null | undefined;
+  for (const e of ordered) {
+    const snap = e.inactivePlayers?.find((p) => p.playerId === playerId);
+    if (snap) {
+      lastActiveGrade = snap.lastActiveGrade;
+      shadowGrade = snap.shadowGrade;
+      break;
+    }
+  }
+  const liveSnap = opts?.liveInactive?.find((p) => p.playerId === playerId);
+  const liveInactive =
+    liveSnap != null && !opts?.liveRosterIds?.has(playerId) ? liveSnap : undefined;
+  if (lastActiveGrade == null && shadowGrade == null && liveInactive) {
+    lastActiveGrade = liveInactive.lastActiveGrade;
+    shadowGrade = liveInactive.shadowGrade;
+    if (liveInactive.playerName) name = liveInactive.playerName;
+    inactiveLane = liveInactive.lane;
+    inactiveTier = liveInactive.tier;
+  }
+  if (!career && tenures.length === 0 && !liveInactive) return null;
+  if (!name) name = liveInactive?.playerName || playerId;
+  const iy = st.inactiveYears ?? 0;
+  const yearsLeftToFa =
+    st.status === "academy"
+      ? Math.max(0, ACADEMY_YEARS - Math.max(1, iy))
+      : undefined;
+  const yearsLeftToRetire =
+    st.status === "academy" || st.status === "free-agent"
+      ? Math.max(0, TOTAL_INACTIVE_BEFORE_RETIRE - Math.max(1, iy))
+      : undefined;
   return {
     id: playerId,
     name,
-    lane: recent?.lane ?? null,
-    tier: recent?.tier ?? null,
+    lane: recent?.lane ?? inactiveLane,
+    tier: recent?.tier ?? inactiveTier,
     ...(career?.age != null ? { age: career.age } : {}),
     ...(debutYear != null ? { debutYear } : {}),
-    retired: retiredPlayerIds(entries).has(playerId),
+    retired: st.status === "retired",
+    careerStatus: st.status,
+    ...(st.inactiveYears != null ? { inactiveYears: st.inactiveYears } : {}),
+    ...(st.academyYears != null ? { academyYears: st.academyYears } : {}),
+    ...(st.freeAgentYears != null ? { freeAgentYears: st.freeAgentYears } : {}),
+    ...(lastActiveGrade != null ? { lastActiveGrade } : {}),
+    ...(shadowGrade != null ? { shadowGrade } : {}),
+    ...(yearsLeftToFa != null ? { yearsLeftToFa } : {}),
+    ...(yearsLeftToRetire != null ? { yearsLeftToRetire } : {}),
     splitTitles,
     intlTitles,
     career,
@@ -496,16 +970,45 @@ export interface TeamStageRoster {
   label: string;
   kind: "split" | "international";
   coach?: string;
-  roster: Array<{ id?: string; name?: string; tier: PlayerTier; lane: Lane }>;
+  roster: Array<{
+    id?: string;
+    name?: string;
+    tier: PlayerTier;
+    lane: Lane;
+    age?: number;
+    debutYear?: number;
+    potential?: PlayerTier;
+    goodChamps?: number[];
+    badChamps?: number[];
+  }>;
+}
+
+/** End-of-year academy affiliate for a team (from inactivePlayers snapshot). */
+export interface TeamAcademySnapshot {
+  playerId: string;
+  playerName?: string;
+  lane: Lane;
+  tier: PlayerTier;
+  age?: number;
+  potential?: PlayerTier;
+  goodChamps?: number[];
+  badChamps?: number[];
+  debutYear?: number;
+  inactiveYears: number;
+  academyYears: number;
 }
 
 export interface TeamSeasonLine {
   season: string;
+  /** Archived season entry id — for point-in-time status on stage lineups. */
+  seasonId: string;
   archivedAt: number;
   worlds: "champion" | "finalist" | null;
   intlTitles: InternationalId[];
   splitTitles: SplitId[];
   stages: TeamStageRoster[]; // every stage the team played, in play order
+  /** Academy players parked with this org at year-end (flat list). */
+  academy?: TeamAcademySnapshot[];
 }
 
 // A player in a team's Hall of Fame — ranked by how much of their career they
@@ -547,14 +1050,26 @@ export function teamProfile(entries: SeasonHistoryEntry[], key: string): TeamPro
     // EVERY stage roster this season for this team, in play order.
     const phases = [...(e.phaseRosters ?? [])].sort((a, b) => a.phaseIndex - b.phaseIndex);
     const stages: TeamStageRoster[] = [];
+    let resolvedTeamId: string | undefined;
     for (const phase of phases) {
       const t = phase.teams.find((x) => x.teamName === name && x.leagueId === leagueId);
       if (!t) continue;
+      if (!resolvedTeamId) resolvedTeamId = t.teamId;
       stages.push({
         label: phase.label,
         kind: phase.kind,
         ...(t.coach?.name ? { coach: t.coach.name } : {}),
-        roster: t.players.map((p) => ({ ...(p.id ? { id: p.id } : {}), ...(p.name ? { name: p.name } : {}), tier: p.tier, lane: p.lane })),
+        roster: t.players.map((p) => ({
+          ...(p.id ? { id: p.id } : {}),
+          ...(p.name ? { name: p.name } : {}),
+          tier: p.tier,
+          lane: p.lane,
+          ...(p.age != null ? { age: p.age } : {}),
+          ...(p.debutYear != null ? { debutYear: p.debutYear } : {}),
+          ...(p.potential ? { potential: p.potential } : {}),
+          ...(p.goodChamps?.length ? { goodChamps: [...p.goodChamps] } : {}),
+          ...(p.badChamps?.length ? { badChamps: [...p.badChamps] } : {}),
+        })),
       });
       // Tally each rostered player's tenure with this team. Key by stable id
       // when present, else name+lane (legacy rosters without ids).
@@ -570,8 +1085,37 @@ export function teamProfile(entries: SeasonHistoryEntry[], key: string): TeamPro
         f.stages += 1;
       }
     }
+    const academy: TeamAcademySnapshot[] = (e.inactivePlayers ?? [])
+      .filter(
+        (p) =>
+          p.status === "academy" &&
+          ((resolvedTeamId != null && p.lastTeamId === resolvedTeamId) ||
+            p.lastTeamName === name),
+      )
+      .map((p) => ({
+        playerId: p.playerId,
+        ...(p.playerName ? { playerName: p.playerName } : {}),
+        lane: p.lane,
+        tier: p.tier,
+        ...(p.age != null ? { age: p.age } : {}),
+        ...(p.potential ? { potential: p.potential } : {}),
+        ...(p.goodChamps?.length ? { goodChamps: [...p.goodChamps] } : {}),
+        ...(p.badChamps?.length ? { badChamps: [...p.badChamps] } : {}),
+        ...(p.debutYear != null ? { debutYear: p.debutYear } : {}),
+        inactiveYears: p.inactiveYears,
+        academyYears: yearsInAcademy("academy", p.inactiveYears),
+      }));
     if (worlds || intlTitles.length || splitTitles.length || stages.length) {
-      seasons.push({ season: yearOf(e), archivedAt: e.archivedAt, worlds, intlTitles, splitTitles, stages });
+      seasons.push({
+        season: yearOf(e),
+        seasonId: e.id,
+        archivedAt: e.archivedAt,
+        worlds,
+        intlTitles,
+        splitTitles,
+        stages,
+        ...(academy.length > 0 ? { academy } : {}),
+      });
     }
   }
   const teamRef = refFor(identity, name, leagueId);

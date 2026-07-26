@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useDraftStore } from "@/store/draftStore";
 
 // Save-tournament modal: shows the encoded TOUR1: code in a textarea so
@@ -109,8 +110,28 @@ export function ReplayLoadingOverlay({ onClose }: { onClose: () => void }) {
 export function SimulatingOverlay({ scope }: { scope: "match" | "all" }) {
   const progress = useDraftStore((s) => s.simProgress);
   const label = scope === "all" ? "Simulating remaining matches…" : "Simulating match…";
+
+  // Lock page scroll for the sim pass. Wheel events can still move the
+  // document under a fixed overlay in WebView2/Tauri; combined with
+  // backdrop-filter that forces full-viewport recomposite every frame.
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtml = html.style.overflow;
+    const prevBody = body.style.overflow;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = prevHtml;
+      body.style.overflow = prevBody;
+    };
+  }, []);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm pointer-events-auto">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-rift-bg/92 pointer-events-auto"
+      onWheel={(e) => e.preventDefault()}
+    >
       <div className="border-2 border-rift-gold/60 bg-rift-panel px-8 py-6 text-center shadow-glow-gold">
         <div className="flex items-center justify-center mb-3">
           <div className="w-6 h-6 border-2 border-rift-gold/30 border-t-rift-goldbright rounded-full animate-spin" />

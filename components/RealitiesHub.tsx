@@ -201,7 +201,7 @@ export default function RealitiesHub({ onChoose }: Props) {
               type="button"
               onClick={() => setAging((v) => !v)}
               className="flex items-center gap-2 text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright hover:text-rift-goldbright transition-all"
-              title="Each offseason: young players grow, veterans decline and retire, rookies arrive — driven by performance. Off = rosters change only via transfers."
+              title="Each offseason: young players grow, veterans decline; consistent underperformers go to academy → free agency → retire if unsigned. Off = rosters change only via transfers."
             >
               <span
                 className={`w-3.5 h-3.5 border flex items-center justify-center text-[9px] ${
@@ -210,7 +210,7 @@ export default function RealitiesHub({ onChoose }: Props) {
               >
                 ✓
               </span>
-              Player aging, retirements &amp; rookies {aging ? "ON" : "OFF"}
+              Player aging, demotions &amp; rookies {aging ? "ON" : "OFF"}
             </button>
             <p className="text-[9px] text-rift-muted/55">
               Next you&apos;ll configure the first season (leagues, formats, real names).

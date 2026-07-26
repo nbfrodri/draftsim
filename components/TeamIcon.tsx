@@ -89,7 +89,7 @@ import {
   IconUmbrella,
   IconWand,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { memo, useState } from "react";
 import type { TeamIconKey } from "@/lib/tournament";
 
 // Map curated TeamIconKey → Tabler React component. The set is grown
@@ -208,7 +208,7 @@ export interface TeamIconProps {
   logoUrl?: string;
 }
 
-export default function TeamIcon({
+function TeamIcon({
   iconKey,
   size = 16,
   className = "",
@@ -216,12 +216,12 @@ export default function TeamIcon({
   color,
   logoUrl,
 }: TeamIconProps) {
-  const [logoFailed, setLogoFailed] = useState(false);
-  // Reset the failure flag when the URL changes so a new logo gets a
-  // fresh chance to load.
-  useEffect(() => setLogoFailed(false), [logoUrl]);
+  // Track WHICH url failed instead of a boolean plus a reset effect. Season
+  // History mounts thousands of team icons at once; an effect apiece is pure
+  // mount cost, and a new url naturally gets a fresh chance this way.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
-  if (logoUrl && !logoFailed) {
+  if (logoUrl && failedUrl !== logoUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element -- remote esports
       // CDN host; next/image would need per-host config and offers no win
@@ -231,9 +231,11 @@ export default function TeamIcon({
         alt=""
         width={size}
         height={size}
+        loading="lazy"
+        decoding="async"
         className={className}
         style={{ width: size, height: size, objectFit: "contain" }}
-        onError={() => setLogoFailed(true)}
+        onError={() => setFailedUrl(logoUrl)}
       />
     );
   }
@@ -248,3 +250,5 @@ export default function TeamIcon({
     />
   );
 }
+
+export default memo(TeamIcon);

@@ -9,9 +9,12 @@ import {
   playerProfile,
   teamProfile,
   coachProfile,
+  playerCareerStatuses,
+  playerCareerStatus,
 } from "./historySearch";
 import { computePlayerTitlesByEvent } from "./historyRecords";
 import { computeCoachRecords } from "./historySearch";
+import type { InactivePlayerSnapshot } from "./playerLifecycle";
 
 // ─── Retired detection + coach playstyle ────────────────────────────────────
 const LANES5 = ["top", "jungle", "middle", "bottom", "support"] as const;
@@ -79,6 +82,654 @@ describe("retired detection", () => {
   it("never flags anyone with only one archived season", () => {
     const hits = listPlayers(retiredFixture([["vet", "b", "c", "d", "e"]]));
     expect(hits.every((h) => !h.retired)).toBe(true);
+  });
+});
+
+describe("lifecycle inactive pool status", () => {
+  function withPool(
+    ids: string[][],
+    inactiveBySeason: Array<InactivePlayerSnapshot[] | undefined>,
+  ): SeasonHistoryEntry[] {
+    return retiredFixture(ids).map((e, i) => {
+      const pool = inactiveBySeason[i];
+      return pool !== undefined ? { ...e, inactivePlayers: pool } : e;
+    });
+  }
+
+  it("uses inactivePlayers snapshots for academy / FA instead of retired heuristic", () => {
+    const entries = withPool(
+      [
+        ["vet", "b", "c", "d", "e"],
+        ["rookie", "b", "c", "d", "e"],
+      ],
+      [
+        undefined,
+        [
+          {
+            playerId: "vet",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+          },
+        ],
+      ],
+    );
+    const st = playerCareerStatuses(entries);
+    expect(st.get("vet")?.status).toBe("academy");
+    expect(st.get("vet")?.academyYears).toBe(1);
+
+    const hits = listPlayers(entries);
+    const vet = hits.find((h) => h.id === "vet");
+    expect(vet?.careerStatus).toBe("academy");
+    expect(vet?.academyYears).toBe(1);
+    expect(vet?.retired).toBe(false);
+
+    const profile = playerProfile(entries, "vet");
+    expect(profile?.careerStatus).toBe("academy");
+    expect(profile?.academyYears).toBe(1);
+  });
+
+  it("shows free-agent years after academy completes", () => {
+    const entries = withPool(
+      [
+        ["vet", "b", "c", "d", "e"],
+        ["rookie", "b", "c", "d", "e"],
+      ],
+      [
+        undefined,
+        [
+          {
+            playerId: "vet",
+            lane: "top",
+            tier: "C",
+            status: "free-agent",
+            // After 3 academy years + 2 FA years (inactiveYears = 3+2).
+            inactiveYears: 5,
+            demotedYear: 1,
+            lastTeamId: "T1",
+          },
+        ],
+      ],
+    );
+    const st = playerCareerStatuses(entries).get("vet");
+    expect(st?.status).toBe("free-agent");
+    expect(st?.academyYears).toBe(3);
+    expect(st?.freeAgentYears).toBe(2);
+
+    const profile = playerProfile(entries, "vet");
+    expect(profile?.careerStatus).toBe("free-agent");
+    expect(profile?.freeAgentYears).toBe(2);
+  });
+
+  it("does not mark demoted players retired when an empty lifecycle pool is present", () => {
+    // Newest archive ran lifecycle but nobody is inactive — missing players are
+    // NOT auto-retired (they may have left via id gaps; prefer explicit pool).
+    const entries = withPool(
+      [
+        ["vet", "b", "c", "d", "e"],
+        ["rookie", "b", "c", "d", "e"],
+      ],
+      [undefined, []],
+    );
+    const st = playerCareerStatuses(entries);
+    expect(st.get("vet")?.status).toBeUndefined();
+    const hits = listPlayers(entries);
+    expect(hits.find((h) => h.id === "vet")?.careerStatus).toBe("active");
+    expect(hits.find((h) => h.id === "vet")?.retired).toBe(false);
+  });
+
+  it("falls back to retired heuristic when no archive has inactivePlayers", () => {
+    const st = playerCareerStatuses(
+      retiredFixture([
+        ["vet", "b", "c", "d", "e"],
+        ["rookie", "b", "c", "d", "e"],
+      ]),
+    );
+    expect(st.get("vet")?.status).toBe("retired");
+  });
+
+  it("exposes academy as its own careerStatus (filterable separately from FA)", () => {
+    const entries = withPool(
+      [
+        ["acy", "fa", "b", "c", "d"],
+        ["r1", "r2", "b", "c", "d"],
+      ],
+      [
+        undefined,
+        [
+          {
+            playerId: "acy",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+          },
+          {
+            playerId: "fa",
+            lane: "jungle",
+            tier: "C",
+            status: "free-agent",
+            inactiveYears: 3,
+            demotedYear: 1,
+            lastTeamId: "T1",
+          },
+        ],
+      ],
+    );
+    const hits = listPlayers(entries);
+    const academy = hits.filter((h) => h.careerStatus === "academy");
+    const inactive = hits.filter((h) => h.careerStatus === "free-agent");
+    expect(academy.map((h) => h.id)).toEqual(["acy"]);
+    expect(inactive.map((h) => h.id)).toEqual(["fa"]);
+    expect(academy[0]?.academyYears).toBe(1);
+    expect(inactive[0]?.freeAgentYears).toBe(1);
+  });
+
+  it("same-season demotion (roster + pool) is Academy in search, not Active", () => {
+    // Player played the year (on phaseRosters) then was benched/demoted in the
+    // closing offseason — inactivePlayers is end-of-season truth for Hall Search.
+    const entries = withPool(
+      [["bench", "b", "c", "d", "e"]],
+      [
+        [
+          {
+            playerId: "bench",
+            playerName: "Bench",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+          },
+        ],
+      ],
+    );
+    expect(playerCareerStatuses(entries).get("bench")?.status).toBe("academy");
+    const hits = listPlayers(entries);
+    const bench = hits.find((h) => h.id === "bench");
+    expect(bench).toBeDefined();
+    expect(bench?.careerStatus).toBe("academy");
+    expect(bench?.retired).toBe(false);
+    expect(bench?.name).toBe("bench"); // career name from fixture
+    expect(hits.filter((h) => h.careerStatus === "academy").map((h) => h.id)).toContain(
+      "bench",
+    );
+    expect(hits.filter((h) => h.careerStatus === "active").map((h) => h.id)).not.toContain(
+      "bench",
+    );
+    expect(playerProfile(entries, "bench")?.careerStatus).toBe("academy");
+  });
+
+  it("includes pool-only academy/FA players with no playerCareers row", () => {
+    // Archive has an inactive pool entry that never appeared in playerCareers
+    // (e.g. edge archive / demoted before career rows existed).
+    const base = retiredFixture([["a", "b", "c", "d", "e"]])[0]!;
+    const entries: SeasonHistoryEntry[] = [
+      {
+        ...base,
+        playerCareers: [], // no careers at all
+        inactivePlayers: [
+          {
+            playerId: "ghost-acy",
+            playerName: "GhostAcy",
+            lane: "middle",
+            tier: "B",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+          },
+          {
+            playerId: "ghost-fa",
+            playerName: "GhostFA",
+            lane: "support",
+            tier: "C",
+            status: "free-agent",
+            inactiveYears: 3,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+          },
+        ],
+      },
+    ];
+    const hits = listPlayers(entries);
+    const acy = hits.find((h) => h.id === "ghost-acy");
+    const fa = hits.find((h) => h.id === "ghost-fa");
+    expect(acy?.careerStatus).toBe("academy");
+    expect(acy?.name).toBe("GhostAcy");
+    expect(acy?.lane).toBe("middle");
+    expect(acy?.team?.name).toBe("T1");
+    expect(fa?.careerStatus).toBe("free-agent");
+    expect(fa?.name).toBe("GhostFA");
+    expect(fa?.freeAgentYears).toBe(1);
+    // Status filters (mirrors SeasonHistoryView SearchPanel)
+    expect(hits.filter((h) => h.careerStatus === "academy").map((h) => h.id)).toEqual([
+      "ghost-acy",
+    ]);
+    expect(hits.filter((h) => h.careerStatus === "free-agent").map((h) => h.id)).toEqual([
+      "ghost-fa",
+    ]);
+    // Rostered players without playerCareers are out of scope; pool-only ids must appear.
+    expect(hits.map((h) => h.id).sort()).toEqual(["ghost-acy", "ghost-fa"]);
+    // Profiles still open from search ids
+    expect(playerProfile(entries, "ghost-acy")?.careerStatus).toBe("academy");
+    expect(playerProfile(entries, "ghost-fa")?.careerStatus).toBe("free-agent");
+  });
+
+  it("academy → FA transition stays searchable with updated badge/filter", () => {
+    const entries = withPool(
+      [
+        ["vet", "b", "c", "d", "e"],
+        ["r1", "b", "c", "d", "e"],
+        ["r2", "b", "c", "d", "e"],
+      ],
+      [
+        undefined,
+        [
+          {
+            playerId: "vet",
+            playerName: "Vet",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+          },
+        ],
+        [
+          {
+            playerId: "vet",
+            playerName: "Vet",
+            lane: "top",
+            tier: "C",
+            status: "free-agent",
+            inactiveYears: 4,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+          },
+        ],
+      ],
+    );
+    const hits = listPlayers(entries);
+    const vet = hits.find((h) => h.id === "vet");
+    expect(vet?.careerStatus).toBe("free-agent");
+    expect(vet?.academyYears).toBe(3);
+    expect(vet?.freeAgentYears).toBe(1);
+    expect(hits.filter((h) => h.careerStatus === "free-agent").map((h) => h.id)).toContain(
+      "vet",
+    );
+    expect(hits.filter((h) => h.careerStatus === "academy").map((h) => h.id)).not.toContain(
+      "vet",
+    );
+    expect(playerProfile(entries, "vet")?.careerStatus).toBe("free-agent");
+  });
+
+  it("stale pool does not keep a promoted player tagged Academy", () => {
+    // S0 demoted; S1 called back onto roster with an empty/fresh pool.
+    const entries = withPool(
+      [
+        ["vet", "b", "c", "d", "e"],
+        ["vet", "b", "c", "d", "e"],
+      ],
+      [
+        [
+          {
+            playerId: "vet",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+          },
+        ],
+        [], // lifecycle ran; nobody inactive
+      ],
+    );
+    expect(playerCareerStatuses(entries).get("vet")?.status).toBe("active");
+    expect(listPlayers(entries).find((h) => h.id === "vet")?.careerStatus).toBe("active");
+  });
+});
+
+describe("point-in-time career status (asOfSeasonId)", () => {
+  function withPool(
+    ids: string[][],
+    inactiveBySeason: Array<InactivePlayerSnapshot[] | undefined>,
+  ): SeasonHistoryEntry[] {
+    return retiredFixture(ids).map((e, i) => {
+      const pool = inactiveBySeason[i];
+      return pool !== undefined ? { ...e, inactivePlayers: pool } : e;
+    });
+  }
+
+  it("stage as-of keeps rostered players active even if later academy", () => {
+    // S0: vet on roster. S1: vet demoted to academy, rookie takes the slot.
+    const entries = withPool(
+      [
+        ["vet", "b", "c", "d", "e"],
+        ["rookie", "b", "c", "d", "e"],
+      ],
+      [
+        undefined,
+        [
+          {
+            playerId: "vet",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+          },
+        ],
+      ],
+    );
+    // Current status = academy
+    expect(playerCareerStatuses(entries).get("vet")?.status).toBe("academy");
+    // As of S0 (when they played): active
+    expect(
+      playerCareerStatus(entries, "vet", { asOfSeasonId: "S0" })?.status,
+    ).toBe("active");
+    // As of S1: academy (not on roster, in pool)
+    expect(
+      playerCareerStatus(entries, "vet", { asOfSeasonId: "S1" })?.status,
+    ).toBe("academy");
+  });
+
+  it("preferInactive surfaces end-of-season demotion even when they played that year", () => {
+    // Same season: on roster AND in inactive pool (demoted in closing offseason).
+    const entries = withPool(
+      [["vet", "b", "c", "d", "e"]],
+      [
+        [
+          {
+            playerId: "vet",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+          },
+        ],
+      ],
+    );
+    // Stage sheets: roster wins → active
+    expect(
+      playerCareerStatus(entries, "vet", { asOfSeasonId: "S0" })?.status,
+    ).toBe("active");
+    // Year history: end-of-season pool wins → academy
+    expect(
+      playerCareerStatus(entries, "vet", {
+        asOfSeasonId: "S0",
+        preferInactive: true,
+      })?.status,
+    ).toBe("academy");
+  });
+
+  it("legacy as-of (no inactivePlayers) only marks rostered players active", () => {
+    const entries = retiredFixture([
+      ["vet", "b", "c", "d", "e"],
+      ["rookie", "b", "c", "d", "e"],
+    ]);
+    expect(
+      playerCareerStatus(entries, "vet", { asOfSeasonId: "S0" })?.status,
+    ).toBe("active");
+    // Not on S1 roster and no pool → omitted (no academy/FA guess)
+    expect(
+      playerCareerStatus(entries, "vet", { asOfSeasonId: "S1" }),
+    ).toBeUndefined();
+  });
+
+  it("player profile year history carries as-of status + affiliate for inactive years", () => {
+    const entries = withPool(
+      [
+        ["vet", "b", "c", "d", "e"],
+        ["rookie", "b", "c", "d", "e"],
+      ],
+      [
+        undefined,
+        [
+          {
+            playerId: "vet",
+            playerName: "Vet",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+          },
+        ],
+      ],
+    );
+    const profile = playerProfile(entries, "vet")!;
+    // Header still shows current status
+    expect(profile.careerStatus).toBe("academy");
+    // Newest tenure = S1 inactive-only year
+    expect(profile.tenures[0].seasonId).toBe("S1");
+    expect(profile.tenures[0].careerStatus).toBe("academy");
+    expect(profile.tenures[0].academyYears).toBe(1);
+    expect(profile.tenures[0].stints).toHaveLength(0);
+    expect(profile.tenures[0].affiliateTeam?.name).toBe("T1");
+    // Older tenure = S0 when they played — end-of-season had no pool, so active
+    expect(profile.tenures[1].seasonId).toBe("S0");
+    expect(profile.tenures[1].careerStatus).toBe("active");
+    expect(profile.tenures[1].stints[0]?.team.name).toBe("T1");
+  });
+
+  it("Career History includes academy then FA years under affiliate team", () => {
+    // S0 active on T1 → S1 academy T1 → S2 FA (last team T1)
+    const entries = withPool(
+      [
+        ["vet", "b", "c", "d", "e"],
+        ["rookie", "b", "c", "d", "e"],
+        ["rookie", "b", "c", "d", "e"],
+      ],
+      [
+        undefined,
+        [
+          {
+            playerId: "vet",
+            playerName: "Vet",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+          },
+        ],
+        [
+          {
+            playerId: "vet",
+            playerName: "Vet",
+            lane: "top",
+            tier: "C",
+            status: "free-agent",
+            inactiveYears: 4,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+          },
+        ],
+      ],
+    );
+    const profile = playerProfile(entries, "vet")!;
+    expect(profile.careerStatus).toBe("free-agent");
+    expect(profile.tenures).toHaveLength(3);
+    expect(profile.tenures[0]!.careerStatus).toBe("free-agent");
+    expect(profile.tenures[0]!.freeAgentYears).toBe(1);
+    expect(profile.tenures[0]!.affiliateTeam?.name).toBe("T1");
+    expect(profile.tenures[0]!.stints).toHaveLength(0);
+    expect(profile.tenures[1]!.careerStatus).toBe("academy");
+    expect(profile.tenures[1]!.academyYears).toBe(1);
+    expect(profile.tenures[1]!.affiliateTeam?.name).toBe("T1");
+    expect(profile.tenures[2]!.careerStatus).toBe("active");
+    expect(profile.tenures[2]!.stints[0]?.team.name).toBe("T1");
+  });
+
+  it("Career History academy badges progress ACY 1→2→3 then FA 1 (no duplicate 1Y)", () => {
+    // Post-advance Hall stamps from continueSeasonToNextYear:
+    // demotion year 1y → next closes at 2y → 3y → FA 1y.
+    const snap = (
+      years: number,
+      status: "academy" | "free-agent",
+    ): InactivePlayerSnapshot[] => [
+      {
+        playerId: "vet",
+        playerName: "Vet",
+        lane: "top",
+        tier: "C",
+        status,
+        inactiveYears: years,
+        demotedYear: 1,
+        lastTeamId: "T1",
+        lastTeamName: "T1",
+      },
+    ];
+    const entries = withPool(
+      [
+        ["vet", "b", "c", "d", "e"], // demotion year — roster + pool
+        ["r1", "b", "c", "d", "e"],
+        ["r2", "b", "c", "d", "e"],
+        ["r3", "b", "c", "d", "e"],
+      ],
+      [snap(1, "academy"), snap(2, "academy"), snap(3, "academy"), snap(4, "free-agent")],
+    );
+    const profile = playerProfile(entries, "vet")!;
+    // Newest first — monotonic, never repeats ACY 1Y.
+    expect(
+      profile.tenures.map((t) => ({
+        id: t.seasonId,
+        status: t.careerStatus,
+        acy: t.academyYears,
+        fa: t.freeAgentYears,
+      })),
+    ).toEqual([
+      { id: "S3", status: "free-agent", acy: 3, fa: 1 },
+      { id: "S2", status: "academy", acy: 3, fa: undefined },
+      { id: "S1", status: "academy", acy: 2, fa: undefined },
+      { id: "S0", status: "academy", acy: 1, fa: undefined },
+    ]);
+    expect(profile.tenures[0]!.affiliateTeam?.name).toBe("T1");
+    expect(profile.tenures[3]!.stints.length).toBeGreaterThan(0);
+  });
+
+  it("teamProfile seasons expose seasonId for as-of stage lookups", () => {
+    const entries = withPool(
+      [
+        ["vet", "b", "c", "d", "e"],
+        ["rookie", "b", "c", "d", "e"],
+      ],
+      [undefined, []],
+    );
+    const t = teamProfile(entries, "LCK:T1")!;
+    expect(t.seasons.map((s) => s.seasonId)).toEqual(["S1", "S0"]);
+    const asOf = playerCareerStatuses(entries, {
+      asOfSeasonId: t.seasons[1]!.seasonId,
+    });
+    expect(asOf.get("vet")?.status).toBe("active");
+  });
+
+  it("excludes unfinished seasons from tenure / year-history badges", () => {
+    const completed = withPool(
+      [["vet", "b", "c", "d", "e"]],
+      [
+        [
+          {
+            playerId: "vet",
+            playerName: "Vet",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+            lastTeamName: "T1",
+          },
+        ],
+      ],
+    );
+    const unfinished = {
+      ...retiredFixture([["vet", "b", "c", "d", "e"]])[0]!,
+      id: "LIVE",
+      archivedAt: 99,
+      name: "In progress",
+      complete: false,
+      inactivePlayers: [
+        {
+          playerId: "vet",
+          playerName: "Vet",
+          lane: "top" as const,
+          tier: "C" as const,
+          status: "academy" as const,
+          // Inflated as if live year-end advance leaked into history.
+          inactiveYears: 2,
+          demotedYear: 1,
+          lastTeamId: "T1",
+          lastTeamName: "T1",
+        },
+      ],
+    };
+    const entries = [...completed, unfinished];
+    const profile = playerProfile(entries, "vet")!;
+    expect(profile.tenures.every((t) => t.seasonId !== "LIVE")).toBe(true);
+    expect(profile.tenures).toHaveLength(1);
+    expect(profile.tenures[0]!.academyYears).toBe(1);
+    // Current Hall status also ignores unfinished archives.
+    expect(playerCareerStatuses(entries).get("vet")?.academyYears).toBe(1);
+  });
+
+  it("live inactive overlays current status without adding a tenure row", () => {
+    const entries = withPool(
+      [["vet", "b", "c", "d", "e"]],
+      [
+        [
+          {
+            playerId: "vet",
+            lane: "top",
+            tier: "C",
+            status: "academy",
+            inactiveYears: 1,
+            demotedYear: 1,
+            lastTeamId: "T1",
+          },
+        ],
+      ],
+    );
+    const liveInactive = [
+      {
+        playerId: "vet",
+        lane: "top" as const,
+        tier: "C" as const,
+        status: "academy" as const,
+        inactiveYears: 2,
+        demotedYear: 1,
+        lastTeamId: "T1",
+      },
+    ];
+    const profile = playerProfile(entries, "vet", { liveInactive })!;
+    expect(profile.careerStatus).toBe("academy");
+    expect(profile.academyYears).toBe(2);
+    expect(profile.tenures).toHaveLength(1);
+    expect(profile.tenures[0]!.academyYears).toBe(1);
   });
 });
 

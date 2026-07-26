@@ -38,7 +38,7 @@ function splusPerLane(s: SeasonState): Record<string, number> {
 describe("S+ cap holds across rollovers (retired don't inflate)", () => {
   it("never exceeds SPLUS_PER_ROLE per lane, year after year", () => {
     const teams = generateSeasonTeams(champions, rngFrom(3));
-    let s: SeasonState = seedFranchise(createSeason({ config: makeConfig(), teams, activeMeta: meta }), "Alpha", true, rngFrom(9));
+    let s: SeasonState = seedFranchise(createSeason({ config: makeConfig(), teams, activeMeta: meta }), "Alpha", true, rngFrom(9), champions);
     // mark complete so startNextSeason archives + rolls
     s = { ...s, status: "complete" };
     for (let year = 1; year <= 8; year++) {

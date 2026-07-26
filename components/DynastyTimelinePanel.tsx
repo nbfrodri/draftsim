@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { memo, useCallback, useMemo, useState, useEffect } from "react";
 import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 
 import {
@@ -72,7 +72,7 @@ function TierBadge({ tier }: { tier: DynastyTier }) {
 
 // ─── Event icon with tooltip ──────────────────────────────────────────────────
 
-function EventIcon({
+const EventIcon = memo(function EventIcon({
   event,
   size = 11,
 }: {
@@ -109,11 +109,11 @@ function EventIcon({
       />
     </span>
   );
-}
+});
 
 // ─── Matrix cell ──────────────────────────────────────────────────────────────
 
-function YearCell({ cell }: { cell: MatrixCell }) {
+const YearCell = memo(function YearCell({ cell }: { cell: MatrixCell }) {
   if (cell.totalInCell === 0) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -146,7 +146,7 @@ function YearCell({ cell }: { cell: MatrixCell }) {
       )}
     </div>
   );
-}
+});
 
 // ─── Expanded franchise detail ────────────────────────────────────────────────
 
@@ -235,18 +235,20 @@ function ExpandedDetail({
                 logoUrl={resolveTeamLogo(row.team.name, row.team.logoUrl)}
                 size={16}
                 color={row.team.color}
+                className="flex-shrink-0"
               />
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 overflow-hidden">
                 {onNavigate ? (
                   <button
                     type="button"
                     onClick={() => onNavigate("teams", `${row.team.leagueId}:${row.team.name}`)}
-                    className="text-[11px] font-medium text-rift-goldbright truncate hover:underline text-left w-full"
+                    className="text-[11px] font-medium text-rift-goldbright truncate hover:underline text-left w-full block"
+                    title={row.team.name}
                   >
                     {row.team.name}
                   </button>
                 ) : (
-                  <div className="text-[11px] font-medium text-rift-goldbright truncate">
+                  <div className="text-[11px] font-medium text-rift-goldbright truncate" title={row.team.name}>
                     {row.team.name}
                   </div>
                 )}
@@ -289,7 +291,7 @@ function ExpandedDetail({
 
 // ─── Franchise row ────────────────────────────────────────────────────────────
 
-function FranchiseRow({
+const FranchiseRow = memo(function FranchiseRow({
   row,
   years,
   expanded,
@@ -300,7 +302,7 @@ function FranchiseRow({
   row: MatrixRow;
   years: MatrixYear[];
   expanded: boolean;
-  onToggle: () => void;
+  onToggle: (franchiseKey: string) => void;
   rowIndex: number;
   onNavigate?: (kind: "players" | "teams" | "coaches", id: string) => void;
 }) {
@@ -325,7 +327,7 @@ function FranchiseRow({
     <>
       <tr
         className={`group/row cursor-pointer transition-colors ${rowBg}`}
-        onClick={onToggle}
+        onClick={() => onToggle(row.franchiseKey)}
         style={{ borderLeft }}
       >
         {/* Sticky franchise column — opaque so year cells scroll underneath */}
@@ -338,7 +340,7 @@ function FranchiseRow({
           ].join(" ")}
           style={{ minWidth: FRANCHISE_COL_W, maxWidth: FRANCHISE_COL_W, width: FRANCHISE_COL_W }}
         >
-          <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
             <span className="flex-shrink-0 opacity-40 text-rift-muted/50">
               {expanded ? (
                 <IconChevronDown size={10} strokeWidth={2} aria-hidden />
@@ -351,15 +353,17 @@ function FranchiseRow({
               logoUrl={resolveTeamLogo(row.team.name, row.team.logoUrl)}
               size={14}
               color={row.team.color}
+              className="flex-shrink-0"
             />
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 overflow-hidden">
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onNavigate?.("teams", `${row.team.leagueId}:${row.team.name}`);
                 }}
-                className="text-[11px] font-medium text-rift-goldbright truncate leading-tight hover:underline text-left w-full"
+                className="text-[11px] font-medium text-rift-goldbright truncate leading-tight hover:underline text-left w-full block"
+                title={row.team.name}
               >
                 {row.team.name}
               </button>
@@ -403,7 +407,7 @@ function FranchiseRow({
       {expanded && <ExpandedDetail row={row} onNavigate={onNavigate} />}
     </>
   );
-}
+});
 
 // ─── Filter bar ───────────────────────────────────────────────────────────────
 
@@ -655,12 +659,21 @@ export default function DynastyTimelinePanel({
 
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
+  const toggleRow = useCallback((franchiseKey: string) => {
+    setExpandedKey((prev) => (prev === franchiseKey ? null : franchiseKey));
+  }, []);
+
   const safeFrom = Math.min(filters.yearFromIdx, maxIdx);
   const safeTo = Math.min(
     Math.max(filters.yearToIdx, safeFrom),
     maxIdx,
   );
-  const filteredYears = matrix.years.slice(safeFrom, safeTo + 1);
+  // Stable identity matters: `filteredYears` is a dep of the row filter below
+  // and a prop on every memoized row.
+  const filteredYears = useMemo(
+    () => matrix.years.slice(safeFrom, safeTo + 1),
+    [matrix.years, safeFrom, safeTo],
+  );
 
   const filteredRows = useMemo(() => {
     return matrix.rows.filter((row) => {
@@ -771,11 +784,7 @@ export default function DynastyTimelinePanel({
                   row={row}
                   years={filteredYears}
                   expanded={expandedKey === row.franchiseKey}
-                  onToggle={() =>
-                    setExpandedKey(
-                      expandedKey === row.franchiseKey ? null : row.franchiseKey,
-                    )
-                  }
+                  onToggle={toggleRow}
                   rowIndex={idx}
                   onNavigate={onNavigate}
                 />

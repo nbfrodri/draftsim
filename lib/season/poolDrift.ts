@@ -45,7 +45,8 @@ function pickIncoming(pool: readonly Champion[], lane: Player["lane"], rng: RNG)
 // Swap one champion in a player's pool for a different lane-eligible one,
 // keeping size, mains-first order, and good/bad disjointness. Returns the same
 // player object if no swap was possible.
-function driftPlayer(p: Player, champions: readonly Champion[], rng: RNG): Player {
+/** Drift one player's champ pool (exported for inactive/academy ticks). */
+export function driftPlayerPool(p: Player, champions: readonly Champion[], rng: RNG): Player {
   const used = new Set([...p.goodChamps, ...p.badChamps]);
   const eligible = champions.filter((c) => !used.has(c.id) && playableInLane(c, p.lane));
   if (eligible.length === 0) return p;
@@ -87,7 +88,7 @@ export function applyPoolDrift(
     let teamChanged = false;
     const players = team.players.map((p) => {
       if (rng() >= DRIFT_RATE) return p;
-      const next = driftPlayer(p, champions, rng);
+      const next = driftPlayerPool(p, champions, rng);
       if (next === p) return p;
       teamChanged = true;
       return next;

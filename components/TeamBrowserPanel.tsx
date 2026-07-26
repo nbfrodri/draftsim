@@ -7,6 +7,10 @@ import { deriveStar, MAIN_POOL, playerForLane } from "@/lib/players";
 import { computePlayerSeasonLines, type PlayerSeasonLine } from "@/lib/season/stats";
 import { coachPlaystyle } from "@/lib/season/coach";
 import {
+  ACADEMY_MAX_PER_TEAM,
+  listTeamAcademy,
+} from "@/lib/season/faMarket";
+import {
   LEAGUE_IDS,
   LEAGUE_NAMES,
   type LeagueId,
@@ -16,6 +20,7 @@ import { ChemistryBreakdown } from "./ChemistryRow";
 import TeamIcon from "./TeamIcon";
 import LeagueIcon from "./LeagueIcon";
 import LaneIcon from "./LaneIcon";
+import InactiveBrowseRow from "./season/InactiveBrowseRow";
 
 // Region/team browser — every team in every region with each player's full
 // identity: handle, skill tier, age, potential, and champion pool. A scouting
@@ -50,12 +55,15 @@ export default function TeamBrowserPanel() {
     () => new Map(champions.map((c) => [c.id, c] as const)),
     [champions],
   );
-  // Season stats per player id, so a player's row can show their numbers.
+  // Only compute when expanded — this walk is O(matches × players) and used
+  // to re-run on every season tick while the panel was collapsed.
   const statsById = useMemo(() => {
     const m = new Map<string, PlayerSeasonLine>();
-    if (season) for (const l of computePlayerSeasonLines(season)) m.set(l.playerId, l);
+    if (open && season) {
+      for (const l of computePlayerSeasonLines(season)) m.set(l.playerId, l);
+    }
     return m;
-  }, [season]);
+  }, [season, open]);
   const teams = useMemo(
     () =>
       season
@@ -68,8 +76,11 @@ export default function TeamBrowserPanel() {
 
   if (!season) return null;
 
+  const pool = season.franchise?.aging ? (season.franchise.inactivePool ?? []) : [];
+  const showAcademy = !!season.franchise?.aging;
+
   return (
-    <div className="mb-8">
+    <div className="mb-8 cv-auto">
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -108,6 +119,7 @@ export default function TeamBrowserPanel() {
             {teams.map((team) => {
               const isOpen = openTeam === team.id;
               const star = deriveStar(team.players);
+              const academy = showAcademy ? listTeamAcademy(pool, team.id) : [];
               return (
                 <div key={team.id}>
                   <button
@@ -117,6 +129,14 @@ export default function TeamBrowserPanel() {
                   >
                     <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={16} color={team.color} />
                     <span className="text-[11px] text-rift-mutedbright truncate">{team.name}</span>
+                    {showAcademy && (
+                      <span
+                        className="text-[8px] uppercase tracking-[0.12em] text-amber-400/70 tabular-nums"
+                        title={`Academy ${academy.length}/${ACADEMY_MAX_PER_TEAM}`}
+                      >
+                        Acy {academy.length}/{ACADEMY_MAX_PER_TEAM}
+                      </span>
+                    )}
                     <span className="ml-auto text-[10px] text-rift-gold/80 tabular-nums">{star}★</span>
                     <span className="text-rift-muted/50 text-[9px]">{isOpen ? "▴" : "▾"}</span>
                   </button>
@@ -200,12 +220,37 @@ export default function TeamBrowserPanel() {
                           </div>
                         );
                       })}
+                      {showAcademy && (
+                        <div className="bg-amber-500/[0.03]">
+                          <div className="flex items-center gap-2 px-2 py-1.5 border-t border-amber-500/20">
+                            <span className="text-[8px] uppercase tracking-[0.25em] text-amber-300/80">
+                              Academy
+                            </span>
+                            <span className="text-[8px] tabular-nums text-rift-muted/55">
+                              {academy.length}/{ACADEMY_MAX_PER_TEAM}
+                            </span>
+                          </div>
+                          {academy.length === 0 ? (
+                            <div className="px-2 pb-1.5 text-[9px] italic text-rift-muted/55">
+                              No academy players
+                            </div>
+                          ) : (
+                            <div className="pb-1 divide-y divide-rift-line/10">
+                              {academy.map((entry) => (
+                                <InactiveBrowseRow
+                                  key={entry.player.id ?? `${team.id}-${entry.player.name}`}
+                                  entry={entry}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               );
-            })}
-          </div>
+            })}          </div>
         </div>
       )}
     </div>

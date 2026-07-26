@@ -331,10 +331,14 @@ export default function TournamentDashboard() {
             tournament looked like alongside the meta the AI used. */}
         {tournament.status === "complete" && (
           <>
-            <PostTournamentRecap
-              tournament={tournament}
-              onViewGame={handleViewMatchGame}
-            />
+            <div className="cv-auto">
+              <PostTournamentRecap
+                tournament={tournament}
+                onViewGame={handleViewMatchGame}
+              />
+            </div>
+            {/* MetaPanel opens full-screen `fixed` modals — no containment
+                here, or they'd be trapped inside this wrapper. */}
             <div className="mb-6 md:mb-8">
               <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
                 Meta Reference
@@ -350,10 +354,16 @@ export default function TournamentDashboard() {
             decisions. Hidden once the tournament is complete (the post-
             tournament recap covers that surface in more detail). */}
         {tournament.status !== "complete" && (
-          <LiveChampionMetaPanel tournament={tournament} />
+          <div className="cv-auto">
+            <LiveChampionMetaPanel tournament={tournament} />
+          </div>
         )}
-        <StreaksPanel tournament={tournament} />
-        <MetaEvolutionFeed tournament={tournament} />
+        <div className="cv-auto">
+          <StreaksPanel tournament={tournament} />
+        </div>
+        <div className="cv-auto">
+          <MetaEvolutionFeed tournament={tournament} />
+        </div>
 
         {/* Format-specific layout: round-robin gets a standings table on
             top + a flat match list below. Single-elim keeps the bracket
