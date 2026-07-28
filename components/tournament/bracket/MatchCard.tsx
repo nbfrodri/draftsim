@@ -5,7 +5,8 @@ import { useDraftStore } from "@/store/draftStore";
 import { getTeam } from "@/lib/tournament";
 import type { TournamentMatch, TournamentState, TournamentTeam } from "@/lib/tournament";
 import { isReverseSweep } from "@/lib/matchTags";
-import TeamIcon from "@/components/TeamIcon";
+import TeamLogoLink from "@/components/team/TeamLogoLink";
+import TeamNameLink from "@/components/team/TeamNameLink";
 import { getPersonality } from "@/lib/draftAI";
 import { computeTeamStreaks } from "@/lib/streaks";
 import type { TeamStreakMap } from "@/lib/streaks";
@@ -158,22 +159,24 @@ const TeamRow = memo(function TeamRow({
           {team ? team.seed : "—"}
         </span>
         {team && (
-          <span
+          <TeamLogoLink
+            teamId={team.id}
+            name={team.name}
+            iconKey={team.iconKey}
+            logoUrl={team.logoUrl}
+            color={team.color ?? undefined}
+            size={12}
+            renderAs="span"
             className={`shrink-0 self-center ${
               won ? "text-rift-goldbright" : sideAccent
             }`}
-            style={team.color ? { color: team.color } : undefined}
-          >
-            <TeamIcon
-              iconKey={team.iconKey}
-              logoUrl={team.logoUrl}
-              size={12}
-              // Icon stays in the team's brand color regardless of
-              // win/lose. Name + score still go gold for the winner;
-              // the icon is a stable identity mark.
-              color={team.color ?? undefined}
-            />
-          </span>
+            hint={{
+              name: team.name,
+              iconKey: team.iconKey,
+              logoUrl: team.logoUrl,
+              color: team.color ?? undefined,
+            }}
+          />
         )}
         <span
           className={`text-[11px] md:text-xs font-display tracking-wider truncate flex-1 min-w-0 ${
@@ -184,7 +187,26 @@ const TeamRow = memo(function TeamRow({
               : "text-rift-mutedbright/50 italic"
           }`}
         >
-          {team?.name ?? "TBD"}
+          {team ? (
+            <TeamNameLink
+              teamId={team.id}
+              name={team.name}
+              iconKey={team.iconKey}
+              logoUrl={team.logoUrl}
+              color={team.color ?? undefined}
+              showLogo={false}
+              renderAs="span"
+              className="truncate"
+              hint={{
+                name: team.name,
+                iconKey: team.iconKey,
+                logoUrl: team.logoUrl,
+                color: team.color ?? undefined,
+              }}
+            />
+          ) : (
+            "TBD"
+          )}
         </span>
         {team && (
           <StarsBadge rating={team.starRating ?? 3} />

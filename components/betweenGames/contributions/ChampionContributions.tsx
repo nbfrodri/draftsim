@@ -24,6 +24,7 @@ export const ChampionContributions = memo(function ChampionContributions({
   ratings,
   forms,
   playerNames,
+  playerIds,
 }: {
   side: Side;
   picks: (number | null)[];
@@ -36,6 +37,8 @@ export const ChampionContributions = memo(function ChampionContributions({
   forms?: number[];
   // Per-lane player handles in positional order. Optional.
   playerNames?: (string | null)[];
+  // Stable player ids parallel to `playerNames`. Optional.
+  playerIds?: (string | null)[];
 }) {
   const border = side === "blue" ? "border-rift-blue/40" : "border-rift-red/40";
   const accentBg = side === "blue" ? "bg-rift-blue/5" : "bg-rift-red/5";
@@ -104,6 +107,7 @@ export const ChampionContributions = memo(function ChampionContributions({
               rating={ratings?.[i]}
               form={forms?.[i]}
               playerName={playerNames?.[i]}
+              playerId={playerIds?.[i]}
             />
           );
         })}

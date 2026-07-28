@@ -24,7 +24,7 @@ import {
   type SplitId,
 } from "./types";
 import { isGlobalCupYear } from "./engine";
-import { toInactiveSnapshot } from "./playerLifecycle";
+import { inactiveSnapshotsForArchivedYear } from "./playerLifecycle";
 import {
   computeSeasonStats,
   computeSeasonHeadToHead,
@@ -639,7 +639,15 @@ export function buildSeasonHistoryEntry(
     ...(season.phaseRosters?.length ? { phaseRosters: season.phaseRosters } : {}),
     ...(season.franchise?.aging
       ? {
-          inactivePlayers: (season.franchise.inactivePool ?? []).map(toInactiveSnapshot),
+          // Same year filter the Continue path uses, so a manual Archive can
+          // never write next-season intake into the closing year's Hall row.
+          // Badges here are pre-offseason; Continue rewrites this entry with
+          // the post-offseason pool when the year actually rolls.
+          inactivePlayers: inactiveSnapshotsForArchivedYear(
+            [],
+            season.franchise.inactivePool ?? [],
+            season.franchise.year,
+          ),
         }
       : {}),
     ...(transfers.length > 0 ? { transfers } : {}),

@@ -255,6 +255,30 @@ describe("seedFranchise", () => {
     }
   });
 
+  it("opening seed stamps clockYear so year 1 archives Acy · 1y / FA · 1y", () => {
+    const y1 = makeReality(true);
+    const prePool = y1.franchise!.inactivePool ?? [];
+    expect(prePool.length).toBeGreaterThan(0);
+    for (const e of prePool) expect(e.clockYear).toBe(1);
+
+    const y2 = startNextSeason(y1, champions, rngFrom(77));
+    const snaps = inactiveSnapshotsForArchivedYear(
+      prePool,
+      y2.franchise!.inactivePool ?? [],
+      1,
+    );
+    const seeded = new Set(prePool.map((e) => e.player.id!));
+    const year1 = snaps.filter((s) => seeded.has(s.playerId));
+    expect(year1.length).toBeGreaterThan(0);
+    for (const s of year1) {
+      if (s.status === "academy") {
+        expect(yearsInAcademy("academy", s.inactiveYears)).toBe(1);
+      } else if (s.status === "free-agent") {
+        expect(yearsAsFreeAgent("free-agent", s.inactiveYears)).toBe(1);
+      }
+    }
+  });
+
   it("archived academy badge always equals real tenure (every mint path, 5 years)", () => {
     let season = makeReality(true);
     let checked = 0;
@@ -269,12 +293,15 @@ describe("seedFranchise", () => {
       for (const s of snaps) {
         if (s.status !== "academy") continue;
         checked++;
-        // 1-based tenure from the intake year — never inflated by a mint-time
-        // clock offset, never burned by the closing-year tick.
+        // 1-based tenure from the year the academy clock started — never
+        // inflated by a mint-time offset, never burned by the closing-year
+        // tick. Keyed off clockYear, not demotedYear: an FA stashed back into
+        // an academy restarts the badge but keeps the year they left a roster.
         expect([s.playerId, s.inactiveYears]).toEqual([
           s.playerId,
-          year - s.demotedYear + 1,
+          year - (s.clockYear ?? s.demotedYear) + 1,
         ]);
+        expect(s.demotedYear).toBeLessThanOrEqual(s.clockYear ?? s.demotedYear);
       }
       season = next;
     }

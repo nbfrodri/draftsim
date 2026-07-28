@@ -15,7 +15,12 @@ import {
 } from "./historySearch";
 import { computePlayerTitlesByEvent } from "./historyRecords";
 import { computeCoachRecords } from "./historySearch";
-import type { InactivePlayerSnapshot } from "./playerLifecycle";
+import {
+  ACADEMY_YEARS,
+  ACADEMY_YEARS_MAX,
+  ACADEMY_YEARS_MIN,
+  type InactivePlayerSnapshot,
+} from "./playerLifecycle";
 
 // ─── Retired detection + coach playstyle ────────────────────────────────────
 const LANES5 = ["top", "jungle", "middle", "bottom", "support"] as const;
@@ -157,7 +162,8 @@ describe("lifecycle inactive pool status", () => {
     );
     const st = playerCareerStatuses(entries).get("vet");
     expect(st?.status).toBe("free-agent");
-    expect(st?.academyYears).toBe(3);
+    // academyYears is the live academy badge — an FA row must not carry one.
+    expect(st?.academyYears).toBeUndefined();
     expect(st?.freeAgentYears).toBe(2);
 
     const profile = playerProfile(entries, "vet");
@@ -366,7 +372,7 @@ describe("lifecycle inactive pool status", () => {
     const hits = listPlayers(entries);
     const vet = hits.find((h) => h.id === "vet");
     expect(vet?.careerStatus).toBe("free-agent");
-    expect(vet?.academyYears).toBe(3);
+    expect(vet?.academyYears).toBeUndefined();
     expect(vet?.freeAgentYears).toBe(1);
     expect(hits.filter((h) => h.careerStatus === "free-agent").map((h) => h.id)).toContain(
       "vet",
@@ -624,7 +630,7 @@ describe("point-in-time career status (asOfSeasonId)", () => {
         fa: t.freeAgentYears,
       })),
     ).toEqual([
-      { id: "S3", status: "free-agent", acy: 3, fa: 1 },
+      { id: "S3", status: "free-agent", acy: undefined, fa: 1 },
       { id: "S2", status: "academy", acy: 3, fa: undefined },
       { id: "S1", status: "academy", acy: 2, fa: undefined },
       { id: "S0", status: "academy", acy: 1, fa: undefined },
@@ -696,6 +702,45 @@ describe("point-in-time career status (asOfSeasonId)", () => {
     expect(playerCareerStatuses(entries).get("rook")?.academyYears).toBe(1);
   });
 
+  it("yearsLeftToFa follows the player's own academy tenure, not the soft default", () => {
+    // Three year-1 academy kids with the same badge clock but different
+    // personal tenures: a cold D exits at ACADEMY_YEARS_MIN, an S+ stays to
+    // ACADEMY_YEARS_MAX, and a −1 tenure shift graduates a year early.
+    const acy = (
+      id: string,
+      over: Partial<InactivePlayerSnapshot>,
+    ): InactivePlayerSnapshot => ({
+      playerId: id,
+      playerName: id,
+      lane: "top",
+      tier: "B",
+      status: "academy",
+      inactiveYears: 1,
+      demotedYear: 1,
+      clockYear: 1,
+      lastTeamId: "T1",
+      lastTeamName: "T1",
+      ...over,
+    });
+    const entries = withPool(
+      [["a", "b", "c", "d", "e"]],
+      [
+        [
+          acy("cold", { tier: "D", potential: "D", shadowGrade: 3 }),
+          acy("elite", { tier: "S", potential: "S+", shadowGrade: 8 }),
+          acy("shifted", { academyTenureShift: -1 }),
+          acy("typical", {}),
+        ],
+      ],
+    );
+    const leftToFa = (id: string) => playerProfile(entries, id)!.yearsLeftToFa;
+    expect(leftToFa("cold")).toBe(ACADEMY_YEARS_MIN - 1);
+    expect(leftToFa("elite")).toBe(ACADEMY_YEARS_MAX - 1);
+    expect(leftToFa("typical")).toBe(ACADEMY_YEARS - 1);
+    // Shift applies on top of the typical base.
+    expect(leftToFa("shifted")).toBe(ACADEMY_YEARS - 2);
+  });
+
   it("Career History opening FA seed starts at FA · 1y (not Acy)", () => {
     // Org-less opening FA: inactiveYears = ACADEMY_YEARS + 1 snap, empty lastTeam.
     const snap = (years: number): InactivePlayerSnapshot[] => [
@@ -728,10 +773,11 @@ describe("point-in-time career status (asOfSeasonId)", () => {
         fa: t.freeAgentYears,
         acy: t.academyYears,
       })),
+      // Never spent a day in an academy — no academy badge, at any year.
     ).toEqual([
-      { id: "S2", status: "free-agent", fa: 3, acy: 3 },
-      { id: "S1", status: "free-agent", fa: 2, acy: 3 },
-      { id: "S0", status: "free-agent", fa: 1, acy: 3 },
+      { id: "S2", status: "free-agent", fa: 3, acy: undefined },
+      { id: "S1", status: "free-agent", fa: 2, acy: undefined },
+      { id: "S0", status: "free-agent", fa: 1, acy: undefined },
     ]);
   });
 

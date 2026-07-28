@@ -13,7 +13,7 @@ import {
 import { LANE_ORDER } from "@/lib/players";
 import type { Lane, PlayerTier } from "@/lib/types";
 import LaneIcon from "@/components/LaneIcon";
-import InactiveBoardTip from "./InactiveBoardTip";
+import PlayerHoverCard from "@/components/player/PlayerHoverCard";
 
 const TIER_CLS: Record<PlayerTier, string> = {
   "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
@@ -118,7 +118,11 @@ export default function InactiveMarketBoard({
             : `px-1.5 py-0.5 ${row.recommended ? "bg-emerald-500/[0.03]" : ""}`
         }`}
       >
-        <InactiveBoardTip row={row}>
+        <PlayerHoverCard
+          playerId={p.id}
+          hint={{ faRow: row }}
+          className="flex-wrap gap-x-2 gap-y-0.5"
+        >
           <LaneIcon lane={p.lane} size="xs" className="shrink-0" />
           <span className={`w-5 text-center border font-display ${TIER_CLS[p.tier]}`}>
             {p.tier}
@@ -156,7 +160,7 @@ export default function InactiveMarketBoard({
                 : `${Math.max(1, row.entry.inactiveYears < 1 ? 1 : row.entry.inactiveYears)}y · ${row.yearsLeftToFa}y→FA`}
             </span>
           )}
-        </InactiveBoardTip>
+        </PlayerHoverCard>
         <div className="ml-auto flex items-center gap-1 shrink-0">
           {canRelease && (
             <button

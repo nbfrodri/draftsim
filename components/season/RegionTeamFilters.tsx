@@ -6,7 +6,7 @@ import {
 } from "@/lib/season/types";
 import type { RosterTimeSplit } from "@/lib/season/franchise";
 import LeagueIcon from "@/components/LeagueIcon";
-import TeamIcon from "@/components/TeamIcon";
+import TeamNameLink from "@/components/team/TeamNameLink";
 
 export type FilterTeam = {
   id: string;
@@ -110,18 +110,26 @@ export default function RegionTeamFilters({
                   ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
                   : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
               }`}
-              title={t.name}
               aria-label={t.name}
             >
-              <TeamIcon
+              <TeamNameLink
+                teamId={t.id}
+                name={t.name}
+                leagueId={t.leagueId}
                 iconKey={t.iconKey}
                 logoUrl={t.logoUrl}
-                size={12}
                 color={t.color}
+                logoSize={12}
+                renderAs="span"
+                className="inline-flex items-center gap-1 text-[8px] uppercase tracking-[0.12em] truncate max-w-[6.5rem]"
+                hint={{
+                  name: t.name,
+                  leagueId: t.leagueId,
+                  iconKey: t.iconKey,
+                  logoUrl: t.logoUrl,
+                  color: t.color,
+                }}
               />
-              <span className="text-[8px] uppercase tracking-[0.12em] truncate max-w-[5rem]">
-                {t.name}
-              </span>
             </button>
           ))}
         </div>

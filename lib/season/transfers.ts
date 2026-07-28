@@ -297,6 +297,7 @@ export function planLaneSwaps(
 
 function snapshot(player: Player, grade: number | null): TransferPlayer {
   return {
+    ...(player.id ? { id: player.id } : {}),
     ...(player.name ? { name: player.name } : {}),
     tier: player.tier,
     grade,

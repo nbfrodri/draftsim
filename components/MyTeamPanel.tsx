@@ -20,9 +20,10 @@ import {
   type TournamentState,
 } from "@/lib/tournament";
 import type { Champion, Lane, PlayerTier } from "@/lib/types";
-import TeamIcon from "./TeamIcon";
+import TeamNameLink from "./team/TeamNameLink";
 import LaneIcon from "./LaneIcon";
 import InactiveBrowseRow from "./season/InactiveBrowseRow";
+import PlayerNameLink from "./player/PlayerNameLink";
 
 // "My Team" dashboard panel for the controlled team: the live roster with
 // tier badges (and ▲/▼ shift arrows when a tier moved this split) + current
@@ -303,15 +304,17 @@ export default function MyTeamPanel() {
   return (
     <div className="mb-8 border border-rift-blue/40 bg-rift-blue/[0.04]">
       <div className="px-3 py-1.5 border-b border-rift-blue/30 flex items-center gap-2">
-        <TeamIcon
+        <TeamNameLink
+          teamId={controlled.id}
+          name={controlled.name}
+          leagueId={controlled.leagueId}
           iconKey={controlled.iconKey}
           logoUrl={controlled.logoUrl}
-          size={16}
           color={controlled.color}
+          logoSize={16}
+          hint={{ team: controlled }}
+          className="font-display text-sm tracking-wider text-rift-bluebright min-w-0"
         />
-        <span className="font-display text-sm tracking-wider text-rift-bluebright">
-          {controlled.name}
-        </span>
         <span
           className="text-[10px] text-rift-gold/85 tabular-nums"
           title={
@@ -364,7 +367,8 @@ export default function MyTeamPanel() {
               const becameFa =
                 n.marketNote === "academy-release" ||
                 n.marketNote === "became-fa" ||
-                n.marketNote === "academy-bump";
+                n.marketNote === "academy-bump" ||
+                n.marketNote === "agency-depart";
               const retired = n.marketNote === "retired";
               const faToAcademy =
                 n.marketNote === "fa-academy" ||
@@ -381,7 +385,51 @@ export default function MyTeamPanel() {
                       ? " · open FA upgrade"
                       : n.marketNote === "rookie-gate"
                         ? " · rookie's door"
-                        : "";
+                        : n.marketNote === "agency-sign"
+                          ? " · agency preference"
+                          : "";
+              if (n.marketNote === "agency-override") {
+                return (
+                  <div key={`${n.lane}-${i}`} className="flex flex-wrap items-center gap-x-2 text-[10px]">
+                    <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
+                      {n.timeMark ?? "—"}
+                    </span>
+                    <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
+                    <span className="text-rift-mutedbright">
+                      <span className="text-rift-goldbright">{n.departedName ?? n.entrantName}</span>{" "}
+                      stayed (override)
+                      {n.beatenNames?.[0] ? ` · wanted ${n.beatenNames[0]}` : ""}
+                    </span>
+                  </div>
+                );
+              }
+              if (n.marketNote === "agency-leave") {
+                return (
+                  <div key={`${n.lane}-${i}`} className="flex flex-wrap items-center gap-x-2 text-[10px]">
+                    <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
+                      {n.timeMark ?? "—"}
+                    </span>
+                    <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
+                    <span className="text-rift-mutedbright">
+                      <span className="text-rift-redbright/80">{n.departedName}</span> walked (agency)
+                      {n.beatenNames?.[0] ? ` · preferred ${n.beatenNames[0]}` : ""}
+                    </span>
+                  </div>
+                );
+              }
+              if (n.marketNote === "agency-callup") {
+                return (
+                  <div key={`${n.lane}-${i}`} className="flex flex-wrap items-center gap-x-2 text-[10px]">
+                    <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
+                      {n.timeMark ?? "—"}
+                    </span>
+                    <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
+                    <span className="text-rift-mutedbright">
+                      <span className="text-rift-bluebright">{n.entrantName}</span> called up (agency)
+                    </span>
+                  </div>
+                );
+              }
               if (retired) {
                 return (
                   <div key={`${n.lane}-${i}`} className="flex flex-wrap items-center gap-x-2 text-[10px]">
@@ -403,6 +451,8 @@ export default function MyTeamPanel() {
                 const label =
                   n.marketNote === "academy-release"
                     ? "released to free agency"
+                    : n.marketNote === "agency-depart"
+                      ? "left academy (agency)"
                     : n.marketNote === "academy-bump"
                       ? "became a free agent (academy full)"
                       : "became a free agent";
@@ -526,9 +576,13 @@ export default function MyTeamPanel() {
                   {p.tier}
                 </span>
                 {p.name && (
-                  <span className="text-rift-mutedbright font-medium max-w-[88px] truncate" title={p.name}>
-                    {p.name}
-                  </span>
+                  <PlayerNameLink
+                    playerId={p.id}
+                    name={p.name}
+                    hint={{ player: p, teamName: controlled.name }}
+                    title={p.name}
+                    className="text-rift-mutedbright font-medium max-w-[88px] truncate"
+                  />
                 )}
                 {shifted && (
                   <span
@@ -671,17 +725,30 @@ export default function MyTeamPanel() {
           {next && opponent ? (
             <div>
               <div className="flex items-center gap-1.5 text-[11px] text-rift-mutedbright mb-1.5">
-                <span className="text-rift-bluebright truncate">
-                  {controlled.name}
-                </span>
+                <TeamNameLink
+                  teamId={controlled.id}
+                  name={controlled.name}
+                  leagueId={controlled.leagueId}
+                  iconKey={controlled.iconKey}
+                  logoUrl={controlled.logoUrl}
+                  color={controlled.color}
+                  logoSize={13}
+                  showLogo={false}
+                  className="truncate text-rift-bluebright"
+                  hint={{ team: controlled }}
+                />
                 <span className="text-rift-muted/60">vs</span>
-                <TeamIcon
+                <TeamNameLink
+                  teamId={opponent.id}
+                  name={opponent.name}
+                  leagueId={opponent.leagueId}
                   iconKey={opponent.iconKey}
                   logoUrl={opponent.logoUrl}
-                  size={13}
                   color={opponent.color}
+                  logoSize={13}
+                  className="inline-flex items-center gap-1 min-w-0 truncate text-rift-mutedbright"
+                  hint={{ team: opponent }}
                 />
-                <span className="truncate">{opponent.name}</span>
               </div>
               <div className="text-[8px] uppercase tracking-[0.25em] text-rift-mutedbright/50 mb-2 truncate">
                 {next.tournament.name}

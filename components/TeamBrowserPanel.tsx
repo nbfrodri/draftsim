@@ -17,10 +17,12 @@ import {
 } from "@/lib/season/types";
 import type { Champion, Lane, Player, PlayerTier, Roster } from "@/lib/types";
 import { ChemistryBreakdown } from "./ChemistryRow";
-import TeamIcon from "./TeamIcon";
+import TeamNameLink from "./team/TeamNameLink";
+import { buildLiveTeamStatsMap, TeamLiveStatsInline } from "./team/TeamLiveStats";
 import LeagueIcon from "./LeagueIcon";
 import LaneIcon from "./LaneIcon";
 import InactiveBrowseRow from "./season/InactiveBrowseRow";
+import PlayerHoverCard from "./player/PlayerHoverCard";
 
 // Region/team browser — every team in every region with each player's full
 // identity: handle, skill tier, age, potential, and champion pool. A scouting
@@ -72,6 +74,11 @@ export default function TeamBrowserPanel() {
             .sort((a, b) => deriveStar(b.players) - deriveStar(a.players))
         : [],
     [season, league],
+  );
+  // Season series W-L + titles — only while the browser is open.
+  const teamStats = useMemo(
+    () => (open && season ? buildLiveTeamStatsMap(season, teams) : null),
+    [open, season, teams],
   );
 
   if (!season) return null;
@@ -127,8 +134,20 @@ export default function TeamBrowserPanel() {
                     onClick={() => setOpenTeam(isOpen ? null : team.id)}
                     className="w-full flex items-center gap-2 px-2 py-1 border border-rift-line/40 bg-rift-bg/30 hover:border-rift-gold/40 transition-all"
                   >
-                    <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={16} color={team.color} />
-                    <span className="text-[11px] text-rift-mutedbright truncate">{team.name}</span>
+                    <TeamNameLink
+                      teamId={team.id}
+                      name={team.name}
+                      leagueId={team.leagueId}
+                      iconKey={team.iconKey}
+                      logoUrl={team.logoUrl}
+                      color={team.color}
+                      logoSize={16}
+                      hint={{ team }}
+                      renderAs="span"
+                      noNavigate
+                      className="min-w-0 flex-1 text-[11px] text-rift-mutedbright"
+                    />
+                    <TeamLiveStatsInline stats={teamStats?.get(team.id)} />
                     {showAcademy && (
                       <span
                         className="text-[8px] uppercase tracking-[0.12em] text-amber-400/70 tabular-nums"
@@ -142,6 +161,49 @@ export default function TeamBrowserPanel() {
                   </button>
                   {isOpen && (
                     <div className="border border-t-0 border-rift-line/30 divide-y divide-rift-line/15">
+                      {(() => {
+                        const st = teamStats?.get(team.id);
+                        if (!st) return null;
+                        const { wins, losses, winRate } = st.winRates.overall;
+                        const played = wins + losses;
+                        return (
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1.5 bg-rift-gold/[0.03] text-[10px]">
+                            <span className="tabular-nums text-rift-mutedbright">
+                              <span className="text-[7px] uppercase tracking-[0.2em] text-rift-muted/55 mr-1.5">
+                                Series
+                              </span>
+                              {wins}-{losses}
+                              <span className="text-rift-muted/50 ml-1">
+                                ({played > 0 ? `${Math.round((winRate ?? 0) * 100)}%` : "—"})
+                              </span>
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 text-rift-gold/80">
+                              <span className="text-[7px] uppercase tracking-[0.2em] text-rift-gold/50">
+                                Titles
+                              </span>
+                              {st.titles.total <= 0 ? (
+                                <span className="text-rift-muted/45">—</span>
+                              ) : (
+                                <>
+                                  {st.titles.split > 0 && (
+                                    <span className="tabular-nums">
+                                      {st.titles.split} split
+                                    </span>
+                                  )}
+                                  {st.titles.intl > 0 && (
+                                    <span className="tabular-nums">
+                                      {st.titles.intl} intl
+                                      {st.titles.worlds > 0
+                                        ? ` · ${st.titles.worlds} Worlds`
+                                        : ""}
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })()}
                       {team.coach && (
                         <div className="flex items-center gap-2 px-2 py-1.5 text-[10px] bg-rift-blue/[0.04]">
                           <span className="shrink-0 px-1 py-px border border-rift-blue/40 text-rift-blue/80 text-[7px] uppercase tracking-[0.15em]">
@@ -181,9 +243,18 @@ export default function TeamBrowserPanel() {
                                 {p.tier}
                               </span>
                               {p.name && (
-                                <span className="text-rift-mutedbright font-medium max-w-[90px] truncate" title={p.name}>
-                                  {p.name}
-                                </span>
+                                // A span trigger, not PlayerNameLink — this row
+                                // is already a button (expand/collapse) and a
+                                // nested button would be invalid.
+                                <PlayerHoverCard
+                                  playerId={p.id}
+                                  hint={{ player: p, teamName: team.name }}
+                                  className="text-rift-mutedbright font-medium max-w-[90px] truncate"
+                                >
+                                  <span className="truncate" title={p.name}>
+                                    {p.name}
+                                  </span>
+                                </PlayerHoverCard>
                               )}
                               {(p.age != null || p.potential) && (
                                 <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">

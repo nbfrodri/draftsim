@@ -259,6 +259,7 @@ export interface SeasonStats {
     championName: string;
     teamName: string;
     playerName?: string | null; // the player who penta'd, when known
+    playerId?: string | null; // their stable id, when the recap carried one
     count: number;
     lane: Lane | null; // the lane they penta'd from (most common); legacy → null
     earliestMinute: number; // their fastest penta (minutes)
@@ -287,6 +288,7 @@ export interface SeasonStats {
     assists: number;
     tier: string | null; // the player's skill tier, from the roster
     playerName: string | null; // in-game handle, when present on the roster
+    playerId?: string; // stable id of the earner, when recaps recorded one
   }>;
   // Rivalries — the team pairings that met most often this year, with their
   // head-to-head record. Sorted by meetings desc. Only pairs that met ≥ 2 times.
@@ -312,6 +314,7 @@ export interface SeasonRecords {
     championId: number;
     teamName: string;
     playerName?: string;
+    playerId?: string;
     lane?: Lane;
     kills: number;
     deaths: number;
@@ -654,11 +657,14 @@ export interface PlayerSeasonRecord {
 }
 
 // Attribute titles/appearances to the players who were ON the champion's
-// roster AT that stage (via phaseRosters), NOT their end-of-season team — a
-// player who wins a split then transfers mid-season keeps the title they
-// actually won. Falls back to the current roster when no snapshot exists
-// (legacy saves predating phaseRosters). Exported for direct testing without a
-// full simulated-tournament fixture.
+// MAIN roster AT that stage (via phaseRosters), NOT their end-of-season team —
+// a player who wins a split then transfers mid-season keeps the title they
+// actually won, and an academy / free-agent player never inherits a trophy his
+// org lifted without him. Only a season with NO snapshots at all (legacy saves
+// predating phaseRosters) falls back to the current roster; once a season
+// records stages, a missing stage means "nobody was rostered for it", not
+// "credit whoever is here now". Exported for direct testing without a full
+// simulated-tournament fixture.
 export function computePlayerTitleCounts(
   season: SeasonState,
 ): Map<string, { split: number; intlTitles: number; intlApps: number }> {
@@ -676,10 +682,12 @@ export function computePlayerTitleCounts(
     teamId: string,
     match: (s: PhaseRosterSnapshot) => boolean,
   ): string[] => {
-    const team = snaps.find(match)?.teams.find((t) => t.teamId === teamId);
-    const roster = team
-      ? team.players
-      : season.teams.find((t) => t.id === teamId)?.players;
+    const snap = snaps.find(match);
+    const roster = snap
+      ? snap.teams.find((t) => t.teamId === teamId)?.players
+      : snaps.length > 0
+        ? undefined
+        : season.teams.find((t) => t.id === teamId)?.players;
     return (roster ?? []).map((p) => p.id).filter((x): x is string => !!x);
   };
   for (const [split, byLeague] of Object.entries(season.splitResults)) {
@@ -772,6 +780,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
       championName: string;
       teamName: string;
       playerName: string | null;
+      playerId: string | null;
       count: number;
       laneCounts: Map<Lane, number>;
       earliestMinute: number;
@@ -801,6 +810,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
       // who transferred away still gets credited rather than the slot's current
       // occupant.
       nameCounts: Map<string, number>;
+      idCounts: Map<string, number>;
       kills: number;
       deaths: number;
       assists: number;
@@ -876,16 +886,22 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
             p.lane && recap.perPickNames
               ? recap.perPickNames[p.side]?.[POS_LANES.indexOf(p.lane)] ?? null
               : null;
+          const pentaId =
+            p.lane && recap.perPickIds
+              ? recap.perPickIds[p.side]?.[POS_LANES.indexOf(p.lane)] ?? null
+              : null;
           const row = pentaRows.get(key) ?? {
             championId: p.championId,
             championName: p.championName,
             teamName: p.teamName,
             playerName: pentaName,
+            playerId: pentaId,
             count: 0,
             laneCounts: new Map<Lane, number>(),
             earliestMinute: Infinity,
           };
           if (pentaName) row.playerName = pentaName; // prefer any identified name
+          if (pentaId) row.playerId = pentaId;
           row.count++;
           if (p.lane) row.laneCounts.set(p.lane, (row.laneCounts.get(p.lane) ?? 0) + 1);
           row.earliestMinute = Math.min(row.earliestMinute, p.minute);
@@ -933,6 +949,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
             championId: mvp.championId,
             teamName: mvp.side === "blue" ? gBlueName : gRedName,
             ...(mvp.playerName ? { playerName: mvp.playerName } : {}),
+            ...(mvp.playerId ? { playerId: mvp.playerId } : {}),
             lane: mvp.lane,
             kills: mvp.kills,
             deaths: mvp.deaths,
@@ -955,6 +972,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
               count: 0,
               champCounts: new Map<number, number>(),
               nameCounts: new Map<string, number>(),
+              idCounts: new Map<string, number>(),
               kills: 0,
               deaths: 0,
               assists: 0,
@@ -971,6 +989,12 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
             row.nameCounts.set(
               mvp.playerName,
               (row.nameCounts.get(mvp.playerName) ?? 0) + 1,
+            );
+          }
+          if (mvp.playerId) {
+            row.idCounts.set(
+              mvp.playerId,
+              (row.idCounts.get(mvp.playerId) ?? 0) + 1,
             );
           }
           mvpRows.set(key, row);
@@ -1024,6 +1048,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
         championName: r.championName,
         teamName: r.teamName,
         playerName: r.playerName ?? null,
+        playerId: r.playerId ?? null,
         count: r.count,
         lane,
         earliestMinute: Number.isFinite(r.earliestMinute) ? r.earliestMinute : 0,
@@ -1065,6 +1090,14 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
           earner = name;
         }
       }
+      let earnerId: string | undefined;
+      let earnerIdBest = 0;
+      for (const [id, c] of r.idCounts) {
+        if (c > earnerIdBest) {
+          earnerIdBest = c;
+          earnerId = id;
+        }
+      }
       return {
         teamId: r.teamId,
         teamName: nameOf(r.teamId),
@@ -1076,6 +1109,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
         assists: r.assists,
         tier: tierOf(r.teamId, r.lane),
         playerName: earner ?? playerNameOf(r.teamId, r.lane),
+        ...(earnerId ? { playerId: earnerId } : {}),
       };
     })
     .sort((a, b) => b.count - a.count);

@@ -5,6 +5,7 @@ import type { MatchTimeline } from "@/lib/matchSimulator";
 import type { Champion, Lane, Side } from "@/lib/types";
 import LaneIcon from "@/components/LaneIcon";
 import TeamName from "@/components/TeamName";
+import PlayerNameLink from "@/components/player/PlayerNameLink";
 import {
   LANE_ORDER,
   computeRunningStats,
@@ -38,6 +39,8 @@ export function MVPCard({
   redTeam,
   bluePlayerNames,
   redPlayerNames,
+  bluePlayerIds,
+  redPlayerIds,
 }: {
   timeline: MatchTimeline;
   laneAdvantages: Record<Lane, number>;
@@ -52,6 +55,9 @@ export function MVPCard({
   // Optional per-lane player handles (positional order) for each side.
   bluePlayerNames?: (string | null)[];
   redPlayerNames?: (string | null)[];
+  // Stable player ids parallel to the handle arrays.
+  bluePlayerIds?: (string | null)[];
+  redPlayerIds?: (string | null)[];
 }) {
   const mvp = useMemo(() => {
     // Final stats = stats accumulated across ALL events.
@@ -131,6 +137,10 @@ export function MVPCard({
     (mvp.side === "blue" ? bluePlayerNames : redPlayerNames)?.[
       LANE_ORDER.indexOf(mvp.lane)
     ] ?? null;
+  const mvpPlayerId =
+    (mvp.side === "blue" ? bluePlayerIds : redPlayerIds)?.[
+      LANE_ORDER.indexOf(mvp.lane)
+    ] ?? undefined;
   const sideBorderHex =
     mvp.side === "blue" ? "border-rift-blue" : "border-rift-red";
   const sideAccentText =
@@ -199,8 +209,12 @@ export function MVPCard({
             {champ.name}
           </div>
           {mvpHandle && (
-            <div className="text-[11px] font-medium text-rift-mutedbright tracking-wider mt-0.5 truncate">
-              {mvpHandle}
+            <div className="mt-0.5">
+              <PlayerNameLink
+                playerId={mvpPlayerId ?? undefined}
+                name={mvpHandle}
+                className="text-[11px] font-medium text-rift-mutedbright tracking-wider truncate"
+              />
             </div>
           )}
           <div className="flex items-baseline gap-3 md:gap-4 mt-2 flex-wrap">

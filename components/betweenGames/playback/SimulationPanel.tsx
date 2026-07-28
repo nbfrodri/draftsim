@@ -49,6 +49,8 @@ export function SimulationPanel({
   redForms,
   bluePlayerNames,
   redPlayerNames,
+  bluePlayerIds,
+  redPlayerIds,
 }: {
   result: SimulationResult;
   blueTeam: string;
@@ -67,6 +69,9 @@ export function SimulationPanel({
   // Optional per-player handles in positional lane order.
   bluePlayerNames?: (string | null)[];
   redPlayerNames?: (string | null)[];
+  // Stable player ids parallel to the handle arrays — power the hover cards.
+  bluePlayerIds?: (string | null)[];
+  redPlayerIds?: (string | null)[];
 }) {
   const duration = result.timeline.durationMinutes;
   const winnerIsBlue = result.winner === "blue";
@@ -343,6 +348,8 @@ export function SimulationPanel({
           redTeam={redTeam}
           bluePlayerNames={bluePlayerNames}
           redPlayerNames={redPlayerNames}
+          bluePlayerIds={bluePlayerIds}
+          redPlayerIds={redPlayerIds}
         />
       )}
 
@@ -356,6 +363,7 @@ export function SimulationPanel({
           ratings={gameRatings?.blue}
           forms={blueForms}
           playerNames={bluePlayerNames}
+          playerIds={bluePlayerIds}
         />
         <ChampionContributions
           side="red"
@@ -366,6 +374,7 @@ export function SimulationPanel({
           ratings={gameRatings?.red}
           forms={redForms}
           playerNames={redPlayerNames}
+          playerIds={redPlayerIds}
         />
       </div>
 

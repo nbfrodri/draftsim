@@ -30,33 +30,131 @@ import {
   splitFromRosterTimeMark,
   type RosterTimeSplit,
 } from "@/lib/season/franchise";
-import type { Champion, Lane, PlayerTier } from "@/lib/types";
-import TeamIcon from "./TeamIcon";
+import type { Champion, Lane } from "@/lib/types";
+import { resolveTeamLogo } from "@/lib/season/realTeams";
+import TeamLogoLink from "./team/TeamLogoLink";
 import LaneIcon from "./LaneIcon";
 import { ChemScore, ProjectedChemScore } from "./ChemistryRow";
 import InactiveMarketBoard from "./season/InactiveMarketBoard";
 import VacancyFillPicker from "./season/VacancyFillPicker";
+import AgencyDemandsPanel from "./season/AgencyDemandsPanel";
 import RegionTeamFilters, {
   matchesTeamFilters,
   type FilterTeam,
 } from "./season/RegionTeamFilters";
+import PlayerNameLink from "./player/PlayerNameLink";
+import TierChip from "./season/TierChip";
+import RosterNewsRow, {
+  classifyRosterNews,
+  rosterNewsKindCounts,
+  type RosterNewsItem,
+  type RosterNewsKind,
+} from "./season/RosterNewsRow";
 
 // Transfer-window UI: the league-wide recap of roster moves at each window
 // (after First Stand and MSI), plus the followed team's pending decisions with
 // full player detail — skill tier, this split's grade, and champion pool. The
 // season pauses on a transfer phase only while the user has decisions to make.
 
-const TIER_CLS: Record<PlayerTier, string> = {
-  "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
-  S: "border-rift-gold text-rift-goldbright bg-rift-gold/10",
-  A: "border-rift-blue/70 text-rift-bluebright bg-rift-blue/10",
-  B: "border-rift-line text-rift-mutedbright",
-  C: "border-amber-600/50 text-amber-300/80",
-  D: "border-rift-red/50 text-rift-redbright bg-rift-red/5",
-};
+function groupRosterNewsByTime(items: readonly RosterNewsItem[]) {
+  const groups = new Map<string, RosterNewsItem[]>();
+  for (const n of items) {
+    const key = n.timeMark ?? "Unknown";
+    const list = groups.get(key);
+    if (list) list.push(n);
+    else groups.set(key, [n]);
+  }
+  return [...groups.entries()];
+}
+
+type PanelTab = "yours" | "league";
+type NewsKindFilter = RosterNewsKind | "all";
+
+function SegmentedControl<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { id: T; label: string; hint?: string; count?: number }[];
+}) {
+  return (
+    <div
+      className="inline-flex flex-wrap gap-0.5 p-0.5 border border-rift-line/40 bg-rift-bg/50"
+      role="tablist"
+    >
+      {options.map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          role="tab"
+          aria-selected={value === opt.id}
+          onClick={() => onChange(opt.id)}
+          title={opt.hint}
+          className={`px-2.5 py-1 text-[8px] uppercase tracking-[0.2em] transition-all ${
+            value === opt.id
+              ? "bg-rift-gold/12 border border-rift-gold/55 text-rift-goldbright shadow-[inset_0_1px_0_rgba(240,230,210,0.08)]"
+              : "border border-transparent text-rift-mutedbright hover:text-rift-gold/85"
+          }`}
+        >
+          {opt.label}
+          {opt.count != null ? (
+            <span className="ml-1 tabular-nums text-rift-muted/50">{opt.count}</span>
+          ) : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function EmptyDigest({
+  title,
+  detail,
+}: {
+  title: string;
+  detail: string;
+}) {
+  return (
+    <div className="px-3 py-4 border border-dashed border-rift-line/35 bg-rift-bg/20 text-center">
+      <div className="font-display text-[11px] tracking-wide text-rift-mutedbright/80">{title}</div>
+      <div className="mt-1 text-[10px] italic text-rift-muted/55 max-w-sm mx-auto">{detail}</div>
+    </div>
+  );
+}
 const noteColor = (n: number | null) =>
   n == null ? "text-rift-muted/45" : n >= 7 ? "text-emerald-400" : n < 5.5 ? "text-rift-redbright" : "text-rift-mutedbright";
 const fmtNote = (n: number | null) => (n == null ? "–" : n.toFixed(1));
+
+/** Team logo with trading-card hover (desktop). */
+function TransferTeamLogo({
+  team,
+  size = 14,
+}: {
+  team?: ReturnType<typeof seasonTeam>;
+  size?: number;
+}) {
+  if (!team) {
+    return (
+      <span className="inline-flex shrink-0 text-rift-muted/50" title="—">
+        —
+      </span>
+    );
+  }
+  return (
+    <TeamLogoLink
+      teamId={team.id}
+      name={team.name}
+      leagueId={team.leagueId}
+      iconKey={team.iconKey}
+      logoUrl={resolveTeamLogo(team.name, team.logoUrl)}
+      color={team.color}
+      size={size}
+      hint={{ team }}
+      renderAs="span"
+    />
+  );
+}
 
 // The qualifying-split the window's grades are drawn from, for the criteria note.
 const WINDOW_SPLIT: Record<string, string> = {
@@ -73,15 +171,16 @@ function PlayerChip({
   byId: Map<number, Champion>;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 align-middle">
+    <span className="inline-flex items-center gap-1.5 align-middle min-w-0">
       {p.name && (
-        <span className="text-[10px] text-rift-mutedbright font-medium max-w-[72px] truncate" title={p.name}>
-          {p.name}
-        </span>
+        <PlayerNameLink
+          playerId={p.id}
+          name={p.name}
+          title={p.name}
+          className="text-[10px] text-rift-mutedbright font-medium max-w-[7.5rem] truncate"
+        />
       )}
-      <span className={`w-4 text-center border text-[10px] font-display ${TIER_CLS[p.tier]}`}>
-        {p.tier}
-      </span>
+      <TierChip tier={p.tier} size="xs" />
       <span className={`text-[9px] tabular-nums ${noteColor(p.grade)}`} title="Split grade (1-10)">
         {fmtNote(p.grade)}
       </span>
@@ -122,24 +221,38 @@ function TransferRow({
   const mine = !!controlledId && (tr.fromTeamId === controlledId || tr.toTeamId === controlledId);
   return (
     <div
-      className={`flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] py-1 border-t border-rift-line/15 first:border-t-0 ${mine ? "bg-rift-blue/[0.06]" : ""}`}
+      className={`flex flex-col gap-1.5 text-[10px] px-2 py-2 min-h-[2.75rem] border-t border-rift-line/15 first:border-t-0 ${
+        mine ? "bg-rift-blue/[0.06] border-l-2 border-l-rift-blue/50" : "border-l-2 border-l-transparent"
+      }`}
     >
-      <LaneIcon lane={tr.lane} size="xs" className="shrink-0" />
-      {mine && (
-        <span className="px-1 border border-rift-blue/50 text-rift-bluebright text-[7px] uppercase tracking-[0.2em]">
-          You
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 shrink-0">
+        <LaneIcon lane={tr.lane} size="xs" />
+        {mine && (
+          <span className="px-1 border border-rift-blue/50 text-rift-bluebright text-[7px] uppercase tracking-[0.2em]">
+            You
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1.5 text-rift-mutedbright">
+          <TransferTeamLogo team={from} />
+          <span className="text-rift-gold/60" aria-hidden>
+            →
+          </span>
+          <TransferTeamLogo team={to} />
         </span>
-      )}
-      <span className="inline-flex items-center gap-1 text-rift-mutedbright">
-        <TeamIcon iconKey={from?.iconKey ?? "shield"} logoUrl={from?.logoUrl} size={12} color={from?.color} />
-        <span className="truncate max-w-[88px]">{from?.name ?? "—"}</span>
-        <span className="text-rift-gold/60">→</span>
-        <TeamIcon iconKey={to?.iconKey ?? "shield"} logoUrl={to?.logoUrl} size={12} color={to?.color} />
-        <span className="truncate max-w-[88px]">{to?.name ?? "—"}</span>
-      </span>
-      <PlayerChip p={tr.star} byId={byId} />
-      <span className="text-rift-muted/40">⇄</span>
-      <PlayerChip p={tr.swap} byId={byId} />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 min-w-0">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 border border-emerald-500/30 bg-emerald-500/[0.06]">
+          <span className="text-[7px] uppercase tracking-[0.12em] text-emerald-400/70 shrink-0">In</span>
+          <PlayerChip p={tr.star} byId={byId} />
+        </span>
+        <span className="text-rift-muted/35 shrink-0" aria-hidden>
+          ⇄
+        </span>
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 border border-rift-red/25 bg-rift-red/[0.04]">
+          <span className="text-[7px] uppercase tracking-[0.12em] text-rift-redbright/70 shrink-0">Out</span>
+          <PlayerChip p={tr.swap} byId={byId} />
+        </span>
+      </div>
     </div>
   );
 }
@@ -174,6 +287,8 @@ export default function TransferWindowPanel() {
   const [panelOpen, setPanelOpen] = useState(true);
   /** Demotions & roster entries disclosure — expanded by default. */
   const [rosterNewsOpen, setRosterNewsOpen] = useState(true);
+  const [panelTab, setPanelTab] = useState<PanelTab>("yours");
+  const [newsKindFilter, setNewsKindFilter] = useState<NewsKindFilter>("all");
 
   const byId = useMemo(
     () => new Map(champions.map((c) => [c.id, c] as const)),
@@ -301,13 +416,24 @@ export default function TransferWindowPanel() {
   }));
   const teamsById = new Map(filterTeams.map((t) => [t.id, t] as const));
 
-  const filteredRosterNews = rosterNews.filter((n) => {
+  const baseFilteredRosterNews = rosterNews.filter((n) => {
     if (!matchesTeamFilters(n.teamId, teamsById, leagueFilter, teamFilter)) {
       return false;
     }
-    if (!splitFilter) return true;
-    return splitFromRosterTimeMark(n.timeMark) === splitFilter;
+    if (splitFilter && splitFromRosterTimeMark(n.timeMark) !== splitFilter) {
+      return false;
+    }
+    return true;
   });
+
+  const filteredRosterNews =
+    newsKindFilter === "all"
+      ? baseFilteredRosterNews
+      : baseFilteredRosterNews.filter(
+          (n) => classifyRosterNews(n) === newsKindFilter,
+        );
+  const rosterNewsGroups = groupRosterNewsByTime(filteredRosterNews);
+  const newsCounts = rosterNewsKindCounts(baseFilteredRosterNews);
 
   const transferMatchesFilter = (tr: PlayerTransfer) => {
     if (teamFilter) {
@@ -331,7 +457,7 @@ export default function TransferWindowPanel() {
   const yr = season.franchise ? ` · Year ${season.franchise.year}` : "";
 
   return (
-    <div className="mb-8 border border-rift-gold/30 bg-rift-gold/[0.03]">
+    <div className="mb-8 border border-rift-gold/30 bg-rift-gold/[0.03] overflow-visible">
       <button
         type="button"
         onClick={() => setPanelOpen((v) => !v)}
@@ -359,10 +485,39 @@ export default function TransferWindowPanel() {
       </button>
 
       {panelOpen && (
-      <>
-      {/* Followed team's pending decisions */}
+      <div className="min-h-0 overflow-visible">
       {atWindow && (
-        <div className="px-3 py-2 border-b border-rift-gold/20 bg-rift-gold/[0.04]">
+        <div className="px-3 pt-2.5 pb-2 border-b border-rift-gold/15 flex flex-wrap items-center gap-2">
+          <SegmentedControl
+            value={panelTab}
+            onChange={setPanelTab}
+            options={[
+              {
+                id: "yours",
+                label: "Your team",
+                hint: "Pending offers, roster shop, FA & academy",
+              },
+              {
+                id: "league",
+                label: "League digest",
+                count:
+                  windows.reduce((n, e) => n + (byEvent[e]?.length ?? 0), 0) +
+                  rosterNews.length,
+                hint: "Completed swaps and roster moves league-wide",
+              },
+            ]}
+          />
+          {panelTab === "yours" && controlled && (
+            <span className="ml-auto text-[8px] uppercase tracking-[0.18em] text-rift-muted/50 truncate max-w-[12rem]">
+              {controlled.name}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Followed team's pending decisions */}
+      {atWindow && panelTab === "yours" && (
+        <div className="px-3 py-2 border-b border-rift-gold/20 bg-rift-gold/[0.04] min-h-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/70">
               Your decisions{phase?.event ? ` — post ${INTERNATIONAL_LABELS[phase.event]}${yr}` : ""}
@@ -379,7 +534,7 @@ export default function TransferWindowPanel() {
             )}
           </div>
           {proposals.length === 0 ? (
-            <div className="text-[10px] italic text-rift-muted mb-2">
+            <div className="text-[10px] italic text-rift-muted mb-2 px-2 py-1.5 border border-dashed border-rift-line/30">
               No moves involving your team this window.
             </div>
           ) : (
@@ -390,36 +545,46 @@ export default function TransferWindowPanel() {
                 return (
                   <div
                     key={`${pr.lane}-${pr.otherTeamId}-${i}`}
-                    className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]"
+                    className="border border-rift-gold/25 bg-rift-bg/30 px-2 py-1.5"
                   >
-                    <LaneIcon lane={pr.lane} size="xs" className="shrink-0" />
-                    <span className="text-rift-mutedbright">
-                      {incoming ? "Sign from" : "Poach by"}{" "}
-                      <span className="text-rift-bluebright">{other?.name ?? "—"}</span>
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <span className="text-[8px] uppercase tracking-[0.2em] text-emerald-400/70">In</span>
-                      <PlayerChip p={pr.theirs} byId={byId} />
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <span className="text-[8px] uppercase tracking-[0.2em] text-rift-redbright/70">Out</span>
-                      <PlayerChip p={pr.mine} byId={byId} />
-                    </span>
-                    <div className="ml-auto flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => resolveSeasonTransfer(i, true)}
-                        className="px-2 py-0.5 border border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright text-[8px] uppercase tracking-[0.2em] hover:bg-rift-gold/20 transition-all"
+                    <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                      <LaneIcon lane={pr.lane} size="sm" className="shrink-0" />
+                      <TransferTeamLogo team={other} size={16} />
+                      <span
+                        className={`px-1.5 py-px border text-[7px] uppercase tracking-[0.14em] ${
+                          incoming
+                            ? "border-emerald-500/40 text-emerald-300/90 bg-emerald-500/10"
+                            : "border-rift-red/35 text-rift-redbright/80 bg-rift-red/[0.06]"
+                        }`}
                       >
-                        Accept
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => resolveSeasonTransfer(i, false)}
-                        className="px-2 py-0.5 border border-rift-line text-rift-mutedbright text-[8px] uppercase tracking-[0.2em] hover:border-rift-red/50 hover:text-rift-redbright transition-all"
-                      >
-                        Decline
-                      </button>
+                        {incoming ? "Incoming offer" : "Poach attempt"}
+                      </span>
+                      <div className="ml-auto flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => resolveSeasonTransfer(i, true)}
+                          className="px-2 py-0.5 border border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright text-[8px] uppercase tracking-[0.2em] hover:bg-rift-gold/20 transition-all"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => resolveSeasonTransfer(i, false)}
+                          className="px-2 py-0.5 border border-rift-line text-rift-mutedbright text-[8px] uppercase tracking-[0.2em] hover:border-rift-red/50 hover:text-rift-redbright transition-all"
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-2">
+                      <div className="flex items-center gap-2 px-1.5 py-1 border border-emerald-500/25 bg-emerald-500/[0.04]">
+                        <span className="text-[7px] uppercase tracking-[0.14em] text-emerald-400/70 shrink-0 w-6">In</span>
+                        <PlayerChip p={pr.theirs} byId={byId} />
+                      </div>
+                      <div className="flex items-center gap-2 px-1.5 py-1 border border-rift-red/25 bg-rift-red/[0.04]">
+                        <span className="text-[7px] uppercase tracking-[0.14em] text-rift-redbright/70 shrink-0 w-6">Out</span>
+                        <PlayerChip p={pr.mine} byId={byId} />
+                      </div>
                     </div>
                   </div>
                 );
@@ -430,6 +595,9 @@ export default function TransferWindowPanel() {
           {/* Shop your roster — pick a slot, see who's tradeable for it */}
           {controlled && (
             <div className="mb-2 border-t border-rift-gold/15 pt-2">
+              <div className="mb-2">
+                <AgencyDemandsPanel />
+              </div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/70">
                   Shop your roster
@@ -468,17 +636,29 @@ export default function TransferWindowPanel() {
                   const demoteBlocked = demoteCap || sameWindowRookie;
                   const confirming = confirmDemoteLane === lane;
                   return (
-                    <div key={lane}>
-                      <div className="flex items-center gap-2 text-[10px]">
+                    <div
+                      key={lane}
+                      className={`border border-rift-line/30 bg-rift-bg/20 ${
+                        vacant ? "border-l-2 border-l-amber-500/50" : movedLanes.has(lane) ? "border-l-2 border-l-emerald-500/45" : "border-l-2 border-l-rift-gold/25"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2 text-[10px] px-2 py-1.5">
                         <LaneIcon lane={lane} size="sm" className="shrink-0" />
                         {vacant ? (
-                          <span className="text-[9px] uppercase tracking-[0.2em] text-amber-300/80">
-                            Vacant — Academy / FA / Rookie or leave for AI
+                          <span className="inline-flex items-center gap-1.5 text-[9px] uppercase tracking-[0.18em] text-amber-300/85">
+                            <span className="px-1 py-px border border-amber-500/40 text-[7px]">Vacant</span>
+                            Academy · FA · Rookie
                           </span>
                         ) : (
                           <>
                             <PlayerChip
-                              p={{ name: p.name, tier: p.tier, grade: null, goodChamps: p.goodChamps }}
+                              p={{
+                                ...(p.id ? { id: p.id } : {}),
+                                name: p.name,
+                                tier: p.tier,
+                                grade: null,
+                                goodChamps: p.goodChamps,
+                              }}
                               byId={byId}
                             />
                             <ChemScore me={p} roster={controlled.players} />
@@ -582,9 +762,9 @@ export default function TransferWindowPanel() {
                         />
                       )}
                       {open && !movedLanes.has(lane) && !vacant && (
-                        <div className="ml-8 mt-1 space-y-1">
+                        <div className="mx-2 mb-1.5 space-y-1 border-t border-rift-line/20 pt-1.5">
                           {willing.length === 0 ? (
-                            <div className="text-[9px] italic text-rift-muted">
+                            <div className="text-[9px] italic text-rift-muted px-1">
                               No team will trade for this slot right now.
                             </div>
                           ) : (
@@ -594,17 +774,9 @@ export default function TransferWindowPanel() {
                               return (
                                 <div
                                   key={c.otherTeamId}
-                                  className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]"
+                                  className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] px-1.5 py-1 border border-rift-line/25 bg-rift-bg/30"
                                 >
-                                  <span className="inline-flex items-center gap-1 text-rift-mutedbright">
-                                    <TeamIcon
-                                      iconKey={other?.iconKey ?? "shield"}
-                                      logoUrl={other?.logoUrl}
-                                      size={12}
-                                      color={other?.color}
-                                    />
-                                    <span className="truncate max-w-[96px]">{other?.name ?? "—"}</span>
-                                  </span>
+                                  <TransferTeamLogo team={other} size={14} />
                                   <PlayerChip p={c.theirs} byId={byId} />
                                   {incoming && (
                                     <ProjectedChemScore
@@ -686,288 +858,206 @@ export default function TransferWindowPanel() {
         </div>
       )}
 
-      {/* League-wide recap, per window */}
-      <div className="px-3 py-2">
-        <div className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/55 mb-1">
-          Around the leagues
+      {/* League digest — transfers + roster timeline */}
+      {(!atWindow || panelTab === "league") && (
+      <div className="px-3 py-2 min-h-0">
+        <div className="-mx-3 px-3 py-2 mb-2 border-b border-rift-line/25 bg-[#010a13]/92 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/60">
+              League digest{yr}
+            </span>
+            {(windows.length > 0 || rosterNews.length > 0) && (
+              <span className="text-[8px] text-rift-muted/45 tabular-nums">
+                {windows.reduce((n, e) => n + (byEvent[e]?.length ?? 0), 0)} swaps ·{" "}
+                {rosterNews.length} roster
+              </span>
+            )}
+          </div>
+          {(windows.length > 0 || rosterNews.length > 0) && (
+            <RegionTeamFilters
+              teams={filterTeams}
+              leagueFilter={leagueFilter}
+              teamFilter={teamFilter}
+              onLeagueFilter={setLeagueFilter}
+              onTeamFilter={setTeamFilter}
+              splitFilter={rosterNews.length > 0 ? splitFilter : null}
+              onSplitFilter={rosterNews.length > 0 ? setSplitFilter : undefined}
+            />
+          )}
+          {rosterNews.length > 0 && (
+            <SegmentedControl
+              value={newsKindFilter}
+              onChange={setNewsKindFilter}
+              options={[
+                { id: "all", label: "All moves", count: baseFilteredRosterNews.length },
+                ...(newsCounts.roster > 0 ? [{ id: "swap" as const, label: "Signings", count: newsCounts.roster }] : []),
+                ...(newsCounts.pending > 0 ? [{ id: "demote-pending" as const, label: "Open slots", count: newsCounts.pending }] : []),
+                ...(newsCounts.freeAgent > 0 ? [{ id: "free-agent" as const, label: "FA", count: newsCounts.freeAgent }] : []),
+                ...(newsCounts.academy > 0 ? [{ id: "academy-sign" as const, label: "Academy", count: newsCounts.academy }] : []),
+                ...(newsCounts.retire > 0 ? [{ id: "retire" as const, label: "Retired", count: newsCounts.retire }] : []),
+              ]}
+            />
+          )}
         </div>
-        {(windows.length > 0 || rosterNews.length > 0) && (
-          <RegionTeamFilters
-            teams={filterTeams}
-            leagueFilter={leagueFilter}
-            teamFilter={teamFilter}
-            onLeagueFilter={setLeagueFilter}
-            onTeamFilter={setTeamFilter}
-            splitFilter={rosterNews.length > 0 ? splitFilter : null}
-            onSplitFilter={rosterNews.length > 0 ? setSplitFilter : undefined}
-          />
-        )}
-        {(atWindow || windows.length > 0) && (
-          <p className="text-[9px] text-rift-muted/60 mb-2 leading-relaxed">
-            Players are valued by skill tier, their grades over the{" "}
-            {WINDOW_SPLIT[(phase?.event as string) ?? windows[0] ?? "first-stand"] ?? "recent split"},
-            and how well their champion pool fits the new patch. The most underrated
-            players move up to the best-finishing teams; weak links drop down. Cross-region.
-          </p>
-        )}
-        {windows.length === 0 ? (
-          // Only an "empty" note when we're actually at a transfer window — when
-          // the panel is up solely for offseason retirements, the block below
-          // speaks for itself.
-          atWindow ? (
-            <div className="text-[10px] italic text-rift-muted">
-              No completed transfers yet.
-            </div>
-          ) : null
-        ) : (
-          windows.map((e) => {
-            const moves = (byEvent[e] ?? []).filter(transferMatchesFilter);
-            const isOpen = openEvent === e || windows.length === 1;
-            return (
-              <div key={e} className="mb-1.5">
-                <button
-                  type="button"
-                  onClick={() => setOpenEvent(isOpen ? "__none__" : (e as string))}
-                  className="w-full flex items-center justify-between px-2 py-1 border border-rift-line/40 bg-rift-bg/30 text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright hover:text-rift-goldbright transition-all"
-                >
-                  <span>
-                    Post {INTERNATIONAL_LABELS[e]}{yr} — {moves.length} move{moves.length === 1 ? "" : "s"}
-                    {(leagueFilter || teamFilter) && (byEvent[e]?.length ?? 0) !== moves.length
-                      ? ` of ${byEvent[e]?.length ?? 0}`
-                      : ""}
-                  </span>
-                  <span>{isOpen ? "▴" : "▾"}</span>
-                </button>
-                {isOpen && (
-                  <div className="px-2 py-1 border border-t-0 border-rift-line/30">
-                    {moves.length === 0 ? (
-                      <div className="text-[10px] italic text-rift-muted py-0.5">
-                        No transfers match these filters.
-                      </div>
-                    ) : (
-                      moves.map((tr, i) => (
-                        <TransferRow key={i} tr={tr} season={season} byId={byId} />
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
 
-        {/* Demotions & roster entries (mid-split + post-Worlds offseason). */}
-        {rosterNews.length > 0 && (
-          <div className="mt-2">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 items-start min-h-0">
+          {/* Completed cross-team swaps */}
+          <section className="min-w-0 border border-rift-line/35 bg-rift-bg/25 overflow-visible">
+            <div className="px-2.5 py-1.5 border-b border-rift-line/30 flex items-center justify-between gap-2">
+              <span className="text-[9px] uppercase tracking-[0.22em] text-rift-gold/65">
+                Transfers
+              </span>
+              {(atWindow || windows.length > 0) && (
+                <span className="text-[7px] uppercase tracking-[0.12em] text-rift-muted/45 truncate">
+                  Valued on{" "}
+                  {(
+                    WINDOW_SPLIT[(phase?.event as string) ?? windows[0] ?? "first-stand"] ??
+                    "recent split"
+                  )
+                    .split("+")
+                    .map((p) => p.trim())
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              )}
+            </div>
+            <div className="p-2 overflow-visible">
+              {windows.length === 0 ? (
+                atWindow ? (
+                  <EmptyDigest
+                    title="No completed swaps yet"
+                    detail="Cross-team trades show up here once clubs finalize moves this window."
+                  />
+                ) : (
+                  <EmptyDigest
+                    title="No transfer history"
+                    detail="Completed swaps from this window will appear in the digest."
+                  />
+                )
+              ) : (
+                windows.map((e) => {
+                  const moves = (byEvent[e] ?? []).filter(transferMatchesFilter);
+                  const isOpen = openEvent === e || windows.length === 1;
+                  return (
+                    <div key={e} className="mb-1.5 last:mb-0">
+                      <button
+                        type="button"
+                        onClick={() => setOpenEvent(isOpen ? "__none__" : (e as string))}
+                        className="w-full flex items-center justify-between px-2 py-1 border border-rift-line/40 bg-rift-bg/30 text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright hover:text-rift-goldbright transition-all"
+                      >
+                        <span>
+                          Post {INTERNATIONAL_LABELS[e]} — {moves.length} move
+                          {moves.length === 1 ? "" : "s"}
+                          {(leagueFilter || teamFilter) &&
+                          (byEvent[e]?.length ?? 0) !== moves.length
+                            ? ` of ${byEvent[e]?.length ?? 0}`
+                            : ""}
+                        </span>
+                        <span>{isOpen ? "▴" : "▾"}</span>
+                      </button>
+                      {isOpen && (
+                        <div className="border border-t-0 border-rift-line/30 overflow-visible">
+                          {moves.length === 0 ? (
+                            <div className="px-2 py-2 text-[10px] italic text-rift-muted/55">
+                              No transfers match these filters.
+                            </div>
+                          ) : (
+                            moves.map((tr, i) => (
+                              <TransferRow key={i} tr={tr} season={season} byId={byId} />
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
+          {/* Demotions, debuts, retirements */}
+          <section className="min-w-0 border border-emerald-500/25 bg-emerald-500/[0.03]">
             <button
               type="button"
               onClick={() => setRosterNewsOpen((v) => !v)}
               aria-expanded={rosterNewsOpen}
-              className="w-full flex items-center justify-between gap-2 mb-1 text-left"
+              className="w-full px-2.5 py-1.5 border-b border-emerald-500/20 flex items-center justify-between gap-2 text-left hover:bg-emerald-500/[0.04] transition-colors"
             >
-              <span className="text-[9px] uppercase tracking-[0.25em] text-emerald-300/70">
-                Demotions &amp; Roster Entries{yr}
-                <span className="ml-1.5 normal-case tracking-normal text-rift-muted/45 tabular-nums">
+              <div className="min-w-0">
+                <span className="text-[9px] uppercase tracking-[0.22em] text-emerald-300/75">
+                  Roster moves
+                </span>
+                <span className="ml-1.5 text-[8px] text-rift-muted/45 tabular-nums">
                   {filteredRosterNews.length}
-                  {(leagueFilter || teamFilter || splitFilter) &&
+                  {(leagueFilter || teamFilter || splitFilter || newsKindFilter !== "all") &&
                   filteredRosterNews.length !== rosterNews.length
-                    ? ` of ${rosterNews.length}`
+                    ? ` / ${rosterNews.length}`
                     : ""}
                 </span>
-              </span>
-              <span className="text-emerald-300/60 text-[10px] leading-none" aria-hidden>
+              </div>
+              <span className="text-emerald-300/60 text-[10px] leading-none shrink-0" aria-hidden>
                 {rosterNewsOpen ? "▴" : "▾"}
               </span>
             </button>
             {rosterNewsOpen && (
-            <div className="border border-emerald-500/25 bg-emerald-500/[0.04] divide-y divide-rift-line/15">
-              {filteredRosterNews.length === 0 ? (
-                <div className="px-2 py-1.5 text-[10px] italic text-rift-muted/55">
-                  No roster news match these filters.
-                </div>
-              ) : (
-              filteredRosterNews.map((n, i) => {
-                const team = seasonTeam(season, n.teamId);
-                const departed = n.departedName;
-                const departedTier = n.departedTier;
-                const departedAge = n.departedAge;
-                const entrant = n.entrantName;
-                const entrantTier = n.entrantTier;
-                const entrantPotential = n.entrantPotential;
-                const source = n.entrantSource;
-                const vacancyDemote =
-                  n.marketNote === "manual-demote" || n.marketNote === "ai-demote";
-                const becameFa =
-                  n.marketNote === "academy-release" ||
-                  n.marketNote === "became-fa" ||
-                  n.marketNote === "academy-bump";
-                const retired = n.marketNote === "retired";
-                const faToAcademy =
-                  n.marketNote === "fa-academy" ||
-                  n.marketNote === "academy-stash" ||
-                  n.marketNote === "academy-rookie";
-                const sourceLabel =
-                  source === "academy" ? "returnee (academy)" : source === "free-agent" ? "returnee (FA)" : "rookie";
-                const bidNote =
-                  n.marketNote === "academy-pass" && n.passedAcademyName
-                    ? ` · passed academy ${n.passedAcademyName}`
-                    : n.beatenNames && n.beatenNames.length > 0
-                      ? ` · over ${n.beatenNames.join(", ")}`
-                      : n.marketNote === "open-fa"
-                        ? " · open FA upgrade"
-                        : n.marketNote === "rookie-gate"
-                          ? " · rookie's door"
-                          : "";
-                if (retired) {
-                  return (
-                    <div
-                      key={`${n.teamId}-${n.lane}-${i}`}
-                      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 text-[10px]"
-                    >
-                      <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
-                        {n.timeMark ?? "—"}
-                      </span>
-                      <TeamIcon
-                        iconKey={team?.iconKey ?? "shield"}
-                        logoUrl={team?.logoUrl}
-                        size={13}
-                        color={team?.color}
-                      />
-                      <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
-                      <span className="text-rift-mutedbright">
-                        <span className="text-rift-redbright/80">{departed ?? entrant}</span>{" "}
-                        <span className="text-rift-muted/60">
-                          ({departedTier ?? entrantTier}) retired
-                          {departedAge != null ? ` · age ${departedAge}` : ""}
-                        </span>
-                      </span>
-                    </div>
-                  );
-                }
-                if (becameFa) {
-                  const label =
-                    n.marketNote === "academy-release"
-                      ? "released to free agency"
-                      : n.marketNote === "academy-bump"
-                        ? "became a free agent (academy full)"
-                        : "became a free agent";
-                  return (
-                    <div
-                      key={`${n.teamId}-${n.lane}-${i}`}
-                      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 text-[10px]"
-                    >
-                      <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
-                        {n.timeMark ?? "—"}
-                      </span>
-                      <TeamIcon
-                        iconKey={team?.iconKey ?? "shield"}
-                        logoUrl={team?.logoUrl}
-                        size={13}
-                        color={team?.color}
-                      />
-                      <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
-                      <span className="text-rift-mutedbright">
-                        <span className="text-amber-300/90">{departed ?? entrant}</span>{" "}
-                        <span className="text-rift-muted/60">
-                          ({departedTier ?? entrantTier}) {label}
-                          {departedAge != null ? ` · age ${departedAge}` : ""}
-                        </span>
-                      </span>
-                    </div>
-                  );
-                }
-                if (faToAcademy) {
-                  const academyLabel =
-                    n.marketNote === "academy-rookie"
-                      ? "academy rookie"
-                      : n.marketNote === "academy-stash"
-                        ? "signed to academy · AI stash"
-                        : "signed to academy";
-                  return (
-                    <div
-                      key={`${n.teamId}-${n.lane}-${i}`}
-                      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 text-[10px]"
-                    >
-                      <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
-                        {n.timeMark ?? "—"}
-                      </span>
-                      <TeamIcon
-                        iconKey={team?.iconKey ?? "shield"}
-                        logoUrl={team?.logoUrl}
-                        size={13}
-                        color={team?.color}
-                      />
-                      <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
-                      <span className="text-rift-mutedbright">
-                        <span className="text-sky-400/90">{entrant}</span>{" "}
-                        <span className="text-rift-muted/60">
-                          ({entrantTier}) {academyLabel}
-                        </span>
-                      </span>
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    key={`${n.teamId}-${n.lane}-${i}`}
-                    className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 text-[10px]"
-                  >
-                    <span className="inline-flex items-center px-1 py-px border border-rift-line/40 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
-                      {n.timeMark ?? "—"}
-                    </span>
-                    <TeamIcon
-                      iconKey={team?.iconKey ?? "shield"}
-                      logoUrl={team?.logoUrl}
-                      size={13}
-                      color={team?.color}
-                    />
-                    <LaneIcon lane={n.lane} size="xs" className="shrink-0" />
-                    {departed ? (
-                      <span className="text-rift-mutedbright">
-                        <span className="text-rift-redbright/80">{departed}</span>{" "}
-                        <span className="text-rift-muted/60">
-                          ({departedTier}) demoted to academy
-                          {departedAge != null ? ` · age ${departedAge}` : ""}
-                        </span>
-                      </span>
-                    ) : (
-                      <span className="text-rift-muted/60">Slot opened</span>
-                    )}
-                    {vacancyDemote ? (
-                      <span className="text-[8px] uppercase tracking-[0.15em] text-amber-300/75">
-                        {n.marketNote === "ai-demote"
-                          ? "→ AI bench · market fill"
-                          : "→ slot open · fill via FA / academy or leave for AI"}
-                      </span>
-                    ) : (
-                      <>
-                        <span className="text-rift-muted/40">→</span>
-                        <span className="text-rift-mutedbright">
-                          {sourceLabel}{" "}
-                          <span className={source === "rookie" ? "text-emerald-400/90" : "text-sky-400/90"}>
-                            {entrant}
-                          </span>
-                        </span>
-                        <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">
-                          {entrantTier}
-                          {entrantPotential !== entrantTier ? ` ↗${entrantPotential}` : ""}
-                          {source === "rookie" ? " debuts" : " returns"}
-                          {bidNote && (
-                            <span className="normal-case tracking-normal text-rift-muted/50">{bidNote}</span>
-                          )}
-                        </span>
-                      </>
-                    )}
+              <div>
+                {rosterNews.length === 0 ? (
+                  <EmptyDigest
+                    title="No roster churn yet"
+                    detail="Demotions, debuts, academy stash, and retirements land here as the window progresses."
+                  />
+                ) : filteredRosterNews.length === 0 ? (
+                  <div className="px-2.5 py-3 text-[10px] italic text-rift-muted/55">
+                    No roster moves match the current filters.
                   </div>
-                );
-              })
-              )}
-            </div>
+                ) : (
+                  rosterNewsGroups.map(([timeMark, items]) => (
+                    <div key={timeMark}>
+                      <div className="px-2.5 py-1 border-b border-rift-line/20 bg-rift-bg/25 flex items-center gap-2">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full bg-emerald-400/70 shrink-0"
+                          aria-hidden
+                        />
+                        <span className="text-[8px] uppercase tracking-[0.2em] text-rift-gold/60 flex-1 truncate">
+                          {timeMark}
+                        </span>
+                        <span className="text-[8px] text-rift-muted/45 tabular-nums shrink-0">
+                          {items.length}
+                        </span>
+                      </div>
+                      <div className="divide-y divide-rift-line/12 max-h-[28rem] overflow-y-auto">
+                        {items.map((n, i) => {
+                          const team = seasonTeam(season, n.teamId);
+                          const highlight = !!controlledId && n.teamId === controlledId;
+                          return (
+                            <RosterNewsRow
+                              key={`${n.teamId}-${n.lane}-${timeMark}-${i}`}
+                              item={n}
+                              team={
+                                team
+                                  ? {
+                                      name: team.name,
+                                      iconKey: team.iconKey,
+                                      logoUrl: resolveTeamLogo(team.name, team.logoUrl),
+                                      color: team.color,
+                                    }
+                                  : undefined
+                              }
+                              highlight={highlight}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             )}
-          </div>
-        )}
+          </section>
+        </div>
       </div>
-      </>
+      )}
+      </div>
       )}
     </div>
   );

@@ -14,8 +14,9 @@ import { currentGame, fearlessLockedSet } from "@/lib/series";
 import { assignLanesToPicks, currentAction } from "@/lib/draftEngine";
 import { getSynergy } from "@/lib/championMeta";
 import { MAIN_POOL, playerForLane, poolBias } from "@/lib/players";
-import type { Champion, Lane, PlayerTier, Roster, Side } from "@/lib/types";
+import type { Champion, Lane, Player, PlayerTier, Roster, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
+import PlayerNameLink from "./player/PlayerNameLink";
 import TeamName from "./TeamName";
 
 // Per-tier styling for the small player-tier badge on a locked pick slot.
@@ -207,6 +208,7 @@ export default function TeamPanel({ champions, side }: Props) {
               role={id != null ? liveRoles[slot] : null}
               playerTier={id != null ? slotPlayer?.tier ?? null : null}
               playerName={id != null ? slotPlayer?.name ?? null : null}
+              player={id != null ? slotPlayer ?? null : null}
               poolSign={id != null && slotPlayer ? poolBias(slotPlayer, id) : 0}
             />
           );
@@ -490,6 +492,7 @@ function PickSlot({
   role,
   playerTier = null,
   playerName = null,
+  player = null,
   poolSign = 0,
 }: {
   champ: Champion | undefined;
@@ -500,6 +503,9 @@ function PickSlot({
   role: Lane | null;
   playerTier?: PlayerTier | null;
   playerName?: string | null;
+  /** Full roster entry behind the handle — feeds the hover card in quick
+   *  drafts, where there is no season state to resolve the player from. */
+  player?: Player | null;
   poolSign?: number;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -587,9 +593,12 @@ function PickSlot({
               </div>
               <div className="text-[9px] uppercase tracking-[0.25em] text-rift-muted truncate">
                 {playerName ? (
-                  <span className="text-rift-mutedbright normal-case tracking-normal font-medium">
-                    {playerName}
-                  </span>
+                  <PlayerNameLink
+                    playerId={player?.id}
+                    name={playerName}
+                    hint={player ? { player } : undefined}
+                    className="text-rift-mutedbright normal-case tracking-normal font-medium"
+                  />
                 ) : (
                   champ.roles.slice(0, 2).join(" · ")
                 )}

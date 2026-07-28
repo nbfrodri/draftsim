@@ -4,6 +4,7 @@ import type { LaneKDA } from "@/lib/matchSimulator";
 import type { Archetype, CC, ChampionMeta, Phase } from "@/lib/championMeta";
 import type { Champion, Lane, Side } from "@/lib/types";
 import LaneIcon from "@/components/LaneIcon";
+import PlayerNameLink from "@/components/player/PlayerNameLink";
 
 // ─── Pill components ──────────────────────────────────────────────────────────
 
@@ -110,6 +111,7 @@ export function ContributionRow({
   rating,
   form,
   playerName,
+  playerId,
 }: {
   champ: Champion;
   meta: ChampionMeta | null;
@@ -124,6 +126,8 @@ export function ContributionRow({
   form?: number;
   // Optional player handle (e.g. "Faker"). Renders near champion name.
   playerName?: string | null;
+  // Stable id behind the handle, so the name opens a player card.
+  playerId?: string | null;
 }) {
   const accent = side === "blue" ? "text-rift-bluebright" : "text-rift-redbright";
   const barCls = side === "blue" ? "bg-rift-blue" : "bg-rift-red";
@@ -149,9 +153,11 @@ export function ContributionRow({
               {champ.name}
             </span>
             {playerName && (
-              <span className="text-[10px] font-medium text-rift-mutedbright truncate">
-                {playerName}
-              </span>
+              <PlayerNameLink
+                playerId={playerId ?? undefined}
+                name={playerName}
+                className="text-[10px] font-medium text-rift-mutedbright truncate"
+              />
             )}
             {form != null && <FormIndicator form={form} />}
           </div>

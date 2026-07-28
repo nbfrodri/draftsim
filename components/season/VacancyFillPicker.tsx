@@ -10,7 +10,7 @@ import {
 } from "@/lib/season/faMarket";
 import type { Lane, PlayerTier } from "@/lib/types";
 import LaneIcon from "@/components/LaneIcon";
-import InactiveBoardTip from "./InactiveBoardTip";
+import PlayerHoverCard from "@/components/player/PlayerHoverCard";
 
 const TIER_CLS: Record<PlayerTier, string> = {
   "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
@@ -79,7 +79,11 @@ export default function VacancyFillPicker({
               key={`${kind}-vac-${p.id}`}
               className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1.5 py-0.5 text-[10px]"
             >
-              <InactiveBoardTip row={row}>
+              <PlayerHoverCard
+                playerId={p.id}
+                hint={{ faRow: row }}
+                className="flex-wrap gap-x-2 gap-y-0.5"
+              >
                 <LaneIcon lane={p.lane} size="xs" className="shrink-0" />
                 <span className={`w-5 text-center border font-display ${TIER_CLS[p.tier]}`}>
                   {p.tier}
@@ -88,7 +92,7 @@ export default function VacancyFillPicker({
                 <span className="text-[8px] text-rift-muted/55 tabular-nums">
                   {row.value.toFixed(1)}
                 </span>
-              </InactiveBoardTip>
+              </PlayerHoverCard>
               <button
                 type="button"
                 disabled={!ok || !p.id}

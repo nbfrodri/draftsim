@@ -26,6 +26,7 @@ import type { PlayerChampStat } from "./stats";
 import {
   ACADEMY_YEARS,
   TOTAL_INACTIVE_BEFORE_RETIRE,
+  academyTenureYears,
   yearsAsFreeAgent,
   yearsInAcademy,
   type InactivePlayerSnapshot,
@@ -105,7 +106,7 @@ export interface PlayerHit {
   careerStatus: "active" | "academy" | "free-agent" | "retired";
   /** Total years since demotion when academy / FA / retired; unset when active. */
   inactiveYears?: number;
-  /** Years spent in academy (0…ACADEMY_YEARS); set when academy / FA / retired. */
+  /** Academy badge years (1…ACADEMY_YEARS_MAX); only set while in academy. */
   academyYears?: number;
   /** Years spent as free agent after academy; set when FA / retired. */
   freeAgentYears?: number;
@@ -179,17 +180,22 @@ function rosterPlayerIds(entry: SeasonHistoryEntry): Set<string> {
   return active;
 }
 
+/**
+ * Badge years for an inactive row. `academyYears` is the *live* academy badge,
+ * so it is only set while the player is actually in an academy — an FA or
+ * retired row would otherwise report a synthetic academy stay (opening FA
+ * seeds never spent a day in one). FA/retired rows carry `freeAgentYears`.
+ */
 function inactiveStatusInfo(
   status: "academy" | "free-agent" | "retired",
   inactiveYears: number,
 ): CareerStatusInfo {
-  const academyYears = yearsInAcademy(status, inactiveYears);
-  const freeAgentYears = yearsAsFreeAgent(status, inactiveYears);
   return {
     status,
     inactiveYears,
-    academyYears,
-    ...(status === "free-agent" || status === "retired" ? { freeAgentYears } : {}),
+    ...(status === "academy"
+      ? { academyYears: yearsInAcademy(status, inactiveYears) }
+      : { freeAgentYears: yearsAsFreeAgent(status, inactiveYears) }),
   };
 }
 
@@ -700,6 +706,42 @@ export interface TitleTally {
 }
 const emptyTally = (): TitleTally => ({ splits: [], intl: [] });
 
+/**
+ * A player's trophies grouped by the REGION they were won in. Careers cross
+ * leagues — an LCK champion who moves to the LEC keeps his LCK titles under
+ * the LCK, so a flat career total (which silently reads as "his newest
+ * league") is the wrong shape for the profile.
+ */
+export interface PlayerRegionTitles {
+  leagueId: LeagueId;
+  /** Split titles in this region, per split, plus their total. */
+  splits: Partial<Record<SplitId, number>>;
+  splitTotal: number;
+  /** Internationals won while representing this region, per event. */
+  intl: Partial<Record<InternationalId, number>>;
+  intlTotal: number;
+  /** Clubs the trophies were lifted with, newest first. */
+  teams: SeasonHistoryTeamRef[];
+  /** Seasons any of them were won in, newest first. */
+  seasons: string[];
+}
+
+const SPLIT_WINDOW_LABELS: Record<SplitId, string> = {
+  winter: "Winter",
+  spring: "Spring",
+  summer: "Summer",
+};
+
+/** Short chip label for a career window ("Winter", "MSI", "Offseason"). */
+export function careerWindowLabel(key: CareerWindowKey): string {
+  if (key === "offseason") return "Offseason";
+  return (
+    SPLIT_WINDOW_LABELS[key as SplitId] ??
+    INTERNATIONAL_LABELS[key as InternationalId] ??
+    key
+  );
+}
+
 // All titles a given team won in one season, structured.
 function teamSeasonTitles(entry: SeasonHistoryEntry, team: { name: string; leagueId: LeagueId }): TitleTally {
   const out = emptyTally();
@@ -724,6 +766,32 @@ export interface PlayerStint {
   stages: string[]; // stage labels in play order
 }
 
+/** Calendar slot a career window covers — a split, an international, or the
+ *  year-end offseason that closes the year. */
+export type CareerWindowKey = SplitId | InternationalId | "offseason";
+
+/**
+ * Where a player stood in ONE window of a season: on a main roster (with the
+ * club), in an academy, on the FA board, or retired. Built from the phase
+ * roster + {@link PhaseInactiveSnapshot} stamps taken as each split /
+ * international completed, so the timeline reads split-by-split instead of
+ * collapsing the whole year into its final status.
+ */
+export interface PlayerCareerWindow {
+  key: CareerWindowKey;
+  /** Short chip label — "Winter", "MSI", "Offseason". */
+  label: string;
+  kind: "split" | "international" | "offseason";
+  status: PlayerHit["careerStatus"];
+  /** Main-roster club while active; affiliate org / last club while inactive. */
+  team?: SeasonHistoryTeamRef | null;
+  lane?: Lane;
+  tier?: PlayerTier;
+  /** Trophy lifted in THIS window. Main roster only — academy and FA never
+   *  inherit their org's title. */
+  title?: SplitId | InternationalId;
+}
+
 export interface PlayerTenure {
   season: string;
   /** Archived season entry id — for point-in-time status lookups. */
@@ -731,6 +799,12 @@ export interface PlayerTenure {
   archivedAt: number;
   stints: PlayerStint[]; // 0 when inactive-only that year; >1 = transferred mid-year
   titles: TitleTally; // titles won while rostered for that stage
+  /**
+   * Status per split / international / offseason, in play order. Omitted for
+   * legacy archives with nothing to say about the windows the player did not
+   * play — those rows stay year-only.
+   */
+  windows?: PlayerCareerWindow[];
   /**
    * End-of-season career status for this year (from `inactivePlayers` when
    * present). Career History rows cover active / academy / FA / retired.
@@ -794,10 +868,47 @@ export interface PlayerProfile {
   yearsLeftToRetire?: number;
   splitTitles: number;
   intlTitles: Partial<Record<InternationalId, number>>; // by event
+  /** Same trophies, grouped by the region they were won in — most decorated
+   *  region first. Empty when the player has never won anything. */
+  titlesByRegion: PlayerRegionTitles[];
   career: PlayerCareerLine | null;
   /** Per completed season, newest first — Career History timeline (roster + academy/FA). */
   tenures: PlayerTenure[];
   seasons: PlayerSeasonStat[]; // newest first, only seasons with recorded stats
+}
+
+/**
+ * Personal academy stay for an archived / live snapshot. Snapshots carry the
+ * same signals {@link academyTenureYears} scores on (tier, potential, shadow
+ * form, `academyTenureShift`), so the Hall can show the player's own "y to FA"
+ * instead of the league-wide soft default. Falls back to the soft default when
+ * no snapshot is available.
+ */
+function academyTenureFromSnapshot(
+  snap: InactivePlayerSnapshot | undefined,
+  inactiveYears: number,
+): number {
+  if (!snap) return ACADEMY_YEARS;
+  return academyTenureYears({
+    player: {
+      lane: snap.lane,
+      tier: snap.tier,
+      goodChamps: snap.goodChamps ?? [],
+      badChamps: snap.badChamps ?? [],
+      ...(snap.playerId ? { id: snap.playerId } : {}),
+      ...(snap.age != null ? { age: snap.age } : {}),
+      ...(snap.potential ? { potential: snap.potential } : {}),
+    },
+    status: snap.status,
+    inactiveYears,
+    demotedYear: snap.demotedYear,
+    lastTeamId: snap.lastTeamId,
+    ...(snap.lastActiveGrade != null ? { lastActiveGrade: snap.lastActiveGrade } : {}),
+    ...(snap.shadowGrade != null ? { shadowGrade: snap.shadowGrade } : {}),
+    ...(snap.academyTenureShift != null
+      ? { academyTenureShift: snap.academyTenureShift }
+      : {}),
+  });
 }
 
 function teamRefFromInactive(
@@ -833,6 +944,36 @@ export function playerProfile(
   const ordered = [...completedEntries(entries)].sort((a, b) => b.archivedAt - a.archivedAt);
   const tenures: PlayerTenure[] = [];
   const intlTitles: Partial<Record<InternationalId, number>> = {};
+  const byRegion = new Map<LeagueId, PlayerRegionTitles>();
+  const creditRegion = (
+    team: SeasonHistoryTeamRef,
+    season: string,
+    won: { split?: SplitId; event?: InternationalId },
+  ) => {
+    let row = byRegion.get(team.leagueId);
+    if (!row) {
+      row = {
+        leagueId: team.leagueId,
+        splits: {},
+        splitTotal: 0,
+        intl: {},
+        intlTotal: 0,
+        teams: [],
+        seasons: [],
+      };
+      byRegion.set(team.leagueId, row);
+    }
+    if (won.split) {
+      row.splits[won.split] = (row.splits[won.split] ?? 0) + 1;
+      row.splitTotal += 1;
+    }
+    if (won.event) {
+      row.intl[won.event] = (row.intl[won.event] ?? 0) + 1;
+      row.intlTotal += 1;
+    }
+    if (!row.teams.some((t) => teamKey(t) === teamKey(team))) row.teams.push(team);
+    if (!row.seasons.includes(season)) row.seasons.push(season);
+  };
   let splitTitles = 0;
   let name = career?.playerName ?? "";
   let debutYear: number | undefined; // set from any snapshot carrying it (invariant)
@@ -843,7 +984,10 @@ export function playerProfile(
     const phases = [...(e.phaseRosters ?? [])].sort((a, b) => a.phaseIndex - b.phaseIndex);
     const stints: PlayerStint[] = [];
     const titles = emptyTally();
+    const windows: PlayerCareerWindow[] = [];
     for (const phase of phases) {
+      const windowKey: CareerWindowKey | null =
+        phase.kind === "split" ? (phase.split ?? null) : (phase.event ?? null);
       let me: { t: (typeof phase.teams)[number]; lane: Lane; tier: PlayerTier } | null = null;
       for (const t of phase.teams) {
         const found = t.players.find((p) => p.id === playerId);
@@ -854,19 +998,57 @@ export function playerProfile(
           break;
         }
       }
-      if (!me) continue;
+      if (!me) {
+        // Off every main roster this window — the phase stamp says whether he
+        // was in an academy or on the FA board. Nothing stamped (legacy
+        // archive) means we genuinely don't know, so emit no row.
+        const stamp = phase.inactive?.find((p) => p.playerId === playerId);
+        if (stamp && windowKey) {
+          windows.push({
+            key: windowKey,
+            label: careerWindowLabel(windowKey),
+            kind: phase.kind,
+            status: stamp.status,
+            team: stamp.teamId
+              ? teamRefFromInactive(identity, entries, {
+                  lastTeamId: stamp.teamId,
+                  ...(stamp.teamName ? { lastTeamName: stamp.teamName } : {}),
+                })
+              : null,
+          });
+        }
+        continue;
+      }
+      const ref = refFor(identity, me.t.teamName, me.t.leagueId, me.t.logoUrl);
       const k = teamKey({ name: me.t.teamName, leagueId: me.t.leagueId });
       const last = stints[stints.length - 1];
       if (last && teamKey(last.team) === k) last.stages.push(phase.label);
-      else stints.push({ team: refFor(identity, me.t.teamName, me.t.leagueId, me.t.logoUrl), lane: me.lane, tier: me.tier, stages: [phase.label] });
+      else stints.push({ team: ref, lane: me.lane, tier: me.tier, stages: [phase.label] });
       // Titles the player was actually rostered for at this stage.
+      let wonHere: SplitId | InternationalId | undefined;
       if (phase.kind === "split" && phase.split && teamWonSplit(e, phase.split, { name: me.t.teamName, leagueId: me.t.leagueId }) && !titles.splits.includes(phase.split)) {
         titles.splits.push(phase.split);
         splitTitles++;
+        wonHere = phase.split;
+        creditRegion(ref, yearOf(e), { split: phase.split });
       }
       if (phase.kind === "international" && phase.event && teamWonIntl(e, phase.event, me.t.teamName) && !titles.intl.includes(phase.event)) {
         titles.intl.push(phase.event);
         intlTitles[phase.event] = (intlTitles[phase.event] ?? 0) + 1;
+        wonHere = phase.event;
+        creditRegion(ref, yearOf(e), { event: phase.event });
+      }
+      if (windowKey) {
+        windows.push({
+          key: windowKey,
+          label: careerWindowLabel(windowKey),
+          kind: phase.kind,
+          status: "active",
+          team: ref,
+          lane: me.lane,
+          tier: me.tier,
+          ...(wonHere ? { title: wonHere } : {}),
+        });
       }
     }
 
@@ -887,12 +1069,27 @@ export function playerProfile(
     // Emit a year row when they played OR spent the year in the inactive pool.
     if (stints.length > 0 || snap != null) {
       const status = asOf ?? { status: "active" as const };
+      // The year closes on the offseason: how they END the year is exactly the
+      // status the annual badge already reports, so reuse it as the last chip.
+      if (windows.length > 0) {
+        windows.push({
+          key: "offseason",
+          label: careerWindowLabel("offseason"),
+          kind: "offseason",
+          status: status.status,
+          team:
+            status.status === "active"
+              ? (stints[stints.length - 1]?.team ?? null)
+              : (affiliate ?? stints[stints.length - 1]?.team ?? null),
+        });
+      }
       tenures.push({
         season: yearOf(e),
         seasonId: e.id,
         archivedAt: e.archivedAt,
         stints,
         titles,
+        ...(windows.length > 0 ? { windows } : {}),
         careerStatus: status.status,
         ...(status.inactiveYears != null ? { inactiveYears: status.inactiveYears } : {}),
         ...(status.academyYears != null ? { academyYears: status.academyYears } : {}),
@@ -932,9 +1129,11 @@ export function playerProfile(
   // Newest inactive snapshot for form / years-left storytelling (Hall, then live).
   let lastActiveGrade: number | null | undefined;
   let shadowGrade: number | null | undefined;
+  let hallSnapshot: InactivePlayerSnapshot | undefined;
   for (const e of ordered) {
     const snap = e.inactivePlayers?.find((p) => p.playerId === playerId);
     if (snap) {
+      hallSnapshot = snap;
       lastActiveGrade = snap.lastActiveGrade;
       shadowGrade = snap.shadowGrade;
       break;
@@ -953,9 +1152,12 @@ export function playerProfile(
   if (!career && trimmedTenures.length === 0 && !liveInactive) return null;
   if (!name) name = liveInactive?.playerName || playerId;
   const iy = st.inactiveYears ?? 0;
+  // Personal tenure (value + academyTenureShift), not the soft league default:
+  // a cold C leaves after 2, an A+ can stay 4.
+  const newestSnapshot = liveInactive ?? hallSnapshot;
   const yearsLeftToFa =
     st.status === "academy"
-      ? Math.max(0, ACADEMY_YEARS - Math.max(1, iy))
+      ? Math.max(0, academyTenureFromSnapshot(newestSnapshot, iy) - Math.max(1, iy))
       : undefined;
   const yearsLeftToRetire =
     st.status === "academy" || st.status === "free-agent"
@@ -979,6 +1181,12 @@ export function playerProfile(
     ...(yearsLeftToRetire != null ? { yearsLeftToRetire } : {}),
     splitTitles,
     intlTitles,
+    titlesByRegion: [...byRegion.values()].sort(
+      (a, b) =>
+        b.intlTotal + b.splitTotal - (a.intlTotal + a.splitTotal) ||
+        b.intlTotal - a.intlTotal ||
+        a.leagueId.localeCompare(b.leagueId),
+    ),
     career,
     tenures: trimmedTenures,
     seasons,

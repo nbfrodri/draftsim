@@ -7,6 +7,7 @@ import type { TournamentAwards, PlayerAward, SpecialAward } from "@/lib/awards";
 import type { TournamentState } from "@/lib/tournament";
 import type { Lane } from "@/lib/types";
 import LaneIcon from "../../LaneIcon";
+import PlayerNameLink from "../../player/PlayerNameLink";
 
 // ─── Rating badge (mirrors ContributionRow.tsx color logic exactly) ───────────
 
@@ -39,9 +40,11 @@ function MVPCard({ mvp }: { mvp: PlayerAward }) {
         Tournament MVP
       </div>
       <div className="flex items-baseline gap-3 flex-wrap">
-        <span className="font-display text-xl tracking-wider text-rift-goldbright">
-          {mvp.playerName ?? mvp.displayName}
-        </span>
+        <PlayerNameLink
+          playerId={mvp.playerId}
+          name={mvp.playerName ?? mvp.displayName}
+          className="font-display text-xl tracking-wider text-rift-goldbright"
+        />
         <RatingBadge rating={mvp.avgRating} />
         <span className="text-[9px] uppercase tracking-[0.25em] text-rift-mutedbright/60">
           {mvp.gamesPlayed} games
@@ -79,9 +82,11 @@ function AllProStrip({ allPro }: { allPro: TournamentAwards["allPro"] }) {
             >
               <div className="flex items-center gap-2">
                 <LaneIcon lane={lane} size="sm" className="shrink-0" />
-                <span className="font-display tracking-wider text-sm text-rift-mutedbright">
-                  {player.playerName ?? player.displayName}
-                </span>
+                <PlayerNameLink
+                  playerId={player.playerId}
+                  name={player.playerName ?? player.displayName}
+                  className="font-display tracking-wider text-sm text-rift-mutedbright"
+                />
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright/50">
@@ -129,9 +134,11 @@ function AwardsList({ awards }: { awards: SpecialAward[] }) {
               </span>
             </div>
             <div className="flex items-baseline gap-2 flex-wrap pl-4">
-              <span className="font-display tracking-wider text-sm text-rift-mutedbright">
-                {award.player.playerName ?? award.player.displayName}
-              </span>
+              <PlayerNameLink
+                playerId={award.player.playerId}
+                name={award.player.playerName ?? award.player.displayName}
+                className="font-display tracking-wider text-sm text-rift-mutedbright"
+              />
               <RatingBadge rating={award.player.avgRating} />
               <span className="text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright/50">
                 {award.context}

@@ -50,6 +50,39 @@ describe("computePlayerTitleCounts — title attribution", () => {
     expect(computePlayerTitleCounts(season).get("P1")?.split).toBe(1);
   });
 
+  it("never credits an academy or free-agent player with their org's title", () => {
+    // ACY sat in A's academy all Winter; FA was unsigned. Both are back on A's
+    // main roster by the time the season is read.
+    const season = fabricate({
+      teams: [
+        { id: "A", players: [{ id: "P1" }, { id: "ACY" }, { id: "FA" }] },
+      ] as unknown as SeasonState["teams"],
+      splitResults: { winter: { LCK: ["A"] } },
+      phaseRosters: [
+        { phaseIndex: 0, kind: "split", split: "winter", teams: [roster("A", "P1")] },
+      ] as unknown as SeasonState["phaseRosters"],
+    });
+    const counts = computePlayerTitleCounts(season);
+    expect(counts.get("P1")?.split).toBe(1);
+    expect(counts.get("ACY")?.split ?? 0).toBe(0);
+    expect(counts.get("FA")?.split ?? 0).toBe(0);
+  });
+
+  it("does not fall back to the live roster for a stage the season never snapshotted", () => {
+    // Winter was recorded; Summer's champion has no stage roster, so nobody
+    // can be credited for it — least of all whoever happens to be here now.
+    const season = fabricate({
+      teams: [{ id: "A", players: [{ id: "LATE" }] }] as unknown as SeasonState["teams"],
+      splitResults: { winter: { LCK: ["A"] }, summer: { LCK: ["A"] } },
+      phaseRosters: [
+        { phaseIndex: 0, kind: "split", split: "winter", teams: [roster("A", "P1")] },
+      ] as unknown as SeasonState["phaseRosters"],
+    });
+    const counts = computePlayerTitleCounts(season);
+    expect(counts.get("P1")?.split).toBe(1);
+    expect(counts.get("LATE")?.split ?? 0).toBe(0);
+  });
+
   it("counts international titles and appearances by stage roster", () => {
     const season = fabricate({
       teams: [

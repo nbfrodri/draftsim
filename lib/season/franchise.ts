@@ -39,6 +39,7 @@ import {
   type MarketNote,
   type MarketInactive,
 } from "./faMarket";
+import { agencyFaBidBoost, expirePendingDemands } from "./playerAgency";
 import {
   runOffseasonLifecycle,
   runDemotionPass,
@@ -163,11 +164,19 @@ function buildSplitCheckpointOutcomes(
   const tidSet = phase?.tournamentIds ?? [];
   const intlCredit: "first-stand" | "msi" | null =
     split === "spring" ? "first-stand" : split === "summer" ? "msi" : null;
+  // The roster that actually played the split — a player called up from
+  // academy after it finished must not inherit the trophy (or the streak
+  // reset that comes with it).
+  const splitSnap = season.phaseRosters?.find((s) => s.split === split);
 
   const outcomes = new Map<string, SeasonPlayerOutcome>();
   for (const t of season.teams) {
     const grades = teamSeasonGrades(season, t.id, tidSet).avg;
-    const wonSplit = season.splitResults[split]?.[t.leagueId]?.[0] === t.id;
+    const champId = season.splitResults[split]?.[t.leagueId]?.[0];
+    const wonSplit = champId === t.id;
+    const splitWinnerIds = wonSplit
+      ? splitSnap?.teams.find((x) => x.teamId === t.id)?.players
+      : undefined;
     t.players.forEach((p, i) => {
       if (!p.id) return;
       let intlTitles = 0;
@@ -186,12 +195,17 @@ function buildSplitCheckpointOutcomes(
           if (onChamp || fallback) intlTitles = 1;
         }
       }
+      const wonIt =
+        wonSplit &&
+        (splitWinnerIds
+          ? splitWinnerIds.some((rp) => rp.id === p.id)
+          : !splitSnap);
       outcomes.set(p.id, {
         playerId: p.id,
         grade: grades[i] ?? null,
         tier: p.tier,
         lane: p.lane,
-        splitTitles: wonSplit ? 1 : 0,
+        splitTitles: wonIt ? 1 : 0,
         intlTitles,
       });
     });
@@ -338,7 +352,7 @@ export function seedOpeningAcademies(
  * Seed an opening unsigned FA board up to {@link INITIAL_OPENING_FA_POOL}
  * (idempotent: only fills the shortfall). Org-less (`lastTeamId` empty).
  * Uses the same FA · 1y snap as academy→FA (`inactiveYears =
- * ACADEMY_YEARS + 1`) plus `demotedYear === year` so year-end
+ * ACADEMY_YEARS + 1`) plus `clockYear === year` so year-end
  * {@link advanceInactivePool} skips the badge tick on the mint season —
  * archives show FA · 1y, not 2y.
  */
@@ -369,6 +383,7 @@ export function seedOpeningFreeAgents(
       // FA · 1y snap — same as toFreeAgentFromAcademy / academy graduate.
       inactiveYears: ACADEMY_YEARS + 1,
       demotedYear: year,
+      clockYear: year,
       lastTeamId: "",
     });
     if (rook.name) taken.add(rook.name);
@@ -453,7 +468,17 @@ export function startNextSeason(
 
   if (aging) {
     // Resolve any leftover manual-demote vacancies before year-end lifecycle
-    // so stubs never enter demotion / open-FA evaluation.
+    // so stubs never enter demotion / open-FA evaluation. Expire pending
+    // agency demands from the offseason shop (window is closing).
+    if (working.franchise?.agencyDemands?.length) {
+      working = {
+        ...working,
+        franchise: {
+          ...working.franchise,
+          agencyDemands: expirePendingDemands(working.franchise.agencyDemands),
+        },
+      };
+    }
     const priorNewsLen = working.rosterNews?.length ?? 0;
     working = fillFollowedRosterVacancies(working, champions, rng);
     rosterNews.push(...(working.rosterNews ?? []).slice(priorNewsLen));
@@ -464,6 +489,7 @@ export function startNextSeason(
       if (t.coach?.name) taken.add(t.coach.name);
     }
     const { outcomes, roleMeans } = buildSeasonOutcomes(working);
+    const champById = new Map(champions.map((c) => [c.id, c]));
     const result = runOffseasonLifecycle(
       working.teams.map((t) => ({
         id: t.id,
@@ -485,6 +511,22 @@ export function startNextSeason(
         ...(working.config.controlledTeamId
           ? { skipOpenFaTeamIds: new Set([working.config.controlledTeamId]) }
           : {}),
+        faBidBoost: (fa, vacancy) => {
+          const team = working.teams.find((t) => t.id === vacancy.teamId);
+          if (!team) return 0;
+          const value = inactiveTransferValue(fa, champById, working.currentMeta);
+          return agencyFaBidBoost(
+            fa.player,
+            value,
+            {
+              id: team.id,
+              name: team.name,
+              players: team.players,
+              leagueId: team.leagueId,
+            },
+            working.config.controlledTeamId,
+          );
+        },
       },
     );
     const byId = new Map(result.teams.map((t) => [t.id, t.players]));
@@ -699,6 +741,7 @@ export function applyUserAcademyRelease(
     season.franchise.inactivePool ?? [],
     me,
     academyPlayerId,
+    season.franchise.year,
   );
   if (!result.ok) return null;
 
@@ -912,6 +955,7 @@ export function applyUserManualDemote(
     status: "academy" as const,
     inactiveYears: 1,
     demotedYear: season.franchise.year,
+    clockYear: season.franchise.year,
     lastTeamId: team.id,
     lastTeamName: team.name,
     ...(grade != null ? { lastActiveGrade: grade, shadowGrade: grade } : {}),

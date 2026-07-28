@@ -47,6 +47,7 @@ import {
   SPLIT_LABELS,
   type InternationalId,
   type LeagueId,
+  type PhaseInactiveSnapshot,
   type SeasonConfig,
   type SeasonIntlConfig,
   type SeasonMetaSnapshot,
@@ -72,6 +73,7 @@ import {
   assignSynergies,
 } from "../chemistry";
 import { applyMidSplitDemotions, fillFollowedRosterVacancies } from "./franchise";
+import { seedAgencyWindow, clearAgencyWindow } from "./franchiseAgency";
 
 export function makeSeasonId(): string {
   return `season-${Date.now().toString(36)}-${Math.random()
@@ -1789,7 +1791,11 @@ export function createSeason(opts: {
 // Build the tournaments for a phase and mark it in-progress. Worlds
 // starts with the play-in only; the main event is created when the
 // play-in completes (applyTournamentUpdate handles that).
-function startPhase(season: SeasonState, index: number): SeasonState {
+function startPhase(
+  season: SeasonState,
+  index: number,
+  champions: readonly Champion[] = [],
+): SeasonState {
   const phase = season.phases[index];
   if (!phase) return season;
   // Transfer windows hold no tournaments. The window's moves were computed as
@@ -1817,12 +1823,17 @@ function startPhase(season: SeasonState, index: number): SeasonState {
           sameWindowRookieIds: [],
         },
       };
+      // Player agency demands for this transfer window (AI auto-honors;
+      // followed-team demands stay pending for Override / Honor UI).
+      if (champions.length > 0) {
+        s = seedAgencyWindow(s, champions, Math.random, "transfer");
+      }
     }
     // No followed team → the window closes immediately, so award the
     // roster-stability bonus now. With a followed team it's deferred to
     // advanceTransferWindow (after they accept/decline their proposals).
     if (!pending && phase.event) s = awardStabilityBonus(s, phase.event);
-    return pending ? s : startPhase(s, index + 1);
+    return pending ? s : startPhase(s, index + 1, champions);
   }
   const created: TournamentState[] = [];
   if (phase.kind === "split" && phase.split) {
@@ -2050,11 +2061,24 @@ export function applyTournamentUpdate(
   // between-phase transfer windows reshuffle them — so the Hall can show who
   // was on each team at each stage of the year.
   if (phase.kind === "split" || phase.kind === "international") {
+    // Same instant, the other side of the league: who sat in an academy or on
+    // the FA board while this was played. Career timelines read both halves.
+    const inactive: PhaseInactiveSnapshot[] = [];
+    for (const entry of next.franchise?.inactivePool ?? []) {
+      if (entry.status === "retired" || !entry.player.id) continue;
+      inactive.push({
+        playerId: entry.player.id,
+        status: entry.status,
+        ...(entry.lastTeamId ? { teamId: entry.lastTeamId } : {}),
+        ...(entry.lastTeamName ? { teamName: entry.lastTeamName } : {}),
+      });
+    }
     next = {
       ...next,
       phaseRosters: [
         ...(next.phaseRosters ?? []),
         {
+          ...(inactive.length > 0 ? { inactive } : {}),
           phaseIndex: next.phaseIndex,
           label: phase.label,
           kind: phase.kind,
@@ -2099,7 +2123,7 @@ export function applyTournamentUpdate(
     // (otherwise it accumulates across years and stays perma-capped).
     const events = { ...(next.transfersByEvent ?? {}) };
     delete events.worlds;
-    return {
+    let completed: SeasonState = {
       ...next,
       status: "complete",
       champion: next.intlResults.worlds?.[0] ?? null,
@@ -2119,6 +2143,10 @@ export function applyTournamentUpdate(
         : {}),
       updatedAt: Date.now(),
     };
+    if (completed.franchise?.aging && champions.length > 0) {
+      completed = seedAgencyWindow(completed, champions, Math.random, "offseason");
+    }
+    return completed;
   }
 
   // Between-phase transitions, then build the next phase.
@@ -2176,7 +2204,7 @@ export function applyTournamentUpdate(
   if (phase.kind === "international" && (phase.event === "first-stand" || phase.event === "msi")) {
     next = applyTransfers(next, champions, phase);
   }
-  return startPhase(next, next.phaseIndex + 1);
+  return startPhase(next, next.phaseIndex + 1, champions);
 }
 
 // ─── UI helpers ────────────────────────────────────────────────────────────
@@ -2234,5 +2262,6 @@ export function advanceTransferWindow(
     }
   }
 
-  return startPhase(s, season.phaseIndex + 1);
+  s = clearAgencyWindow(s);
+  return startPhase(s, season.phaseIndex + 1, champions);
 }

@@ -3,13 +3,15 @@
 import type { ReactNode } from "react";
 
 import {
+  faBadgeYears,
   yearsLeftToFa,
   yearsLeftToRetire,
   type MarketInactive,
 } from "@/lib/season/faMarket";
-import { ACADEMY_YEARS, ACADEMY_YEARS_MAX } from "@/lib/season/playerLifecycle";
+import { ACADEMY_YEARS_MAX } from "@/lib/season/playerLifecycle";
 import type { PlayerTier } from "@/lib/types";
 import LaneIcon from "@/components/LaneIcon";
+import PlayerNameLink from "@/components/player/PlayerNameLink";
 
 const TIER_CLS: Record<PlayerTier, string> = {
   "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
@@ -19,11 +21,6 @@ const TIER_CLS: Record<PlayerTier, string> = {
   C: "border-amber-600/50 text-amber-300/80",
   D: "border-rift-red/50 text-rift-redbright bg-rift-red/5",
 };
-
-/** FA year badge: inactiveYears is 1-based from demotion; academy = soft ACADEMY_YEARS offset. */
-function faYears(entry: MarketInactive): number {
-  return Math.max(1, entry.inactiveYears - ACADEMY_YEARS);
-}
 
 function academyYears(entry: MarketInactive): number {
   return Math.min(ACADEMY_YEARS_MAX, Math.max(1, entry.inactiveYears));
@@ -47,7 +44,7 @@ export default function InactiveBrowseRow({
 }: Props) {
   const p = entry.player;
   const isAcademy = entry.status === "academy";
-  const years = isAcademy ? academyYears(entry) : faYears(entry);
+  const years = isAcademy ? academyYears(entry) : faBadgeYears(entry.inactiveYears);
   const toFa = isAcademy ? yearsLeftToFa(entry) : null;
   const toRetire = !isAcademy ? yearsLeftToRetire(entry) : null;
 
@@ -57,9 +54,13 @@ export default function InactiveBrowseRow({
       <span className={`w-5 text-center border font-display ${TIER_CLS[p.tier]}`}>
         {p.tier}
       </span>
-      <span className="text-rift-mutedbright truncate max-w-[110px]" title={p.name}>
-        {p.name ?? "—"}
-      </span>
+      <PlayerNameLink
+        playerId={p.id}
+        name={p.name}
+        hint={{ player: p }}
+        title={p.name}
+        className="text-rift-mutedbright truncate max-w-[110px]"
+      />
       <span
         className={`text-[7px] uppercase tracking-[0.15em] px-1 border ${
           isAcademy

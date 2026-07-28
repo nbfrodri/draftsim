@@ -130,6 +130,11 @@ import {
 import { advanceTransferWindow } from "@/lib/season/engine";
 import { swapCoaches } from "@/lib/season/coach";
 import { seedFranchise, startNextSeason, applyUserFaSign, applyUserAcademyRecall, applyUserFaToAcademy, applyUserAcademyRelease, applyUserAcademyRookie, applyUserManualDemote, applyUserRookieSign, aiDecideFollowedDemotes } from "@/lib/season/franchise";
+import {
+  honorAgencyDemand as applyHonorAgencyDemand,
+  overrideAgencyDemand as applyOverrideAgencyDemand,
+  aiHonorFollowedAgency,
+} from "@/lib/season/franchiseAgency";
 import { inactiveSnapshotsForArchivedYear } from "@/lib/season/playerLifecycle";
 import { ensureTeamIdentities } from "@/lib/season/teamGen";
 import {
@@ -315,6 +320,8 @@ export interface SavedSeasonEntry {
 /** Team identity carried into a Latest Matchday row (so the panel can
  *  render icons + brand colors without re-reading season state). */
 export interface SeasonMatchdayTeam {
+  /** Live season team id — used by team hover cards. */
+  id?: string;
   name: string;
   iconKey: string;
   color: string;
@@ -631,6 +638,10 @@ interface DraftStore {
   shopOffseasonTransfer: (lane: Lane, otherTeamId: string) => void;
   /** Sign an FA into a followed-team lane (offseason or mid-season transfer; value-gap gated). */
   shopOffseasonFa: (lane: Lane, faPlayerId: string) => void;
+  /** Honor a pending player-agency demand (leave / call-up / depart). */
+  honorAgencyDemand: (demandId: string) => void;
+  /** Override a pending player-agency demand (keep the player). */
+  overrideAgencyDemand: (demandId: string) => void;
   /** Sign an FA into the followed team's academy (not roster; academy must have room). */
   shopFaToAcademy: (faPlayerId: string) => void;
   /** Call up own academy player into a followed-team lane (same windows / gap as FA). */
@@ -1528,6 +1539,7 @@ export const useDraftStore = create<DraftStore>()(
     const { season, champions } = get();
     if (!season) return;
     let next = aiResolveUserTransferWindow(season, champions);
+    next = aiHonorFollowedAgency(next, champions);
     next = aiDecideFollowedDemotes(next, champions);
     set({ season: next });
   },
@@ -1536,11 +1548,26 @@ export const useDraftStore = create<DraftStore>()(
     const { season, champions } = get();
     if (!season?.franchise || season.status !== "complete") return;
     let next = aiResolveUserOffseason(season, champions);
+    next = aiHonorFollowedAgency(next, champions);
     next = aiDecideFollowedDemotes(next, champions);
     const me = next.config.controlledTeamId;
     const hire = bestCoachHire(next);
     if (me && hire) next = { ...next, teams: swapCoaches(next.teams, me, hire) };
     set({ season: next });
+  },
+
+  honorAgencyDemand: (demandId) => {
+    const { season, champions } = get();
+    if (!season) return;
+    const next = applyHonorAgencyDemand(season, champions, demandId);
+    if (next) set({ season: next });
+  },
+
+  overrideAgencyDemand: (demandId) => {
+    const season = get().season;
+    if (!season) return;
+    const next = applyOverrideAgencyDemand(season, demandId);
+    if (next) set({ season: next });
   },
 
   advanceSeasonTransfers: () => {
@@ -2056,6 +2083,7 @@ export const useDraftStore = create<DraftStore>()(
               mdRound = Math.max(mdRound, fm.round);
               if (fm.bracket != null) sawBracket = true;
               const teamRef = (tt: typeof blue): SeasonMatchdayTeam => ({
+                id: tt.id,
                 name: tt.name,
                 iconKey: tt.iconKey ?? "shield",
                 color: tt.color ?? "#c8aa6e",

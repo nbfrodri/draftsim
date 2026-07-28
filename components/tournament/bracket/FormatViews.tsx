@@ -10,8 +10,23 @@ import type { TournamentMatch, TournamentState } from "@/lib/tournament";
 import { MatchCard } from "./MatchCard";
 import { RoundColumn, LosersRoundColumn, PlayoffBracketSection } from "./BracketViews";
 import { StandingsTable, GroupStandingsTable, SwissStandingsTable } from "./StandingsTables";
+import { buildLiveTeamStatsMap } from "@/components/team/TeamLiveStats";
 import { DirectQualifierBadge } from "@/components/QualifierBadge";
-import TeamIcon from "@/components/TeamIcon";
+import TeamLogoLink from "@/components/team/TeamLogoLink";
+import TeamNameLink from "@/components/team/TeamNameLink";
+
+/** Season-wide series W-L + titles for teams in this tournament. */
+function useTournamentLiveStats(tournament: TournamentState) {
+  const season = useDraftStore((s) => s.season);
+  return useMemo(() => {
+    if (!season) return null;
+    const ids = new Set(tournament.teams.map((t) => t.id));
+    return buildLiveTeamStatsMap(
+      season,
+      season.teams.filter((t) => ids.has(t.id)),
+    );
+  }, [season, tournament.teams]);
+}
 
 // Standalone round-robin layout: standings + matchday-grouped match
 // cards. Each matchday gets its own header with a quick progress
@@ -38,6 +53,7 @@ export function RoundRobinView({
   const generatePlayoffBracket = useDraftStore(
     (s) => s.generatePlayoffBracket,
   );
+  const teamStats = useTournamentLiveStats(tournament);
   const isRRPlayoffs =
     tournament.format === "round-robin-playoffs" ||
     tournament.format === "round-robin-playoffs-te" ||
@@ -72,7 +88,7 @@ export function RoundRobinView({
         <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
           Standings
         </div>
-        <StandingsTable tournament={tournament} />
+        <StandingsTable tournament={tournament} teamStats={teamStats} />
       </div>
       <div>
         <div className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/55 mb-3">
@@ -310,7 +326,22 @@ export function GroupsPlayoffsView({
                 <span className="text-rift-mutedbright/50 tabular-nums">
                   {i + 1}
                 </span>
-                <span className="truncate max-w-[12rem]">{team.name}</span>
+                <TeamNameLink
+                  teamId={team.id}
+                  name={team.name}
+                  iconKey={team.iconKey}
+                  logoUrl={team.logoUrl}
+                  color={team.color ?? undefined}
+                  showLogo={false}
+                  renderAs="span"
+                  className="truncate max-w-[12rem]"
+                  hint={{
+                    name: team.name,
+                    iconKey: team.iconKey,
+                    logoUrl: team.logoUrl,
+                    color: team.color ?? undefined,
+                  }}
+                />
                 <DirectQualifierBadge />
               </span>
             ))}
@@ -381,6 +412,7 @@ function GroupPanel({
   onViewMatch: (matchId: string) => void;
 }) {
   const simulateMatches = useDraftStore((s) => s.simulateMatches);
+  const teamStats = useTournamentLiveStats(tournament);
   const standings = useMemo(
     () => computeGroupStandings(tournament, groupId),
     [tournament, groupId],
@@ -435,6 +467,7 @@ function GroupPanel({
           standings={standings}
           advancingTeams={advancingPerGroup}
           tournament={tournament}
+          teamStats={teamStats}
         />
       </div>
       <div className="px-2 pb-2 space-y-2">
@@ -482,6 +515,7 @@ export function SwissView({
   const generatePlayoffBracket = useDraftStore(
     (s) => s.generatePlayoffBracket,
   );
+  const teamStats = useTournamentLiveStats(tournament);
   const total = tournament.swissTotalRounds ?? 0;
 
   // Split out Swiss-stage matches from playoff matches (swiss-playoffs).
@@ -592,6 +626,7 @@ export function SwissView({
         <SwissStandingsTable
           tournament={tournament}
           advancing={isSwissPlayoffs ? advancing : 0}
+          teamStats={teamStats}
         />
       </div>
 
@@ -615,7 +650,22 @@ export function SwissView({
                 <span className="text-rift-mutedbright/50 tabular-nums">
                   {i + 1}
                 </span>
-                <span className="truncate max-w-[12rem]">{team.name}</span>
+                <TeamNameLink
+                  teamId={team.id}
+                  name={team.name}
+                  iconKey={team.iconKey}
+                  logoUrl={team.logoUrl}
+                  color={team.color ?? undefined}
+                  showLogo={false}
+                  renderAs="span"
+                  className="truncate max-w-[12rem]"
+                  hint={{
+                    name: team.name,
+                    iconKey: team.iconKey,
+                    logoUrl: team.logoUrl,
+                    color: team.color ?? undefined,
+                  }}
+                />
                 <DirectQualifierBadge />
               </span>
             ))}
@@ -987,20 +1037,44 @@ function SwissTeamSlot({
         }`}
       >
         {team && (
-          <span
+          <TeamLogoLink
+            teamId={team.id}
+            name={team.name}
+            iconKey={team.iconKey}
+            logoUrl={team.logoUrl}
+            color={team.color ?? undefined}
+            size={12}
+            renderAs="span"
             className={`shrink-0 self-center ${winnerCls}`}
-            style={team.color ? { color: team.color } : undefined}
-          >
-            <TeamIcon
-              iconKey={team.iconKey}
-              logoUrl={team.logoUrl}
-              size={12}
-              color={team.color ?? undefined}
-            />
-          </span>
+            hint={{
+              name: team.name,
+              iconKey: team.iconKey,
+              logoUrl: team.logoUrl,
+              color: team.color ?? undefined,
+            }}
+          />
         )}
         <div className={`font-display text-[12px] tracking-wider truncate ${winnerCls}`}>
-          {team?.name ?? "TBD"}
+          {team ? (
+            <TeamNameLink
+              teamId={team.id}
+              name={team.name}
+              iconKey={team.iconKey}
+              logoUrl={team.logoUrl}
+              color={team.color ?? undefined}
+              showLogo={false}
+              renderAs="span"
+              className="truncate"
+              hint={{
+                name: team.name,
+                iconKey: team.iconKey,
+                logoUrl: team.logoUrl,
+                color: team.color ?? undefined,
+              }}
+            />
+          ) : (
+            "TBD"
+          )}
         </div>
       </div>
       {record && (

@@ -1,15 +1,14 @@
 "use client";
 
+import { useDraftStore } from "@/store/draftStore";
 import { logoForTeamName } from "@/lib/season/realTeams";
 import TeamIcon from "./TeamIcon";
+import TeamNameLink from "./team/TeamNameLink";
 
-// Inline team logo + name. Resolves the real-team logo from the team name
-// (a pure lookup over the bundled snapshot); generated teams have no match,
-// so only the name renders. Drop in wherever a team name is shown so the
-// series simulator / live view picks up real-team branding without threading
-// logo props through the whole component tree.
-// ponytail: name-only lookup; if generated teams ever need their iconKey/color
-// here too, thread the full team object instead.
+// Inline team logo + name. In live season mode, resolves the season team by
+// name and wraps with TeamNameLink so hover cards (series + titles) work
+// wherever TeamName is used (between-games, draft header, etc.). Outside a
+// season, falls back to a name-only real-team logo lookup.
 export default function TeamName({
   name,
   size = 16,
@@ -19,7 +18,27 @@ export default function TeamName({
   size?: number;
   className?: string;
 }) {
-  const logoUrl = logoForTeamName(name);
+  const season = useDraftStore((s) => s.season);
+  const team = season?.teams.find((t) => t.name === name);
+  const logoUrl = team?.logoUrl ?? logoForTeamName(name) ?? undefined;
+
+  if (team) {
+    return (
+      <TeamNameLink
+        teamId={team.id}
+        name={team.name}
+        leagueId={team.leagueId}
+        iconKey={team.iconKey}
+        logoUrl={logoUrl}
+        color={team.color}
+        logoSize={size}
+        hint={{ team }}
+        renderAs="span"
+        className={`inline-flex items-center gap-1.5 min-w-0 ${className}`}
+      />
+    );
+  }
+
   return (
     <>
       {logoUrl && (

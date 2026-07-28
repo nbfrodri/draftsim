@@ -1,0 +1,649 @@
+// Shared data model behind the team trading-card hover tooltip.
+//
+//   • LIVE season — roster, form, standings, academy count as they are now.
+//   • SEASON HISTORY — that year's phase-roster snapshot + titles from the archive.
+
+import { deriveStar, LANE_ORDER, playerForLane, tierValue, valueToTier } from "../players";
+import type { Lane, PlayerTier, Roster } from "../types";
+import { compareMatchChronology, computeStandings } from "../tournament";
+import { currentPhase } from "./engine";
+import type { SeasonHistoryEntry } from "./history";
+import {
+  computeTeamRecords,
+  franchiseKeysMatch,
+} from "./historyRecords";
+import { resolveTeamLogo } from "./realTeams";
+import {
+  INTERNATIONAL_LABELS,
+  SPLIT_LABELS,
+  seasonTeam,
+  type InternationalId,
+  type LeagueId,
+  type SeasonState,
+  type SeasonTeam,
+  type SplitId,
+} from "./types";
+
+export const RECENT_SERIES_WINDOW = 20;
+
+export interface TeamSeriesWinLoss {
+  wins: number;
+  losses: number;
+  /** Series win rate 0..1; null when no series played. */
+  winRate: number | null;
+}
+
+export interface TeamCardWinRates {
+  overall: TeamSeriesWinLoss;
+  /** Last up-to-20 series (exact on live seasons; scope-ordered on archives). */
+  recent: TeamSeriesWinLoss & { sampleSize: number };
+}
+
+export interface TeamCardTitleCounts {
+  split: number;
+  intl: number;
+  worlds: number;
+  total: number;
+}
+
+export interface TeamCardRosterLine {
+  lane: Lane;
+  tier: PlayerTier;
+  name?: string;
+  playerId?: string;
+}
+
+export interface TeamCardData {
+  /** Live season team id — resolver input, not shown. */
+  teamId?: string;
+  /** Hall navigation key — `leagueId:teamName`. */
+  navKey: string;
+  name: string;
+  leagueId: LeagueId;
+  iconKey?: string;
+  logoUrl?: string;
+  color?: string;
+  roster: TeamCardRosterLine[];
+  academyCount: number;
+  starRating: number;
+  avgTier: PlayerTier;
+  standing?: string | null;
+  form?: number | null;
+  /** Short accolade chips for the scoped year / live season. */
+  highlights: string[];
+  /** Domestic + international title totals for the card scope. */
+  titleCounts?: TeamCardTitleCounts | null;
+  /** Series win rates — career or scoped year depending on resolver. */
+  winRates?: TeamCardWinRates | null;
+  scope: string;
+  archived: boolean;
+}
+
+export interface TeamCardHint {
+  team?: Pick<
+    SeasonTeam,
+    "id" | "name" | "leagueId" | "iconKey" | "logoUrl" | "color" | "players"
+  >;
+  name?: string;
+  leagueId?: LeagueId;
+  iconKey?: string;
+  logoUrl?: string;
+  color?: string;
+  players?: Roster;
+}
+
+export function teamNavKey(team: { name: string; leagueId: LeagueId }): string {
+  return `${team.leagueId}:${team.name}`;
+}
+
+export function averageTierFromRoster(
+  roster: Roster | readonly TeamCardRosterLine[],
+): PlayerTier {
+  if (!roster.length) return "B";
+  const mean =
+    roster.reduce((sum, p) => sum + tierValue(p.tier), 0) / roster.length;
+  return valueToTier(mean);
+}
+
+export function rosterLinesFromPlayers(players: Roster): TeamCardRosterLine[] {
+  return LANE_ORDER.map((lane) => {
+    const p = playerForLane(players, lane);
+    if (!p) return { lane, tier: "B" as PlayerTier };
+    return {
+      lane,
+      tier: p.tier,
+      ...(p.name ? { name: p.name } : {}),
+      ...(p.id ? { playerId: p.id } : {}),
+    };
+  });
+}
+
+/** Every team key that appears on an archived roster — drives click-to-profile. */
+export function archivedTeamKeys(
+  entries: readonly SeasonHistoryEntry[],
+): Set<string> {
+  const out = new Set<string>();
+  for (const entry of entries) {
+    for (const phase of entry.phaseRosters ?? []) {
+      for (const t of phase.teams) {
+        out.add(teamNavKey({ name: t.teamName, leagueId: t.leagueId }));
+      }
+    }
+  }
+  return out;
+}
+
+/** Latest phase roster for a team within one archived season. */
+export function archivedTeamSnapshot(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+) {
+  const phases = [...(entry.phaseRosters ?? [])].sort(
+    (a, b) => a.phaseIndex - b.phaseIndex,
+  );
+  let latest: {
+    players: Roster;
+    stage: string;
+    logoUrl?: string;
+  } | null = null;
+  for (const phase of phases) {
+    const found = phase.teams.find(
+      (t) => t.teamName === team.name && t.leagueId === team.leagueId,
+    );
+    if (!found) continue;
+    latest = {
+      players: found.players as Roster,
+      stage: phase.label,
+      ...(found.logoUrl ? { logoUrl: found.logoUrl } : {}),
+    };
+  }
+  return latest;
+}
+
+/** Accolade chips for one archived year (or live season tally). */
+export function teamTitleHighlights(input: {
+  splitTitles?: Partial<Record<SplitId, boolean>>;
+  intlTitles?: Partial<Record<InternationalId, boolean>>;
+  worlds?: "champion" | "finalist" | null;
+}): string[] {
+  const out: string[] = [];
+  if (input.worlds === "champion") out.push("Season champion");
+  else if (input.worlds === "finalist") out.push("Season finalist");
+  for (const split of ["winter", "spring", "summer"] as SplitId[]) {
+    if (input.splitTitles?.[split]) out.push(SPLIT_LABELS[split]);
+  }
+  for (const ev of ["first-stand", "msi", "worlds", "global-cup"] as InternationalId[]) {
+    if (input.intlTitles?.[ev]) out.push(INTERNATIONAL_LABELS[ev]);
+  }
+  return out.slice(0, 5);
+}
+
+export function teamTitleHighlightsFromEntry(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+): string[] {
+  const splitTitles: Partial<Record<SplitId, boolean>> = {};
+  for (const split of Object.keys(entry.splitChampions) as SplitId[]) {
+    if (entry.splitChampions[split]?.[team.leagueId]?.name === team.name) {
+      splitTitles[split] = true;
+    }
+  }
+  const intlTitles: Partial<Record<InternationalId, boolean>> = {};
+  for (const ev of Object.keys(entry.intlChampions) as InternationalId[]) {
+    if (entry.intlChampions[ev]?.name === team.name) intlTitles[ev] = true;
+  }
+  const worlds =
+    entry.champion?.name === team.name && entry.champion?.leagueId === team.leagueId
+      ? ("champion" as const)
+      : entry.runnerUp?.name === team.name &&
+          entry.runnerUp?.leagueId === team.leagueId
+        ? ("finalist" as const)
+        : null;
+  return teamTitleHighlights({ splitTitles, intlTitles, worlds });
+}
+
+export function buildTeamCardIdentity(
+  name: string,
+  leagueId: LeagueId,
+  opts?: {
+    iconKey?: string;
+    logoUrl?: string;
+    color?: string;
+  },
+): Pick<TeamCardData, "name" | "leagueId" | "iconKey" | "logoUrl" | "color" | "navKey"> {
+  const logo = resolveTeamLogo(name, opts?.logoUrl);
+  return {
+    navKey: teamNavKey({ name, leagueId }),
+    name,
+    leagueId,
+    iconKey: opts?.iconKey ?? "shield",
+    ...(opts?.color ? { color: opts.color } : {}),
+    ...(logo ? { logoUrl: logo } : {}),
+  };
+}
+
+/** Current split standing when the league tournament has a table. */
+export function liveTeamStandingLabel(
+  season: SeasonState,
+  teamId: string,
+): string | null {
+  const team = seasonTeam(season, teamId);
+  if (!team) return null;
+
+  const phase = currentPhase(season);
+  if (phase?.split) {
+    for (const tid of phase.tournamentIds) {
+      const t = season.tournaments[tid];
+      if (!t || t.status === "complete") continue;
+      const row = computeStandings(t).find((s) => s.team.id === teamId);
+      if (row) return `#${row.rank} · ${row.wins}-${row.losses}`;
+    }
+  }
+
+  const splits = ["summer", "spring", "winter"] as SplitId[];
+  for (const split of splits) {
+    const order = season.splitResults[split]?.[team.leagueId];
+    if (!order?.length) continue;
+    const idx = order.indexOf(teamId);
+    if (idx >= 0) return `${SPLIT_LABELS[split]} · #${idx + 1}`;
+  }
+  return null;
+}
+
+function wlRecord(wins: number, losses: number): TeamSeriesWinLoss {
+  const n = wins + losses;
+  return { wins, losses, winRate: n > 0 ? wins / n : null };
+}
+
+function recentFromSeries(results: ("W" | "L")[]): TeamCardWinRates["recent"] {
+  const slice = results.slice(-RECENT_SERIES_WINDOW);
+  const wins = slice.filter((r) => r === "W").length;
+  const losses = slice.length - wins;
+  return { ...wlRecord(wins, losses), sampleSize: slice.length };
+}
+
+/** Completed non-bye series for one team, in season phase order. */
+export function liveTeamSeriesResults(
+  season: SeasonState,
+  teamId: string,
+): ("W" | "L")[] {
+  if (!teamId) return [];
+  const out: ("W" | "L")[] = [];
+  const seen = new Set<string>();
+
+  const pushTournament = (tid: string) => {
+    if (seen.has(tid)) return;
+    const t = season.tournaments?.[tid];
+    if (!t) return;
+    seen.add(tid);
+    const played = t.matches
+      .filter(
+        (m) =>
+          !m.isBye &&
+          m.winner != null &&
+          m.blueTeamId != null &&
+          m.redTeamId != null &&
+          (m.blueTeamId === teamId || m.redTeamId === teamId),
+      )
+      .sort(compareMatchChronology);
+    for (const m of played) {
+      out.push(m.winner!.teamId === teamId ? "W" : "L");
+    }
+  };
+
+  // Calendar order via phases (preferred — matches season chronology).
+  for (const phase of season.phases ?? []) {
+    for (const tid of phase.tournamentIds ?? []) pushTournament(tid);
+  }
+  // Orphans / mid-create tournaments not yet listed on a phase.
+  for (const tid of Object.keys(season.tournaments ?? {})) pushTournament(tid);
+
+  return out;
+}
+
+export function liveTeamWinRates(
+  season: SeasonState,
+  teamId: string,
+): TeamCardWinRates {
+  const results = liveTeamSeriesResults(season, teamId);
+  const wins = results.filter((r) => r === "W").length;
+  return {
+    overall: wlRecord(wins, results.length - wins),
+    recent: recentFromSeries(results),
+  };
+}
+
+type ScopeWL = { wins: number; losses: number };
+
+function h2hRows(entry: SeasonHistoryEntry) {
+  return entry.headToHead?.length
+    ? entry.headToHead
+    : (entry.rivalries ?? []);
+}
+
+/** Aggregate series W-L for one franchise within a single archived season. */
+export function archivedSeasonTeamWL(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+): TeamSeriesWinLoss {
+  const key = teamNavKey(team);
+  let wins = 0;
+  let losses = 0;
+  for (const r of h2hRows(entry)) {
+    const aKey = teamNavKey(r.teamA);
+    const bKey = teamNavKey(r.teamB);
+    if (franchiseKeysMatch(aKey, key)) {
+      wins += r.aWins;
+      losses += r.bWins;
+    } else if (franchiseKeysMatch(bKey, key)) {
+      wins += r.bWins;
+      losses += r.aWins;
+    }
+  }
+  if (wins + losses === 0) {
+    const best = entry.leagueBestTeams?.[team.leagueId];
+    if (best && franchiseKeysMatch(teamNavKey(best.team), key)) {
+      return wlRecord(best.wins, best.losses);
+    }
+  }
+  return wlRecord(wins, losses);
+}
+
+/** Per-stage series totals for one franchise in one archived season. */
+function archivedSeasonScopeWL(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+): Map<SplitId | InternationalId, ScopeWL> {
+  const key = teamNavKey(team);
+  const scopes = new Map<SplitId | InternationalId, ScopeWL>();
+  const bump = (scope: SplitId | InternationalId, w: number, l: number) => {
+    const cur = scopes.get(scope) ?? { wins: 0, losses: 0 };
+    cur.wins += w;
+    cur.losses += l;
+    scopes.set(scope, cur);
+  };
+  for (const r of h2hRows(entry)) {
+    const aKey = teamNavKey(r.teamA);
+    const bKey = teamNavKey(r.teamB);
+    const isA = franchiseKeysMatch(aKey, key);
+    const isB = franchiseKeysMatch(bKey, key);
+    if (!isA && !isB) continue;
+    for (const s of r.byScope ?? []) {
+      if (isA) bump(s.scope, s.aWins, s.bWins);
+      else bump(s.scope, s.bWins, s.aWins);
+    }
+  }
+  return scopes;
+}
+
+function phaseScopeOrder(
+  entry: SeasonHistoryEntry,
+): (SplitId | InternationalId)[] {
+  const out: (SplitId | InternationalId)[] = [];
+  const seen = new Set<string>();
+  for (const ph of [...(entry.phaseRosters ?? [])].sort(
+    (a, b) => a.phaseIndex - b.phaseIndex,
+  )) {
+    const scope = ph.split ?? ph.event;
+    if (!scope || seen.has(scope)) continue;
+    seen.add(scope);
+    out.push(scope);
+  }
+  return out;
+}
+
+/** Approximate last-N series from archived scope buckets (newest stages first). */
+function archivedRecentWL(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+  limit = RECENT_SERIES_WINDOW,
+): TeamCardWinRates["recent"] {
+  const scopes = archivedSeasonScopeWL(entry, team);
+  const order = phaseScopeOrder(entry);
+  let wins = 0;
+  let losses = 0;
+  let sample = 0;
+  for (let i = order.length - 1; i >= 0 && sample < limit; i--) {
+    const row = scopes.get(order[i]!);
+    if (!row) continue;
+    const take = Math.min(limit - sample, row.wins + row.losses);
+    if (take <= 0) continue;
+    const scopeWR = row.wins + row.losses > 0 ? row.wins / (row.wins + row.losses) : 0.5;
+    const w = Math.round(take * scopeWR);
+    wins += w;
+    losses += take - w;
+    sample += take;
+  }
+  if (sample === 0) {
+    const overall = archivedSeasonTeamWL(entry, team);
+    const total = overall.wins + overall.losses;
+    const cap = Math.min(limit, total);
+    if (cap === 0) return { wins: 0, losses: 0, winRate: null, sampleSize: 0 };
+    const ratio = total > 0 ? overall.wins / total : 0;
+    const w = Math.round(cap * ratio);
+    return { wins: w, losses: cap - w, winRate: cap > 0 ? w / cap : null, sampleSize: cap };
+  }
+  return { ...wlRecord(wins, losses), sampleSize: sample };
+}
+
+export function archivedSeasonTeamWinRates(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+): TeamCardWinRates {
+  return {
+    overall: archivedSeasonTeamWL(entry, team),
+    recent: archivedRecentWL(entry, team),
+  };
+}
+
+/** Career series W-L across every archived season (head-to-head ledger). */
+export function careerTeamWL(
+  entries: readonly SeasonHistoryEntry[],
+  team: { name: string; leagueId: LeagueId },
+): TeamSeriesWinLoss {
+  let wins = 0;
+  let losses = 0;
+  for (const e of entries) {
+    const row = archivedSeasonTeamWL(e, team);
+    wins += row.wins;
+    losses += row.losses;
+  }
+  return wlRecord(wins, losses);
+}
+
+/** Last-N series walking archived seasons newest-first (scope buckets). */
+export function careerTeamRecentWL(
+  entries: readonly SeasonHistoryEntry[],
+  team: { name: string; leagueId: LeagueId },
+  limit = RECENT_SERIES_WINDOW,
+): TeamCardWinRates["recent"] {
+  const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
+  let wins = 0;
+  let losses = 0;
+  let sample = 0;
+  for (const e of ordered) {
+    if (sample >= limit) break;
+    const scopes = archivedSeasonScopeWL(e, team);
+    const phaseOrder = phaseScopeOrder(e);
+    for (let i = phaseOrder.length - 1; i >= 0 && sample < limit; i--) {
+      const row = scopes.get(phaseOrder[i]!);
+      if (!row) continue;
+      const take = Math.min(limit - sample, row.wins + row.losses);
+      if (take <= 0) continue;
+      const scopeWR = row.wins + row.losses > 0 ? row.wins / (row.wins + row.losses) : 0.5;
+      const w = Math.round(take * scopeWR);
+      wins += w;
+      losses += take - w;
+      sample += take;
+    }
+    if (sample >= limit) break;
+    const seasonRow = archivedSeasonTeamWL(e, team);
+    const remaining = limit - sample;
+    const seasonTotal = seasonRow.wins + seasonRow.losses;
+    const scopedTotal = [...scopes.values()].reduce(
+      (s, r) => s + r.wins + r.losses,
+      0,
+    );
+    const extra = seasonTotal - scopedTotal;
+    if (extra > 0 && sample < limit) {
+      const take = Math.min(remaining, extra);
+      const ratio = seasonTotal > 0 ? seasonRow.wins / seasonTotal : 0.5;
+      const w = Math.round(take * ratio);
+      wins += w;
+      losses += take - w;
+      sample += take;
+    }
+  }
+  if (sample === 0) {
+    const overall = careerTeamWL(entries, team);
+    const cap = Math.min(limit, overall.wins + overall.losses);
+    if (cap === 0) return { wins: 0, losses: 0, winRate: null, sampleSize: 0 };
+    const w = Math.round(cap * (overall.winRate ?? 0.5));
+    return { wins: w, losses: cap - w, winRate: cap > 0 ? w / cap : null, sampleSize: cap };
+  }
+  return { ...wlRecord(wins, losses), sampleSize: sample };
+}
+
+export function careerTeamWinRates(
+  entries: readonly SeasonHistoryEntry[],
+  team: { name: string; leagueId: LeagueId },
+): TeamCardWinRates {
+  return {
+    overall: careerTeamWL(entries, team),
+    recent: careerTeamRecentWL(entries, team),
+  };
+}
+
+/** Title totals for one archived year. */
+export function titleCountsFromEntry(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+): TeamCardTitleCounts {
+  const key = teamNavKey(team);
+  let split = 0;
+  for (const splitId of Object.keys(entry.splitChampions) as SplitId[]) {
+    const champ = entry.splitChampions[splitId]?.[team.leagueId];
+    if (champ && franchiseKeysMatch(teamNavKey(champ), key)) split++;
+  }
+  let intl = 0;
+  let worlds = 0;
+  for (const ev of Object.keys(entry.intlChampions) as InternationalId[]) {
+    const champ = entry.intlChampions[ev];
+    if (champ && franchiseKeysMatch(teamNavKey(champ), key)) {
+      intl++;
+      if (ev === "worlds") worlds++;
+    }
+  }
+  if (
+    entry.champion &&
+    franchiseKeysMatch(teamNavKey(entry.champion), key) &&
+    worlds === 0
+  ) {
+    worlds = 1;
+    intl++;
+  }
+  return { split, intl, worlds, total: split + intl };
+}
+
+/** Career title totals from the Hall records board. */
+export function titleCountsFromRecords(
+  entries: readonly SeasonHistoryEntry[],
+  team: { name: string; leagueId: LeagueId },
+): TeamCardTitleCounts | null {
+  const key = teamNavKey(team);
+  const rec = computeTeamRecords([...entries]).find((r) =>
+    franchiseKeysMatch(r.key, key),
+  );
+  if (!rec) return null;
+  return {
+    split: rec.splitTitles,
+    intl: rec.intlTotal,
+    worlds: rec.worldsTitles,
+    total: rec.totalTitles,
+  };
+}
+
+/** Live season trophy tally (splits + internationals won so far). */
+export function liveTitleCounts(
+  season: SeasonState,
+  team: SeasonTeam,
+): TeamCardTitleCounts {
+  let split = 0;
+  for (const splitId of Object.keys(season.splitResults) as SplitId[]) {
+    const order = season.splitResults[splitId]?.[team.leagueId];
+    if (order?.[0] === team.id) split++;
+  }
+  let intl = 0;
+  let worlds = 0;
+  for (const [ev, order] of Object.entries(season.intlResults) as Array<
+    [InternationalId, string[]]
+  >) {
+    if (order[0] === team.id) {
+      intl++;
+      if (ev === "worlds") worlds++;
+    }
+  }
+  return { split, intl, worlds, total: split + intl };
+}
+
+/** Live season accolade chips from trophies won so far. */
+export function liveTitleHighlights(
+  season: SeasonState,
+  team: SeasonTeam,
+): string[] {
+  const splitTitles: Partial<Record<SplitId, boolean>> = {};
+  for (const splitId of Object.keys(season.splitResults) as SplitId[]) {
+    const order = season.splitResults[splitId]?.[team.leagueId];
+    if (order?.[0] === team.id) splitTitles[splitId] = true;
+  }
+  const intlTitles: Partial<Record<InternationalId, boolean>> = {};
+  for (const [ev, order] of Object.entries(season.intlResults) as Array<
+    [InternationalId, string[]]
+  >) {
+    if (order[0] === team.id) intlTitles[ev] = true;
+  }
+  const worlds =
+    season.intlResults.worlds?.[0] === team.id
+      ? ("champion" as const)
+      : season.intlResults.worlds?.[1] === team.id
+        ? ("finalist" as const)
+        : null;
+  return teamTitleHighlights({ splitTitles, intlTitles, worlds });
+}
+
+export function teamCardFromSeasonTeam(
+  team: SeasonTeam,
+  opts: {
+    academyCount: number;
+    form?: number | null;
+    standing?: string | null;
+    highlights?: string[];
+    titleCounts?: TeamCardTitleCounts | null;
+    winRates?: TeamCardWinRates | null;
+    scope: string;
+    archived: boolean;
+  },
+): TeamCardData {
+  const roster = rosterLinesFromPlayers(team.players);
+  return {
+    teamId: team.id,
+    ...buildTeamCardIdentity(team.name, team.leagueId, {
+      iconKey: team.iconKey,
+      logoUrl: team.logoUrl,
+      color: team.color,
+    }),
+    roster,
+    academyCount: opts.academyCount,
+    starRating: deriveStar(team.players),
+    avgTier: averageTierFromRoster(team.players),
+    ...(opts.standing != null ? { standing: opts.standing } : {}),
+    ...(opts.form != null ? { form: opts.form } : {}),
+    highlights: opts.highlights ?? [],
+    // Always attach when provided — live resolver passes both so Series /
+    // Titles sections can render whenever the season has data.
+    titleCounts: opts.titleCounts ?? null,
+    winRates: opts.winRates ?? null,
+    scope: opts.scope,
+    archived: opts.archived,
+  };
+}

@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  createContext,
   memo,
+  useContext,
   useDeferredValue,
   useMemo,
   useRef,
@@ -78,7 +80,10 @@ import {
   teamProfile,
   coachProfile,
   playerCareerStatuses,
+  type PlayerCareerWindow,
+  type PlayerRegionTitles,
 } from "@/lib/season/historySearch";
+import { careerTeamWinRates } from "@/lib/season/teamCard";
 import {
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
@@ -98,9 +103,24 @@ import DynastyTimelinePanel from "./DynastyTimelinePanel";
 import GoldenRoadBadge from "./GoldenRoadBadge";
 import GlobalCupBadge from "./GlobalCupBadge";
 import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
-import { ACADEMY_YEARS, FREE_AGENT_YEARS } from "@/lib/season/playerLifecycle";
+import PlayerNameLink from "./player/PlayerNameLink";
+import PlayerHoverCard from "./player/PlayerHoverCard";
+import { HistoryPlayerCardProvider } from "./player/PlayerCardContext";
+import { HistoryTeamCardProvider } from "./team/TeamCardContext";
+import TeamNameLink from "./team/TeamNameLink";
+import TeamLogoLink from "./team/TeamLogoLink";
+import {
+  ACADEMY_YEARS,
+  ACADEMY_YEARS_MAX,
+  FREE_AGENT_YEARS,
+  TOTAL_INACTIVE_BEFORE_RETIRE,
+} from "@/lib/season/playerLifecycle";
 
 type CareerStatus = "active" | "academy" | "free-agent" | "retired";
+
+/** Academy badge years, clamped to the hard ceiling for over-run legacy rows. */
+const acyBadgeYears = (inactiveYears: number) =>
+  Math.min(ACADEMY_YEARS_MAX, Math.max(1, inactiveYears));
 
 /** Compact Active / Academy / FA / Retired pill with year counts. */
 function CareerStatusBadge({
@@ -126,7 +146,8 @@ function CareerStatusBadge({
       ? "text-[9px] uppercase tracking-[0.2em] border px-1.5 py-0.5"
       : "text-[7px] uppercase tracking-[0.15em] border px-1 shrink-0";
   if (resolved === "academy") {
-    const y = academyYears ?? inactiveYears;
+    const y =
+      academyYears ?? (inactiveYears != null ? acyBadgeYears(inactiveYears) : undefined);
     return (
       <span
         className={`${cls} text-amber-400/85 border-amber-500/40 bg-amber-500/10`}
@@ -162,7 +183,9 @@ function CareerStatusBadge({
       title="Retired"
     >
       {size === "md" ? "Retired" : "Ret"}
-      {inactiveYears != null && size === "md" ? ` · ${inactiveYears}y` : ""}
+      {inactiveYears != null && size === "md"
+        ? ` · ${Math.min(TOTAL_INACTIVE_BEFORE_RETIRE, Math.max(1, inactiveYears))}y`
+        : ""}
     </span>
   );
 }
@@ -185,7 +208,7 @@ const PlayerTeamIcon = memo(function PlayerTeamIcon({
   leagueId,
   identity,
   size = 13,
-  onNavigate,
+  onNavigate: _onNavigate,
 }: {
   teamName?: string;
   leagueId?: LeagueId | null;
@@ -195,49 +218,88 @@ const PlayerTeamIcon = memo(function PlayerTeamIcon({
 }) {
   if (!teamName || !leagueId) return null;
   const ref = refFor(identity, teamName, leagueId);
-  const icon = (
-    <TeamIcon
+  const seasonId = useContext(SeasonScope);
+  return (
+    <TeamLogoLink
+      seasonId={seasonId}
+      name={ref.name}
+      leagueId={ref.leagueId}
       iconKey={ref.iconKey}
       logoUrl={resolveTeamLogo(ref.name, ref.logoUrl)}
-      size={size}
       color={ref.color}
+      size={size}
+      hint={{ name: ref.name, leagueId: ref.leagueId, iconKey: ref.iconKey, logoUrl: ref.logoUrl, color: ref.color }}
     />
   );
-  if (!onNavigate) return icon;
+});
+
+const NavTeamLogo = memo(function NavTeamLogo({
+  team,
+  size = 13,
+  nested = false,
+  className = "",
+}: {
+  team: SeasonHistoryTeamRef;
+  size?: number;
+  nested?: boolean;
+  className?: string;
+}) {
+  const seasonId = useContext(SeasonScope);
   return (
-    <button
-      type="button"
-      onClick={() => onNavigate("teams", `${leagueId}:${teamName}`)}
-      className="inline-flex flex-shrink-0 hover:opacity-75 transition-opacity"
-      title={`View ${teamName}`}
-    >
-      {icon}
-    </button>
+    <TeamLogoLink
+      seasonId={seasonId}
+      name={team.name}
+      leagueId={team.leagueId}
+      iconKey={team.iconKey}
+      logoUrl={resolveTeamLogo(team.name, team.logoUrl)}
+      color={team.color}
+      size={size}
+      className={className}
+      renderAs={nested ? "span" : "button"}
+      hint={{
+        name: team.name,
+        leagueId: team.leagueId,
+        iconKey: team.iconKey,
+        logoUrl: team.logoUrl,
+        color: team.color,
+      }}
+    />
   );
 });
+
+/**
+ * The archived season a subtree is describing. Player hover cards read it so a
+ * name inside the 2031 résumé shows 2031's tier/team/status rather than the
+ * player's latest state. Undefined = "however they stand today".
+ */
+const SeasonScope = createContext<string | undefined>(undefined);
 
 const NavPlayerName = memo(function NavPlayerName({
   name,
   playerId,
-  onNavigate,
+  onNavigate: _onNavigate,
   className = "",
+  nested = false,
 }: {
   name: string;
   playerId?: string;
   onNavigate?: NavFn;
   className?: string;
+  /** When true, renders as span — safe inside expand-row buttons. */
+  nested?: boolean;
 }) {
-  if (!onNavigate || !playerId) {
+  const seasonId = useContext(SeasonScope);
+  if (!playerId) {
     return <span className={className}>{name}</span>;
   }
   return (
-    <button
-      type="button"
-      onClick={() => onNavigate("players", playerId)}
-      className={`${navBtnCls} ${className}`}
-    >
-      {name}
-    </button>
+    <PlayerNameLink
+      playerId={playerId}
+      name={name}
+      seasonId={seasonId}
+      className={className}
+      renderAs={nested ? "span" : "button"}
+    />
   );
 });
 
@@ -309,17 +371,34 @@ const TeamRef = memo(function TeamRef({
   team,
   size = 13,
   muted = false,
-  onNavigate,
+  onNavigate: _onNavigate,
+  nested = false,
 }: {
   team: SeasonHistoryTeamRef;
   size?: number;
   muted?: boolean;
   onNavigate?: NavFn;
+  nested?: boolean;
 }) {
-  const rootCls =
-    "inline-flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden";
-  const inner = (
-    <>
+  const seasonId = useContext(SeasonScope);
+  return (
+    <TeamNameLink
+      name={team.name}
+      leagueId={team.leagueId}
+      seasonId={seasonId}
+      showLogo={false}
+      renderAs={nested ? "span" : "button"}
+      className={`min-w-0 max-w-full overflow-hidden ${
+        muted ? "text-rift-mutedbright" : "text-rift-goldbright"
+      }`}
+      hint={{
+        name: team.name,
+        leagueId: team.leagueId,
+        iconKey: team.iconKey,
+        logoUrl: team.logoUrl,
+        color: team.color,
+      }}
+    >
       <TeamIcon
         iconKey={team.iconKey}
         logoUrl={resolveTeamLogo(team.name, team.logoUrl)}
@@ -327,31 +406,15 @@ const TeamRef = memo(function TeamRef({
         color={team.color}
         className="flex-shrink-0"
       />
-      <span
-        className={`min-w-0 truncate ${muted ? "text-rift-mutedbright" : "text-rift-goldbright"}`}
-        title={team.name}
-      >
+      <span className={`min-w-0 truncate ${muted ? "text-rift-mutedbright" : "text-rift-goldbright"}`}>
         {team.name}
       </span>
       <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.15em] text-rift-muted/70 flex-shrink-0">
         <LeagueIcon league={team.leagueId} size={12} />
         {team.leagueId}
       </span>
-    </>
+    </TeamNameLink>
   );
-  if (onNavigate) {
-    return (
-      <button
-        type="button"
-        onClick={() => onNavigate("teams", teamRefKey(team))}
-        className={`${rootCls} hover:opacity-75 transition-opacity`}
-        title={`View ${team.name}`}
-      >
-        {inner}
-      </button>
-    );
-  }
-  return <span className={rootCls}>{inner}</span>;
 });
 
 // Effective tier of a champion-lane under an archived override (the
@@ -592,6 +655,7 @@ function SeasonDetail({
   const intls = INTL_ORDER.filter((e) => entry.intlChampions[e]);
   const splits = SPLIT_ORDER.filter((s) => entry.splitChampions[s]);
   return (
+    <SeasonScope.Provider value={entry.id}>
     <div className="space-y-5 min-w-0">
       {/* Headline banner */}
       <div className="border-2 border-rift-gold/60 bg-rift-gold/[0.07] px-4 py-4">
@@ -785,6 +849,7 @@ function SeasonDetail({
         <MetaStory entry={entry} />
       </div>
     </div>
+    </SeasonScope.Provider>
   );
 }
 
@@ -802,12 +867,7 @@ function AllProMembers({
       {members.map((m, i) => (
         <span key={i} className="inline-flex items-center gap-1 text-[9px]">
           <LaneIcon lane={m.lane} size="xs" />
-          <TeamIcon
-            iconKey={m.team.iconKey}
-            logoUrl={resolveTeamLogo(m.team.name, m.team.logoUrl)}
-            size={11}
-            color={m.team.color}
-          />
+          <NavTeamLogo team={m.team} size={11} nested />
           <NavPlayerName
             name={m.playerName ?? m.team.name}
             playerId={m.playerId}
@@ -979,18 +1039,7 @@ function SplitMvpsPanel({
                       onNavigate={onNavigate}
                       className="text-rift-goldbright truncate"
                     />
-                    <button
-                      type="button"
-                      onClick={() => onNavigate?.("teams", teamRefKey(m.team))}
-                      className="hover:opacity-75 transition-opacity"
-                    >
-                      <TeamIcon
-                        iconKey={m.team.iconKey}
-                        logoUrl={resolveTeamLogo(m.team.name, m.team.logoUrl)}
-                        size={10}
-                        color={m.team.color}
-                      />
-                    </button>
+                    <NavTeamLogo team={m.team} size={10} nested />
                     <span className="ml-auto text-rift-gold/70 tabular-nums" title={`${m.games} games in the final`}>
                       ★{m.avgRating.toFixed(1)}
                     </span>
@@ -1192,24 +1241,18 @@ function HistoryRosterPlayerRow({
         <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>
           {p.tier}
         </span>
-        {p.id && onNavigate ? (
+        {p.id ? (
           <span
-            role="link"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation();
-              onNavigate("players", p.id!);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                onNavigate("players", p.id!);
-              }
-            }}
-            className="text-rift-mutedbright truncate max-w-[90px] hover:text-rift-goldbright"
+            className="min-w-0"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
           >
-            {p.name ?? "—"}
+            <NavPlayerName
+              name={p.name ?? "—"}
+              playerId={p.id}
+              nested
+              className="text-rift-mutedbright truncate max-w-[90px]"
+            />
           </span>
         ) : (
           <span className="text-rift-mutedbright truncate max-w-[90px]">{p.name ?? "—"}</span>
@@ -1370,17 +1413,15 @@ function StageRosters({
               className={`border px-2 py-1.5 ${isChamp ? "border-rift-gold/60 bg-rift-gold/[0.06]" : "border-rift-line/40 bg-rift-bg/30"}`}
             >
               <div className="flex items-center gap-1.5 mb-1 min-w-0">
-                <button
-                  type="button"
-                  onClick={() =>
-                    onNavigate?.("teams", `${t.leagueId}:${t.teamName}`)
-                  }
-                  className="inline-flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden hover:opacity-75 transition-opacity"
-                  title={`View ${t.teamName}`}
-                >
-                  <TeamIcon iconKey="shield" logoUrl={resolveTeamLogo(t.teamName, t.logoUrl)} size={13} className="flex-shrink-0" />
-                  <span className="text-[11px] text-rift-mutedbright truncate min-w-0" title={t.teamName}>{t.teamName}</span>
-                </button>
+                <TeamNameLink
+                  name={t.teamName}
+                  leagueId={t.leagueId}
+                  iconKey="shield"
+                  logoUrl={resolveTeamLogo(t.teamName, t.logoUrl)}
+                  logoSize={13}
+                  className="inline-flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden text-[11px] text-rift-mutedbright"
+                  hint={{ name: t.teamName, leagueId: t.leagueId, logoUrl: t.logoUrl }}
+                />
                 {isChamp && <span className="ml-auto text-[8px] uppercase tracking-[0.2em] text-rift-goldbright flex-shrink-0">★ champion</span>}
               </div>
               {t.coach && (
@@ -1426,14 +1467,14 @@ function StageRosters({
                           potential: a.potential,
                           goodChamps: a.goodChamps,
                           badChamps: a.badChamps,
-                          academyYears: a.inactiveYears,
+                          academyYears: acyBadgeYears(a.inactiveYears),
                         }}
                         onNavigate={onNavigate}
                         champById={champById}
                         dense
                         badge={
                           <span className="text-[7px] uppercase tracking-[0.12em] border border-amber-500/45 text-amber-300/90 bg-amber-500/10 px-1">
-                            Acy · {Math.max(1, a.inactiveYears)}y
+                            Acy · {acyBadgeYears(a.inactiveYears)}y
                           </span>
                         }
                       />
@@ -1462,10 +1503,22 @@ function TransferLog({ transfers }: { transfers: HistoryTransfer[] }) {
   }
   const teamChip = (team: HistoryTransfer["from"]) =>
     team ? (
-      <span className="inline-flex items-center gap-1 min-w-0 max-w-full overflow-hidden">
-        <TeamIcon iconKey={team.iconKey} logoUrl={resolveTeamLogo(team.name, team.logoUrl)} size={12} color={team.color} className="flex-shrink-0" />
-        <span className="text-rift-mutedbright truncate min-w-0 max-w-[84px]" title={team.name}>{team.name}</span>
-      </span>
+      <TeamNameLink
+        name={team.name}
+        leagueId={team.leagueId}
+        iconKey={team.iconKey}
+        logoUrl={resolveTeamLogo(team.name, team.logoUrl)}
+        color={team.color}
+        logoSize={12}
+        className="inline-flex items-center gap-1 min-w-0 max-w-full overflow-hidden text-[10px] text-rift-mutedbright"
+        hint={{
+          name: team.name,
+          leagueId: team.leagueId,
+          iconKey: team.iconKey,
+          logoUrl: team.logoUrl,
+          color: team.color,
+        }}
+      />
     ) : (
       <span className="text-rift-muted">—</span>
     );
@@ -1701,14 +1754,24 @@ function TeamComparePanel({
                   : "hover:bg-rift-bg/50 border-l-2 border-l-transparent"
               }`}
             >
-              <TeamIcon
+              <TeamLogoLink
+                name={o.team.name}
+                leagueId={o.team.leagueId}
                 iconKey={o.team.iconKey}
                 logoUrl={resolveTeamLogo(o.team.name, o.team.logoUrl)}
-                size={14}
                 color={o.team.color}
+                size={14}
+                renderAs="span"
+                hint={{
+                  name: o.team.name,
+                  leagueId: o.team.leagueId,
+                  iconKey: o.team.iconKey,
+                  logoUrl: o.team.logoUrl,
+                  color: o.team.color,
+                }}
               />
               <span className="min-w-0 flex-1 overflow-hidden">
-                <span className="block text-[11px] text-rift-mutedbright truncate" title={o.team.name}>
+                <span className="block text-[11px] text-rift-mutedbright truncate">
                   {o.team.name}
                 </span>
                 <span className="flex items-center gap-1 text-[8px] uppercase tracking-[0.15em] text-rift-muted/50">
@@ -2115,9 +2178,14 @@ function PlayerComparePanel({
               )}
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5 min-w-0">
-                  <span className="block text-[11px] text-rift-mutedbright truncate">
-                    {p.playerName}
-                  </span>
+                  <PlayerHoverCard
+                    playerId={p.playerId}
+                    className="block text-[11px] text-rift-mutedbright truncate min-w-0"
+                  >
+                    <span className="truncate" title={p.playerName}>
+                      {p.playerName}
+                    </span>
+                  </PlayerHoverCard>
                   <CareerStatusBadge
                     status={careerStatus.get(p.playerId)?.status}
                     academyYears={careerStatus.get(p.playerId)?.academyYears}
@@ -2320,11 +2388,21 @@ function PlayerComparePanel({
               title={name}
               aria-label={name}
             >
-              <TeamIcon
+              <TeamLogoLink
+                name={team.name}
+                leagueId={team.leagueId}
                 iconKey={team.iconKey}
                 logoUrl={resolveTeamLogo(team.name, team.logoUrl)}
-                size={13}
                 color={team.color}
+                size={13}
+                renderAs="span"
+                hint={{
+                  name: team.name,
+                  leagueId: team.leagueId,
+                  iconKey: team.iconKey,
+                  logoUrl: team.logoUrl,
+                  color: team.color,
+                }}
               />
               <span className="text-[8px] uppercase tracking-[0.12em] truncate max-w-[5.5rem]">
                 {name}
@@ -3461,20 +3539,7 @@ function RecordsPanel({
                 <div key={c.name} className="grid grid-cols-[1.25rem_minmax(0,1fr)_repeat(6,2rem)] gap-x-1 items-center px-3 py-1.5 text-[11px] cv-row">
                   <span className="text-right text-[9px] tabular-nums text-rift-muted/70">{i + 1}</span>
                   <span className="flex items-center gap-1.5 min-w-0">
-                    {c.team && (
-                      onNavigate ? (
-                        <button
-                          type="button"
-                          onClick={() => onNavigate("teams", teamRefKey(c.team!))}
-                          className="inline-flex flex-shrink-0 hover:opacity-75 transition-opacity"
-                          title={`View ${c.team.name}`}
-                        >
-                          <TeamIcon iconKey={c.team.iconKey} logoUrl={resolveTeamLogo(c.team.name, c.team.logoUrl)} size={13} color={c.team.color} />
-                        </button>
-                      ) : (
-                        <TeamIcon iconKey={c.team.iconKey} logoUrl={resolveTeamLogo(c.team.name, c.team.logoUrl)} size={13} color={c.team.color} />
-                      )
-                    )}
+                    {c.team && <NavTeamLogo team={c.team} size={13} nested />}
                     <NavCoachName
                       name={c.name}
                       onNavigate={onNavigate}
@@ -3514,20 +3579,7 @@ function RecordsPanel({
                   {g.rows.map((c, i) => (
                     <div key={c.name} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
                       <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">{i + 1}</span>
-                      {c.team && (
-                        onNavigate ? (
-                          <button
-                            type="button"
-                            onClick={() => onNavigate("teams", teamRefKey(c.team!))}
-                            className="inline-flex flex-shrink-0 hover:opacity-75 transition-opacity"
-                            title={`View ${c.team.name}`}
-                          >
-                            <TeamIcon iconKey={c.team.iconKey} logoUrl={resolveTeamLogo(c.team.name, c.team.logoUrl)} size={13} color={c.team.color} />
-                          </button>
-                        ) : (
-                          <TeamIcon iconKey={c.team.iconKey} logoUrl={resolveTeamLogo(c.team.name, c.team.logoUrl)} size={13} color={c.team.color} />
-                        )
-                      )}
+                      {c.team && <NavTeamLogo team={c.team} size={13} nested />}
                       <NavCoachName
                         name={c.name}
                         onNavigate={onNavigate}
@@ -3659,7 +3711,8 @@ function OverallTimeline({
             const rows = rowsFor(entry);
             const champ = entry.champion;
             return (
-              <li key={entry.id} className="relative pl-5">
+              <SeasonScope.Provider key={entry.id} value={entry.id}>
+              <li className="relative pl-5">
                 {/* Node on the rail */}
                 <span
                   className="absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full bg-rift-gold/80 ring-2 ring-rift-bg"
@@ -3763,6 +3816,7 @@ function OverallTimeline({
                   })}
                 </div>
               </li>
+              </SeasonScope.Provider>
             );
           })}
         </ol>
@@ -3808,15 +3862,12 @@ function RosterChips({
           <span key={i} className="inline-flex items-center gap-1 text-[9px]">
             <LaneIcon lane={p.lane} size="xs" />
             <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>
-            {p.id && onNavigate ? (
-              <button
-                type="button"
-                onClick={() => onNavigate("players", p.id!)}
-                className="text-rift-mutedbright truncate max-w-[80px] hover:text-rift-goldbright transition-colors"
-                title={`View ${p.name ?? "player"}`}
-              >
-                {p.name ?? "—"}
-              </button>
+            {p.id ? (
+              <NavPlayerName
+                name={p.name ?? "—"}
+                playerId={p.id}
+                className="text-rift-mutedbright truncate max-w-[80px]"
+              />
             ) : (
               <span className="text-rift-mutedbright truncate max-w-[80px]">{p.name ?? "—"}</span>
             )}
@@ -3844,6 +3895,113 @@ function IntlTitleChips({ splitTitles, intl }: { splitTitles: number; intl: Part
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Career trophies grouped by the region they were won in. Players change
+// leagues, so a flat career total silently reads as "his newest league" — each
+// group keeps its titles behind the badge he actually lifted them for.
+function RegionTitleGroups({
+  groups,
+  onNavigate,
+}: {
+  groups: PlayerRegionTitles[];
+  onNavigate: NavFn;
+}) {
+  if (groups.length === 0) return null;
+  return (
+    <div>
+      <div className="text-[8px] uppercase tracking-[0.25em] text-rift-gold/55 mb-1">
+        Titles by Region
+      </div>
+      <div className="space-y-1">
+        {groups.map((g) => (
+          <div
+            key={g.leagueId}
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 border border-rift-line/30 bg-rift-bg/20 px-2 py-1"
+          >
+            <span
+              className="inline-flex items-center gap-1.5 flex-shrink-0"
+              title={LEAGUE_NAMES[g.leagueId] ?? g.leagueId}
+            >
+              <LeagueIcon league={g.leagueId} size={15} />
+              <span className="text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright">
+                {g.leagueId}
+              </span>
+            </span>
+            {INTL_ORDER.filter((ev) => (g.intl[ev] ?? 0) > 0).map((ev) => (
+              <span
+                key={ev}
+                className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.15em] text-rift-goldbright"
+                title={`${g.intl[ev]}× ${INTERNATIONAL_LABELS[ev]} representing ${g.leagueId}`}
+              >
+                <LeagueIcon league={ev} size={11} />
+                {INTERNATIONAL_LABELS[ev]}
+                <span className="tabular-nums">×{g.intl[ev]}</span>
+              </span>
+            ))}
+            {SPLIT_ORDER.filter((s) => (g.splits[s] ?? 0) > 0).map((s) => (
+              <span
+                key={s}
+                className="text-[9px] uppercase tracking-[0.15em] text-rift-blue/80"
+                title={`${g.splits[s]}× ${SPLIT_LABELS[s]} in the ${g.leagueId}`}
+              >
+                {SPLIT_LABELS[s]} <span className="tabular-nums">×{g.splits[s]}</span>
+              </span>
+            ))}
+            <span className="inline-flex items-center gap-1.5 ml-auto min-w-0">
+              {g.teams.slice(0, 3).map((t) => (
+                <NavTeamLogo key={teamRefKey(t)} team={t} size={12} />
+              ))}
+              <span className="text-[9px] tabular-nums text-rift-muted/60">
+                {g.splitTotal + g.intlTotal}
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const WINDOW_TONE: Record<CareerStatus, string> = {
+  active: "border-rift-line/40 text-rift-mutedbright",
+  academy: "border-amber-500/40 bg-amber-500/10 text-amber-400/85",
+  "free-agent": "border-sky-500/40 bg-sky-500/10 text-sky-400/85",
+  retired: "border-rift-red/40 bg-rift-red/10 text-rift-redbright/80",
+};
+
+// Split-by-split timeline inside ONE career year: where the player stood for
+// every window of the calendar (Winter → First Stand → … → Offseason) and
+// which of them he lifted. Only rendered for archives that stamped their
+// academy / FA pool at each checkpoint; older years stay year-only.
+function CareerWindowChips({ windows }: { windows: PlayerCareerWindow[] }) {
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1">
+      {windows.map((w, i) => (
+        <span
+          key={`${w.key}-${i}`}
+          className={`inline-flex items-center gap-1 border px-1 py-0.5 text-[7px] uppercase tracking-[0.15em] ${WINDOW_TONE[w.status]}`}
+          title={
+            `${w.label} — ` +
+            (w.status === "active"
+              ? (w.team?.name ?? "Main roster")
+              : w.status === "academy"
+                ? `${w.team?.name ?? "Academy"} academy`
+                : w.status === "free-agent"
+                  ? "Free agent"
+                  : "Retired") +
+            (w.title ? " · champion" : "")
+          }
+        >
+          {w.kind !== "offseason" && w.team && w.status === "active" && (
+            <NavTeamLogo team={w.team} size={10} nested />
+          )}
+          {w.label}
+          {w.title && <span className="text-rift-goldbright">🏆</span>}
+        </span>
+      ))}
     </div>
   );
 }
@@ -4033,6 +4191,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
         </>
       )}
       <IntlTitleChips splitTitles={p.splitTitles} intl={p.intlTitles} />
+      <RegionTitleGroups groups={p.titlesByRegion} onNavigate={onNavigate} />
       {c && c.champs.length > 0 && (
         <div>
           <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
@@ -4148,6 +4307,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
                 />
                 <TitleTallyInline titles={t.titles} />
               </div>
+              {t.windows && <CareerWindowChips windows={t.windows} />}
             </div>
           ))}
         </div>
@@ -4163,6 +4323,10 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
     [champions],
   );
   const t = useMemo(() => teamProfile(entries, teamKey), [entries, teamKey]);
+  const careerSeries = useMemo(() => {
+    if (!t) return null;
+    return careerTeamWinRates(entries, t.team);
+  }, [entries, t]);
   const seasonsWithStages = useMemo(
     () => (t?.seasons ?? []).filter((s) => s.stages.length > 0),
     [t],
@@ -4205,7 +4369,20 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
       {r && (
         <>
           <IntlTitleChips splitTitles={r.splitTitles} intl={r.intlTitles} />
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            {careerSeries &&
+              careerSeries.overall.wins + careerSeries.overall.losses > 0 && (
+                <StatChip
+                  label="Series W-L"
+                  value={`${careerSeries.overall.wins}-${careerSeries.overall.losses}`}
+                />
+              )}
+            {careerSeries?.overall.winRate != null && (
+              <StatChip
+                label="Series win%"
+                value={winPct(careerSeries.overall.winRate)}
+              />
+            )}
             <StatChip label="Intl titles" value={r.intlTotal} />
             <StatChip label="Total titles" value={r.totalTitles} />
             <StatChip label="Dynasty" value={r.dynasty.tier === "none" ? "—" : r.dynasty.tier} />
@@ -4273,6 +4450,7 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
 
       {/* Stage / year rosters — year scrubber + stage timeline + 5-lane lineup */}
       {seasonsWithStages.length > 0 && selectedSeason && selectedStage && (
+        <SeasonScope.Provider value={asOfSeasonId}>
         <div>
           <div className="flex items-baseline justify-between gap-3 mb-2 min-w-0">
             <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 flex-shrink-0">
@@ -4535,6 +4713,7 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
             </div>
           </div>
         </div>
+        </SeasonScope.Provider>
       )}
     </div>
   );
@@ -4554,10 +4733,22 @@ const CoachProfileView = memo(function CoachProfileView({ entries, name, onNavig
           </span>
         )}
         {c.team && (
-          <span className="inline-flex items-center gap-1 text-[9px] text-rift-muted/70 min-w-0 max-w-full overflow-hidden">
-            <TeamIcon iconKey={c.team.iconKey} logoUrl={resolveTeamLogo(c.team.name, c.team.logoUrl)} size={14} color={c.team.color} className="flex-shrink-0" />
-            <span className="truncate min-w-0" title={c.team.name}>{c.team.name}</span>
-          </span>
+          <TeamNameLink
+            name={c.team.name}
+            leagueId={c.team.leagueId}
+            iconKey={c.team.iconKey}
+            logoUrl={resolveTeamLogo(c.team.name, c.team.logoUrl)}
+            color={c.team.color}
+            logoSize={14}
+            className="inline-flex items-center gap-1 text-[9px] text-rift-muted/70 min-w-0 max-w-full overflow-hidden"
+            hint={{
+              name: c.team.name,
+              leagueId: c.team.leagueId,
+              iconKey: c.team.iconKey,
+              logoUrl: c.team.logoUrl,
+              color: c.team.color,
+            }}
+          />
         )}
         {c.tenures[0] && (
           <span className="text-[10px] text-rift-gold/85 tabular-nums flex-shrink-0" title="Most-recent rating">★{c.tenures[0].rating.toFixed(1)}</span>
@@ -4669,7 +4860,24 @@ const SearchResultRow = memo(function SearchResultRow({
       {r.tier && (
         <span className={`w-4 text-center border font-display text-[8px] shrink-0 ${STAGE_TIER_CLS[r.tier] ?? ""}`}>{r.tier}</span>
       )}
-      {r.team && <TeamIcon iconKey={r.team.iconKey} logoUrl={resolveTeamLogo(r.team.name, r.team.logoUrl)} size={14} color={r.team.color} className="flex-shrink-0" />}
+      {r.team && (
+        <TeamLogoLink
+          name={r.team.name}
+          leagueId={r.team.leagueId}
+          iconKey={r.team.iconKey}
+          logoUrl={resolveTeamLogo(r.team.name, r.team.logoUrl)}
+          color={r.team.color}
+          size={14}
+          renderAs="span"
+          hint={{
+            name: r.team.name,
+            leagueId: r.team.leagueId,
+            iconKey: r.team.iconKey,
+            logoUrl: r.team.logoUrl,
+            color: r.team.color,
+          }}
+        />
+      )}
       <span className="min-w-0 flex-1 overflow-hidden">
         <span className="block text-[11px] text-rift-mutedbright truncate" title={r.label}>{r.label}</span>
         {/* Players: team logo's region; teams/coaches: the sub line. */}
@@ -5057,7 +5265,17 @@ function SearchPanel({
   );
 }
 
-export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
+export default function SeasonHistoryView({
+  onBack,
+  initialPlayerId,
+  initialTeamKey,
+}: {
+  onBack: () => void;
+  /** Deep-link target — opens straight onto this player's Search profile. */
+  initialPlayerId?: string | null;
+  /** Deep-link target — opens straight onto this team's Search profile. */
+  initialTeamKey?: string | null;
+}) {
   // Season mode and Realities each keep their OWN Hall — season mode doesn't
   // carry rosters between years, realities do, so they never mix. The user
   // picks which to view up top; default to the live context.
@@ -5092,15 +5310,31 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
   const importSeasonHistory = useDraftStore((s) => s.importSeasonHistory);
   const champions = useDraftStore((s) => s.champions);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"timeline" | "records" | "dynasties" | "search">("timeline");
+  const [tab, setTab] = useState<"timeline" | "records" | "dynasties" | "search">(
+    initialPlayerId || initialTeamKey ? "search" : "timeline",
+  );
   const [pendingSearchNav, setPendingSearchNav] = useState<{
     kind: "players" | "teams" | "coaches";
     id: string;
-  } | null>(null);
+  } | null>(
+    initialPlayerId
+      ? { kind: "players", id: initialPlayerId }
+      : initialTeamKey
+        ? { kind: "teams", id: initialTeamKey }
+        : null,
+  );
   const hallNavigate = useCallback<NavFn>((kind, id) => {
     setTab("search");
     setPendingSearchNav({ kind, id });
   }, []);
+  const openPlayerProfile = useCallback(
+    (playerId: string) => hallNavigate("players", playerId),
+    [hallNavigate],
+  );
+  const openTeamProfile = useCallback(
+    (teamKey: string) => hallNavigate("teams", teamKey),
+    [hallNavigate],
+  );
   // Within the Timeline tab: "seasons" = the list + selected-season résumé;
   // "overall" = a single chronological timeline across all seasons.
   const [timelineView, setTimelineView] = useState<"seasons" | "overall">(
@@ -5235,6 +5469,16 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
   };
 
   return (
+    <HistoryPlayerCardProvider
+      entries={seasonHistory}
+      liveInactive={liveSearchOpts?.liveInactive}
+      liveRosterIds={liveSearchOpts?.liveRosterIds}
+      onOpenProfile={openPlayerProfile}
+    >
+    <HistoryTeamCardProvider
+      entries={seasonHistory}
+      onOpenProfile={openTeamProfile}
+    >
     <div className="min-h-screen px-4 py-10 md:py-14">
       <div className="max-w-6xl mx-auto">
         <button
@@ -5469,26 +5713,29 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
                       {entry.champion ? (
                         <div className="mt-1 flex items-center gap-1.5 text-[10px] min-w-0">
                           <span aria-hidden className="flex-shrink-0">🏆</span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              hallNavigate("teams", teamRefKey(entry.champion!));
-                            }}
-                            className="inline-flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden hover:opacity-75 transition-opacity"
-                            title={`View ${entry.champion.name}`}
+                          <span
+                            className="min-w-0 max-w-full"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
                           >
-                            <TeamIcon
+                            <TeamNameLink
+                              seasonId={entry.id}
+                              name={entry.champion.name}
+                              leagueId={entry.champion.leagueId}
                               iconKey={entry.champion.iconKey}
                               logoUrl={resolveTeamLogo(entry.champion.name, entry.champion.logoUrl)}
-                              size={12}
                               color={entry.champion.color}
-                              className="flex-shrink-0"
+                              logoSize={12}
+                              className="inline-flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden text-[10px] text-rift-mutedbright"
+                              hint={{
+                                name: entry.champion.name,
+                                leagueId: entry.champion.leagueId,
+                                iconKey: entry.champion.iconKey,
+                                logoUrl: entry.champion.logoUrl,
+                                color: entry.champion.color,
+                              }}
                             />
-                            <span className="truncate text-rift-mutedbright min-w-0" title={entry.champion.name}>
-                              {entry.champion.name}
-                            </span>
-                          </button>
+                          </span>
                         </div>
                       ) : (
                         <div className="mt-1 text-[9px] italic text-rift-muted">
@@ -5500,32 +5747,32 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
                       {entry.intlChampions["global-cup"] && (
                         <div className="mt-1 flex items-center gap-1.5 text-[10px] min-w-0">
                           <GlobalCupBadge size={12} />
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              hallNavigate(
-                                "teams",
-                                teamRefKey(entry.intlChampions["global-cup"]!),
-                              );
-                            }}
-                            className="inline-flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden hover:opacity-75 transition-opacity"
-                            title={`View ${entry.intlChampions["global-cup"]!.name}`}
+                          <span
+                            className="min-w-0 max-w-full"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
                           >
-                            <TeamIcon
+                            <TeamNameLink
+                              seasonId={entry.id}
+                              name={entry.intlChampions["global-cup"]!.name}
+                              leagueId={entry.intlChampions["global-cup"]!.leagueId}
                               iconKey={entry.intlChampions["global-cup"]!.iconKey}
                               logoUrl={resolveTeamLogo(
                                 entry.intlChampions["global-cup"]!.name,
                                 entry.intlChampions["global-cup"]!.logoUrl,
                               )}
-                              size={12}
                               color={entry.intlChampions["global-cup"]!.color}
-                              className="flex-shrink-0"
+                              logoSize={12}
+                              className="inline-flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden text-[10px] text-rift-mutedbright"
+                              hint={{
+                                name: entry.intlChampions["global-cup"]!.name,
+                                leagueId: entry.intlChampions["global-cup"]!.leagueId,
+                                iconKey: entry.intlChampions["global-cup"]!.iconKey,
+                                logoUrl: entry.intlChampions["global-cup"]!.logoUrl,
+                                color: entry.intlChampions["global-cup"]!.color,
+                              }}
                             />
-                            <span className="truncate text-rift-mutedbright min-w-0" title={entry.intlChampions["global-cup"]!.name}>
-                              {entry.intlChampions["global-cup"]!.name}
-                            </span>
-                          </button>
+                          </span>
                         </div>
                       )}
                     </div>
@@ -5602,5 +5849,7 @@ export default function SeasonHistoryView({ onBack }: { onBack: () => void }) {
         onCancel={() => setConfirmRemove(null)}
       />
     </div>
+    </HistoryTeamCardProvider>
+    </HistoryPlayerCardProvider>
   );
 }

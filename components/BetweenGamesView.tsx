@@ -379,6 +379,8 @@ export default function BetweenGamesView({ champions }: Props) {
               redForms={sideForms.red}
               bluePlayerNames={series.bluePlayers?.map((p) => p.name ?? null)}
               redPlayerNames={series.redPlayers?.map((p) => p.name ?? null)}
+              bluePlayerIds={series.bluePlayers?.map((p) => p.id ?? null)}
+              redPlayerIds={series.redPlayers?.map((p) => p.id ?? null)}
             />
           </div>
         ) : !winnerDeclared ? (

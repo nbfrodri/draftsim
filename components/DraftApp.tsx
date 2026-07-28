@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useDraftStore, type SavedTournamentEntry } from "@/store/draftStore";
 import { tournamentChampion, type TournamentState } from "@/lib/tournament";
 import type { Champion } from "@/lib/types";
@@ -18,6 +24,8 @@ import SeasonDashboard from "./SeasonDashboard";
 import SeasonHistoryView from "./SeasonHistoryView";
 import RealitiesHub from "./RealitiesHub";
 import Modal from "./Modal";
+import { LivePlayerCardProvider } from "./player/PlayerCardContext";
+import { LiveTeamCardProvider } from "./team/TeamCardContext";
 import {
   isDesktop,
   openFileNative,
@@ -58,7 +66,12 @@ export default function DraftApp({ champions }: Props) {
   const seasonViewOpen = useDraftStore((s) => s.seasonViewOpen);
   const setChampions = useDraftStore((s) => s.setChampions);
   const hydrateMetaFromStorage = useDraftStore((s) => s.hydrateMetaFromStorage);
+  const exitSeasonView = useDraftStore((s) => s.exitSeasonView);
   const [entryView, setEntryView] = useState<EntryView>("menu");
+  // Deep-link target for the Hall — set when a player trading card anywhere in
+  // the live app is clicked, consumed by SeasonHistoryView's Search tab.
+  const [hallPlayerId, setHallPlayerId] = useState<string | null>(null);
+  const [hallTeamKey, setHallTeamKey] = useState<string | null>(null);
   // Wait for Zustand persist rehydration before showing empty menus /
   // "no realities" — async AppData reads on desktop finish after first
   // paint, and a premature empty UI (or a pre-hydrate set()) used to
@@ -95,6 +108,32 @@ export default function DraftApp({ champions }: Props) {
     };
   }, [hydrateMetaFromStorage]);
 
+  // A player card clicked anywhere in the live app jumps to that player's
+  // profile in the Hall — the one full-profile surface the app has.
+  const openHallPlayer = useCallback(
+    (playerId: string) => {
+      setHallPlayerId(playerId);
+      setHallTeamKey(null);
+      setEntryView("season-history");
+      exitSeasonView();
+    },
+    [exitSeasonView],
+  );
+  const openHallTeam = useCallback(
+    (teamKey: string) => {
+      setHallTeamKey(teamKey);
+      setHallPlayerId(null);
+      setEntryView("season-history");
+      exitSeasonView();
+    },
+    [exitSeasonView],
+  );
+  const leaveHall = useCallback(() => {
+    setHallPlayerId(null);
+    setHallTeamKey(null);
+    setEntryView("menu");
+  }, []);
+
   // Pre-hydration splash — matches the app's dark backdrop (body is
   // already bg #010a13 via globals.css) so it reads as a brief blank
   // frame rather than a flash of the wrong screen.
@@ -102,13 +141,27 @@ export default function DraftApp({ champions }: Props) {
     return <div aria-hidden="true" className="min-h-screen bg-rift-bg" />;
   }
 
-  // Tournament mode is active. Route between dashboard and the active
-  // match's series flow. The match's series lives in `state.series`
-  // while the match is in progress; when finishMatch clears it, we
-  // return to the dashboard.
-  if (tournament) {
+  const routed = (() => {
+    // Tournament mode is active. Route between dashboard and the active
+    // match's series flow. The match's series lives in `state.series`
+    // while the match is in progress; when finishMatch clears it, we
+    // return to the dashboard.
+    if (tournament) {
+      if (series) {
+        // Active match in flight — use the existing series-stage routing.
+        if (series.status === "drafting")
+          return <DraftView champions={champions} />;
+        if (series.status === "strategy")
+          return <StrategyView champions={champions} />;
+        if (series.status === "between-games")
+          return <BetweenGamesView champions={champions} />;
+        return <SeriesCompleteView champions={champions} />;
+      }
+      return <TournamentDashboard />;
+    }
+
+    // Single-series mode — existing flow.
     if (series) {
-      // Active match in flight — use the existing series-stage routing.
       if (series.status === "drafting")
         return <DraftView champions={champions} />;
       if (series.status === "strategy")
@@ -117,52 +170,58 @@ export default function DraftApp({ champions }: Props) {
         return <BetweenGamesView champions={champions} />;
       return <SeriesCompleteView champions={champions} />;
     }
-    return <TournamentDashboard />;
-  }
 
-  // Single-series mode — existing flow.
-  if (series) {
-    if (series.status === "drafting")
-      return <DraftView champions={champions} />;
-    if (series.status === "strategy")
-      return <StrategyView champions={champions} />;
-    if (series.status === "between-games")
-      return <BetweenGamesView champions={champions} />;
-    return <SeriesCompleteView champions={champions} />;
-  }
+    // Season mode — when the season view is open (and no tournament is
+    // being browsed, handled above), show the season dashboard.
+    if (seasonViewOpen && season) {
+      return <SeasonDashboard />;
+    }
 
-  // Season mode — when the season view is open (and no tournament is
-  // being browsed, handled above), show the season dashboard.
-  if (seasonViewOpen && season) {
-    return <SeasonDashboard />;
-  }
+    // No tournament and no series — show the entry chooser, or one of
+    // the setup screens depending on user choice.
+    if (entryView === "season-setup") {
+      return <SeasonSetup onCancel={() => setEntryView("menu")} />;
+    }
+    if (entryView === "tournament-setup") {
+      return <TournamentSetup onCancel={() => setEntryView("menu")} />;
+    }
+    if (entryView === "single-setup") {
+      // Pass a back callback so the form can return to the menu without
+      // requiring a state reset — it's just UI state.
+      return <CreateSimulationForm onBack={() => setEntryView("menu")} />;
+    }
+    if (entryView === "meta-library") {
+      return <MetaLibrary onBack={() => setEntryView("menu")} />;
+    }
+    if (entryView === "pairings-library") {
+      return <PairingsLibrary onBack={() => setEntryView("menu")} />;
+    }
+    if (entryView === "season-history") {
+      return (
+        <SeasonHistoryView
+          onBack={leaveHall}
+          initialPlayerId={hallPlayerId}
+          initialTeamKey={hallTeamKey}
+        />
+      );
+    }
+    if (entryView === "realities-hub") {
+      return <RealitiesHub onChoose={setEntryView} />;
+    }
+    return <EntryMenu onChoose={setEntryView} />;
+  })();
 
-  // No tournament and no series — show the entry chooser, or one of
-  // the setup screens depending on user choice.
-  if (entryView === "season-setup") {
-    return <SeasonSetup onCancel={() => setEntryView("menu")} />;
-  }
-  if (entryView === "tournament-setup") {
-    return <TournamentSetup onCancel={() => setEntryView("menu")} />;
-  }
-  if (entryView === "single-setup") {
-    // Pass a back callback so the form can return to the menu without
-    // requiring a state reset — it's just UI state.
-    return <CreateSimulationForm onBack={() => setEntryView("menu")} />;
-  }
-  if (entryView === "meta-library") {
-    return <MetaLibrary onBack={() => setEntryView("menu")} />;
-  }
-  if (entryView === "pairings-library") {
-    return <PairingsLibrary onBack={() => setEntryView("menu")} />;
-  }
-  if (entryView === "season-history") {
-    return <SeasonHistoryView onBack={() => setEntryView("menu")} />;
-  }
-  if (entryView === "realities-hub") {
-    return <RealitiesHub onChoose={setEntryView} />;
-  }
-  return <EntryMenu onChoose={setEntryView} />;
+  // One live-season card resolver for the whole app: the season dashboard,
+  // tournament/series screens and match recaps are siblings in this switch, so
+  // the provider has to sit above all of them. The Hall nests its own
+  // archive-backed provider on top.
+  return (
+    <LivePlayerCardProvider onOpenProfile={openHallPlayer}>
+      <LiveTeamCardProvider onOpenProfile={openHallTeam}>
+        {routed}
+      </LiveTeamCardProvider>
+    </LivePlayerCardProvider>
+  );
 }
 
 // Two-button chooser that routes into either flow. Kept inline here so

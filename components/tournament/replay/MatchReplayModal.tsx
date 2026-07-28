@@ -10,10 +10,12 @@ import type { TournamentMatch, TournamentState, TournamentTeam } from "@/lib/tou
 import type { Champion, GameDraft, GameRecap, Lane, Roster, Side } from "@/lib/types";
 import { LANES } from "@/lib/lanes";
 import LaneIcon from "@/components/LaneIcon";
-import TeamIcon from "@/components/TeamIcon";
+import TeamLogoLink from "@/components/team/TeamLogoLink";
+import TeamNameLink from "@/components/team/TeamNameLink";
 import WinProbChart from "@/components/charts/WinProbChart";
 import GoldLeadChart from "@/components/charts/GoldLeadChart";
 import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
+import PlayerNameLink from "@/components/player/PlayerNameLink";
 
 function resolveReplayTeam(
   tournament: TournamentState,
@@ -43,15 +45,28 @@ function ReplayTeamLabel({
 }) {
   return (
     <span className={`inline-flex items-center gap-1.5 min-w-0 ${className}`}>
-      {team && (
-        <TeamIcon
+      {team ? (
+        <TeamNameLink
+          teamId={team.id}
+          name={name}
           iconKey={team.iconKey}
           logoUrl={team.logoUrl}
-          size={iconSize}
           color={team.color}
-        />
+          logoSize={iconSize}
+          renderAs="span"
+          className="inline-flex items-center gap-1.5 min-w-0 truncate"
+          hint={{
+            name: team.name,
+            iconKey: team.iconKey,
+            logoUrl: team.logoUrl,
+            color: team.color,
+          }}
+        >
+          {name}
+        </TeamNameLink>
+      ) : (
+        <span className="truncate">{name}</span>
       )}
-      <span className="truncate">{name}</span>
     </span>
   );
 }
@@ -112,6 +127,7 @@ function teamSideInGame(game: GameDraft, teamName: string): Side | null {
 type SeriesPlayerSummary = {
   lane: Lane;
   name: string | null;
+  playerId: string | null;
   avgRating: number;
   kda: { k: number; d: number; a: number };
 };
@@ -173,6 +189,7 @@ function seriesTeamPlayerSummaries(
   return LANES.map(({ key: lane }, i) => ({
     lane,
     name: namesFromGames[i] ?? roster?.[i]?.name ?? null,
+    playerId: roster?.[i]?.id ?? null,
     avgRating:
       ratingCount[i] > 0
         ? Math.round((ratingSum[i] / ratingCount[i]) * 10) / 10
@@ -492,11 +509,20 @@ function SeriesRatingsPanel({
     <div className={`border ${borderAccent} bg-rift-bg/25 px-2 py-1.5`}>
       <div className={`flex items-center gap-1.5 mb-1.5 ${sideAccent}`}>
         {team && (
-          <TeamIcon
+          <TeamLogoLink
+            teamId={team.id}
+            name={team.name}
             iconKey={team.iconKey}
             logoUrl={team.logoUrl}
-            size={14}
             color={team.color}
+            size={14}
+            renderAs="span"
+            hint={{
+              name: team.name,
+              iconKey: team.iconKey,
+              logoUrl: team.logoUrl,
+              color: team.color,
+            }}
           />
         )}
         <span className="text-[8px] uppercase tracking-[0.3em] truncate">
@@ -516,12 +542,21 @@ function SeriesRatingsPanel({
               className="flex items-center gap-1.5 min-w-0 text-[10px]"
             >
               <LaneIcon lane={p.lane} className="w-3.5 h-3.5 text-rift-gold/70 flex-shrink-0" />
-              <span
-                className="truncate flex-1 min-w-0 font-medium text-rift-mutedbright"
-                title={p.name ?? LANES[i].label}
-              >
-                {p.name ?? LANES[i].label}
-              </span>
+              {p.name && p.playerId ? (
+                <PlayerNameLink
+                  playerId={p.playerId}
+                  name={p.name}
+                  className="truncate flex-1 min-w-0 font-medium text-rift-mutedbright"
+                  title={p.name}
+                />
+              ) : (
+                <span
+                  className="truncate flex-1 min-w-0 font-medium text-rift-mutedbright"
+                  title={p.name ?? LANES[i].label}
+                >
+                  {p.name ?? LANES[i].label}
+                </span>
+              )}
               {hasKda && (
                 <span className="tabular-nums font-display flex-shrink-0 text-[9px]">
                   <span className="text-emerald-300">{p.kda.k}</span>
@@ -650,6 +685,7 @@ function ReplayGamePanel({
           perPickKDA={recap?.perPickKDA?.blue}
           ratings={perGameRatings?.blue}
           playerNames={recap?.perPickNames?.blue}
+          playerIds={recap?.perPickIds?.blue}
         />
         <PickColumn
           side="red"
@@ -663,6 +699,7 @@ function ReplayGamePanel({
           perPickKDA={recap?.perPickKDA?.red}
           ratings={perGameRatings?.red}
           playerNames={recap?.perPickNames?.red}
+          playerIds={recap?.perPickIds?.red}
         />
       </div>
 
@@ -910,6 +947,7 @@ function PickColumn({
   perPickKDA,
   ratings,
   playerNames,
+  playerIds,
 }: {
   side: Side;
   team: TournamentTeam | null;
@@ -929,6 +967,8 @@ function PickColumn({
   ratings?: number[];
   // Optional per-pick player handles (positional lane order).
   playerNames?: (string | null)[];
+  // Stable player ids parallel to `playerNames`.
+  playerIds?: (string | null)[];
 }) {
   const sideAccent =
     side === "blue" ? "text-rift-bluebright" : "text-rift-redbright";
@@ -995,9 +1035,11 @@ function PickColumn({
                     <span className="text-[11px] font-display tracking-wider text-rift-mutedbright truncate flex-1">
                       {c.name}
                       {playerNames?.[i] && (
-                        <span className="ml-1 font-sans font-medium text-[10px] text-rift-mutedbright">
-                          {playerNames[i]}
-                        </span>
+                        <PlayerNameLink
+                          playerId={playerIds?.[i] ?? undefined}
+                          name={playerNames[i]}
+                          className="ml-1 font-sans font-medium text-[10px] text-rift-mutedbright"
+                        />
                       )}
                     </span>
                     {diff != null && (

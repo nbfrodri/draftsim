@@ -288,8 +288,8 @@ body::after {
 
 /* Offscreen section skip — season/tournament dashboards mount large panel
    trees; content-visibility lets the browser skip layout/paint for cards
-   and sections that aren't near the viewport (safe: no sticky/absolute
-   positioning that depends on continuous layout). */
+   and sections that aren't near the viewport. Do NOT wrap panels that use
+   position:sticky or portaled hover tooltips (Transfer Window, etc.). */
 .cv-auto {
   content-visibility: auto;
   contain-intrinsic-size: auto 180px;
@@ -401,3 +401,91 @@ button { -webkit-tap-highlight-color: transparent; }
 .animate-event-flash-blue { animation: event-flash-blue 1.4s ease-out; }
 .animate-event-flash-red  { animation: event-flash-red 1.4s ease-out; }
 .animate-event-flash-gold { animation: event-flash-gold 1.4s ease-out; }
+
+/* ── Player trading card (hover tooltip) ─────────────────────────────────────
+   A chamfered "collector card" frame: an accent-gradient sliver painted behind
+   an inset panel gives a 1px hairline border that survives the clip-path (a
+   real border would be cut off by it). Both layers share the same silhouette,
+   the inner one 1px tighter. `--pc-accent` / `--pc-accent-soft` are set inline
+   per tier by the component, so one rule themes S+ gold through D red. */
+@keyframes player-card-in {
+  from { opacity: 0; transform: translateY(5px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.player-card {
+  --pc-accent: #c8aa6e;
+  --pc-accent-soft: rgba(200, 170, 110, 0.16);
+  padding: 1px;
+  background:
+    linear-gradient(
+      155deg,
+      var(--pc-accent) 0%,
+      rgba(200, 170, 110, 0.28) 32%,
+      rgba(30, 35, 40, 0.95) 72%,
+      var(--pc-accent-soft) 100%
+    );
+  clip-path: polygon(
+    13px 0%, 100% 0%, 100% calc(100% - 13px),
+    calc(100% - 13px) 100%, 0% 100%, 0% 13px
+  );
+  filter: drop-shadow(0 16px 36px rgba(0, 0, 0, 0.7));
+  animation: player-card-in 150ms cubic-bezier(0.22, 0.85, 0.3, 1);
+}
+
+.player-card-body {
+  position: relative;
+  clip-path: polygon(
+    12px 0%, 100% 0%, 100% calc(100% - 12px),
+    calc(100% - 12px) 100%, 0% 100%, 0% 12px
+  );
+  background:
+    radial-gradient(115% 70% at 0% 0%, var(--pc-accent-soft) 0%, transparent 58%),
+    linear-gradient(180deg, #071626 0%, #04101c 52%, #020a12 100%);
+}
+
+/* Hairline hatch behind the header — texture, not noise. */
+.player-card-hatch::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: repeating-linear-gradient(
+    115deg,
+    rgba(200, 170, 110, 0.07) 0px,
+    rgba(200, 170, 110, 0.07) 1px,
+    transparent 1px,
+    transparent 7px
+  );
+  mask-image: linear-gradient(180deg, black 0%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, black 0%, transparent 100%);
+}
+
+/* Accent rail across the top of the card, brightest at the tier badge. */
+.player-card-rail {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--pc-accent) 0%,
+    var(--pc-accent) 18%,
+    rgba(200, 170, 110, 0.22) 55%,
+    transparent 100%
+  );
+}
+
+/* Tier pennant — chamfered on the bottom-right, echoing the card silhouette. */
+.player-card-pennant {
+  clip-path: polygon(
+    0% 0%, 100% 0%, 100% calc(100% - 5px),
+    calc(100% - 5px) 100%, 0% 100%
+  );
+}
+
+/* Diverging form meter: the fill grows out from a fixed center tick. */
+.player-card-meter {
+  background:
+    linear-gradient(90deg, transparent 49.5%, rgba(200, 170, 110, 0.45) 49.5%,
+      rgba(200, 170, 110, 0.45) 50.5%, transparent 50.5%),
+    rgba(30, 35, 40, 0.9);
+}

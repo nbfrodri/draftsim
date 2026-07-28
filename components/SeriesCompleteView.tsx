@@ -7,6 +7,7 @@ import { fearlessLocksBeforeGame, winsByTeamName } from "@/lib/series";
 import { computeGameRatings } from "@/lib/matchSimulator";
 import type { Champion, GameDraft, GameRecap, Lane, Side } from "@/lib/types";
 import LaneIcon from "./LaneIcon";
+import PlayerNameLink from "./player/PlayerNameLink";
 import TeamName from "./TeamName";
 import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
 
@@ -331,6 +332,7 @@ interface MvpBits {
   champ: Champion;
   lane: Lane;
   playerName: string | null;
+  playerId: string | null;
   kda: string;
 }
 
@@ -365,6 +367,7 @@ function describeGameRecap(
           champ: mvpChamp,
           lane: recap.mvp.lane,
           playerName: recap.mvp.playerName ?? null,
+          playerId: recap.mvp.playerId ?? null,
           kda: `${recap.mvp.kills}/${recap.mvp.deaths}/${recap.mvp.assists}`,
         }
       : null;
@@ -430,7 +433,15 @@ function SeriesNarrative({
                     />
                     <LaneIcon lane={mvp.lane} size="xs" className="shrink-0 opacity-80" />
                     <span className="truncate">
-                      {mvp.playerName ? `${mvp.playerName} · ` : ""}
+                      {mvp.playerName && (
+                        <>
+                          <PlayerNameLink
+                            playerId={mvp.playerId ?? undefined}
+                            name={mvp.playerName}
+                          />
+                          {" · "}
+                        </>
+                      )}
                       {mvp.champ.name} {mvp.kda}
                     </span>
                   </div>

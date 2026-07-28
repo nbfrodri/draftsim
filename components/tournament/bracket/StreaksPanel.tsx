@@ -6,6 +6,7 @@ import type { TournamentState } from "@/lib/tournament";
 import { hotPlayers } from "@/lib/streaks";
 import type { Lane } from "@/lib/types";
 import LaneIcon from "../../LaneIcon";
+import TeamNameLink from "@/components/team/TeamNameLink";
 import { teamStreaksFor } from "./MatchCard";
 
 // StreaksPanel — compact "On fire / Slumping" sidebar panel.
@@ -72,12 +73,22 @@ export function StreaksPanel({ tournament }: { tournament: TournamentState }) {
                 >
                   W{streak.count}
                 </span>
-                <span
+                <TeamNameLink
+                  teamId={team.id}
+                  name={team.name}
+                  iconKey={team.iconKey}
+                  logoUrl={team.logoUrl}
+                  color={team.color ?? undefined}
+                  showLogo={false}
+                  renderAs="span"
                   className="font-display tracking-wide truncate text-rift-mutedbright"
-                  style={team.color ? { color: team.color } : undefined}
-                >
-                  {team.name}
-                </span>
+                  hint={{
+                    name: team.name,
+                    iconKey: team.iconKey,
+                    logoUrl: team.logoUrl,
+                    color: team.color ?? undefined,
+                  }}
+                />
               </div>
             ))}
           </div>

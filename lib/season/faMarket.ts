@@ -12,6 +12,7 @@ import { driftPlayerPool } from "./poolDrift";
 /** Mirror of lifecycle constants — keep in sync with playerLifecycle.ts. */
 const ACADEMY_YEARS = 3;
 const TOTAL_INACTIVE_BEFORE_RETIRE = 7; // ACADEMY_YEARS + FREE_AGENT_YEARS (4)
+const FREE_AGENT_YEARS = TOTAL_INACTIVE_BEFORE_RETIRE - ACADEMY_YEARS;
 /**
  * Earliest academy→FA for weak depth (personal tenure floor).
  * Soft default remains {@link ACADEMY_YEARS} (3); hard ceiling {@link ACADEMY_YEARS_MAX}.
@@ -55,14 +56,38 @@ export type MarketNote =
   /** Followed-team manual bench — slot left open until FA / academy / AI fill. */
   | "manual-demote"
   /** Followed-team AI-decide voluntary bench (same window as manual-demote). */
-  | "ai-demote";
+  | "ai-demote"
+  /** Agency: main-roster player left for preferred org / FA. */
+  | "agency-leave"
+  /** Agency: prospect demanded and received a call-up. */
+  | "agency-callup"
+  /** Agency: academy prospect departed to another org / FA. */
+  | "agency-depart"
+  /** Agency: user overrode a leave/call-up demand (player stayed). */
+  | "agency-override"
+  /** Agency: FA preferred this org (or user priority signed them). */
+  | "agency-sign";
 
 /** Minimal inactive shape used by the market (compatible with MarketInactive). */
 export interface MarketInactive {
   player: Player;
   status: "academy" | "free-agent" | "retired";
   inactiveYears: number;
+  /**
+   * Franchise year the player left the **main roster** (demote / cut / mint).
+   * Stable identity used by archive filters and Hall tenure rows — it is NOT
+   * the badge clock. Moves inside the inactive path (academy → FA, FA →
+   * academy stash) keep it and reset {@link clockYear} instead.
+   */
   demotedYear: number;
+  /**
+   * Franchise year {@link inactiveYears} was last (re)set to its 1-based
+   * start. Year-end {@link advanceInactivePool} skips the badge tick when this
+   * equals the closing year, so a clock started mid-year archives at ·1y
+   * instead of burning 1→2 the same season. Missing on pre-clockYear saves —
+   * always read via {@link inactiveClockYear}.
+   */
+  clockYear?: number;
   lastTeamId: string;
   lastTeamName?: string;
   lastActiveGrade?: number | null;
@@ -74,6 +99,18 @@ export interface MarketInactive {
    * mint still starts (and archives) at Academy · 1y.
    */
   academyTenureShift?: number;
+}
+
+/**
+ * Year the badge clock started for `entry`. Falls back to `demotedYear` for
+ * saves written before `clockYear` existed (same value for every entry whose
+ * clock never moved inside the inactive path).
+ */
+export function inactiveClockYear(entry: {
+  clockYear?: number;
+  demotedYear: number;
+}): number {
+  return entry.clockYear ?? entry.demotedYear;
 }
 
 export interface MarketTeamInput {
@@ -360,13 +397,20 @@ export function countAcademyRookiesMintedInYear(
 }
 
 /**
- * Index of longest-tenured academy player for `teamId`.
- * Tenure: highest inactiveYears, then earliest demotedYear.
+ * Index of the academy player for `teamId` most due to leave.
+ *
+ * Legibility rule: when `year` is given, players whose academy clock started
+ * *this* year sort last, so a same-year demotee gets at least one archived
+ * Academy · 1y row before the cap can bump them straight back to FA. Within a
+ * cohort: highest inactiveYears, then earliest clock, then earliest demotion.
  */
 export function findOldestTeamAcademyIdx(
   pool: readonly MarketInactive[],
   teamId: string,
+  year?: number,
 ): number {
+  const arrivedThisYear = (e: MarketInactive) =>
+    year != null && inactiveClockYear(e) === year;
   let best = -1;
   for (let i = 0; i < pool.length; i++) {
     const e = pool[i]!;
@@ -376,9 +420,23 @@ export function findOldestTeamAcademyIdx(
       continue;
     }
     const b = pool[best]!;
+    if (arrivedThisYear(e) !== arrivedThisYear(b)) {
+      if (!arrivedThisYear(e)) best = i;
+      continue;
+    }
     const ey = Math.max(1, e.inactiveYears < 1 ? 1 : e.inactiveYears);
     const by = Math.max(1, b.inactiveYears < 1 ? 1 : b.inactiveYears);
-    if (ey > by || (ey === by && e.demotedYear < b.demotedYear)) best = i;
+    if (ey !== by) {
+      if (ey > by) best = i;
+      continue;
+    }
+    const ec = inactiveClockYear(e);
+    const bc = inactiveClockYear(b);
+    if (ec !== bc) {
+      if (ec < bc) best = i;
+      continue;
+    }
+    if (e.demotedYear < b.demotedYear) best = i;
   }
   return best;
 }
@@ -387,12 +445,21 @@ export function findOldestTeamAcademyIdx(
  * Flip an academy entry to free-agent at FA · 1y (`inactiveYears =
  * ACADEMY_YEARS + 1`). Always snap the FA clock so variable academy tenure
  * (2–4y) does not shorten/lengthen the 4y FA window.
+ *
+ * `year` restarts the badge clock ({@link MarketInactive.clockYear}) — pass it
+ * for mid-year snaps (release / cap bump) so the year-end advance does not
+ * immediately tick the fresh FA · 1y to 2y. The year-end graduate path leaves
+ * it unset: that clock already ticked this offseason.
  */
-export function toFreeAgentFromAcademy(entry: MarketInactive): MarketInactive {
+export function toFreeAgentFromAcademy(
+  entry: MarketInactive,
+  year?: number,
+): MarketInactive {
   return {
     ...entry,
     status: "free-agent",
     inactiveYears: ACADEMY_YEARS + 1,
+    ...(year != null ? { clockYear: year } : {}),
   };
 }
 
@@ -404,10 +471,11 @@ export function toFreeAgentFromAcademy(entry: MarketInactive): MarketInactive {
 export function bumpOldestAcademyToFa(
   pool: readonly MarketInactive[],
   teamId: string,
+  year?: number,
 ): { pool: MarketInactive[]; bumped: MarketInactive | null } {
-  const idx = findOldestTeamAcademyIdx(pool, teamId);
+  const idx = findOldestTeamAcademyIdx(pool, teamId, year);
   if (idx < 0) return { pool: [...pool], bumped: null };
-  const bumped = toFreeAgentFromAcademy(pool[idx]!);
+  const bumped = toFreeAgentFromAcademy(pool[idx]!, year);
   return {
     pool: pool.map((e, i) => (i === idx ? bumped : e)),
     bumped,
@@ -417,7 +485,8 @@ export function bumpOldestAcademyToFa(
 /**
  * Park `entry` into the team's academy. If at {@link ACADEMY_MAX_PER_TEAM},
  * bumps the oldest academy player to FA first, then inserts.
- * Does not mutate `pool`.
+ * Does not mutate `pool`. The bump inherits `entry`'s clock year — both moves
+ * happen on the same day.
  */
 export function addToTeamAcademy(
   pool: readonly MarketInactive[],
@@ -426,7 +495,11 @@ export function addToTeamAcademy(
   let bumped: MarketInactive | null = null;
   let next: MarketInactive[];
   if (countTeamAcademy(pool, entry.lastTeamId) >= ACADEMY_MAX_PER_TEAM) {
-    const res = bumpOldestAcademyToFa(pool, entry.lastTeamId);
+    const res = bumpOldestAcademyToFa(
+      pool,
+      entry.lastTeamId,
+      inactiveClockYear(entry),
+    );
     next = res.pool;
     bumped = res.bumped;
   } else {
@@ -479,12 +552,14 @@ export function makeRetiredNews(entry: MarketInactive): MarketNewsEvent {
 
 /**
  * Release a specific academy player belonging to `teamId` → free-agent.
- * Does not mutate `pool`.
+ * Does not mutate `pool`. Pass the current franchise `year` so the fresh
+ * FA · 1y clock survives this year-end (see {@link toFreeAgentFromAcademy}).
  */
 export function releaseAcademyToFa(
   pool: readonly MarketInactive[],
   teamId: string,
   playerId: string,
+  year?: number,
 ): { pool: MarketInactive[]; released: MarketInactive | null } {
   const idx = pool.findIndex(
     (e) =>
@@ -493,7 +568,7 @@ export function releaseAcademyToFa(
       e.player.id === playerId,
   );
   if (idx < 0) return { pool: [...pool], released: null };
-  const released = toFreeAgentFromAcademy(pool[idx]!);
+  const released = toFreeAgentFromAcademy(pool[idx]!, year);
   const next = pool.map((e, i) => (i === idx ? released : e));
   return { pool: next, released };
 }
@@ -769,6 +844,8 @@ export function pickScoredReturnee(
  * Year-end competitive market: lock academy recalls that aren't clearly beaten,
  * then greedily assign each FA once to the highest-value vacancy.
  * `excludePlayerIds` — same-pass demotees must not fill any vacancy this pass.
+ * `bidBoost` — optional soft preference (player agency / user priority) added
+ * to FA bid value so stronger orgs win contention without chaos.
  */
 export function resolveCompetitiveFills(
   vacancies: MarketVacancy[],
@@ -777,6 +854,7 @@ export function resolveCompetitiveFills(
   meta: SeasonMetaSnapshot,
   rng: RNG,
   excludePlayerIds?: ReadonlySet<string>,
+  bidBoost?: (fa: MarketInactive, vacancy: MarketVacancy) => number,
 ): { fills: MarketFill[]; remainingPool: MarketInactive[] } {
   const working = [...pool];
   const fills: MarketFill[] = [];
@@ -823,18 +901,27 @@ export function resolveCompetitiveFills(
     }
   }
 
-  // Pass 2: FA auction — greedy by transferValue; each FA once.
-  type Bid = { vi: number; poolIdx: number; value: number; faName?: string };
+  // Pass 2: FA auction — greedy by transferValue (+ optional agency boost).
+  type Bid = {
+    vi: number;
+    poolIdx: number;
+    value: number;
+    rawValue: number;
+    faName?: string;
+  };
   const bids: Bid[] = [];
   for (let vi = 0; vi < vacancies.length; vi++) {
     if (claimed.has(vi)) continue;
     const v = vacancies[vi]!;
     for (const { entry, idx } of eligibleFa(working, v.lane, excludePlayerIds)) {
       if (faLocked.has(idx)) continue;
+      const rawValue = inactiveTransferValue(entry, byId, meta);
+      const boost = bidBoost ? bidBoost(entry, v) : 0;
       bids.push({
         vi,
         poolIdx: idx,
-        value: inactiveTransferValue(entry, byId, meta),
+        value: rawValue + boost,
+        rawValue,
         ...(entry.player.name ? { faName: entry.player.name } : {}),
       });
     }
@@ -852,7 +939,7 @@ export function resolveCompetitiveFills(
 
   for (const b of bids) {
     if (vacancyTaken.has(b.vi) || faLocked.has(b.poolIdx)) continue;
-    if (b.value < ROOKIE_VALUE_FLOOR) continue;
+    if (b.rawValue < ROOKIE_VALUE_FLOOR) continue;
     const v = vacancies[b.vi]!;
     const entry = working[b.poolIdx]!;
     const academy = eligibleAcademy(working, v.lane, v.teamId, excludePlayerIds);
@@ -861,6 +948,7 @@ export function resolveCompetitiveFills(
     vacancyTaken.add(b.vi);
     faLocked.add(b.poolIdx);
     const rivals = (faNamesByVacancy.get(b.vi) ?? []).filter((n) => n !== entrant.name);
+    const agencyNote = bidBoost && b.value - b.rawValue >= 0.4;
     fills.push({
       vacancy: v,
       entrant,
@@ -868,7 +956,9 @@ export function resolveCompetitiveFills(
       poolIdx: b.poolIdx,
       ...(passed
         ? { passedAcademyName: passed, marketNote: "academy-pass" as const }
-        : { marketNote: "fa-sign" as const }),
+        : {
+            marketNote: (agencyNote ? "agency-sign" : "fa-sign") as MarketNote,
+          }),
       ...(rivals.length > 0 ? { beatenNames: rivals.slice(0, 2) } : {}),
     });
   }
@@ -884,7 +974,13 @@ export function resolveCompetitiveFills(
   return { fills, remainingPool };
 }
 
-/** AI open FA window: only replace clearly weaker lanes (choice A). */
+/**
+ * AI open FA window: only replace clearly weaker lanes (choice A).
+ *
+ * `demoteYear` stamps the **cut incumbent** — it is the closing/current year,
+ * never the upcoming intake year, so a year-end cut still lands in the closing
+ * season's archive as Academy · 1y.
+ */
 export function runOpenFaReplacePass(
   teams: { id: string; name: string; leagueId?: string; players: Player[] }[],
   pool: MarketInactive[],
@@ -892,7 +988,7 @@ export function runOpenFaReplacePass(
   meta: SeasonMetaSnapshot,
   outcomesById: Map<string, { grade: number | null }>,
   rng: RNG,
-  year: number,
+  demoteYear: number,
   opts?: { skipTeamIds?: ReadonlySet<string>; attemptChance?: number },
 ): {
   teams: { id: string; players: Player[] }[];
@@ -965,7 +1061,8 @@ export function runOpenFaReplacePass(
       player: { ...best.incumbent, badStreak: 0 },
       status: "academy",
       inactiveYears: 1,
-      demotedYear: year,
+      demotedYear: demoteYear,
+      clockYear: demoteYear,
       lastTeamId: team.id,
       lastTeamName: team.name,
       ...(grade != null ? { lastActiveGrade: grade, shadowGrade: grade } : {}),
@@ -1003,6 +1100,7 @@ export function runOpenFaReplacePass(
  * {@link MAX_OPEN_ACADEMY_PROMOTES_PER_TEAM}. Cap / FA valves unchanged —
  * this only makes affiliate call-ups less rare.
  * `excludePlayerIds` blocks same-pass demotees from instant re-call.
+ * `demoteYear` stamps the displaced incumbent (closing year, not intake year).
  */
 export function runOpenAcademyReplacePass(
   teams: { id: string; name: string; leagueId?: string; players: Player[] }[],
@@ -1011,7 +1109,7 @@ export function runOpenAcademyReplacePass(
   meta: SeasonMetaSnapshot,
   outcomesById: Map<string, { grade: number | null }>,
   rng: RNG,
-  year: number,
+  demoteYear: number,
   opts?: { skipTeamIds?: ReadonlySet<string>; excludePlayerIds?: ReadonlySet<string> },
 ): {
   teams: { id: string; players: Player[] }[];
@@ -1093,7 +1191,8 @@ export function runOpenAcademyReplacePass(
       player: { ...best.incumbent, badStreak: 0 },
       status: "academy",
       inactiveYears: 1,
-      demotedYear: year,
+      demotedYear: demoteYear,
+      clockYear: demoteYear,
       lastTeamId: team.id,
       lastTeamName: team.name,
       ...(grade != null ? { lastActiveGrade: grade, shadowGrade: grade } : {}),
@@ -1138,6 +1237,16 @@ const fmtGrade = (n: number | null | undefined) =>
   n == null || Number.isNaN(n) ? "–" : n.toFixed(1);
 
 /**
+ * FA badge year from total inactive years, clamped to the 4y FA window.
+ * Legacy saves can carry an over-run clock (retired-eligible but still listed);
+ * the badge must not read "FA 5y".
+ */
+export function faBadgeYears(inactiveYears: number): number {
+  const years = inactiveYears < 1 ? 1 : inactiveYears;
+  return Math.min(FREE_AGENT_YEARS, Math.max(1, years - ACADEMY_YEARS));
+}
+
+/**
  * Native `title` tooltip for FA board rows (no shared Tooltip component).
  * Keep Sign buttons free of this string so hover doesn't block actions.
  */
@@ -1149,7 +1258,7 @@ export function formatFaBoardTooltip(row: FaBoardRow): string {
     entry.status === "academy"
       ? `Academy ${Math.min(ACADEMY_YEARS_MAX, years)}y · ${yearsLeftToFa}y to FA`
       : entry.status === "free-agent"
-        ? `FA ${Math.max(1, years - ACADEMY_YEARS)}y · ${yearsLeftToRetire}y to retire`
+        ? `FA ${faBadgeYears(years)}y · ${yearsLeftToRetire}y to retire`
         : "Retired";
   const lastTeam = entry.lastTeamName ?? entry.lastTeamId ?? "—";
   const lines = [
@@ -1394,6 +1503,7 @@ export function executeUserFaSign(
       status: "academy",
       inactiveYears: 1,
       demotedYear: year,
+      clockYear: year,
       lastTeamId: team.id,
       lastTeamName: team.name,
       ...(grade != null ? { lastActiveGrade: grade, shadowGrade: grade } : {}),
@@ -1505,6 +1615,7 @@ export function executeUserAcademyRecall(
       status: "academy",
       inactiveYears: 1,
       demotedYear: year,
+      clockYear: year,
       lastTeamId: team.id,
       lastTeamName: team.name,
       ...(grade != null ? { lastActiveGrade: grade, shadowGrade: grade } : {}),
@@ -1546,8 +1657,9 @@ export function executeUserAcademyRecall(
 
 /**
  * Sign an FA into the followed org's academy (not main roster). Resets the
- * academy clock to 1y at the new org. Does **not** bump when full — caller
- * / UI must check {@link teamAcademyHasRoom} (reason `"academy-full"`).
+ * academy badge clock to 1y at the new org while keeping `demotedYear` (the
+ * year they left a main roster). Does **not** bump when full — caller / UI
+ * must check {@link teamAcademyHasRoom} (reason `"academy-full"`).
  */
 export function executeUserFaToAcademy(
   pool: readonly MarketInactive[],
@@ -1584,7 +1696,8 @@ export function executeUserFaToAcademy(
     player: { ...fa.player, badStreak: 0 },
     status: "academy",
     inactiveYears: 1,
-    demotedYear: year,
+    demotedYear: fa.demotedYear,
+    clockYear: year,
     lastTeamId: teamId,
     lastTeamName: teamName,
     ...(fa.lastActiveGrade != null
@@ -1613,11 +1726,13 @@ export function executeUserFaToAcademy(
 
 /**
  * Release a same-org academy player to free agency (FA · 1y clock).
+ * `year` restarts the badge clock so the release archives as FA · 1y.
  */
 export function executeUserAcademyRelease(
   pool: readonly MarketInactive[],
   teamId: string,
   academyPlayerId: string,
+  year?: number,
 ): {
   inactivePool: MarketInactive[];
   news: Array<MarketNewsEvent>;
@@ -1628,7 +1743,12 @@ export function executeUserAcademyRelease(
     inactivePool: [...pool],
     news: [] as Array<MarketNewsEvent>,
   };
-  const { pool: nextPool, released } = releaseAcademyToFa(pool, teamId, academyPlayerId);
+  const { pool: nextPool, released } = releaseAcademyToFa(
+    pool,
+    teamId,
+    academyPlayerId,
+    year,
+  );
   if (!released) return { ...passthrough, ok: false, reason: "acy-gone" };
   return {
     inactivePool: nextPool,
@@ -1703,6 +1823,8 @@ export function runAiAcademyReleasePass(
   byId: Map<number, Champion>,
   meta: SeasonMetaSnapshot,
   rng: RNG,
+  /** Closing / current franchise year — restarts the released FA · 1y clock. */
+  releaseYear?: number,
   opts?: { skipTeamIds?: ReadonlySet<string> },
 ): {
   inactivePool: MarketInactive[];
@@ -1737,7 +1859,12 @@ export function runAiAcademyReleasePass(
     if (bestIdx < 0) continue;
     const victim = working[bestIdx]!;
     const pid = victim.player.id!;
-    const { pool: next, released } = releaseAcademyToFa(working, team.id, pid);
+    const { pool: next, released } = releaseAcademyToFa(
+      working,
+      team.id,
+      pid,
+      releaseYear,
+    );
     if (!released) continue;
     working = next;
     releasedByTeam.set(team.id, (releasedByTeam.get(team.id) ?? 0) + 1);
@@ -1776,6 +1903,7 @@ export function executeAddAcademyRookie(
     status: "academy",
     inactiveYears: 1,
     demotedYear: year,
+    clockYear: year,
     lastTeamId: teamId,
     lastTeamName: teamName,
   }).pool;
@@ -1831,6 +1959,11 @@ export function shallowestAcademyLane(
  * and the org has academy room. At most {@link MAX_AI_ACADEMY_STASH_PER_TEAM}.
  * Mid-split uses {@link AI_ACADEMY_STASH_CHANCE_MID_SPLIT}; offseason uses
  * {@link AI_ACADEMY_STASH_CHANCE}.
+ *
+ * `stashYear` is the closing / current year: it restarts the academy badge
+ * clock while `demotedYear` keeps pointing at the year they left a main
+ * roster. Passing an intake year here would freeze the new Acy · 1y badge for
+ * two calendar years.
  */
 export function runAiAcademyStashPass(
   teams: { id: string; name: string; leagueId?: string; players: Player[] }[],
@@ -1838,7 +1971,7 @@ export function runAiAcademyStashPass(
   byId: Map<number, Champion>,
   meta: SeasonMetaSnapshot,
   rng: RNG,
-  year: number,
+  stashYear: number,
   opts?: { skipTeamIds?: ReadonlySet<string>; midSplit?: boolean },
 ): {
   inactivePool: MarketInactive[];
@@ -1898,7 +2031,8 @@ export function runAiAcademyStashPass(
       player: { ...fa.player, badStreak: 0 },
       status: "academy",
       inactiveYears: 1,
-      demotedYear: year,
+      demotedYear: fa.demotedYear,
+      clockYear: stashYear,
       lastTeamId: team.id,
       lastTeamName: team.name,
       ...(fa.lastActiveGrade != null
@@ -1983,6 +2117,8 @@ export function applyAcademyGraduateCap(
   }
   if (graduateIdx.length === 0) return [...after];
 
+  // No clock restart: this graduation *is* the year-end tick, so the fresh
+  // FA · 1y must tick again next year-end.
   const snapFa = (e: MarketInactive): MarketInactive => toFreeAgentFromAcademy(e);
 
   if (graduateIdx.length <= ACADEMY_GRADUATE_CAP_PER_YEAR) {

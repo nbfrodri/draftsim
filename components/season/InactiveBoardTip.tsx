@@ -11,8 +11,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import type { FaBoardRow } from "@/lib/season/faMarket";
-import { ACADEMY_YEARS, ACADEMY_YEARS_MAX } from "@/lib/season/playerLifecycle";
+import { faBadgeYears, type FaBoardRow } from "@/lib/season/faMarket";
+import { ACADEMY_YEARS_MAX } from "@/lib/season/playerLifecycle";
 import type { PlayerTier } from "@/lib/types";
 
 const TIER_CLS: Record<PlayerTier, string> = {
@@ -128,7 +128,7 @@ export default function InactiveBoardTip({
   const yearsLabel = isAcademy
     ? `${Math.min(ACADEMY_YEARS_MAX, years)}y in academy · ${yearsLeftToFa}y to FA`
     : entry.status === "free-agent"
-      ? `${Math.max(1, years - ACADEMY_YEARS)}y as FA · ${yearsLeftToRetire}y to retire`
+      ? `${faBadgeYears(years)}y as FA · ${yearsLeftToRetire}y to retire`
       : "Retired";
   const lastTeam = entry.lastTeamName ?? entry.lastTeamId ?? "—";
 

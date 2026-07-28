@@ -31,13 +31,15 @@ import {
   type SeasonTeam,
 } from "@/lib/season/types";
 import type { Champion, Lane, PlayerTier } from "@/lib/types";
-import TeamIcon from "./TeamIcon";
+import TeamNameLink from "./team/TeamNameLink";
 import LaneIcon from "./LaneIcon";
 import { ProjectedChemScore } from "./ChemistryRow";
 import { LeagueConfigCard, IntlConfigCard, GlobalCupConfigCard, INTL_IDS } from "./season/configCards";
 import TeamPicker from "./season/TeamPicker";
 import InactiveMarketBoard from "./season/InactiveMarketBoard";
 import VacancyFillPicker from "./season/VacancyFillPicker";
+import AgencyDemandsPanel from "./season/AgencyDemandsPanel";
+import PlayerNameLink from "./player/PlayerNameLink";
 
 // The post-Worlds OFFSEASON for a reality: the year is decided, and before
 // rolling into the next one the user sees the season's headline stats and runs
@@ -186,10 +188,19 @@ export default function OffseasonView() {
           {fr.name} · Year {fr.year} complete
         </span>
         {championTeam && (
-          <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-rift-bluebright">
-            <TeamIcon iconKey={championTeam.iconKey} logoUrl={championTeam.logoUrl} size={16} color={championTeam.color} />
+          <TeamNameLink
+            teamId={championTeam.id}
+            name={championTeam.name}
+            leagueId={championTeam.leagueId}
+            iconKey={championTeam.iconKey}
+            logoUrl={championTeam.logoUrl}
+            color={championTeam.color}
+            logoSize={16}
+            className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-rift-bluebright"
+            hint={{ team: championTeam }}
+          >
             {championTeam.name} — World Champion
-          </span>
+          </TeamNameLink>
         )}
       </div>
 
@@ -205,8 +216,12 @@ export default function OffseasonView() {
             rows[0] ? (
               <div key={label} className="border border-rift-line/40 bg-rift-bg/30 px-2 py-1">
                 <div className="text-[8px] uppercase tracking-[0.25em] text-rift-gold/55">{label} leader</div>
-                <div className="text-[10px] text-rift-mutedbright truncate">
-                  {rows[0].playerName || rows[0].teamName}{" "}
+                <div className="flex items-baseline gap-1 text-[10px] text-rift-mutedbright truncate">
+                  <PlayerNameLink
+                    playerId={rows[0].playerId}
+                    name={rows[0].playerName || rows[0].teamName}
+                    className="truncate"
+                  />
                   <span className="text-rift-goldbright font-display">{val(rows[0])}</span>
                 </div>
               </div>
@@ -218,6 +233,9 @@ export default function OffseasonView() {
       {/* Shop your roster — the biggest window of the year */}
       {controlled && season.config.playerTransfers && (
         <div className="px-3 py-2">
+          <div className="mb-2">
+            <AgencyDemandsPanel />
+          </div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/70">
               Shop your roster — biggest window of the year
@@ -275,9 +293,13 @@ export default function OffseasonView() {
                       <>
                         <span className={`w-5 text-center border font-display ${TIER_CLS[p.tier]}`}>{p.tier}</span>
                         {p.name && (
-                          <span className="text-rift-mutedbright font-medium max-w-[110px] truncate" title={p.name}>
-                            {p.name}
-                          </span>
+                          <PlayerNameLink
+                            playerId={p.id}
+                            name={p.name}
+                            hint={{ player: p, teamName: controlled.name }}
+                            title={p.name}
+                            className="text-rift-mutedbright font-medium max-w-[110px] truncate"
+                          />
                         )}
                         <span className="inline-flex gap-0.5">
                           {p.goodChamps.slice(0, 3).map((id, i) => {
@@ -393,12 +415,25 @@ export default function OffseasonView() {
                           const incoming = other?.players[li];
                           return (
                             <div key={c.otherTeamId} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
-                              <span className="inline-flex items-center gap-1 text-rift-mutedbright">
-                                <TeamIcon iconKey={other?.iconKey ?? "shield"} logoUrl={other?.logoUrl} size={12} color={other?.color} />
-                                <span className="truncate max-w-[96px]">{other?.name ?? "—"}</span>
-                              </span>
+                              <TeamNameLink
+                                teamId={other?.id}
+                                name={other?.name}
+                                leagueId={other?.leagueId}
+                                iconKey={other?.iconKey ?? "shield"}
+                                logoUrl={other?.logoUrl}
+                                color={other?.color}
+                                logoSize={12}
+                                className="inline-flex items-center gap-1 text-rift-mutedbright min-w-0 max-w-[120px]"
+                                hint={other ? { team: other } : undefined}
+                              />
                               <span className={`w-5 text-center border font-display ${TIER_CLS[c.theirs.tier]}`}>{c.theirs.tier}</span>
-                              {c.theirs.name && <span className="truncate max-w-[88px] text-rift-mutedbright">{c.theirs.name}</span>}
+                              {c.theirs.name && (
+                                <PlayerNameLink
+                                  playerId={c.theirs.id}
+                                  name={c.theirs.name}
+                                  className="truncate max-w-[88px] text-rift-mutedbright"
+                                />
+                              )}
                               {incoming && (
                                 <ProjectedChemScore roster={controlled.players} incoming={incoming} lane={lane} />
                               )}
@@ -490,10 +525,17 @@ export default function OffseasonView() {
                   const better = (t.coach!.rating - (controlled.coach?.rating ?? 0));
                   return (
                     <div key={t.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
-                      <span className="inline-flex items-center gap-1 text-rift-mutedbright">
-                        <TeamIcon iconKey={t.iconKey} logoUrl={t.logoUrl} size={12} color={t.color} />
-                        <span className="truncate max-w-[88px]">{t.name}</span>
-                      </span>
+                      <TeamNameLink
+                        teamId={t.id}
+                        name={t.name}
+                        leagueId={t.leagueId}
+                        iconKey={t.iconKey}
+                        logoUrl={t.logoUrl}
+                        color={t.color}
+                        logoSize={12}
+                        className="inline-flex items-center gap-1 text-rift-mutedbright min-w-0 max-w-[120px]"
+                        hint={{ team: t }}
+                      />
                       <span className="text-rift-mutedbright truncate max-w-[88px]">{t.coach!.name}</span>
                       <span className="text-rift-gold/80 tabular-nums">★{t.coach!.rating.toFixed(1)}</span>
                       <span className="text-rift-muted/60 truncate max-w-[80px]">{coachPlaystyle(t.coach)}</span>

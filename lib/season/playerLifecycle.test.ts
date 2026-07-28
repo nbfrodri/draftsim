@@ -9,6 +9,7 @@ import {
   runOffseasonLifecycle,
   runDemotionPass,
   advanceInactivePool,
+  backfillInactiveClockYears,
   yearsInAcademy,
   yearsAsFreeAgent,
   inactiveSnapshotsForArchivedYear,
@@ -19,6 +20,12 @@ import {
   type InactivePlayer,
   type SeasonPlayerOutcome,
 } from "./playerLifecycle";
+import {
+  NEUTRAL_META,
+  bumpOldestAcademyToFa,
+  releaseAcademyToFa,
+  runOpenFaReplacePass,
+} from "./faMarket";
 import { PLAYER_TIER_VALUE } from "../players";
 import type { Champion, Lane, Player } from "../types";
 
@@ -959,6 +966,247 @@ describe("inactiveSnapshotsForArchivedYear", () => {
       );
     }
     expect(archives).toEqual([1, 2, 3]);
+  });
+
+  it("mid-year academy→FA archives the closing year as FA · 1y (not 2y)", () => {
+    // Audit repro: the release/bump/cut snap resets inactiveYears to FA · 1y
+    // but demotedYear still points at the (old) demotion. Keying the year-end
+    // skip off demotedYear ticked the fresh clock immediately → FA · 2y and an
+    // early cull. clockYear is what the skip must read.
+    const academy: InactivePlayer = {
+      player: player({ id: "kid", name: "Kid", lane: "top", tier: "B", age: 21 }),
+      status: "academy",
+      inactiveYears: 2,
+      demotedYear: 1,
+      clockYear: 1,
+      lastTeamId: "T1",
+    };
+    // Mid-year release in year 3 (user release / cap bump / AI declutter).
+    const released = releaseAcademyToFa([academy], "T1", "kid", 3).released!;
+    expect(released.inactiveYears).toBe(ACADEMY_YEARS + 1);
+    expect(released.demotedYear).toBe(1); // left the main roster in year 1
+    expect(released.clockYear).toBe(3); // FA badge clock starts now
+
+    const post = advanceInactivePool(
+      [released as InactivePlayer],
+      rng(31),
+      champions,
+      3,
+    );
+    const snap = inactiveSnapshotsForArchivedYear([released as InactivePlayer], post, 3)[0]!;
+    expect(snap.status).toBe("free-agent");
+    expect(yearsAsFreeAgent(snap.status, snap.inactiveYears)).toBe(1);
+
+    // …and the very next year-end does tick them to FA · 2y.
+    const y4 = advanceInactivePool(post, rng(32), champions, 4);
+    expect(yearsAsFreeAgent("free-agent", y4[0]!.inactiveYears)).toBe(2);
+  });
+
+  it("year-end cut lands in the CLOSING year's archive as academy · 1y", () => {
+    // startNextSeason passes intakeYear = nextYear for new mints; cut
+    // incumbents must keep the closing year or the archive filter drops them.
+    const demotee = player({
+      id: "cut",
+      name: "Cut",
+      lane: "middle",
+      tier: "D",
+      age: 29,
+      badStreak: 4,
+    });
+    const roster = LANES.map((lane) =>
+      lane === "middle"
+        ? demotee
+        : player({ lane, id: `keep-${lane}`, name: `keep-${lane}`, tier: "A", age: 24 }),
+    );
+    const outcomes = new Map<string, SeasonPlayerOutcome>(
+      roster.map((p) => [
+        p.id!,
+        {
+          playerId: p.id!,
+          grade: p.id === "cut" ? 3 : 7,
+          tier: p.tier,
+          lane: p.lane,
+          splitTitles: 0,
+          intlTitles: 0,
+        },
+      ]),
+    );
+    const closingYear = 4;
+    const result = runOffseasonLifecycle(
+      [{ id: "T1", name: "T1", players: roster, leagueId: "LCK" }],
+      outcomes,
+      { middle: 6.5, top: 6, jungle: 6, bottom: 6, support: 6 },
+      [],
+      champions,
+      rng(41),
+      new Set(),
+      closingYear,
+      undefined,
+      undefined,
+      { intakeYear: closingYear + 1 },
+    );
+    const cut = result.inactivePool.find((e) => e.player.id === "cut")!;
+    expect(cut.status).toBe("academy");
+    expect(cut.demotedYear).toBe(closingYear);
+    expect(cut.clockYear).toBe(closingYear);
+
+    const snaps = inactiveSnapshotsForArchivedYear([], result.inactivePool, closingYear);
+    const archived = snaps.find((s) => s.playerId === "cut")!;
+    expect(archived.status).toBe("academy");
+    expect(archived.inactiveYears).toBe(1);
+    // Next-season intake minted in the same pass stays out of this archive.
+    expect(snaps.every((s) => s.demotedYear <= closingYear)).toBe(true);
+  });
+
+  it("year-end pass with intakeYear keeps open-FA cuts in the closing archive", () => {
+    // runDemotionPass hands intakeYear to the market passes for new mints;
+    // routing it to the cut incumbent too stamped them with nextYear, which
+    // the archive filter then dropped — the player silently vanished from the
+    // closing season's Hall row.
+    const weak = player({ id: "weak-top", name: "WeakTop", lane: "top", tier: "D", age: 30 });
+    const roster = LANES.map((lane) =>
+      lane === "top"
+        ? weak
+        : player({ lane, id: `solid-${lane}`, name: `solid-${lane}`, tier: "A", age: 24 }),
+    );
+    const star: InactivePlayer = {
+      player: player({ id: "top-fa", name: "TopFa", lane: "top", tier: "S", age: 24 }),
+      status: "free-agent",
+      inactiveYears: ACADEMY_YEARS + 1,
+      demotedYear: 2,
+      clockYear: 2,
+      lastTeamId: "TX",
+    };
+    // Everyone grades fine — no underperform streak, so the only cut is the
+    // open-FA upgrade on top.
+    const outcomes = new Map<string, SeasonPlayerOutcome>(
+      roster.map((p) => [
+        p.id!,
+        {
+          playerId: p.id!,
+          grade: 6,
+          tier: p.tier,
+          lane: p.lane,
+          splitTitles: 0,
+          intlTitles: 0,
+        },
+      ]),
+    );
+    const closingYear = 4;
+    const result = runDemotionPass(
+      [{ id: "T1", name: "T1", players: roster, leagueId: "LCK" }],
+      outcomes,
+      { top: 6, jungle: 6, middle: 6, bottom: 6, support: 6 },
+      [star],
+      champions,
+      rng(71),
+      new Set(),
+      closingYear,
+      { ageActives: true, advancePool: true, intakeYear: closingYear + 1 },
+    );
+    expect(result.teams[0]!.players.find((p) => p.lane === "top")?.id).toBe("top-fa");
+    const cut = result.inactivePool.find((e) => e.player.id === "weak-top")!;
+    expect(cut.demotedYear).toBe(closingYear);
+    expect(
+      inactiveSnapshotsForArchivedYear([star], result.inactivePool, closingYear).some(
+        (s) => s.playerId === "weak-top" && s.status === "academy",
+      ),
+    ).toBe(true);
+  });
+
+  it("open-FA cut is stamped with the closing year, not the intake year", () => {
+    // This is the pass that took intakeYear: a benched incumbent stamped with
+    // nextYear vanished from the closing season's Hall row entirely.
+    const incumbent = player({
+      id: "benched",
+      name: "Benched",
+      lane: "top",
+      tier: "D",
+      age: 30,
+    });
+    const star: InactivePlayer = {
+      player: player({ id: "star-fa", name: "StarFa", lane: "top", tier: "S", age: 24 }),
+      status: "free-agent",
+      inactiveYears: ACADEMY_YEARS + 1,
+      demotedYear: 2,
+      clockYear: 2,
+      lastTeamId: "TX",
+    };
+    const closingYear = 4;
+    const opened = runOpenFaReplacePass(
+      [
+        {
+          id: "T1",
+          name: "T1",
+          leagueId: "LCK",
+          players: LANES.map((lane) =>
+            lane === "top"
+              ? incumbent
+              : player({ lane, id: `ok-${lane}`, name: `ok-${lane}`, tier: "A", age: 24 }),
+          ),
+        },
+      ],
+      [star],
+      new Map(champions.map((c) => [c.id, c])),
+      NEUTRAL_META,
+      new Map([["benched", { grade: 2 }]]),
+      rng(61),
+      closingYear,
+    );
+    const parked = opened.inactivePool.find((e) => e.player.id === "benched")!;
+    expect(parked.status).toBe("academy");
+    expect(parked.demotedYear).toBe(closingYear);
+    expect(parked.clockYear).toBe(closingYear);
+    expect(
+      inactiveSnapshotsForArchivedYear(
+        [],
+        opened.inactivePool as InactivePlayer[],
+        closingYear,
+      ).some((s) => s.playerId === "benched"),
+    ).toBe(true);
+  });
+
+  it("legacy saves without clockYear fall back to demotedYear, then backfill", () => {
+    const legacy = {
+      player: player({ id: "old", name: "Old", lane: "top", tier: "B", age: 22 }),
+      status: "academy" as const,
+      inactiveYears: 1,
+      demotedYear: 6,
+      lastTeamId: "T1",
+    };
+    // Fallback: no clockYear → demotedYear still keys the skip.
+    const held = advanceInactivePool([legacy], rng(51), champions, 6);
+    expect(held[0]!.inactiveYears).toBe(1);
+
+    const [migrated] = backfillInactiveClockYears([legacy]);
+    expect(migrated!.clockYear).toBe(6);
+    const ticked = advanceInactivePool([migrated!], rng(52), champions, 7);
+    expect(ticked[0]!.inactiveYears).toBe(2);
+  });
+
+  it("cap bump prefers older academy over a same-year arrival", () => {
+    const acy = (id: string, iy: number, clockYear: number): InactivePlayer => ({
+      player: player({ id, name: id, lane: "top", tier: "B", age: 21 }),
+      status: "academy",
+      inactiveYears: iy,
+      demotedYear: clockYear,
+      clockYear,
+      lastTeamId: "T1",
+    });
+    // Four veterans + one player who only just arrived this year.
+    const pool = [
+      acy("v1", 3, 5),
+      acy("v2", 2, 6),
+      acy("v3", 1, 7),
+      acy("v4", 1, 7),
+      acy("fresh", 1, 8),
+    ];
+    const { bumped } = bumpOldestAcademyToFa(pool, "T1", 8);
+    expect(bumped?.player.id).toBe("v1");
+
+    // Ties on badge years still skip the same-year arrival.
+    const flat = [acy("fresh", 1, 8), acy("older", 1, 7)];
+    expect(bumpOldestAcademyToFa(flat, "T1", 8).bumped?.player.id).toBe("older");
   });
 
   it("excludes next-season intake (demotedYear after archived year)", () => {

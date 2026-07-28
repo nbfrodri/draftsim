@@ -385,6 +385,12 @@ export interface SeasonState {
      * academy before AI vacancy fills snatch free agents.
      */
     pendingMidSplitDemotion?: SplitId;
+    /**
+     * Player-agency demands for the current transfer / offseason shopping
+     * window (leave / call-up / academy depart). Cleared or expired when the
+     * window closes. See `lib/season/playerAgency.ts`.
+     */
+    agencyDemands?: import("./playerAgency").AgencyDemand[];
   };
   // Snapshot of every team's roster as each split / international COMPLETED, so
   // the Hall can show who played each stage (rosters shift between stages via
@@ -410,6 +416,9 @@ export interface SeasonState {
 // own tier / split grade / champion pool without depending on live rosters
 // (which change in later windows).
 export interface TransferPlayer {
+  /** Stable player id, so a recap name can open that player's card/profile.
+   *  Optional — legacy saves snapshotted moves before ids were carried. */
+  id?: string;
   name?: string; // in-game handle, when the roster carries one
   tier: PlayerTier;
   grade: number | null; // avg 1-10 match note this split (null = didn't play)
@@ -466,6 +475,19 @@ export interface TeamRosterSnapshot {
   }>;
 }
 
+// One player who was OFF every main roster as a split / international
+// completed. Retired players are deliberately excluded: nobody retires
+// mid-year (the clock only advances at the year-end offseason) and the pool
+// carries them forever, so stamping them would grow every snapshot without
+// telling the career timeline anything the year-end pool doesn't already say.
+export interface PhaseInactiveSnapshot {
+  playerId: string;
+  status: "academy" | "free-agent";
+  /** Org holding the academy deal, or the free agent's last club. */
+  teamId?: string;
+  teamName?: string;
+}
+
 // Every team's roster as a given split / international completed.
 export interface PhaseRosterSnapshot {
   phaseIndex: number;
@@ -474,6 +496,11 @@ export interface PhaseRosterSnapshot {
   split?: SplitId;
   event?: InternationalId;
   teams: TeamRosterSnapshot[];
+  // Academy / free-agent pool at the same instant, so a career timeline can
+  // say where a player was in EVERY window of the year — not just the ones he
+  // played. Optional: seasons played before phase stamps existed have none,
+  // and their careers degrade to the year-only view.
+  inactive?: PhaseInactiveSnapshot[];
 }
 
 export function seasonTeam(

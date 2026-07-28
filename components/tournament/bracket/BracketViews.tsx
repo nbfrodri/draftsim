@@ -9,7 +9,7 @@ import {
   tripleElimEliminated,
   TRIPLE_ELIM_LIVES,
 } from "@/lib/tournament";
-import TeamIcon from "@/components/TeamIcon";
+import TeamNameLink from "@/components/team/TeamNameLink";
 import { MatchCard } from "./MatchCard";
 import { BracketConnectorRoot, MatchAnchor } from "./BracketConnectors";
 import type { TournamentMatch, TournamentState, TournamentTeam } from "@/lib/tournament";
@@ -142,6 +142,13 @@ export function RoundColumn({
   // plain "Round k" with a "Final" at the top.
   kind?: "se" | "de-winners" | "stepladder";
 }) {
+  const simulateMatches = useDraftStore((s) => s.simulateMatches);
+  // Ready-to-play only: both sides set, no winner yet. In SE later
+  // rounds stay empty until feeders resolve, so only the current
+  // incomplete round exposes a Sim Round button (Swiss / matchday pattern).
+  const pendingIds = matches
+    .filter((m) => !m.winner && m.blueTeamId && m.redTeamId)
+    .map((m) => m.id);
   const roundLabel =
     kind === "de-winners"
       ? round === totalRounds
@@ -157,11 +164,23 @@ export function RoundColumn({
       ? "Semifinals"
       : round === totalRounds - 2
       ? "Quarterfinals"
-      : `Round ${round}`;
+      : seEarlyRoundLabel(round, totalRounds);
   return (
     <div className="flex-1 min-w-[220px] md:min-w-[240px] flex flex-col">
-      <div className="text-[9px] md:text-[10px] uppercase tracking-[0.4em] text-rift-gold/55 text-center mb-3">
-        {roundLabel}
+      <div className="flex items-center justify-center gap-1.5 mb-3">
+        <span className="text-[9px] md:text-[10px] uppercase tracking-[0.4em] text-rift-gold/55">
+          {roundLabel}
+        </span>
+        {pendingIds.length > 0 && (
+          <button
+            type="button"
+            onClick={() => simulateMatches(pendingIds)}
+            className="px-1.5 py-px border border-rift-gold/50 text-rift-gold hover:bg-rift-gold/10 hover:text-rift-goldbright text-[8px] uppercase tracking-[0.2em] transition-all"
+            title="Auto-play every ready match in this round"
+          >
+            Sim Round
+          </button>
+        )}
       </div>
       <div
         className="flex-1 flex flex-col gap-3 md:gap-4 justify-around"
@@ -179,6 +198,20 @@ export function RoundColumn({
       </div>
     </div>
   );
+}
+
+/** Early SE rounds before QF: "Round of 32", "Round of 16", … when the
+ *  field is a power of two; otherwise plain "Round N". */
+function seEarlyRoundLabel(round: number, totalRounds: number): string {
+  const teamsEntering = 2 ** (totalRounds - round + 1);
+  if (
+    Number.isFinite(teamsEntering) &&
+    teamsEntering >= 16 &&
+    (teamsEntering & (teamsEntering - 1)) === 0
+  ) {
+    return `Round of ${teamsEntering}`;
+  }
+  return `Round ${round}`;
 }
 
 // Losers-bracket round labels differ from W-side. Terminal round is
@@ -527,14 +560,24 @@ function TripleElimLivesBoard({
                 out ? "opacity-40" : ""
               }`}
             >
-              <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={12} color={team.color ?? undefined} />
-              <span
-                className={`truncate flex-1 ${
+              <TeamNameLink
+                teamId={team.id}
+                name={team.name}
+                iconKey={team.iconKey}
+                logoUrl={team.logoUrl}
+                color={team.color ?? undefined}
+                logoSize={12}
+                renderAs="span"
+                className={`truncate flex-1 inline-flex items-center gap-1.5 ${
                   out ? "line-through text-rift-mutedbright/70" : "text-rift-mutedbright"
                 }`}
-              >
-                {team.name}
-              </span>
+                hint={{
+                  name: team.name,
+                  iconKey: team.iconKey,
+                  logoUrl: team.logoUrl,
+                  color: team.color ?? undefined,
+                }}
+              />
               <span className="flex items-center gap-0.5 flex-shrink-0" title={`${l} loss${l === 1 ? "" : "es"}`}>
                 {Array.from({ length: TRIPLE_ELIM_LIVES }, (_, i) => (
                   <span

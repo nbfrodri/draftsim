@@ -12,7 +12,11 @@ import type {
   TournamentTeam,
 } from "@/lib/tournament";
 import type { TeamStreak } from "@/lib/streaks";
-import TeamIcon from "@/components/TeamIcon";
+import TeamNameLink from "@/components/team/TeamNameLink";
+import {
+  TeamLiveStatsInline,
+  type LiveTeamStats,
+} from "@/components/team/TeamLiveStats";
 import { teamStreaksFor } from "./MatchCard";
 
 // Compact streak chip for standings rows. Only shown when count >= 2.
@@ -48,14 +52,26 @@ function TeamCell({
   streak: TeamStreak | undefined;
 }) {
   return (
-    <span className="truncate flex items-center gap-0" title={team.name}>
+    <span className="truncate flex items-center gap-0">
       <span className="text-rift-mutedbright/60 mr-2 tabular-nums text-[9px]">
         #{team.seed}
       </span>
-      <span className="mr-1.5 shrink-0 self-center">
-        <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={12} color={team.color ?? undefined} />
-      </span>
-      <span className="truncate">{team.name}</span>
+      <TeamNameLink
+        teamId={team.id}
+        name={team.name}
+        iconKey={team.iconKey}
+        logoUrl={team.logoUrl}
+        color={team.color ?? undefined}
+        logoSize={12}
+        renderAs="span"
+        className="mr-1.5 min-w-0 truncate inline-flex items-center gap-1.5"
+        hint={{
+          name: team.name,
+          iconKey: team.iconKey,
+          logoUrl: team.logoUrl,
+          color: team.color ?? undefined,
+        }}
+      />
       <StreakChip streak={streak} />
     </span>
   );
@@ -63,16 +79,27 @@ function TeamCell({
 
 // ─── Round-robin standings table ──────────────────────────────────────
 
-export function StandingsTable({ tournament }: { tournament: TournamentState }) {
+export function StandingsTable({
+  tournament,
+  teamStats,
+}: {
+  tournament: TournamentState;
+  /** Optional season-wide series W-L + titles (from teamCard helpers). */
+  teamStats?: Map<string, LiveTeamStats> | null;
+}) {
   // Memoize the standings computation per tournament state; streaks come
   // from the shared per-tournament WeakMap cache (one compute for ALL
   // bracket components instead of one per table/card).
   const standings = useMemo(() => computeStandings(tournament), [tournament]);
   const streaks = teamStreaksFor(tournament);
+  const showSeason = !!teamStats && teamStats.size > 0;
+  const cols = showSeason
+    ? "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_3rem_minmax(5.5rem,auto)]"
+    : "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_3rem]";
   return (
     <div className="border border-rift-line/50 bg-rift-panel/40 overflow-x-auto">
       <div className="min-w-[560px]">
-      <div className="grid grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_3rem] gap-2 px-3 py-2 border-b border-rift-line/40 text-[8px] uppercase tracking-[0.3em] text-rift-gold/60">
+      <div className={`grid ${cols} gap-2 px-3 py-2 border-b border-rift-line/40 text-[8px] uppercase tracking-[0.3em] text-rift-gold/60`}>
         <span>#</span>
         <span>Team</span>
         <span className="text-center" title="Played: total matches played">P</span>
@@ -80,6 +107,11 @@ export function StandingsTable({ tournament }: { tournament: TournamentState }) 
         <span className="text-center" title="Match losses (entire matches lost)">L</span>
         <span className="text-center" title="Games W-L: individual games won and lost across all matches (a Bo3 win 2-1 contributes 2 wins and 1 loss)">G W-L</span>
         <span className="text-center" title="Game differential (gamesWon − gamesLost). Tiebreaker after head-to-head.">+/-</span>
+        {showSeason && (
+          <span className="text-right" title="Season-wide series win% · W-L and titles">
+            Season
+          </span>
+        )}
       </div>
       {standings.map((row) => {
         const isLead = row.rank === 1 && row.played > 0;
@@ -92,7 +124,7 @@ export function StandingsTable({ tournament }: { tournament: TournamentState }) 
         return (
           <div
             key={row.team.id}
-            className={`grid grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_3rem] gap-2 px-3 py-1.5 border-b border-rift-line/20 last:border-b-0 text-[11px] md:text-xs items-baseline ${rowCls}`}
+            className={`grid ${cols} gap-2 px-3 py-1.5 border-b border-rift-line/20 last:border-b-0 text-[11px] md:text-xs items-baseline ${rowCls}`}
           >
             <span className="font-display tabular-nums text-rift-goldbright/80">
               {row.rank}
@@ -120,6 +152,12 @@ export function StandingsTable({ tournament }: { tournament: TournamentState }) 
               {row.gameDiff > 0 ? "+" : ""}
               {row.gameDiff}
             </span>
+            {showSeason && (
+              <TeamLiveStatsInline
+                stats={teamStats?.get(row.team.id)}
+                className="justify-end"
+              />
+            )}
           </div>
         );
       })}
@@ -135,21 +173,33 @@ export function GroupStandingsTable({
   standings,
   advancingTeams,
   tournament,
+  teamStats,
 }: {
   standings: TeamStanding[];
   advancingTeams: number;
   tournament: TournamentState;
+  /** Optional season-wide series W-L + titles (from teamCard helpers). */
+  teamStats?: Map<string, LiveTeamStats> | null;
 }) {
   const streaks = teamStreaksFor(tournament);
+  const showSeason = !!teamStats && teamStats.size > 0;
+  const cols = showSeason
+    ? "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3rem_minmax(5.5rem,auto)]"
+    : "grid-cols-[2.5rem_1fr_3rem_3rem_3.5rem_3.5rem]";
   return (
-    <div className="border border-rift-line/50 bg-rift-panel/40">
-      <div className="grid grid-cols-[2.5rem_1fr_3rem_3rem_3.5rem_3.5rem] gap-2 px-3 py-2 border-b border-rift-line/40 text-[8px] uppercase tracking-[0.3em] text-rift-gold/60">
+    <div className="border border-rift-line/50 bg-rift-panel/40 overflow-x-auto">
+      <div className={`grid ${cols} gap-2 px-3 py-2 border-b border-rift-line/40 text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 min-w-[320px]`}>
         <span>#</span>
         <span>Team</span>
         <span className="text-center" title="Played: matches played">P</span>
         <span className="text-center" title="Match wins">W</span>
         <span className="text-center" title="Match losses">L</span>
         <span className="text-center" title="Game differential (gamesWon − gamesLost). Tiebreaker after head-to-head.">+/-</span>
+        {showSeason && (
+          <span className="text-right" title="Season-wide series win% · W-L and titles">
+            Season
+          </span>
+        )}
       </div>
       {standings.map((row, idx) => {
         const isAdvancing = row.rank <= advancingTeams;
@@ -159,10 +209,11 @@ export function GroupStandingsTable({
             ? "bg-rift-gold/15 text-rift-goldbright"
             : "text-rift-bluebright bg-rift-blue/[0.04]"
           : "text-rift-mutedbright/65";
+        const stats = teamStats?.get(row.team.id);
         return (
           <div key={row.team.id}>
             <div
-              className={`grid grid-cols-[2.5rem_1fr_3rem_3rem_3.5rem_3.5rem] gap-2 px-3 py-1.5 border-b border-rift-line/20 last:border-b-0 text-[11px] md:text-xs items-baseline ${rowCls}`}
+              className={`grid ${cols} gap-2 px-3 py-1.5 border-b border-rift-line/20 last:border-b-0 text-[11px] md:text-xs items-baseline ${rowCls}`}
             >
               <span className="font-display tabular-nums">
                 {row.rank}
@@ -190,6 +241,12 @@ export function GroupStandingsTable({
                 {row.gameDiff > 0 ? "+" : ""}
                 {row.gameDiff}
               </span>
+              {showSeason && (
+                <TeamLiveStatsInline
+                  stats={stats}
+                  className="justify-end"
+                />
+              )}
             </div>
             {isCutLine && idx < standings.length - 1 && (
               <div className="px-3 py-0.5 text-[8px] uppercase tracking-[0.4em] text-rift-mutedbright/50 border-b border-dashed border-rift-gold/40 bg-rift-bg/40 text-center">
@@ -230,9 +287,12 @@ export function SwissStandingsTable({
   // When set (swiss-playoffs variants), the top-N rows are tinted as the
   // qualification zone with a cutline, mirroring the groups view.
   advancing = 0,
+  teamStats,
 }: {
   tournament: TournamentState;
   advancing?: number;
+  /** Optional season-wide series W-L + titles (from teamCard helpers). */
+  teamStats?: Map<string, LiveTeamStats> | null;
 }) {
   const standings = useMemo(() => computeSwissStandings(tournament), [tournament]);
   const streaks = teamStreaksFor(tournament);
@@ -242,8 +302,10 @@ export function SwissStandingsTable({
   // Symmetric threshold (modern Worlds Swiss): X wins qualify / X losses out.
   const winTarget = tournament.swissWinTarget ?? null;
   const showCut = winTarget == null && advancing > 0 && advancing < standings.length;
-  const cols =
-    "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_2.75rem_3rem]";
+  const showSeason = !!teamStats && teamStats.size > 0;
+  const cols = showSeason
+    ? "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_2.75rem_3rem_minmax(5.5rem,auto)]"
+    : "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_2.75rem_3rem]";
   return (
     <div className="border border-rift-line/50 bg-rift-panel/40">
       {winTarget != null && (
@@ -263,6 +325,11 @@ export function SwissStandingsTable({
             <span className="text-center" title="Games W-L: individual games won and lost across all matches (a Bo3 win 2-1 contributes 2 wins and 1 loss)">G W-L</span>
             <span className="text-center" title="Buchholz: sum of every opponent's match wins. Higher = harder schedule.">Bch</span>
             <span className="text-center" title="Median Buchholz: Buchholz with the highest and lowest opponent dropped. Less swayed by extreme schedules.">M-Bch</span>
+            {showSeason && (
+              <span className="text-right" title="Season-wide series win% · W-L and titles">
+                Season
+              </span>
+            )}
           </div>
         {standings.map((row, idx) => {
           const isLead = row.rank === 1 && row.played > 0;
@@ -312,6 +379,12 @@ export function SwissStandingsTable({
                   {row.buchholz}
                 </span>
                 <span className="text-center tabular-nums">{row.medianBuchholz}</span>
+                {showSeason && (
+                  <TeamLiveStatsInline
+                    stats={teamStats?.get(row.team.id)}
+                    className="justify-end"
+                  />
+                )}
               </div>
               {showCut && row.rank === advancing && idx < standings.length - 1 && (
                 <div className="px-3 py-0.5 text-[8px] uppercase tracking-[0.4em] text-rift-mutedbright/50 border-b border-dashed border-rift-gold/40 bg-rift-bg/40 text-center">

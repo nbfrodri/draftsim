@@ -56,6 +56,7 @@ import {
   cullWeakFaWhenOversized,
   academyTenureYears,
   applyAcademyGraduateCap,
+  inactiveClockYear,
   ACADEMY_YEARS_MIN,
   ACADEMY_YEARS_MAX,
   ACADEMY_GRADUATE_CAP_PER_YEAR,
@@ -71,6 +72,7 @@ export {
   ACADEMY_GRADUATE_CAP_PER_YEAR,
   academyTenureYears,
   applyAcademyGraduateCap,
+  inactiveClockYear,
 };
 
 // Real sub/academy/prospect handles, bucketed BY LANE so a debut gets a
@@ -153,7 +155,14 @@ export interface InactivePlayer {
    * (inactiveYears − ACADEMY_YEARS) → 1…FREE_AGENT_YEARS.
    */
   inactiveYears: number;
+  /** Franchise year they left the **main roster** (archive filter / tenure). */
   demotedYear: number;
+  /**
+   * Franchise year {@link inactiveYears} was last reset to 1 (or to FA · 1y).
+   * Drives the year-end skip in {@link advanceInactivePool}; falls back to
+   * `demotedYear` on saves written before this field existed.
+   */
+  clockYear?: number;
   lastTeamId: string;
   lastTeamName?: string;
   /** Last active-season grade at demotion (frozen form signal). */
@@ -162,6 +171,24 @@ export interface InactivePlayer {
   shadowGrade?: number | null;
   /** Personal offset on the value-based academy stay ({@link academyTenureYears}). */
   academyTenureShift?: number;
+}
+
+/**
+ * Backfill {@link InactivePlayer.clockYear} on pools loaded from saves written
+ * before the badge clock was split from `demotedYear`. Idempotent; returns the
+ * same array reference when nothing is missing so callers can skip writes.
+ *
+ * Historical mid-year academy→FA snaps cannot be recovered (the save never
+ * recorded when the clock moved), so those entries keep the old behaviour for
+ * one more year-end. Everything minted / demoted afterwards is correct.
+ */
+export function backfillInactiveClockYears<T extends InactivePlayer>(
+  pool: readonly T[],
+): T[] {
+  if (pool.every((e) => e.clockYear != null)) return [...pool];
+  return pool.map((e) =>
+    e.clockYear != null ? e : { ...e, clockYear: e.demotedYear },
+  );
 }
 
 /** Compact archive form for Hall/search (no full champ pools required). */
@@ -180,10 +207,14 @@ export interface InactivePlayerSnapshot {
   status: "academy" | "free-agent" | "retired";
   inactiveYears: number;
   demotedYear: number;
+  /** Year the badge clock started (see {@link InactivePlayer.clockYear}). */
+  clockYear?: number;
   lastTeamId: string;
   lastTeamName?: string;
   lastActiveGrade?: number | null;
   shadowGrade?: number | null;
+  /** Personal academy-tenure offset — lets the Hall compute `y to FA`. */
+  academyTenureShift?: number;
 }
 
 export function toInactiveSnapshot(p: InactivePlayer): InactivePlayerSnapshot {
@@ -200,10 +231,14 @@ export function toInactiveSnapshot(p: InactivePlayer): InactivePlayerSnapshot {
     status: p.status,
     inactiveYears: p.inactiveYears,
     demotedYear: p.demotedYear,
+    ...(p.clockYear != null ? { clockYear: p.clockYear } : {}),
     lastTeamId: p.lastTeamId,
     ...(p.lastTeamName ? { lastTeamName: p.lastTeamName } : {}),
     ...(p.lastActiveGrade != null ? { lastActiveGrade: p.lastActiveGrade } : {}),
     ...(p.shadowGrade != null ? { shadowGrade: p.shadowGrade } : {}),
+    ...(p.academyTenureShift != null
+      ? { academyTenureShift: p.academyTenureShift }
+      : {}),
   };
 }
 
@@ -497,11 +532,14 @@ function pickReturnee(
  * else retired. Legacy saves with `inactiveYears === 0` are treated as 1
  * before incrementing.
  *
- * When `closingYear` is set, entries with `demotedYear === closingYear` still
- * age/tick shadow form but do **not** increment `inactiveYears` or change
- * status — their first calendar year on the inactive path must archive as
- * Acy · 1y, not burn 1→2 on the same season they entered. Cohort desync rides
- * on `academyTenureShift` (graduation), never on a mint-time badge offset.
+ * When `closingYear` is set, entries whose badge clock started that year
+ * ({@link inactiveClockYear}) still age/tick shadow form but do **not**
+ * increment `inactiveYears` or change status — their first calendar year on
+ * the current clock must archive as Acy · 1y / FA · 1y, not burn 1→2 on the
+ * same season it started. The clock is keyed off `clockYear` (not
+ * `demotedYear`) so mid-year academy→FA snaps and FA→academy stashes get their
+ * own first year too. Cohort desync rides on `academyTenureShift`
+ * (graduation), never on a mint-time badge offset.
  *
  * Also ticks shadow grade, academy development, and light pool drift.
  * Academy tier growth is **only** via ACADEMY_DEV_CHANCE (slower than main
@@ -532,8 +570,8 @@ export function advanceInactivePool(
         ? { ...tick.player, age: (tick.player.age ?? 22) + 1 }
         : agePlayer(tick.player, perf, rng);
 
-    // First inactive calendar year: age only — keep badge years / status.
-    if (closingYear != null && entry.demotedYear === closingYear) {
+    // First calendar year on this clock: age only — keep badge years / status.
+    if (closingYear != null && inactiveClockYear(entry) === closingYear) {
       out.push({
         ...entry,
         player: aged,
@@ -633,11 +671,21 @@ export interface DemotionPassOptions {
    */
   skipOpenFaTeamIds?: ReadonlySet<string>;
   /**
-   * Franchise year for new academy/safety mints (debutYear / demotedYear).
-   * Defaults to `year`. Year-end passes `nextYear` so intake belongs to the
-   * upcoming season while demotions keep `year` (= closing year).
+   * Franchise year for **new mints only** (rookie `debutYear` / academy
+   * intake). Defaults to `year`. Year-end passes `nextYear` so intake belongs
+   * to the upcoming season; every cut / demote / clock restart in the same
+   * pass keeps `year` (= closing year) so it archives with the year that
+   * closed.
    */
   intakeYear?: number;
+  /**
+   * Soft FA auction boost (player agency / user priority). Added to bid value
+   * in {@link resolveCompetitiveFills} so stars prefer stronger orgs.
+   */
+  faBidBoost?: (
+    fa: import("./faMarket").MarketInactive,
+    vacancy: import("./faMarket").MarketVacancy,
+  ) => number;
 }
 
 /**
@@ -646,9 +694,9 @@ export interface DemotionPassOptions {
  * (no aging / no pool advance; optional academy maintenance) and at the
  * year-end offseason (with aging + pool advance + optional open FA window).
  *
- * `year` is the closing / current franchise year: demotion stamps and the
- * inactive-pool advance skip (`demotedYear === year`). New mints use
- * {@link DemotionPassOptions.intakeYear} when set.
+ * `year` is the closing / current franchise year: it stamps every demotion /
+ * cut / clock restart and keys the inactive-pool advance skip. Only brand-new
+ * mints use {@link DemotionPassOptions.intakeYear} when set.
  */
 export function runDemotionPass(
   teams: readonly OffseasonTeamInput[],
@@ -675,12 +723,14 @@ export function runDemotionPass(
   // this offseason starts at inactiveYears=1 (Academy · 1y) and still gets
   // three full year-end advances before FA (1→2→3 academy, 3→4 FA). Advancing
   // after demote would burn 1→2 in the same pass and shorten academy stay.
-  // Skip the year clock for entries minted/demoted in `year` so opening
-  // academy seeds archive as Acy · 1y on their first season.
+  // Skip the year clock for entries whose badge clock started in `year` so
+  // opening academy seeds archive as Acy · 1y on their first season.
   const news: Array<RosterNewsEvent & { teamId: string }> = [];
   let pool: InactivePlayer[];
   if (advancePool) {
-    const before = inactivePoolIn;
+    // Saves written before `clockYear` existed heal here (one pass, in place)
+    // so this year-end already keys the badge skip off the new field.
+    const before = backfillInactiveClockYears(inactivePoolIn);
     let advanced = advanceInactivePool(before, rng, champions, year);
     // Structural desync: league-wide graduate cap, then soft FA pressure valves.
     advanced = applyAcademyGraduateCap(before, advanced);
@@ -701,7 +751,7 @@ export function runDemotionPass(
       }
     }
   } else {
-    pool = [...inactivePoolIn];
+    pool = backfillInactiveClockYears(inactivePoolIn);
   }
   const resultTeams: { id: string; players: (Player | null)[] }[] = [];
   const vacancies: MarketVacancy[] = [];
@@ -739,6 +789,7 @@ export function runDemotionPass(
           // 1-based: badge shows Academy · 1y on demotion day.
           inactiveYears: 1,
           demotedYear: year,
+          clockYear: year,
           lastTeamId: team.id,
           lastTeamName: team.name,
           ...(grade != null ? { lastActiveGrade: grade, shadowGrade: grade } : {}),
@@ -775,6 +826,7 @@ export function runDemotionPass(
       meta,
       rng,
       samePassDemoteIds,
+      opts.faBidBoost,
     );
     pool = remainingPool;
     for (const fill of fills) {
@@ -930,7 +982,8 @@ export function runDemotionPass(
       meta,
       outcomesById,
       rng,
-      mintYear,
+      // Cut incumbents belong to the closing year, not the upcoming intake.
+      year,
       {
         ...(opts.skipOpenFaTeamIds ? { skipTeamIds: opts.skipOpenFaTeamIds } : {}),
         ...(opts.openFaAttemptChance != null
@@ -967,7 +1020,8 @@ export function runDemotionPass(
       meta,
       outcomesById,
       rng,
-      mintYear,
+      // Displaced incumbents are cuts from the closing year.
+      year,
       {
         ...(skipOpts ?? {}),
         ...(samePassDemoteIds.size > 0
@@ -980,18 +1034,28 @@ export function runDemotionPass(
     news.push(...promoted.news);
     const teamInputs = makeTeamInputs(finalTeams);
     // Rare declutter: strategic academy→FA near the cap (feeds FA pool).
-    const released = runAiAcademyReleasePass(teamInputs, pool, byId, meta, rng, skipOpts);
+    const released = runAiAcademyReleasePass(
+      teamInputs,
+      pool,
+      byId,
+      meta,
+      rng,
+      year,
+      skipOpts,
+    );
     pool = released.inactivePool;
     news.push(...released.news);
     // Stash desirable FAs the roster does not need (respects academy cap;
     // skips when FA board is thin). Mid-split uses a lighter chance.
+    // Clock restarts on the closing year — an intake-year stamp would freeze
+    // the new Acy · 1y badge for two seasons.
     const stashed = runAiAcademyStashPass(
       teamInputs,
       pool,
       byId,
       meta,
       rng,
-      mintYear,
+      year,
       {
         ...(skipOpts ?? {}),
         midSplit,
@@ -1091,6 +1155,7 @@ export function runOffseasonLifecycle(
     skipOpenFaTeamIds?: ReadonlySet<string>;
     /** Upcoming franchise year for new mints; defaults to `year`. */
     intakeYear?: number;
+    faBidBoost?: DemotionPassOptions["faBidBoost"];
   },
 ): OffseasonLifecycleResult {
   return runDemotionPass(
@@ -1111,6 +1176,7 @@ export function runOffseasonLifecycle(
       openFaMarket: opts?.openFaMarket ?? true,
       ...(opts?.skipOpenFaTeamIds ? { skipOpenFaTeamIds: opts.skipOpenFaTeamIds } : {}),
       ...(opts?.intakeYear != null ? { intakeYear: opts.intakeYear } : {}),
+      ...(opts?.faBidBoost ? { faBidBoost: opts.faBidBoost } : {}),
     },
   );
 }

@@ -16,7 +16,8 @@ import type { LeagueId, InternationalId } from "@/lib/season/types";
 import { LEAGUE_IDS } from "@/lib/season/types";
 import type { DynastyTier } from "@/lib/season/historyRecords";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
-import TeamIcon from "./TeamIcon";
+import TeamLogoLink from "./team/TeamLogoLink";
+import TeamNameLink from "./team/TeamNameLink";
 import LeagueIcon from "./LeagueIcon";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -230,35 +231,22 @@ function ExpandedDetail({
           >
             {/* Header */}
             <div className="flex items-center gap-2 px-3 py-2 border-b border-rift-line/25 bg-rift-bg/25 min-w-0">
-              <TeamIcon
+              <TeamNameLink
+                name={row.team.name}
+                leagueId={row.team.leagueId}
                 iconKey={row.team.iconKey}
                 logoUrl={resolveTeamLogo(row.team.name, row.team.logoUrl)}
-                size={16}
                 color={row.team.color}
-                className="flex-shrink-0"
+                logoSize={16}
+                className="min-w-0 flex-1 overflow-hidden text-[11px] font-medium text-rift-goldbright"
+                hint={{
+                  name: row.team.name,
+                  leagueId: row.team.leagueId,
+                  iconKey: row.team.iconKey,
+                  logoUrl: row.team.logoUrl,
+                  color: row.team.color,
+                }}
               />
-              <div className="min-w-0 flex-1 overflow-hidden">
-                {onNavigate ? (
-                  <button
-                    type="button"
-                    onClick={() => onNavigate("teams", `${row.team.leagueId}:${row.team.name}`)}
-                    className="text-[11px] font-medium text-rift-goldbright truncate hover:underline text-left w-full block"
-                    title={row.team.name}
-                  >
-                    {row.team.name}
-                  </button>
-                ) : (
-                  <div className="text-[11px] font-medium text-rift-goldbright truncate" title={row.team.name}>
-                    {row.team.name}
-                  </div>
-                )}
-                <div className="flex items-center gap-1 mt-0.5">
-                  <LeagueIcon league={row.team.leagueId} size={9} />
-                  <span className="text-[8px] text-rift-muted/55 uppercase tracking-wider">
-                    {row.team.leagueId}
-                  </span>
-                </div>
-              </div>
               <TierBadge tier={row.dynasty.tier} />
             </div>
 
@@ -348,12 +336,22 @@ const FranchiseRow = memo(function FranchiseRow({
                 <IconChevronRight size={10} strokeWidth={2} aria-hidden />
               )}
             </span>
-            <TeamIcon
+            <TeamLogoLink
+              name={row.team.name}
+              leagueId={row.team.leagueId}
               iconKey={row.team.iconKey}
               logoUrl={resolveTeamLogo(row.team.name, row.team.logoUrl)}
-              size={14}
               color={row.team.color}
+              size={14}
+              renderAs="span"
               className="flex-shrink-0"
+              hint={{
+                name: row.team.name,
+                leagueId: row.team.leagueId,
+                iconKey: row.team.iconKey,
+                logoUrl: row.team.logoUrl,
+                color: row.team.color,
+              }}
             />
             <div className="flex-1 min-w-0 overflow-hidden">
               <button
@@ -363,7 +361,6 @@ const FranchiseRow = memo(function FranchiseRow({
                   onNavigate?.("teams", `${row.team.leagueId}:${row.team.name}`);
                 }}
                 className="text-[11px] font-medium text-rift-goldbright truncate leading-tight hover:underline text-left w-full block"
-                title={row.team.name}
               >
                 {row.team.name}
               </button>

@@ -1,0 +1,326 @@
+"use client";
+
+import {
+  createContext,
+  useContext,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react";
+
+import { useDraftStore } from "@/store/draftStore";
+import { listTeamAcademy } from "@/lib/season/faMarket";
+import type { SeasonHistoryEntry } from "@/lib/season/history";
+import { buildTeamIdentity, refFor } from "@/lib/season/historySearch";
+import {
+  archivedTeamKeys,
+  archivedTeamSnapshot,
+  archivedSeasonTeamWinRates,
+  averageTierFromRoster,
+  buildTeamCardIdentity,
+  careerTeamWinRates,
+  liveTeamStandingLabel,
+  liveTeamWinRates,
+  liveTitleCounts,
+  liveTitleHighlights,
+  rosterLinesFromPlayers,
+  teamCardFromSeasonTeam,
+  teamNavKey,
+  teamTitleHighlightsFromEntry,
+  titleCountsFromEntry,
+  titleCountsFromRecords,
+  type TeamCardData,
+  type TeamCardHint,
+} from "@/lib/season/teamCard";
+
+export type { TeamCardHint };
+import { deriveStar } from "@/lib/players";
+import type { LeagueId, SeasonTeam } from "@/lib/season/types";
+
+export interface TeamCardResolveOpts {
+  /** Archived season entry id — render THAT year's snapshot. */
+  seasonId?: string;
+  hint?: TeamCardHint;
+}
+
+export interface TeamCardContextValue {
+  resolve(
+    teamId: string | undefined,
+    opts?: TeamCardResolveOpts,
+  ): TeamCardData | null;
+  hasProfileNav: boolean;
+  canOpenProfile(navKey: string | undefined): boolean;
+  openProfile(navKey: string): void;
+}
+
+const TeamCardContext = createContext<TeamCardContextValue | null>(null);
+
+export function useTeamCardContext(): TeamCardContextValue | null {
+  return useContext(TeamCardContext);
+}
+
+function lazily<T>(compute: () => T): () => T {
+  let box: { v: T } | null = null;
+  return () => (box ??= { v: compute() }).v;
+}
+
+interface LiveIndex {
+  season: import("@/lib/season/types").SeasonState | null;
+  teamsById: Map<string, SeasonTeam>;
+  academyByTeam: Map<string, number>;
+  hallEntries: SeasonHistoryEntry[];
+  hallKeys: () => Set<string>;
+}
+
+function resolveLive(
+  idx: LiveIndex,
+  teamId: string | undefined,
+  opts: TeamCardResolveOpts | undefined,
+): TeamCardData | null {
+  const season = idx.season;
+  if (!season) return null;
+
+  const hint = opts?.hint;
+  const hintName = hint?.team?.name ?? hint?.name;
+  const hintLeague = hint?.team?.leagueId ?? hint?.leagueId;
+
+  // Prefer stable season-team id so series / titles match tournament match ids.
+  const byId = teamId ? idx.teamsById.get(teamId) : undefined;
+  const byHintId = hint?.team?.id ? idx.teamsById.get(hint.team.id) : undefined;
+  const byName =
+    !byId && !byHintId && hintName && hintLeague
+      ? [...idx.teamsById.values()].find(
+          (t) => t.name === hintName && t.leagueId === hintLeague,
+        )
+      : undefined;
+
+  const resolved =
+    byId ??
+    byHintId ??
+    byName ??
+    (hint?.team as SeasonTeam | undefined) ??
+    (hintName && hintLeague
+      ? ({
+          id: teamId ?? hint?.team?.id ?? "",
+          name: hintName,
+          leagueId: hintLeague,
+          iconKey: hint?.iconKey ?? hint?.team?.iconKey ?? "shield",
+          color: hint?.color ?? hint?.team?.color ?? "",
+          players: hint?.players ?? hint?.team?.players ?? [],
+          personalityId: "",
+        } satisfies SeasonTeam)
+      : null);
+
+  if (!resolved) return null;
+
+  const franchiseYear = season.franchise?.year;
+  const standing = liveTeamStandingLabel(season, resolved.id);
+  const form = season.teamForm?.[resolved.id] ?? null;
+
+  return teamCardFromSeasonTeam(resolved, {
+    academyCount: idx.academyByTeam.get(resolved.id) ?? 0,
+    form,
+    standing,
+    highlights: liveTitleHighlights(season, resolved),
+    titleCounts: liveTitleCounts(season, resolved),
+    winRates: liveTeamWinRates(season, resolved.id),
+    scope: franchiseYear != null ? `Live · Year ${franchiseYear}` : "Live season",
+    archived: false,
+  });
+}
+
+export function LiveTeamCardProvider({
+  onOpenProfile,
+  children,
+}: {
+  onOpenProfile?: (navKey: string) => void;
+  children: ReactNode;
+}) {
+  const season = useDraftStore((s) => s.season);
+  const seasonHistory = useDraftStore((s) => s.seasonHistory);
+  const realities = useDraftStore((s) => s.realities);
+
+  const hallEntries = useMemo(() => {
+    const fid = season?.franchise?.id;
+    if (fid) return realities.find((r) => r.id === fid)?.history ?? [];
+    return seasonHistory;
+  }, [season?.franchise?.id, realities, seasonHistory]);
+
+  const index = useMemo<LiveIndex>(() => {
+    const teamsById = new Map<string, SeasonTeam>();
+    for (const t of season?.teams ?? []) teamsById.set(t.id, t);
+    const academyByTeam = new Map<string, number>();
+    const pool = season?.franchise?.inactivePool ?? [];
+    for (const t of season?.teams ?? []) {
+      academyByTeam.set(t.id, listTeamAcademy(pool, t.id).length);
+    }
+    return {
+      season: season ?? null,
+      teamsById,
+      academyByTeam,
+      hallEntries,
+      hallKeys: lazily(() => archivedTeamKeys(hallEntries)),
+    };
+  }, [season, hallEntries]);
+
+  const indexRef = useRef(index);
+  indexRef.current = index;
+  const navRef = useRef(onOpenProfile);
+  navRef.current = onOpenProfile;
+
+  const hasProfileNav = !!onOpenProfile && hallEntries.length > 0;
+
+  const value = useMemo<TeamCardContextValue>(
+    () => ({
+      resolve: (teamId, opts) => {
+        if (!indexRef.current.season) {
+          const hint = opts?.hint;
+          if (!hint?.name || !hint.leagueId) return null;
+          const roster = rosterLinesFromPlayers(hint.players ?? hint.team?.players ?? []);
+          return {
+            ...buildTeamCardIdentity(hint.name, hint.leagueId, {
+              iconKey: hint.iconKey ?? hint.team?.iconKey,
+              logoUrl: hint.logoUrl ?? hint.team?.logoUrl,
+              color: hint.color ?? hint.team?.color,
+            }),
+            ...(teamId ? { teamId } : {}),
+            roster,
+            academyCount: 0,
+            starRating: deriveStar(hint.players ?? hint.team?.players ?? []),
+            avgTier: averageTierFromRoster(roster),
+            highlights: [],
+            scope: "Team",
+            archived: false,
+          };
+        }
+        return resolveLive(indexRef.current, teamId, opts);
+      },
+      hasProfileNav,
+      canOpenProfile: (navKey) =>
+        !!navKey && !!navRef.current && indexRef.current.hallKeys().has(navKey),
+      openProfile: (navKey) => {
+        if (!indexRef.current.hallKeys().has(navKey)) return;
+        navRef.current?.(navKey);
+      },
+    }),
+    [hasProfileNav],
+  );
+
+  return (
+    <TeamCardContext.Provider value={value}>{children}</TeamCardContext.Provider>
+  );
+}
+
+interface HistoryIndex {
+  entries: SeasonHistoryEntry[];
+  entryById: Map<string, SeasonHistoryEntry>;
+  identity: ReturnType<typeof buildTeamIdentity>;
+  hallKeys: () => Set<string>;
+}
+
+function resolveHistory(
+  idx: HistoryIndex,
+  teamId: string | undefined,
+  opts: TeamCardResolveOpts | undefined,
+): TeamCardData | null {
+  const hint = opts?.hint;
+  const entry = opts?.seasonId ? idx.entryById.get(opts.seasonId) : undefined;
+
+  const name =
+    hint?.team?.name ?? hint?.name ?? (teamId?.includes(":") ? teamId.slice(teamId.indexOf(":") + 1) : undefined);
+  const leagueId =
+    hint?.team?.leagueId ??
+    hint?.leagueId ??
+    (teamId?.includes(":") ? (teamId.slice(0, teamId.indexOf(":")) as LeagueId) : undefined);
+
+  if (!name || !leagueId) return null;
+
+  const ref = refFor(idx.identity, name, leagueId, hint?.logoUrl ?? hint?.team?.logoUrl);
+  const snap = entry ? archivedTeamSnapshot(entry, { name, leagueId }) : null;
+  const roster = snap
+    ? rosterLinesFromPlayers(snap.players)
+    : rosterLinesFromPlayers(hint?.players ?? hint?.team?.players ?? []);
+
+  const highlights = entry
+    ? teamTitleHighlightsFromEntry(entry, { name, leagueId })
+    : [];
+  const titleCounts = entry
+    ? titleCountsFromEntry(entry, { name, leagueId })
+    : titleCountsFromRecords(idx.entries, { name, leagueId });
+  const winRates = entry
+    ? archivedSeasonTeamWinRates(entry, { name, leagueId })
+    : careerTeamWinRates(idx.entries, { name, leagueId });
+
+  return {
+    ...(teamId && !teamId.includes(":") ? { teamId } : {}),
+    ...buildTeamCardIdentity(name, leagueId, {
+      iconKey: ref.iconKey ?? hint?.iconKey ?? hint?.team?.iconKey,
+      logoUrl: ref.logoUrl ?? hint?.logoUrl ?? hint?.team?.logoUrl,
+      color: ref.color ?? hint?.color ?? hint?.team?.color,
+    }),
+    roster,
+    academyCount: 0,
+    starRating: deriveStar(snap?.players ?? hint?.players ?? hint?.team?.players ?? []),
+    avgTier: averageTierFromRoster(roster),
+    highlights,
+    titleCounts,
+    winRates,
+    scope: entry
+      ? `${entry.name}${snap ? ` · ${snap.stage}` : ""}`
+      : "Career to date",
+    archived: entry != null,
+  };
+}
+
+export function HistoryTeamCardProvider({
+  entries,
+  onOpenProfile,
+  children,
+}: {
+  entries: SeasonHistoryEntry[];
+  onOpenProfile?: (navKey: string) => void;
+  children: ReactNode;
+}) {
+  const index = useMemo<HistoryIndex>(() => {
+    return {
+      entries,
+      entryById: new Map(entries.map((e) => [e.id, e])),
+      identity: buildTeamIdentity(entries),
+      hallKeys: lazily(() => archivedTeamKeys(entries)),
+    };
+  }, [entries]);
+
+  const indexRef = useRef(index);
+  indexRef.current = index;
+  const navRef = useRef(onOpenProfile);
+  navRef.current = onOpenProfile;
+  const hasProfileNav = !!onOpenProfile;
+
+  const value = useMemo<TeamCardContextValue>(
+    () => ({
+      resolve: (teamId, opts) => {
+        const hint = opts?.hint;
+        const navFromHint =
+          hint?.name && hint.leagueId
+            ? teamNavKey({ name: hint.name, leagueId: hint.leagueId })
+            : hint?.team
+              ? teamNavKey({ name: hint.team.name, leagueId: hint.team.leagueId })
+              : undefined;
+        const key = teamId?.includes(":") ? teamId : navFromHint;
+        return resolveHistory(indexRef.current, key ?? teamId, opts);
+      },
+      hasProfileNav,
+      canOpenProfile: (navKey) => !!navKey && !!navRef.current,
+      openProfile: (navKey) => navRef.current?.(navKey),
+    }),
+    [hasProfileNav],
+  );
+
+  return (
+    <TeamCardContext.Provider value={value}>{children}</TeamCardContext.Provider>
+  );
+}
+
+export function NoTeamCards({ children }: { children: ReactNode }) {
+  return <TeamCardContext.Provider value={null}>{children}</TeamCardContext.Provider>;
+}

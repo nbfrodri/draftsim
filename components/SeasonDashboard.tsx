@@ -63,9 +63,16 @@ import {
   type SeasonState,
 } from "@/lib/season/types";
 import type { Champion, Lane } from "@/lib/types";
-import TeamIcon from "./TeamIcon";
+import TeamNameLink from "./team/TeamNameLink";
+import TeamLogoLink from "./team/TeamLogoLink";
+import {
+  buildLiveTeamStatsMap,
+  TeamLiveStatsInline,
+  type LiveTeamStats,
+} from "./team/TeamLiveStats";
 import LeagueIcon from "./LeagueIcon";
 import LaneIcon from "./LaneIcon";
+import PlayerNameLink from "./player/PlayerNameLink";
 import { logoForTeamName } from "@/lib/season/realTeams";
 import {
   IntlChampionBadge,
@@ -263,8 +270,21 @@ export default function SeasonDashboard() {
           </h1>
           {controlled && (
             <div className="mt-1 text-[10px] uppercase tracking-[0.3em] text-rift-bluebright inline-flex items-center gap-1.5">
-              <TeamIcon iconKey={controlled.iconKey} logoUrl={controlled.logoUrl} size={12} color={controlled.color} />
-              Following {controlled.name} (
+              <TeamNameLink
+                teamId={controlled.id}
+                name={controlled.name}
+                leagueId={controlled.leagueId}
+                iconKey={controlled.iconKey}
+                logoUrl={controlled.logoUrl}
+                color={controlled.color}
+                logoSize={12}
+                hint={{ team: controlled }}
+                renderAs="span"
+                className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.3em] text-rift-bluebright"
+              >
+                Following {controlled.name}
+              </TeamNameLink>
+              (
               <LeagueIcon league={controlled.leagueId} size={13} />
               {controlled.leagueId})
             </div>
@@ -286,8 +306,18 @@ export default function SeasonDashboard() {
               World Champion
             </div>
             <div className="font-display text-2xl md:text-4xl tracking-[0.15em] text-rift-goldbright inline-flex items-center gap-3">
-              <TeamIcon iconKey={championTeam.iconKey} logoUrl={championTeam.logoUrl} size={28} color={championTeam.color} />
-              {championTeam.name}
+              <TeamNameLink
+                teamId={championTeam.id}
+                name={championTeam.name}
+                leagueId={championTeam.leagueId}
+                iconKey={championTeam.iconKey}
+                logoUrl={championTeam.logoUrl}
+                color={championTeam.color}
+                logoSize={28}
+                hint={{ team: championTeam }}
+                renderAs="span"
+                className="font-display text-2xl md:text-4xl tracking-[0.15em] text-rift-goldbright inline-flex items-center gap-3"
+              />
               <span className="text-rift-gold/60 text-base md:text-xl inline-flex items-center gap-2">
                 <LeagueIcon league={championTeam.leagueId} size={24} />
                 {championTeam.leagueId}
@@ -428,8 +458,9 @@ export default function SeasonDashboard() {
           </div>
         </div>
 
-        {/* Transfer window — followed-team decisions + league-wide recap */}
-        <div className="cv-auto">
+        {/* Transfer window — no content-visibility: sticky filters + hover cards
+            need continuous layout (see globals.css .cv-auto). */}
+        <div className="mb-8">
           <TransferWindowPanel />
         </div>
 
@@ -624,6 +655,7 @@ function MiniBracket({
   tournament: TournamentState;
   matches: TournamentMatch[];
 }) {
+  const season = useDraftStore((s) => s.season);
   const bands: Array<{ key: string; label: string }> = [
     { key: "winners", label: "Winners" },
     { key: "losers", label: "Losers" },
@@ -664,28 +696,78 @@ function MiniBracket({
     const red = teamOf(m.redTeamId);
     const blueWon = m.winner?.teamId === m.blueTeamId;
     const redWon = m.winner?.teamId === m.redTeamId;
+    const blueSeason =
+      m.blueTeamId && season ? seasonTeam(season, m.blueTeamId) : null;
+    const redSeason =
+      m.redTeamId && season ? seasonTeam(season, m.redTeamId) : null;
     return (
       <div className="flex items-center gap-1 text-[9px]">
         <span className="flex-1 flex items-center justify-end gap-1 min-w-0">
-          <span
-            title={blue?.name}
-            className={`truncate ${blueWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/60"}`}
-          >
-            {blue?.name ?? "TBD"}
-          </span>
-          {blue && <TeamIcon iconKey={blue.iconKey} logoUrl={blue.logoUrl} size={11} color={blue.color} />}
+          {blue ? (
+            <TeamNameLink
+              teamId={blue.id}
+              name={blue.name}
+              leagueId={blueSeason?.leagueId}
+              iconKey={blue.iconKey}
+              logoUrl={blue.logoUrl}
+              color={blue.color}
+              logoSize={11}
+              showLogo={false}
+              renderAs="span"
+              className={`truncate ${blueWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/60"}`}
+              hint={blueSeason ? { team: blueSeason } : { name: blue.name, iconKey: blue.iconKey, logoUrl: blue.logoUrl, color: blue.color }}
+            />
+          ) : (
+            <span className="truncate text-rift-mutedbright/60">TBD</span>
+          )}
+          {blue && (
+            <TeamLogoLink
+              teamId={blue.id}
+              name={blue.name}
+              leagueId={blueSeason?.leagueId}
+              iconKey={blue.iconKey}
+              logoUrl={blue.logoUrl}
+              color={blue.color}
+              size={11}
+              renderAs="span"
+              hint={blueSeason ? { team: blueSeason } : { name: blue.name, iconKey: blue.iconKey, logoUrl: blue.logoUrl, color: blue.color }}
+            />
+          )}
         </span>
         <span className="text-rift-mutedbright/70 px-1 flex-shrink-0 tabular-nums">
           {m.winner ? `${m.winner.blueWins}-${m.winner.redWins}` : "vs"}
         </span>
         <span className="flex-1 flex items-center gap-1 min-w-0">
-          {red && <TeamIcon iconKey={red.iconKey} logoUrl={red.logoUrl} size={11} color={red.color} />}
-          <span
-            title={red?.name}
-            className={`truncate ${redWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/60"}`}
-          >
-            {red?.name ?? "TBD"}
-          </span>
+          {red && (
+            <TeamLogoLink
+              teamId={red.id}
+              name={red.name}
+              leagueId={redSeason?.leagueId}
+              iconKey={red.iconKey}
+              logoUrl={red.logoUrl}
+              color={red.color}
+              size={11}
+              renderAs="span"
+              hint={redSeason ? { team: redSeason } : { name: red.name, iconKey: red.iconKey, logoUrl: red.logoUrl, color: red.color }}
+            />
+          )}
+          {red ? (
+            <TeamNameLink
+              teamId={red.id}
+              name={red.name}
+              leagueId={redSeason?.leagueId}
+              iconKey={red.iconKey}
+              logoUrl={red.logoUrl}
+              color={red.color}
+              logoSize={11}
+              showLogo={false}
+              renderAs="span"
+              className={`truncate ${redWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/60"}`}
+              hint={redSeason ? { team: redSeason } : { name: red.name, iconKey: red.iconKey, logoUrl: red.logoUrl, color: red.color }}
+            />
+          ) : (
+            <span className="truncate text-rift-mutedbright/60">TBD</span>
+          )}
         </span>
       </div>
     );
@@ -811,12 +893,41 @@ function LatestMatchdayPanel({
                     <div className="flex items-center gap-1.5 text-[10px]">
                     {/* Blue side (right-aligned toward the score) */}
                     <span className="flex-1 flex items-center justify-end gap-1 min-w-0">
-                      <span
+                      <TeamNameLink
+                        teamId={m.blue.id}
+                        name={m.blue.name}
+                        leagueId={r.league ?? undefined}
+                        iconKey={m.blue.iconKey}
+                        logoUrl={m.blue.logoUrl}
+                        color={m.blue.color}
+                        showLogo={false}
+                        renderAs="span"
                         className={`truncate ${m.blueWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/55"}`}
-                      >
-                        {m.blue.name}
-                      </span>
-                      <TeamIcon iconKey={m.blue.iconKey} logoUrl={m.blue.logoUrl} size={12} color={m.blue.color} />
+                        hint={{
+                          name: m.blue.name,
+                          ...(r.league ? { leagueId: r.league } : {}),
+                          iconKey: m.blue.iconKey,
+                          logoUrl: m.blue.logoUrl,
+                          color: m.blue.color,
+                        }}
+                      />
+                      <TeamLogoLink
+                        teamId={m.blue.id}
+                        name={m.blue.name}
+                        leagueId={r.league ?? undefined}
+                        iconKey={m.blue.iconKey}
+                        logoUrl={m.blue.logoUrl}
+                        color={m.blue.color}
+                        size={12}
+                        renderAs="span"
+                        hint={{
+                          name: m.blue.name,
+                          ...(r.league ? { leagueId: r.league } : {}),
+                          iconKey: m.blue.iconKey,
+                          logoUrl: m.blue.logoUrl,
+                          color: m.blue.color,
+                        }}
+                      />
                     </span>
                     <span className="tabular-nums text-rift-mutedbright/85 px-1 flex-shrink-0 font-display">
                       <span className={m.blueWon ? "text-rift-goldbright" : ""}>
@@ -829,12 +940,41 @@ function LatestMatchdayPanel({
                     </span>
                     {/* Red side (left-aligned from the score) */}
                     <span className="flex-1 flex items-center gap-1 min-w-0">
-                      <TeamIcon iconKey={m.red.iconKey} logoUrl={m.red.logoUrl} size={12} color={m.red.color} />
-                      <span
+                      <TeamLogoLink
+                        teamId={m.red.id}
+                        name={m.red.name}
+                        leagueId={r.league ?? undefined}
+                        iconKey={m.red.iconKey}
+                        logoUrl={m.red.logoUrl}
+                        color={m.red.color}
+                        size={12}
+                        renderAs="span"
+                        hint={{
+                          name: m.red.name,
+                          ...(r.league ? { leagueId: r.league } : {}),
+                          iconKey: m.red.iconKey,
+                          logoUrl: m.red.logoUrl,
+                          color: m.red.color,
+                        }}
+                      />
+                      <TeamNameLink
+                        teamId={m.red.id}
+                        name={m.red.name}
+                        leagueId={r.league ?? undefined}
+                        iconKey={m.red.iconKey}
+                        logoUrl={m.red.logoUrl}
+                        color={m.red.color}
+                        showLogo={false}
+                        renderAs="span"
                         className={`truncate ${!m.blueWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/55"}`}
-                      >
-                        {m.red.name}
-                      </span>
+                        hint={{
+                          name: m.red.name,
+                          ...(r.league ? { leagueId: r.league } : {}),
+                          iconKey: m.red.iconKey,
+                          logoUrl: m.red.logoUrl,
+                          color: m.red.color,
+                        }}
+                      />
                     </span>
                     <MatchdayStageTag stage={m.stage} group={m.group} />
                     {m.tags?.map((tag) => (
@@ -875,13 +1015,25 @@ function LatestMatchdayPanel({
                 </span>
                 <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
                   {r.qualified.map((q) => (
-                    <span
+                    <TeamNameLink
                       key={q.name}
+                      teamId={q.id}
+                      name={q.name}
+                      leagueId={r.league ?? undefined}
+                      iconKey={q.iconKey}
+                      logoUrl={q.logoUrl}
+                      color={q.color}
+                      logoSize={11}
+                      renderAs="span"
                       className="inline-flex items-center gap-1 text-[10px] text-rift-bluebright"
-                    >
-                      <TeamIcon iconKey={q.iconKey} logoUrl={q.logoUrl} size={11} color={q.color} />
-                      {q.name}
-                    </span>
+                      hint={{
+                        name: q.name,
+                        ...(r.league ? { leagueId: r.league } : {}),
+                        iconKey: q.iconKey,
+                        logoUrl: q.logoUrl,
+                        color: q.color,
+                      }}
+                    />
                   ))}
                 </div>
               </div>
@@ -962,10 +1114,12 @@ function PowerRankRow({
   row,
   spread,
   min,
+  stats,
 }: {
   row: PowerRankingRow;
   spread: number;
   min: number;
+  stats?: LiveTeamStats;
 }) {
   // Bar fills relative to the visible field (best = full, worst ≈ empty).
   const pct = spread > 0 ? 8 + 92 * ((row.score - min) / spread) : 100;
@@ -983,13 +1137,19 @@ function PowerRankRow({
       <span className={`w-2 text-center ${glyphColor}`} aria-hidden>
         {glyph}
       </span>
-      <TeamIcon
+      <TeamNameLink
+        teamId={row.team.id}
+        name={row.team.name}
+        leagueId={row.team.leagueId}
         iconKey={row.team.iconKey}
         logoUrl={row.team.logoUrl}
-        size={12}
         color={row.team.color}
+        logoSize={12}
+        hint={{ team: row.team }}
+        renderAs="span"
+        className="truncate w-24 flex-shrink-0 text-[10px] text-rift-mutedbright"
       />
-      <span className="truncate w-24 flex-shrink-0">{row.team.name}</span>
+      <TeamLiveStatsInline stats={stats} showTitles={false} className="w-[4.5rem] justify-end" />
       {/* Score bar */}
       <div className="flex-1 h-1.5 bg-rift-line/40 min-w-8">
         <div
@@ -1033,6 +1193,10 @@ function PowerRankingsPanel({
     () => (open ? computePowerRankings(season, champions) : []),
     [season, champions, open],
   );
+  const teamStats = useMemo(
+    () => (open ? buildLiveTeamStatsMap(season) : null),
+    [open, season],
+  );
   const min = rows.length > 0 ? rows[rows.length - 1].score : 0;
   const spread = rows.length > 0 ? rows[0].score - min : 0;
   return (
@@ -1075,6 +1239,7 @@ function PowerRankingsPanel({
                 row={row}
                 spread={spread}
                 min={min}
+                stats={teamStats?.get(row.team.id)}
               />
             ))}
           </div>
@@ -1105,6 +1270,14 @@ function TournamentCard({
     [tournament],
   );
   const standings = useMemo(() => fullStandings.slice(0, 4), [fullStandings]);
+  // Season-wide series + titles for teams in this tournament (preview + expanded).
+  const teamStats = useMemo(() => {
+    const ids = new Set(tournament.teams.map((t) => t.id));
+    return buildLiveTeamStatsMap(
+      season,
+      season.teams.filter((t) => ids.has(t.id)),
+    );
+  }, [season, tournament.teams]);
   // Pure-bracket formats (single/double/triple-elim) have no standings —
   // the bracket IS the result. Everything else has a regular-stage table.
   const hasStandings = formatHasStandings(tournament.format);
@@ -1236,21 +1409,44 @@ function TournamentCard({
               Qualified → Main Event
             </div>
             <div className="space-y-0.5">
-              {playInQualified.map((t) => (
-                <div
-                  key={t.id}
-                  className="flex items-center gap-1.5 text-[10px] text-rift-goldbright"
-                >
-                  <TeamIcon iconKey={t.iconKey} logoUrl={t.logoUrl} size={12} color={t.color} />
-                  <span className="truncate">{t.name}</span>
-                </div>
-              ))}
+              {playInQualified.map((t) => {
+                const st = season.teams.find((x) => x.id === t.id);
+                return (
+                  <TeamNameLink
+                    key={t.id}
+                    teamId={t.id}
+                    name={t.name}
+                    leagueId={st?.leagueId}
+                    iconKey={t.iconKey}
+                    logoUrl={t.logoUrl}
+                    color={t.color}
+                    logoSize={12}
+                    renderAs="span"
+                    className="flex items-center gap-1.5 text-[10px] text-rift-goldbright"
+                    hint={st ? { team: st } : { name: t.name, iconKey: t.iconKey, logoUrl: t.logoUrl, color: t.color }}
+                  />
+                );
+              })}
             </div>
           </div>
         ) : champion && !isPlayIn ? (
           <div className="text-[10px] uppercase tracking-[0.25em] text-rift-goldbright flex items-center gap-1.5 flex-wrap">
-            <TeamIcon iconKey={champion.iconKey} logoUrl={champion.logoUrl} size={13} color={champion.color} />
-            <span className="truncate">Champion: {champion.name}</span>
+            <TeamNameLink
+              teamId={champion.id}
+              name={champion.name}
+              leagueId={season.teams.find((t) => t.id === champion.id)?.leagueId}
+              iconKey={champion.iconKey}
+              logoUrl={champion.logoUrl}
+              color={champion.color}
+              logoSize={13}
+              renderAs="span"
+              className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em] text-rift-goldbright"
+              hint={{
+                team: season.teams.find((t) => t.id === champion.id),
+              }}
+            >
+              Champion: {champion.name}
+            </TeamNameLink>
             <QualifierTagView tag={regionSeeds?.get(champion.id)} />
           </div>
         ) : hasStandings ? (
@@ -1267,16 +1463,38 @@ function TournamentCard({
                 <span className="w-3 text-rift-muted/70 tabular-nums">
                   {s.rank}
                 </span>
-                <TeamIcon iconKey={s.team.iconKey} logoUrl={s.team.logoUrl} size={12} color={s.team.color} />
-                <span className="truncate flex-1">{s.team.name}</span>
+                <TeamNameLink
+                  teamId={s.team.id}
+                  name={s.team.name}
+                  leagueId={season.teams.find((t) => t.id === s.team.id)?.leagueId}
+                  iconKey={s.team.iconKey}
+                  logoUrl={s.team.logoUrl}
+                  color={s.team.color}
+                  logoSize={12}
+                  renderAs="span"
+                  className={`truncate flex-1 text-[10px] ${
+                    s.team.id === controlledId
+                      ? "text-rift-bluebright"
+                      : "text-rift-mutedbright"
+                  }`}
+                  hint={{
+                    team: season.teams.find((t) => t.id === s.team.id),
+                  }}
+                />
                 <TeamFormBadge
                   form={s.team.form}
                   baseStar={s.team.starRating}
                 />
                 <QualifierTagView tag={regionSeeds?.get(s.team.id)} />
-                <span className="tabular-nums text-rift-muted/70 flex-shrink-0">
+                <span
+                  className="tabular-nums text-rift-muted/70 flex-shrink-0"
+                  title="This tournament match W-L"
+                >
                   {s.wins}-{s.losses}
                 </span>
+                <TeamLiveStatsInline
+                  stats={teamStats.get(s.team.id)}
+                />
               </div>
             ))}
             {standings.length === 0 && (
@@ -1297,18 +1515,25 @@ function TournamentCard({
               Qualified → {INTERNATIONAL_LABELS[splitQualifiers.event]}
             </div>
             <div className="space-y-0.5">
-              {splitQualifiers.qualifiers.map((q) => (
+              {splitQualifiers.qualifiers.map((q) => {
+                const st = season.teams.find((t) => t.id === q.team.id);
+                return (
                 <div
                   key={q.team.id}
                   className="flex items-center gap-1.5 text-[10px] text-rift-mutedbright"
                 >
-                  <TeamIcon
+                  <TeamNameLink
+                    teamId={q.team.id}
+                    name={q.team.name}
+                    leagueId={st?.leagueId}
                     iconKey={q.team.iconKey}
                     logoUrl={q.team.logoUrl}
-                    size={11}
                     color={q.team.color}
+                    logoSize={11}
+                    renderAs="span"
+                    className="truncate flex-1 text-[10px] text-rift-mutedbright"
+                    hint={st ? { team: st } : { name: q.team.name, iconKey: q.team.iconKey, logoUrl: q.team.logoUrl, color: q.team.color }}
                   />
-                  <span className="truncate flex-1">{q.team.name}</span>
                   {q.via === "champion" ? (
                     <IntlChampionBadge
                       event={feederEventOf(splitQualifiers.event)!}
@@ -1322,7 +1547,8 @@ function TournamentCard({
                     </span>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -1350,6 +1576,7 @@ function TournamentCard({
                     advancing > 0 ? advancing : fullStandings.length
                   }
                   tournament={tournament}
+                  teamStats={teamStats}
                 />
                 {playoffMatches.length > 0 && (
                   <MiniBracket
@@ -1431,9 +1658,23 @@ function AllProTeamStrip({
             <span key={lane} className="inline-flex items-center gap-1 text-[10px]">
               <LaneIcon lane={lane} size="xs" />
               {t && (
-                <TeamIcon iconKey={t.iconKey} logoUrl={t.logoUrl} size={11} color={t.color} />
+                <TeamLogoLink
+                  teamId={t.id}
+                  name={t.name}
+                  leagueId={t.leagueId}
+                  iconKey={t.iconKey}
+                  logoUrl={t.logoUrl}
+                  color={t.color}
+                  size={11}
+                  renderAs="span"
+                  hint={{ team: t }}
+                />
               )}
-              <span className="text-rift-bluebright">{m.playerName ?? m.teamName}</span>
+              <PlayerNameLink
+                playerId={m.playerId}
+                name={m.playerName ?? m.teamName}
+                className="text-rift-bluebright"
+              />
               <span className="text-rift-muted/60 tabular-nums" title={`${m.games} games`}>
                 {m.avgRating.toFixed(1)}
               </span>
@@ -1542,10 +1783,20 @@ function PastResults({
                       <span className="text-rift-muted/70">{t.name}:</span>
                       {champ ? (
                         <>
-                          <TeamIcon iconKey={champ.iconKey} logoUrl={champ.logoUrl} size={12} color={champ.color} />
-                          <span className="text-rift-goldbright">
-                            {champ.name}
-                          </span>
+                          <TeamNameLink
+                            teamId={champ.id}
+                            name={champ.name}
+                            leagueId={season.teams.find((x) => x.id === champ.id)?.leagueId}
+                            iconKey={champ.iconKey}
+                            logoUrl={champ.logoUrl}
+                            color={champ.color}
+                            logoSize={12}
+                            renderAs="span"
+                            className="inline-flex items-center gap-1.5 text-rift-goldbright"
+                            hint={{
+                              team: season.teams.find((x) => x.id === champ.id),
+                            }}
+                          />
                         </>
                       ) : (
                         <span className="italic text-rift-muted">in progress</span>
@@ -1735,8 +1986,24 @@ function PlacementRow({
         {rank}.
       </span>
       {showRegion && <LeagueIcon league={team.leagueId} size={12} />}
-      <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={12} color={team.color} />
-      <span className="truncate">{team.name}</span>
+      <TeamNameLink
+        teamId={team.id}
+        name={team.name}
+        leagueId={team.leagueId}
+        iconKey={team.iconKey}
+        logoUrl={team.logoUrl}
+        color={team.color}
+        logoSize={12}
+        renderAs="span"
+        className={`truncate text-[10px] ${
+          rank === 1
+            ? "text-rift-goldbright"
+            : controlled
+              ? "text-rift-bluebright"
+              : "text-rift-mutedbright"
+        }`}
+        hint={{ team }}
+      />
       {rank === 1 && <span aria-hidden>🏆</span>}
       <QualifierTagView tag={tag} />
     </li>
@@ -1770,7 +2037,7 @@ function StageStatCell({
   icon,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   sub?: string;
   icon?: ReactNode;
 }) {
@@ -1794,7 +2061,19 @@ function StageStatCell({
 function AwardTeamIcon({ season, teamId }: { season: SeasonState; teamId: string }) {
   const t = seasonTeam(season, teamId);
   if (!t) return null;
-  return <TeamIcon iconKey={t.iconKey} logoUrl={t.logoUrl} size={13} color={t.color} />;
+  return (
+    <TeamLogoLink
+      teamId={t.id}
+      name={t.name}
+      leagueId={t.leagueId}
+      iconKey={t.iconKey}
+      logoUrl={t.logoUrl}
+      color={t.color}
+      size={13}
+      renderAs="span"
+      hint={{ team: t }}
+    />
+  );
 }
 
 function StageStatsRow({
@@ -1846,17 +2125,34 @@ function StageStatsRow({
         {champion && (
           <span className="inline-flex items-center gap-1.5 text-[10px]">
             <span aria-hidden>🏆</span>
-            <TeamIcon
+            <TeamNameLink
+              teamId={champion.id}
+              name={champion.name}
+              leagueId={champion.leagueId}
               iconKey={champion.iconKey}
               logoUrl={champion.logoUrl}
-              size={13}
               color={champion.color}
+              logoSize={13}
+              renderAs="span"
+              className="inline-flex items-center gap-1.5 font-display tracking-wider text-rift-goldbright"
+              hint={{ team: champion }}
             />
-            <span className="font-display tracking-wider text-rift-goldbright">
-              {champion.name}
-            </span>
             {runnerUp && (
-              <span className="text-rift-muted/80">def. {runnerUp.name}</span>
+              <span className="text-rift-muted/80 inline-flex items-center gap-1">
+                def.{" "}
+                <TeamNameLink
+                  teamId={runnerUp.id}
+                  name={runnerUp.name}
+                  leagueId={runnerUp.leagueId}
+                  iconKey={runnerUp.iconKey}
+                  logoUrl={runnerUp.logoUrl}
+                  color={runnerUp.color}
+                  showLogo={false}
+                  renderAs="span"
+                  className="text-rift-muted/80"
+                  hint={{ team: runnerUp }}
+                />
+              </span>
             )}
           </span>
         )}
@@ -1867,7 +2163,13 @@ function StageStatsRow({
         {mvp && (
           <StageStatCell
             label="MVP"
-            value={mvp.playerName ?? mvp.displayName}
+            value={
+              <PlayerNameLink
+                playerId={mvp.playerId}
+                name={mvp.playerName ?? mvp.displayName}
+                className="truncate"
+              />
+            }
             sub={
               stageMvp
                 ? isIntl
@@ -1916,7 +2218,11 @@ function StageStatsRow({
               >
                 <LaneIcon lane={lane} size="xs" />
                 <AwardTeamIcon season={season} teamId={p.teamId} />
-                <span className="text-rift-bluebright">{p.playerName ?? p.displayName}</span>
+                <PlayerNameLink
+                  playerId={p.playerId}
+                  name={p.playerName ?? p.displayName}
+                  className="text-rift-bluebright"
+                />
                 <span className="text-rift-muted/60 tabular-nums">
                   {p.avgRating.toFixed(1)}
                 </span>
@@ -1933,9 +2239,11 @@ function StageStatsRow({
             <span key={a.kind} className="inline-flex items-center gap-1 text-[10px]">
               <span className="text-rift-gold/70">{a.title}:</span>
               <AwardTeamIcon season={season} teamId={a.player.teamId} />
-              <span className="text-rift-bluebright">
-                {a.player.playerName ?? a.player.displayName}
-              </span>
+              <PlayerNameLink
+                playerId={a.player.playerId}
+                name={a.player.playerName ?? a.player.displayName}
+                className="text-rift-bluebright"
+              />
               <span className="text-rift-muted/60">({a.context})</span>
             </span>
           ))}
@@ -2044,15 +2352,18 @@ function SeasonRecapPanel({
                 {league}
               </div>
               <div className="flex items-center gap-1.5 mb-0.5">
-                <TeamIcon
+                <TeamNameLink
+                  teamId={bestTeam.id}
+                  name={bestTeam.name}
+                  leagueId={bestTeam.leagueId}
                   iconKey={bestTeam.iconKey}
                   logoUrl={bestTeam.logoUrl}
-                  size={13}
                   color={bestTeam.color}
+                  logoSize={13}
+                  renderAs="span"
+                  className="font-display text-xs tracking-wider text-rift-goldbright truncate"
+                  hint={{ team: bestTeam }}
                 />
-                <span className="font-display text-xs tracking-wider text-rift-goldbright truncate">
-                  {bestTeam.name}
-                </span>
               </div>
               <div className="text-[9px] text-rift-mutedbright/70">
                 Best of the region · {best.wins}-{best.losses}
@@ -2087,13 +2398,24 @@ function SeasonRecapPanel({
                   <div className="text-[8px] uppercase tracking-[0.25em] text-rift-blue/70 mb-1">
                     {r.lane}
                   </div>
-                  <div className="font-display text-rift-goldbright truncate">
-                    {r.playerName}
-                  </div>
+                  <PlayerNameLink
+                    playerId={r.playerId}
+                    name={r.playerName}
+                    className="font-display text-rift-goldbright truncate"
+                  />
                   {team && (
-                    <div className="text-[9px] text-rift-mutedbright/70 truncate mt-0.5">
-                      {team.name}
-                    </div>
+                    <TeamNameLink
+                      teamId={team.id}
+                      name={team.name}
+                      leagueId={team.leagueId}
+                      iconKey={team.iconKey}
+                      logoUrl={team.logoUrl}
+                      color={team.color}
+                      showLogo={false}
+                      renderAs="span"
+                      className="text-[9px] text-rift-mutedbright/70 truncate mt-0.5"
+                      hint={{ team }}
+                    />
                   )}
                   <div className="text-[8px] text-rift-muted/70 tabular-nums mt-1">
                     ★{r.avgRating.toFixed(1)} · {r.splitTitles} split · {r.intlTitles} intl
@@ -2180,7 +2502,13 @@ function SeasonRecapPanel({
                   </div>
                   <div className="font-display text-xs text-rift-goldbright tabular-nums">
                     {stats.records.bestMvp.playerName ? (
-                      <span>{stats.records.bestMvp.playerName} · </span>
+                      <span>
+                        <PlayerNameLink
+                          playerId={stats.records.bestMvp.playerId}
+                          name={stats.records.bestMvp.playerName}
+                        />{" "}
+                        ·{" "}
+                      </span>
                     ) : null}
                     {stats.records.bestMvp.kills}/{stats.records.bestMvp.deaths}/
                     {stats.records.bestMvp.assists}
@@ -2286,16 +2614,23 @@ function SeasonRecapPanel({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
                       {team && (
-                        <TeamIcon
+                        <TeamLogoLink
+                          teamId={team.id}
+                          name={team.name}
+                          leagueId={team.leagueId}
                           iconKey={team.iconKey}
                           logoUrl={team.logoUrl}
-                          size={12}
                           color={team.color}
+                          size={12}
+                          renderAs="span"
+                          hint={{ team }}
                         />
                       )}
-                      <span className="font-display text-xs tracking-wider text-rift-goldbright truncate">
-                        {p.playerName ?? (team?.name ?? "—")}
-                      </span>
+                      <PlayerNameLink
+                        playerId={p.playerId}
+                        name={p.playerName ?? (team?.name ?? "—")}
+                        className="font-display text-xs tracking-wider text-rift-goldbright truncate"
+                      />
                       <span className="ml-auto text-[8px] uppercase tracking-wider text-rift-gold/50 shrink-0">
                         {laneLabel}
                       </span>
@@ -2358,13 +2693,25 @@ function SeasonRecapPanel({
                         <div key={l.playerId} className="flex items-center gap-1.5 px-2 py-1 text-[10px]">
                           <span className="w-3 text-[8px] tabular-nums text-rift-muted/60">{i + 1}</span>
                           {lteam && (
-                            <TeamIcon iconKey={lteam.iconKey} logoUrl={lteam.logoUrl} size={13} color={lteam.color} />
+                            <TeamLogoLink
+                              teamId={lteam.id}
+                              name={lteam.name}
+                              leagueId={lteam.leagueId}
+                              iconKey={lteam.iconKey}
+                              logoUrl={lteam.logoUrl}
+                              color={lteam.color}
+                              size={13}
+                              renderAs="span"
+                              hint={{ team: lteam }}
+                            />
                           )}
                           <LaneIcon lane={l.lane} size="xs" className="shrink-0" />
                           <span className="min-w-0 flex-1 truncate">
-                            <span className="text-rift-mutedbright font-medium">
-                              {l.playerName || l.teamName}
-                            </span>
+                            <PlayerNameLink
+                              playerId={l.playerId}
+                              name={l.playerName || l.teamName}
+                              className="text-rift-mutedbright font-medium"
+                            />
                             <span className="text-rift-muted/50">
                               {" "}· {l.teamName}
                             </span>
@@ -2398,6 +2745,7 @@ function SeasonRecapPanel({
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
             {stats.pentakills.slice(0, 12).map((p) => {
               const champ = championsById.get(p.championId);
+              const pTeam = season.teams.find((t) => t.name === p.teamName);
               return (
                 <div
                   key={`${p.championId}-${p.teamName}`}
@@ -2414,10 +2762,24 @@ function SeasonRecapPanel({
                   <div className="min-w-0">
                     <div className="font-display text-xs tracking-wider text-rift-goldbright truncate flex items-center gap-1">
                       {p.lane && <LaneIcon lane={p.lane} size="xs" />}
-                      <span className="truncate">{p.playerName || p.championName}</span>
+                      <PlayerNameLink
+                        playerId={p.playerId ?? undefined}
+                        name={p.playerName || p.championName}
+                        className="truncate"
+                      />
                     </div>
                     <div className="flex items-center gap-1 text-[9px] text-rift-mutedbright/70 truncate">
-                      <TeamIcon iconKey="shield" logoUrl={logoForTeamName(p.teamName)} size={11} />
+                      <TeamLogoLink
+                        teamId={pTeam?.id}
+                        name={p.teamName}
+                        leagueId={pTeam?.leagueId}
+                        iconKey={pTeam?.iconKey ?? "shield"}
+                        logoUrl={pTeam?.logoUrl ?? logoForTeamName(p.teamName)}
+                        color={pTeam?.color}
+                        size={11}
+                        renderAs="span"
+                        hint={pTeam ? { team: pTeam } : { name: p.teamName }}
+                      />
                       <span className="truncate">
                         {p.playerName ? `${p.championName} · ` : ""}
                         {p.teamName}
@@ -2455,15 +2817,33 @@ function SeasonRecapPanel({
                   className="flex items-center gap-2 border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2"
                 >
                   <div className="flex items-center gap-1 min-w-0 flex-1 justify-end">
-                    <span className="font-display text-xs text-rift-goldbright truncate">
-                      {a?.name ?? "—"}
-                    </span>
-                    {a && (
-                      <TeamIcon
+                    {a ? (
+                      <TeamNameLink
+                        teamId={a.id}
+                        name={a.name}
+                        leagueId={a.leagueId}
                         iconKey={a.iconKey}
                         logoUrl={a.logoUrl}
-                        size={14}
                         color={a.color}
+                        showLogo={false}
+                        renderAs="span"
+                        className="font-display text-xs text-rift-goldbright truncate"
+                        hint={{ team: a }}
+                      />
+                    ) : (
+                      <span className="font-display text-xs text-rift-goldbright truncate">—</span>
+                    )}
+                    {a && (
+                      <TeamLogoLink
+                        teamId={a.id}
+                        name={a.name}
+                        leagueId={a.leagueId}
+                        iconKey={a.iconKey}
+                        logoUrl={a.logoUrl}
+                        color={a.color}
+                        size={14}
+                        renderAs="span"
+                        hint={{ team: a }}
                       />
                     )}
                   </div>
@@ -2472,16 +2852,34 @@ function SeasonRecapPanel({
                   </div>
                   <div className="flex items-center gap-1 min-w-0 flex-1">
                     {b && (
-                      <TeamIcon
+                      <TeamLogoLink
+                        teamId={b.id}
+                        name={b.name}
+                        leagueId={b.leagueId}
                         iconKey={b.iconKey}
                         logoUrl={b.logoUrl}
-                        size={14}
                         color={b.color}
+                        size={14}
+                        renderAs="span"
+                        hint={{ team: b }}
                       />
                     )}
-                    <span className="font-display text-xs text-rift-goldbright truncate">
-                      {b?.name ?? "—"}
-                    </span>
+                    {b ? (
+                      <TeamNameLink
+                        teamId={b.id}
+                        name={b.name}
+                        leagueId={b.leagueId}
+                        iconKey={b.iconKey}
+                        logoUrl={b.logoUrl}
+                        color={b.color}
+                        showLogo={false}
+                        renderAs="span"
+                        className="font-display text-xs text-rift-goldbright truncate"
+                        hint={{ team: b }}
+                      />
+                    ) : (
+                      <span className="font-display text-xs text-rift-goldbright truncate">—</span>
+                    )}
                   </div>
                   <span className="text-[8px] uppercase tracking-wider text-rift-muted/70 shrink-0">
                     ×{r.meetings}
@@ -2541,8 +2939,18 @@ function SeasonRecapPanel({
                     <LeagueIcon league={event} size={14} />
                     {INTERNATIONAL_LABELS[event]}
                   </span>
-                  <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} size={13} color={team.color} />
-                  <span className="text-rift-goldbright">{team.name}</span>
+                  <TeamNameLink
+                    teamId={team.id}
+                    name={team.name}
+                    leagueId={team.leagueId}
+                    iconKey={team.iconKey}
+                    logoUrl={team.logoUrl}
+                    color={team.color}
+                    logoSize={13}
+                    renderAs="span"
+                    className="text-rift-goldbright inline-flex items-center gap-1.5"
+                    hint={{ team }}
+                  />
                   <span className="inline-flex items-center gap-1 text-rift-muted/60">
                     <LeagueIcon league={team.leagueId} size={12} />({team.leagueId})
                   </span>
@@ -2571,7 +2979,18 @@ function SeasonRecapPanel({
                       <span key={league} className="inline-flex items-center gap-1">
                         {i > 0 && <span className="text-rift-muted/40"> · </span>}
                         <LeagueIcon league={league} size={12} />
-                        <span className="text-rift-goldbright">{team.name}</span>
+                        <TeamNameLink
+                          teamId={team.id}
+                          name={team.name}
+                          leagueId={team.leagueId}
+                          iconKey={team.iconKey}
+                          logoUrl={team.logoUrl}
+                          color={team.color}
+                          showLogo={false}
+                          renderAs="span"
+                          className="text-rift-goldbright"
+                          hint={{ team }}
+                        />
                       </span>
                     );
                   })}
