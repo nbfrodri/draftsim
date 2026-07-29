@@ -487,11 +487,22 @@ export function bumpOldestAcademyToFa(
  * bumps the oldest academy player to FA first, then inserts.
  * Does not mutate `pool`. The bump inherits `entry`'s clock year — both moves
  * happen on the same day.
+ * Same-id rows already in the pool are replaced (never duplicated) — a ghost
+ * copy next to a main-roster starter is what produced "same player, higher
+ * tier" Out→In digest noise after academy development.
  */
 export function addToTeamAcademy(
   pool: readonly MarketInactive[],
   entry: MarketInactive,
 ): { pool: MarketInactive[]; bumped: MarketInactive | null } {
+  if (entry.player.id) {
+    const existing = pool.findIndex((e) => e.player.id === entry.player.id);
+    if (existing >= 0) {
+      const next = [...pool];
+      next[existing] = entry;
+      return { pool: next, bumped: null };
+    }
+  }
   let bumped: MarketInactive | null = null;
   let next: MarketInactive[];
   if (countTeamAcademy(pool, entry.lastTeamId) >= ACADEMY_MAX_PER_TEAM) {
@@ -507,6 +518,84 @@ export function addToTeamAcademy(
   }
   next.push(entry);
   return { pool: next, bumped };
+}
+
+/**
+ * Status / bench rows intentionally stamp the same person on both sides.
+ * Everything else with matching departed/entrant id (or name) is fake churn.
+ */
+const SAME_PLAYER_STATUS_NOTES = new Set<MarketNote>([
+  "became-fa",
+  "retired",
+  "academy-bump",
+  "academy-release",
+  "agency-override",
+  "agency-leave",
+  "manual-demote",
+  "ai-demote",
+]);
+
+/** True when a digest row is a same-person Out→In (tier-only / ghost-copy noise). */
+export function isSamePlayerReplaceNoise(n: {
+  marketNote?: MarketNote;
+  departedId?: string;
+  entrantId?: string;
+  departedName?: string;
+  entrantName?: string;
+}): boolean {
+  if (n.marketNote && SAME_PLAYER_STATUS_NOTES.has(n.marketNote)) return false;
+  if (n.departedId && n.entrantId && n.departedId === n.entrantId) return true;
+  if (
+    n.departedName &&
+    n.entrantName &&
+    n.departedName === n.entrantName &&
+    n.entrantName !== ""
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Drop inactive-pool ghosts whose id still sits on a main roster. If the ghost
+ * is a higher tier (academy develop while a stale roster copy lingered), merge
+ * that tier onto the roster in place — never emit an Out→In replace.
+ */
+export function reconcileRosterPoolDuplicates<
+  T extends { id: string; players: Player[] },
+>(
+  teams: readonly T[],
+  pool: readonly MarketInactive[],
+): { teams: T[]; inactivePool: MarketInactive[] } {
+  const rosterById = new Map<string, { ti: number; pi: number }>();
+  teams.forEach((t, ti) => {
+    t.players.forEach((p, pi) => {
+      if (p?.id && !isRosterVacancy(p)) rosterById.set(p.id, { ti, pi });
+    });
+  });
+  const nextTeams = teams.map((t) => ({ ...t, players: [...t.players] }));
+  const nextPool: MarketInactive[] = [];
+  for (const e of pool) {
+    if (isRosterVacancy(e.player)) continue;
+    const id = e.player.id;
+    if (!id || !rosterById.has(id)) {
+      nextPool.push(e);
+      continue;
+    }
+    const loc = rosterById.get(id)!;
+    const rosterP = nextTeams[loc.ti]!.players[loc.pi]!;
+    let next = rosterP;
+    if (PLAYER_TIER_VALUE[e.player.tier] > PLAYER_TIER_VALUE[rosterP.tier]) {
+      next = { ...next, tier: e.player.tier };
+    }
+    const potPool = PLAYER_TIER_VALUE[e.player.potential ?? e.player.tier];
+    const potRost = PLAYER_TIER_VALUE[next.potential ?? next.tier];
+    if (potPool > potRost) {
+      next = { ...next, potential: e.player.potential ?? e.player.tier };
+    }
+    nextTeams[loc.ti]!.players[loc.pi] = next;
+  }
+  return { teams: nextTeams, inactivePool: nextPool };
 }
 
 /** Roster-news row when a player becomes a free agent. */
@@ -1051,9 +1140,17 @@ export function runOpenFaReplacePass(
 
     const team = teams[best.teamIdx]!;
     const entrant = applyComebackRust(best.fa.player, best.fa.inactiveYears, team.leagueId);
-    // Never sign the same stub/id back over itself (tier-only noop).
+    // Ghost copy in FA pool (same id still on roster) — merge any higher tier
+    // in place and drop the ghost. Never emit Out→In "same player, higher tier".
     if (best.incumbent.id && entrant.id && best.incumbent.id === entrant.id) {
       working.splice(best.poolIdx, 1);
+      if (PLAYER_TIER_VALUE[entrant.tier] > PLAYER_TIER_VALUE[best.incumbent.tier]) {
+        resultTeams[best.teamIdx]!.players[best.slot] = {
+          ...best.incumbent,
+          tier: entrant.tier,
+          potential: entrant.potential ?? best.incumbent.potential,
+        };
+      }
       continue;
     }
     const vacant = isRosterVacancy(best.incumbent);
@@ -1081,7 +1178,7 @@ export function runOpenFaReplacePass(
     resultTeams[best.teamIdx]!.players[best.slot] = entrant;
     teamReplaces.set(best.teamIdx, (teamReplaces.get(best.teamIdx) ?? 0) + 1);
     usedSlot.add(`${best.teamIdx}:${best.slot}`);
-    news.push({
+    const openFaNews = {
       teamId: team.id,
       lane: entrant.lane,
       ...(!vacant && best.incumbent.name ? { departedName: best.incumbent.name } : {}),
@@ -1094,10 +1191,11 @@ export function runOpenFaReplacePass(
       entrantTier: entrant.tier,
       entrantPotential: entrant.potential ?? entrant.tier,
       ...(entrant.id ? { entrantId: entrant.id } : {}),
-      entrantSource: "free-agent",
-      marketNote: "open-fa",
+      entrantSource: "free-agent" as const,
+      marketNote: "open-fa" as const,
       ...(!vacant && best.incumbent.name ? { beatenNames: [best.incumbent.name] } : {}),
-    });
+    };
+    if (!isSamePlayerReplaceNoise(openFaNews)) news.push(openFaNews);
   }
 
   return { teams: resultTeams, inactivePool: working, news };
@@ -1194,6 +1292,18 @@ export function runOpenAcademyReplacePass(
 
     const team = teams[best.teamIdx]!;
     const entrant = applyComebackRust(best.acy.player, best.acy.inactiveYears, team.leagueId);
+    // Ghost academy copy of the starter — merge tier growth in place, no digest row.
+    if (best.incumbent.id && entrant.id && best.incumbent.id === entrant.id) {
+      working.splice(best.poolIdx, 1);
+      if (PLAYER_TIER_VALUE[entrant.tier] > PLAYER_TIER_VALUE[best.incumbent.tier]) {
+        resultTeams[best.teamIdx]!.players[best.slot] = {
+          ...best.incumbent,
+          tier: entrant.tier,
+          potential: entrant.potential ?? best.incumbent.potential,
+        };
+      }
+      continue;
+    }
     const grade = best.incumbent.id
       ? (outcomesById.get(best.incumbent.id)?.grade ?? null)
       : null;
@@ -1213,7 +1323,7 @@ export function runOpenAcademyReplacePass(
     resultTeams[best.teamIdx]!.players[best.slot] = entrant;
     teamPromotes.set(best.teamIdx, (teamPromotes.get(best.teamIdx) ?? 0) + 1);
     usedSlot.add(`${best.teamIdx}:${best.slot}`);
-    news.push({
+    const recallNews = {
       teamId: team.id,
       lane: entrant.lane,
       ...(best.incumbent.name ? { departedName: best.incumbent.name } : {}),
@@ -1224,10 +1334,11 @@ export function runOpenAcademyReplacePass(
       entrantTier: entrant.tier,
       entrantPotential: entrant.potential ?? entrant.tier,
       ...(entrant.id ? { entrantId: entrant.id } : {}),
-      entrantSource: "academy",
-      marketNote: "academy-recall",
+      entrantSource: "academy" as const,
+      marketNote: "academy-recall" as const,
       ...(best.incumbent.name ? { beatenNames: [best.incumbent.name] } : {}),
-    });
+    };
+    if (!isSamePlayerReplaceNoise(recallNews)) news.push(recallNews);
   }
 
   return { teams: resultTeams, inactivePool: working, news };

@@ -389,6 +389,7 @@ export function applyTransfers(
       // Same-id / vacancy noops are not real transfers (tier-only noise).
       if (!pa || !pb || isVacancyStub(pa) || isVacancyStub(pb)) continue;
       if (pa.id && pb.id && pa.id === pb.id) continue;
+      if (pa.name && pb.name && pa.name === pb.name) continue;
       // Neither side of a cross-region swap may be elite — value (not tier)
       // ranks the pair, so a slumping S-tier can land as the weak-link `pb`;
       // keep top talent home so it doesn't funnel into the strongest regions.
@@ -783,6 +784,7 @@ export function offseasonTransferPass(
       const pb = b.players[li];
       if (!pa || !pb || isVacancyStub(pa) || isVacancyStub(pb)) continue;
       if (pa.id && pb.id && pa.id === pb.id) continue;
+      if (pa.name && pb.name && pa.name === pb.name) continue;
       // Elite players (either side) stay in their region even in the big window.
       if (
         crossRegionBlocked(pa, a.leagueId, b.leagueId) ||

@@ -60,6 +60,8 @@ import {
   ACADEMY_YEARS_MIN,
   ACADEMY_YEARS_MAX,
   ACADEMY_GRADUATE_CAP_PER_YEAR,
+  reconcileRosterPoolDuplicates,
+  isSamePlayerReplaceNoise,
   type MarketNote as FaMarketNote,
   type MarketVacancy,
   type MarketInactive,
@@ -727,10 +729,22 @@ export function runDemotionPass(
   // opening academy seeds archive as Acy · 1y on their first season.
   const news: Array<RosterNewsEvent & { teamId: string }> = [];
   let pool: InactivePlayer[];
+  // Heal ghost copies (same id on roster + inactive pool) before demotion /
+  // market so academy develop never surfaces as Out→In of the same player.
+  const reconciled = reconcileRosterPoolDuplicates(
+    teams.map((t) => ({ id: t.id, players: [...t.players] })),
+    inactivePoolIn as MarketInactive[],
+  );
+  const teamsIn = teams.map((t) => {
+    const healed = reconciled.teams.find((x) => x.id === t.id);
+    return healed ? { ...t, players: healed.players } : t;
+  });
+  const inactiveHealed = reconciled.inactivePool as InactivePlayer[];
+
   if (advancePool) {
     // Saves written before `clockYear` existed heal here (one pass, in place)
     // so this year-end already keys the badge skip off the new field.
-    const before = backfillInactiveClockYears(inactivePoolIn);
+    const before = backfillInactiveClockYears(inactiveHealed);
     let advanced = advanceInactivePool(before, rng, champions, year);
     // Structural desync: league-wide graduate cap, then soft FA pressure valves.
     advanced = applyAcademyGraduateCap(before, advanced);
@@ -751,14 +765,14 @@ export function runDemotionPass(
       }
     }
   } else {
-    pool = backfillInactiveClockYears(inactivePoolIn);
+    pool = backfillInactiveClockYears(inactiveHealed);
   }
   const resultTeams: { id: string; players: (Player | null)[] }[] = [];
   const vacancies: MarketVacancy[] = [];
   // Players demoted this pass must not fill vacancies (no leave→instant return).
   const samePassDemoteIds = new Set<string>();
 
-  for (const team of teams) {
+  for (const team of teamsIn) {
     const nextPlayers: (Player | null)[] = [];
     for (let slotIndex = 0; slotIndex < team.players.length; slotIndex++) {
       const p = team.players[slotIndex]!;
@@ -834,7 +848,7 @@ export function runDemotionPass(
       if (ti == null || !fill.entrant) continue;
       if (fill.entrant.name) taken.add(fill.entrant.name);
       resultTeams[ti]!.players[fill.vacancy.slotIndex] = fill.entrant;
-      news.push({
+      const fillNews = {
         teamId: fill.vacancy.teamId,
         lane: fill.vacancy.lane,
         ...(fill.vacancy.departedName ? { departedName: fill.vacancy.departedName } : {}),
@@ -849,7 +863,8 @@ export function runDemotionPass(
         ...(fill.passedAcademyName ? { passedAcademyName: fill.passedAcademyName } : {}),
         ...(fill.beatenNames ? { beatenNames: fill.beatenNames } : {}),
         ...(fill.marketNote ? { marketNote: fill.marketNote } : {}),
-      });
+      };
+      if (!isSamePlayerReplaceNoise(fillNews)) news.push(fillNews);
     }
   } else {
     // Mid-split: local scored fill per vacancy (academy/FA only — no main-roster mint).
@@ -876,7 +891,7 @@ export function runDemotionPass(
         takenEntry!.status === "academy" ? "academy" : "free-agent";
       if (entrant.name) taken.add(entrant.name);
       resultTeams[ti]!.players[v.slotIndex] = entrant;
-      news.push({
+      const midNews = {
         teamId: v.teamId,
         lane: v.lane,
         ...(v.departedName ? { departedName: v.departedName } : {}),
@@ -890,7 +905,8 @@ export function runDemotionPass(
         entrantSource: source,
         ...(pick.passedAcademyName ? { passedAcademyName: pick.passedAcademyName } : {}),
         ...(pick.marketNote ? { marketNote: pick.marketNote } : {}),
-      });
+      };
+      if (!isSamePlayerReplaceNoise(midNews)) news.push(midNews);
     }
   }
 
@@ -900,7 +916,7 @@ export function runDemotionPass(
     vacancies.map((v) => [`${v.teamId}:${v.slotIndex}`, v] as const),
   );
   for (const t of resultTeams) {
-    const src = teams.find((x) => x.id === t.id);
+    const src = teamsIn.find((x) => x.id === t.id);
     for (let i = 0; i < t.players.length; i++) {
       if (t.players[i]) continue;
       const lane = src?.players[i]?.lane ?? LANE_KEYS[i]!;
@@ -919,7 +935,7 @@ export function runDemotionPass(
       // Immediately call up the just-minted academy prospect into the vacancy.
       pool = parked.inactivePool.filter((e) => e.player.id !== rook.id);
       t.players[i] = rook;
-      news.push({
+      const mintNews = {
         teamId: t.id,
         lane,
         ...(vac?.departedName ? { departedName: vac.departedName } : {}),
@@ -930,9 +946,10 @@ export function runDemotionPass(
         entrantTier: rook.tier,
         entrantPotential: rook.potential ?? rook.tier,
         ...(rook.id ? { entrantId: rook.id } : {}),
-        entrantSource: "academy",
-        marketNote: "academy-rookie",
-      });
+        entrantSource: "academy" as const,
+        marketNote: "academy-rookie" as const,
+      };
+      if (!isSamePlayerReplaceNoise(mintNews)) news.push(mintNews);
     }
   }
 
@@ -942,7 +959,7 @@ export function runDemotionPass(
     // True safety-rookie mint happens only after academy maintenance below.
     players: t.players.map((p, i) => {
       if (p) return p;
-      const src = teams.find((x) => x.id === t.id);
+      const src = teamsIn.find((x) => x.id === t.id);
       const lane = src?.players[i]?.lane ?? LANE_KEYS[i]!;
       const vac = vacancyBySlot.get(`${t.id}:${i}`);
       const rook = makeRookie(lane, champions, rng, taken, src?.leagueId);
@@ -969,7 +986,7 @@ export function runDemotionPass(
   if (openFa) {
     const opened = runOpenFaReplacePass(
       finalTeams.map((t) => {
-        const src = teams.find((x) => x.id === t.id);
+        const src = teamsIn.find((x) => x.id === t.id);
         return {
           id: t.id,
           name: src?.name ?? t.id,
@@ -999,7 +1016,7 @@ export function runDemotionPass(
   if (academyMaint) {
     const makeTeamInputs = (rosters: { id: string; players: Player[] }[]) =>
       rosters.map((t) => {
-        const src = teams.find((x) => x.id === t.id);
+        const src = teamsIn.find((x) => x.id === t.id);
         return {
           id: t.id,
           name: src?.name ?? t.id,

@@ -17,6 +17,7 @@ import {
   USER_MAX_MANUAL_DEMOTES,
   countTeamAcademy,
   isRosterVacancy,
+  isSamePlayerReplaceNoise,
 } from "@/lib/season/faMarket";
 import {
   INTERNATIONAL_LABELS,
@@ -487,6 +488,7 @@ export default function TransferWindowPanel() {
   const teamsById = new Map(filterTeams.map((t) => [t.id, t] as const));
 
   const baseFilteredRosterNews = rosterNews.filter((n) => {
+    if (isSamePlayerReplaceNoise(n)) return false;
     if (!matchesTeamFilters(n.teamId, teamsById, leagueFilter, teamFilter)) {
       return false;
     }

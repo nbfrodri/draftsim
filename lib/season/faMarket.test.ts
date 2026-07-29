@@ -47,6 +47,8 @@ import {
   runOpenFaReplacePass,
   runOpenAcademyReplacePass,
   tickInactiveYear,
+  reconcileRosterPoolDuplicates,
+  isSamePlayerReplaceNoise,
   type MarketInactive,
 } from "./faMarket";
 import {
@@ -1298,5 +1300,115 @@ describe("listTeamAcademy / listFreeAgents / board exclude", () => {
       new Set(["bench"]),
     );
     expect(hidden.some((r) => r.entry.player.id === "bench")).toBe(false);
+  });
+});
+
+describe("same-player higher-tier replace noise", () => {
+  it("isSamePlayerReplaceNoise catches swap-style same id/name, not status rows", () => {
+    expect(
+      isSamePlayerReplaceNoise({
+        marketNote: "academy-recall",
+        departedId: "x",
+        entrantId: "x",
+        departedName: "X",
+        entrantName: "X",
+      }),
+    ).toBe(true);
+    expect(
+      isSamePlayerReplaceNoise({
+        marketNote: "became-fa",
+        departedId: "x",
+        entrantId: "x",
+        departedName: "X",
+        entrantName: "X",
+      }),
+    ).toBe(false);
+  });
+
+  it("reconcileRosterPoolDuplicates merges higher ghost tier onto roster and drops pool copy", () => {
+    const teams = [
+      {
+        id: "T0",
+        players: LANES.map((lane) =>
+          lane === "middle"
+            ? player({ id: "dup", name: "Dup", lane, tier: "C" })
+            : player({ id: `ok-${lane}`, name: `ok-${lane}`, lane, tier: "A" }),
+        ),
+      },
+    ];
+    const pool: MarketInactive[] = [
+      {
+        player: player({ id: "dup", name: "Dup", lane: "middle", tier: "A", potential: "S" }),
+        status: "academy",
+        inactiveYears: 2,
+        demotedYear: 1,
+        lastTeamId: "T0",
+        lastTeamName: "T0",
+      },
+    ];
+    const out = reconcileRosterPoolDuplicates(teams, pool);
+    expect(out.inactivePool).toHaveLength(0);
+    expect(out.teams[0]!.players.find((p) => p.lane === "middle")!.tier).toBe("A");
+  });
+
+  it("runOpenAcademyReplacePass does not emit same-id Out→In; merges tier instead", () => {
+    const roster = LANES.map((lane) =>
+      lane === "middle"
+        ? player({ id: "dup-mid", name: "DupMid", lane, tier: "C", potential: "A" })
+        : player({ id: `ok-${lane}`, name: `ok-${lane}`, lane, tier: "A" }),
+    );
+    const pool: MarketInactive[] = [
+      {
+        player: player({
+          id: "dup-mid",
+          name: "DupMid",
+          lane: "middle",
+          tier: "A",
+          potential: "S",
+        }),
+        status: "academy",
+        inactiveYears: 2,
+        demotedYear: 1,
+        lastTeamId: "T0",
+        lastTeamName: "T0",
+        shadowGrade: 8,
+      },
+    ];
+    const opened = runOpenAcademyReplacePass(
+      [{ id: "T0", name: "T0", leagueId: "LCK", players: roster }],
+      pool,
+      byId,
+      NEUTRAL_META,
+      new Map(),
+      () => 0,
+      2,
+    );
+    expect(
+      opened.news.some((n) => n.departedId === "dup-mid" && n.entrantId === "dup-mid"),
+    ).toBe(false);
+    expect(opened.teams[0]!.players.find((p) => p.lane === "middle")!.tier).toBe("A");
+    expect(opened.inactivePool.some((e) => e.player.id === "dup-mid")).toBe(false);
+  });
+
+  it("addToTeamAcademy replaces an existing same-id row instead of duplicating", () => {
+    const first: MarketInactive = {
+      player: player({ id: "p1", name: "P1", lane: "top", tier: "C" }),
+      status: "academy",
+      inactiveYears: 1,
+      demotedYear: 1,
+      lastTeamId: "T0",
+      lastTeamName: "T0",
+    };
+    const second: MarketInactive = {
+      ...first,
+      player: { ...first.player, tier: "B" },
+      inactiveYears: 2,
+    };
+    const once = addToTeamAcademy([], first);
+    expect(once.pool).toHaveLength(1);
+    const twice = addToTeamAcademy(once.pool, second);
+    expect(twice.pool).toHaveLength(1);
+    expect(twice.pool[0]!.player.tier).toBe("B");
+    expect(twice.pool[0]!.inactiveYears).toBe(2);
   });
 });

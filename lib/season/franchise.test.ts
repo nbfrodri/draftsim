@@ -1410,9 +1410,73 @@ describe("no vacancy stubs on main roster", () => {
     for (const moves of Object.values(y2.transfersByEvent ?? {})) {
       for (const m of moves) {
         if (m.star.id && m.swap.id) expect(m.star.id).not.toBe(m.swap.id);
+        if (m.star.name && m.swap.name) expect(m.star.name).not.toBe(m.swap.name);
         expect(m.star.id?.startsWith("__vacancy__")).toBeFalsy();
         expect(m.swap.id?.startsWith("__vacancy__")).toBeFalsy();
       }
     }
+  });
+
+  it("ghost academy copy of a starter merges tier in place — no same-player Out→In news", () => {
+    const base = makeReality(true);
+    const me = base.teams[0]!.id;
+    const team = base.teams[1]!;
+    const mid = team.players.find((p) => p.lane === "middle")!;
+    const season = {
+      ...base,
+      status: "complete" as const,
+      config: { ...base.config, controlledTeamId: me },
+      teams: base.teams.map((t) =>
+        t.id !== team.id
+          ? t
+          : {
+              ...t,
+              players: t.players.map((p) =>
+                p.lane === "middle"
+                  ? { ...mid, id: "ghost-mid", name: "GhostMid", tier: "C" as const }
+                  : p,
+              ),
+            },
+      ),
+      franchise: {
+        ...base.franchise!,
+        inactivePool: [
+          ...(base.franchise!.inactivePool ?? []),
+          {
+            player: {
+              ...mid,
+              id: "ghost-mid",
+              name: "GhostMid",
+              tier: "A" as const,
+              potential: "S" as const,
+              lane: "middle" as Lane,
+            },
+            status: "academy" as const,
+            inactiveYears: 2,
+            demotedYear: 1,
+            clockYear: 1,
+            lastTeamId: team.id,
+            lastTeamName: team.name,
+            shadowGrade: 8,
+          },
+        ],
+      },
+    };
+    const filled = fillRosterVacancies(season, champions, rngFrom(3));
+    const slot = filled.teams.find((t) => t.id === team.id)!.players.find((p) => p.lane === "middle")!;
+    expect(slot.id).toBe("ghost-mid");
+    // Higher academy tier merged onto roster (in-place growth), not a replace row.
+    expect(slot.tier).toBe("A");
+    expect(
+      filled.rosterNews?.some(
+        (n) =>
+          n.departedId === "ghost-mid" &&
+          n.entrantId === "ghost-mid" &&
+          n.departedName === n.entrantName,
+      ),
+    ).toBe(false);
+    expect(filled.franchise!.inactivePool!.some((e) => e.player.id === "ghost-mid")).toBe(
+      false,
+    );
   });
 });

@@ -36,6 +36,8 @@ import {
   INITIAL_OPENING_FA_POOL,
   ACADEMY_MAX_PER_TEAM,
   AI_OPEN_FA_CHANCE_MID_SPLIT,
+  reconcileRosterPoolDuplicates,
+  isSamePlayerReplaceNoise,
   type MarketNote,
   type MarketInactive,
 } from "./faMarket";
@@ -1305,20 +1307,27 @@ export function fillRosterVacancies(
   const byId = new Map(champions.map((c) => [c.id, c]));
   const meta = season.currentMeta;
   const year = season.franchise.year;
-  // Drop any vacancy stubs that leaked into the inactive pool (never real players).
-  let pool = (season.franchise.inactivePool ?? []).filter(
-    (e) => !isRosterVacancy(e.player),
+  // Drop vacancy stubs + heal ghost copies (same id on roster and pool).
+  const healed = reconcileRosterPoolDuplicates(
+    season.teams.map((t) => ({ id: t.id, players: [...t.players] })),
+    (season.franchise.inactivePool ?? []).filter((e) => !isRosterVacancy(e.player)),
   );
+  let pool = healed.inactivePool;
   const taken = new Set<string>(season.franchise.usedNames ?? []);
-  for (const t of season.teams) {
+  for (const t of healed.teams) {
     for (const p of t.players) if (p.name) taken.add(p.name);
+  }
+  for (const t of season.teams) {
     if (t.coach?.name) taken.add(t.coach.name);
   }
   for (const e of pool) {
     if (e.player.name) taken.add(e.player.name);
   }
 
-  const teams = season.teams.map((t) => ({ ...t, players: [...t.players] }));
+  const teams = season.teams.map((t) => {
+    const row = healed.teams.find((x) => x.id === t.id);
+    return { ...t, players: row?.players ?? [...t.players] };
+  });
   const news: Array<RosterNewsEvent & { teamId: string }> = [];
   const sameWindowRookieIds = [...(season.franchise.sameWindowRookieIds ?? [])];
   let touched = false;
@@ -1376,10 +1385,7 @@ export function fillRosterVacancies(
       const departed = opts?.departedBySlot?.get(`${team.id}:${lane}`);
       // Same-player "return" (should be excluded from picks) — still fill the
       // slot, but skip the digest row so tier-only churn never shows as a move.
-      if (departed?.departedId && entrant.id && departed.departedId === entrant.id) {
-        continue;
-      }
-      news.push({
+      const fillRow = {
         teamId: team.id,
         lane,
         ...(departed?.departedName ? { departedName: departed.departedName } : {}),
@@ -1393,7 +1399,9 @@ export function fillRosterVacancies(
         entrantSource: source,
         ...(passedAcademyName ? { passedAcademyName } : {}),
         ...(marketNote ? { marketNote } : {}),
-      });
+      };
+      if (isSamePlayerReplaceNoise(fillRow)) continue;
+      news.push(fillRow);
     }
   }
 
@@ -1441,7 +1449,7 @@ export function fillRosterVacancies(
       if (d.departedId && n.entrantId && d.departedId === n.entrantId) {
         return null; // same-player churn — drop the row
       }
-      return {
+      const merged = {
         ...n,
         ...(d.departedName && !n.departedName ? { departedName: d.departedName } : {}),
         ...(d.departedTier && !n.departedTier ? { departedTier: d.departedTier } : {}),
@@ -1450,6 +1458,8 @@ export function fillRosterVacancies(
           : {}),
         ...(d.departedId && !n.departedId ? { departedId: d.departedId } : {}),
       };
+      if (isSamePlayerReplaceNoise(merged)) return null;
+      return merged;
     })
     .filter((n): n is RosterNewsEvent & { teamId: string } => n != null);
 
