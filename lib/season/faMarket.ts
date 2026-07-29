@@ -1051,41 +1051,52 @@ export function runOpenFaReplacePass(
 
     const team = teams[best.teamIdx]!;
     const entrant = applyComebackRust(best.fa.player, best.fa.inactiveYears, team.leagueId);
-    const grade = best.incumbent.id
-      ? (outcomesById.get(best.incumbent.id)?.grade ?? null)
-      : null;
-    // Leaving the roster always parks in academy first — never FA on cut day.
-    // Cap: bump oldest academy → FA if this org is already at ACADEMY_MAX_PER_TEAM.
+    // Never sign the same stub/id back over itself (tier-only noop).
+    if (best.incumbent.id && entrant.id && best.incumbent.id === entrant.id) {
+      working.splice(best.poolIdx, 1);
+      continue;
+    }
+    const vacant = isRosterVacancy(best.incumbent);
     working.splice(best.poolIdx, 1);
-    const parked = addToTeamAcademy(working, {
-      player: { ...best.incumbent, badStreak: 0 },
-      status: "academy",
-      inactiveYears: 1,
-      demotedYear: demoteYear,
-      clockYear: demoteYear,
-      lastTeamId: team.id,
-      lastTeamName: team.name,
-      ...(grade != null ? { lastActiveGrade: grade, shadowGrade: grade } : {}),
-    });
-    working = parked.pool;
-    if (parked.bumped) news.push(makeBecameFaNews(parked.bumped, "academy-bump"));
+    if (!vacant) {
+      const grade = best.incumbent.id
+        ? (outcomesById.get(best.incumbent.id)?.grade ?? null)
+        : null;
+      // Leaving the roster always parks in academy first — never FA on cut day.
+      // Cap: bump oldest academy → FA if this org is already at ACADEMY_MAX_PER_TEAM.
+      // Vacancy stubs must never be parked into the inactive pool.
+      const parked = addToTeamAcademy(working, {
+        player: { ...best.incumbent, badStreak: 0 },
+        status: "academy",
+        inactiveYears: 1,
+        demotedYear: demoteYear,
+        clockYear: demoteYear,
+        lastTeamId: team.id,
+        lastTeamName: team.name,
+        ...(grade != null ? { lastActiveGrade: grade, shadowGrade: grade } : {}),
+      });
+      working = parked.pool;
+      if (parked.bumped) news.push(makeBecameFaNews(parked.bumped, "academy-bump"));
+    }
     resultTeams[best.teamIdx]!.players[best.slot] = entrant;
     teamReplaces.set(best.teamIdx, (teamReplaces.get(best.teamIdx) ?? 0) + 1);
     usedSlot.add(`${best.teamIdx}:${best.slot}`);
     news.push({
       teamId: team.id,
       lane: entrant.lane,
-      ...(best.incumbent.name ? { departedName: best.incumbent.name } : {}),
-      departedTier: best.incumbent.tier,
-      ...(best.incumbent.age != null ? { departedAge: best.incumbent.age } : {}),
-      ...(best.incumbent.id ? { departedId: best.incumbent.id } : {}),
+      ...(!vacant && best.incumbent.name ? { departedName: best.incumbent.name } : {}),
+      ...(!vacant ? { departedTier: best.incumbent.tier } : {}),
+      ...(!vacant && best.incumbent.age != null
+        ? { departedAge: best.incumbent.age }
+        : {}),
+      ...(!vacant && best.incumbent.id ? { departedId: best.incumbent.id } : {}),
       entrantName: entrant.name ?? "",
       entrantTier: entrant.tier,
       entrantPotential: entrant.potential ?? entrant.tier,
       ...(entrant.id ? { entrantId: entrant.id } : {}),
       entrantSource: "free-agent",
       marketNote: "open-fa",
-      ...(best.incumbent.name ? { beatenNames: [best.incumbent.name] } : {}),
+      ...(!vacant && best.incumbent.name ? { beatenNames: [best.incumbent.name] } : {}),
     });
   }
 

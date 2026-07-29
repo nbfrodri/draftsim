@@ -17,6 +17,7 @@ import {
   applyUserAcademyRookie,
   applyMidSplitDemotions,
   fillFollowedRosterVacancies,
+  fillRosterVacancies,
   aiDecideFollowedDemotes,
   splitFromRosterTimeMark,
   visibleTransferDigestEvents,
@@ -29,11 +30,13 @@ import {
   INITIAL_ACADEMY_ROOKIES_PER_TEAM,
   INITIAL_OPENING_FA_POOL,
   isRosterVacancy,
+  makeVacancyPlaceholder,
   listTeamAcademy,
   countTeamAcademy,
   buildAcademyBoard,
   NEUTRAL_META,
 } from "./faMarket";
+import { seedAgencyWindow, honorAgencyDemand } from "./franchiseAgency";
 import {
   ACADEMY_YEARS,
   yearsAsFreeAgent,
@@ -1237,5 +1240,179 @@ describe("post-Worlds transfer digest carry", () => {
         phases: markPlayed("first-stand", "msi"),
       }),
     ).toEqual(["worlds", "msi"]);
+  });
+});
+
+describe("no vacancy stubs on main roster", () => {
+  function assertFullRosters(season: { teams: { players: { id?: string; lane: Lane }[] }[] }) {
+    for (const t of season.teams) {
+      expect(t.players).toHaveLength(5);
+      for (const lane of LANE_ORDER) {
+        const p = t.players.find((x) => x.lane === lane);
+        expect(p).toBeTruthy();
+        expect(isRosterVacancy(p)).toBe(false);
+      }
+    }
+  }
+
+  it("fillRosterVacancies clears stubs on every team, not only followed", () => {
+    const base = makeReality(true);
+    const me = base.teams[0]!.id;
+    const other = base.teams[1]!;
+    const season = {
+      ...base,
+      status: "complete" as const,
+      config: { ...base.config, controlledTeamId: me },
+      teams: base.teams.map((t) =>
+        t.id === other.id
+          ? {
+              ...t,
+              players: t.players.map((p) =>
+                p.lane === "support" ? makeVacancyPlaceholder("support") : p,
+              ),
+            }
+          : t,
+      ),
+    };
+    expect(
+      isRosterVacancy(
+        season.teams.find((t) => t.id === other.id)!.players.find((p) => p.lane === "support"),
+      ),
+    ).toBe(true);
+
+    const filled = fillRosterVacancies(season, champions, rngFrom(99));
+    assertFullRosters(filled);
+    const support = filled.teams
+      .find((t) => t.id === other.id)!
+      .players.find((p) => p.lane === "support")!;
+    expect(support.name).toBeTruthy();
+    expect(support.id?.startsWith("__vacancy__")).toBe(false);
+  });
+
+  it("AI agency leave never leaves __vacancy__* on the main roster", () => {
+    const base = makeReality(true);
+    const me = base.teams[0]!.id;
+    // Plant a clear leave candidate on a non-followed org.
+    const weak = base.teams.find((t) => t.id !== me)!;
+    const starLane = "middle" as Lane;
+    const season = {
+      ...base,
+      status: "complete" as const,
+      config: { ...base.config, controlledTeamId: me },
+      teams: base.teams.map((t) => {
+        if (t.id !== weak.id) return t;
+        return {
+          ...t,
+          players: t.players.map((p) =>
+            p.lane === starLane
+              ? {
+                  ...p,
+                  id: "agency-star",
+                  name: "AgencyStar",
+                  tier: "S+" as const,
+                  potential: "S+" as const,
+                  goodChamps: champions.filter((c) => c.lanes.includes("middle")).slice(0, 3).map((c) => c.id),
+                }
+              : { ...p, tier: "D" as const },
+          ),
+        };
+      }),
+    };
+
+    const seeded = seedAgencyWindow(season, champions, () => 0, "offseason");
+    assertFullRosters(seeded);
+    // Leaver must be in FA pool (or academy), not still starting — and no stub.
+    const stillStarting = seeded.teams
+      .flatMap((t) => t.players)
+      .some((p) => p.id === "agency-star");
+    const inPool = seeded.franchise!.inactivePool!.some((e) => e.player.id === "agency-star");
+    // Either the demand didn't fire (rng/thresholds) OR they left and were replaced.
+    if (inPool) {
+      expect(stillStarting).toBe(false);
+      expect(
+        seeded.rosterNews?.some(
+          (n) => n.departedId === "agency-star" && n.entrantId === "agency-star",
+        ),
+      ).toBe(false);
+    }
+    expect(seeded.teams.some((t) => t.players.some((p) => isRosterVacancy(p)))).toBe(false);
+  });
+
+  it("honorAgencyDemand on AI org fills the slot atomically", () => {
+    const base = makeReality(true);
+    const me = base.teams[0]!.id;
+    const other = base.teams[1]!;
+    const lane = "support" as Lane;
+    const incumbent = other.players.find((p) => p.lane === lane)!;
+    const season = {
+      ...base,
+      status: "complete" as const,
+      config: { ...base.config, controlledTeamId: me },
+      franchise: {
+        ...base.franchise!,
+        agencyDemands: [
+          {
+            id: "d1",
+            kind: "leave" as const,
+            status: "pending" as const,
+            playerId: incumbent.id!,
+            playerName: incumbent.name ?? "X",
+            playerTier: incumbent.tier,
+            lane,
+            fromTeamId: other.id,
+            fromTeamName: other.name,
+            preferenceGap: 2,
+            wantRole: "fa" as const,
+          },
+        ],
+      },
+    };
+    const next = honorAgencyDemand(season, champions, "d1", rngFrom(3));
+    expect(next).not.toBeNull();
+    assertFullRosters(next!);
+    const slot = next!.teams.find((t) => t.id === other.id)!.players.find((p) => p.lane === lane)!;
+    expect(isRosterVacancy(slot)).toBe(false);
+    expect(slot.id).not.toBe(incumbent.id);
+    expect(
+      next!.franchise!.inactivePool!.some(
+        (e) => e.player.id === incumbent.id && e.status === "free-agent",
+      ),
+    ).toBe(true);
+    // No empty agency-leave stub row left behind.
+    expect(
+      next!.rosterNews?.some((n) => n.marketNote === "agency-leave" && !n.entrantName),
+    ).toBeFalsy();
+  });
+
+  it("startNextSeason scrubs leftover vacancies before lifecycle/transfers", () => {
+    const base = makeReality(true);
+    const me = base.teams[0]!.id;
+    const other = base.teams[1]!;
+    const season = {
+      ...base,
+      status: "complete" as const,
+      config: { ...base.config, controlledTeamId: me, playerTransfers: true },
+      teams: base.teams.map((t) =>
+        t.id === other.id
+          ? {
+              ...t,
+              players: t.players.map((p) =>
+                p.lane === "jungle" ? makeVacancyPlaceholder("jungle") : p,
+              ),
+            }
+          : t,
+      ),
+    };
+    const y2 = startNextSeason(season, champions, rngFrom(11));
+    assertFullRosters(y2);
+    expect(y2.teams.some((t) => t.players.some((p) => isRosterVacancy(p)))).toBe(false);
+    // No transfer digest rows that are same-id swaps.
+    for (const moves of Object.values(y2.transfersByEvent ?? {})) {
+      for (const m of moves) {
+        if (m.star.id && m.swap.id) expect(m.star.id).not.toBe(m.swap.id);
+        expect(m.star.id?.startsWith("__vacancy__")).toBeFalsy();
+        expect(m.swap.id?.startsWith("__vacancy__")).toBeFalsy();
+      }
+    }
   });
 });

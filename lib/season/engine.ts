@@ -72,7 +72,7 @@ import {
   driftSynergiesOverTime,
   assignSynergies,
 } from "../chemistry";
-import { applyMidSplitDemotions, fillFollowedRosterVacancies } from "./franchise";
+import { applyMidSplitDemotions, fillRosterVacancies } from "./franchise";
 import { seedAgencyWindow, clearAgencyWindow } from "./franchiseAgency";
 
 export function makeSeasonId(): string {
@@ -2244,10 +2244,10 @@ export function advanceTransferWindow(
   let s: SeasonState = { ...season, phases, proposedTransfers: [], updatedAt: Date.now() };
   if (phase.event) s = awardStabilityBonus(s, phase.event);
 
-  // Fill manual-demote vacancies before deferred mid-split demotions so stubs
-  // are never evaluated as roster players.
+  // Fill ALL vacancy stubs (followed + AI agency leftovers) before deferred
+  // mid-split demotions so stubs are never evaluated as roster players.
   if (s.franchise?.aging && champions.length > 0) {
-    s = fillFollowedRosterVacancies(s, champions);
+    s = fillRosterVacancies(s, champions);
   }
 
   const pending = s.franchise?.pendingMidSplitDemotion;

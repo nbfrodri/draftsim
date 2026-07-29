@@ -553,9 +553,10 @@ export function startNextSeason(
   let nextInactivePool = working.franchise?.inactivePool ?? [];
 
   if (aging) {
-    // Resolve any leftover manual-demote vacancies before year-end lifecycle
-    // so stubs never enter demotion / open-FA evaluation. Expire pending
-    // agency demands from the offseason shop (window is closing).
+    // Resolve ANY leftover vacancy stubs (manual demote, AI agency leave)
+    // before year-end lifecycle so stubs never enter demotion / open-FA /
+    // transfer evaluation. Expire pending agency demands from the offseason
+    // shop (window is closing).
     if (working.franchise?.agencyDemands?.length) {
       working = {
         ...working,
@@ -570,7 +571,7 @@ export function startNextSeason(
     // via buildSeasonHistoryEntry, but the live Transfer Window digest must
     // reset to Offseason (+ subsequent windows of the new year).
     const newsBeforeAdvance = working.rosterNews?.length ?? 0;
-    working = fillFollowedRosterVacancies(working, champions, rng);
+    working = fillRosterVacancies(working, champions, rng);
     rosterNews.push(...(working.rosterNews ?? []).slice(newsBeforeAdvance));
 
     const taken = new Set<string>(working.franchise?.usedNames ?? []);
@@ -1275,6 +1276,201 @@ export function aiDecideFollowedDemotes(
 }
 
 /**
+ * AI-fill vacancy placeholders on selected teams (academy/FA scored pick, else
+ * academy-first mint+call-up, else main-roster `rookie-gate`). Same-window
+ * demotees stay excluded. Main roster must end with no `__vacancy__*` stubs.
+ */
+export function fillRosterVacancies(
+  season: SeasonState,
+  champions: readonly Champion[],
+  rng: RNG = Math.random,
+  opts?: {
+    /** Only these teams (default: every team with a vacancy). */
+    teamIds?: ReadonlySet<string>;
+    /** Skip these teams (e.g. followed team still shopping). */
+    skipTeamIds?: ReadonlySet<string>;
+    /** When set, copy departed* onto fill news for matching team+lane. */
+    departedBySlot?: ReadonlyMap<
+      string,
+      Pick<
+        RosterNewsEvent,
+        "departedName" | "departedTier" | "departedAge" | "departedId"
+      >
+    >;
+  },
+): SeasonState {
+  if (!season.franchise?.aging || champions.length === 0) return season;
+
+  const exclude = new Set(season.franchise.sameWindowDemoteIds ?? []);
+  const byId = new Map(champions.map((c) => [c.id, c]));
+  const meta = season.currentMeta;
+  const year = season.franchise.year;
+  // Drop any vacancy stubs that leaked into the inactive pool (never real players).
+  let pool = (season.franchise.inactivePool ?? []).filter(
+    (e) => !isRosterVacancy(e.player),
+  );
+  const taken = new Set<string>(season.franchise.usedNames ?? []);
+  for (const t of season.teams) {
+    for (const p of t.players) if (p.name) taken.add(p.name);
+    if (t.coach?.name) taken.add(t.coach.name);
+  }
+  for (const e of pool) {
+    if (e.player.name) taken.add(e.player.name);
+  }
+
+  const teams = season.teams.map((t) => ({ ...t, players: [...t.players] }));
+  const news: Array<RosterNewsEvent & { teamId: string }> = [];
+  const sameWindowRookieIds = [...(season.franchise.sameWindowRookieIds ?? [])];
+  let touched = false;
+
+  for (const team of teams) {
+    if (opts?.teamIds && !opts.teamIds.has(team.id)) continue;
+    if (opts?.skipTeamIds?.has(team.id)) continue;
+    for (let i = 0; i < team.players.length; i++) {
+      const p = team.players[i]!;
+      if (!isRosterVacancy(p)) continue;
+      touched = true;
+      const lane = p.lane;
+      const pick = pickScoredReturnee(pool, lane, team.id, byId, meta, rng, exclude);
+      let entrant: Player;
+      let source: "rookie" | "academy" | "free-agent";
+      let passedAcademyName: string | undefined;
+      let marketNote: RosterNewsEvent["marketNote"];
+      if (pick) {
+        const [takenEntry] = pool.splice(pick.idx, 1);
+        entrant = applyComebackRust(
+          takenEntry!.player,
+          takenEntry!.inactiveYears,
+          team.leagueId,
+        );
+        source = takenEntry!.status === "academy" ? "academy" : "free-agent";
+        passedAcademyName = pick.passedAcademyName;
+        marketNote = pick.marketNote;
+        if (entrant.name) taken.add(entrant.name);
+      } else {
+        entrant = makeRookie(lane, champions, rng, taken, team.leagueId);
+        entrant.debutYear = year;
+        if (teamAcademyHasRoom(pool, team.id)) {
+          const parked = executeAddAcademyRookie(
+            pool,
+            team.id,
+            team.name,
+            entrant,
+            year,
+          );
+          if (parked.ok) {
+            pool = parked.inactivePool.filter((e) => e.player.id !== entrant.id);
+            source = "academy";
+            marketNote = "academy-rookie";
+          } else {
+            source = "rookie";
+            marketNote = "rookie-gate";
+          }
+        } else {
+          source = "rookie";
+          marketNote = "rookie-gate";
+        }
+        if (entrant.id) sameWindowRookieIds.push(entrant.id);
+      }
+      team.players[i] = entrant;
+      const departed = opts?.departedBySlot?.get(`${team.id}:${lane}`);
+      // Same-player "return" (should be excluded from picks) — still fill the
+      // slot, but skip the digest row so tier-only churn never shows as a move.
+      if (departed?.departedId && entrant.id && departed.departedId === entrant.id) {
+        continue;
+      }
+      news.push({
+        teamId: team.id,
+        lane,
+        ...(departed?.departedName ? { departedName: departed.departedName } : {}),
+        ...(departed?.departedTier ? { departedTier: departed.departedTier } : {}),
+        ...(departed?.departedAge != null ? { departedAge: departed.departedAge } : {}),
+        ...(departed?.departedId ? { departedId: departed.departedId } : {}),
+        entrantName: entrant.name ?? "",
+        entrantTier: entrant.tier,
+        entrantPotential: entrant.potential ?? entrant.tier,
+        ...(entrant.id ? { entrantId: entrant.id } : {}),
+        entrantSource: source,
+        ...(passedAcademyName ? { passedAcademyName } : {}),
+        ...(marketNote ? { marketNote } : {}),
+      });
+    }
+  }
+
+  const poolScrubbed =
+    pool.length !== (season.franchise.inactivePool ?? []).length;
+  if (!touched && !poolScrubbed) return season;
+
+  const usedNames = new Set(taken);
+  for (const t of teams) for (const p of t.players) if (p.name) usedNames.add(p.name);
+
+  // Drop orphan agency-leave "open slot" rows whose vacancy was just filled
+  // (avoids FA-walk + immediate-fill double noise). Carry departed* onto the
+  // fill row when the fill didn't already have it.
+  const filledKeys = new Set(news.map((n) => `${n.teamId}:${n.lane}`));
+  const leaveDeparted = new Map<
+    string,
+    Pick<
+      RosterNewsEvent,
+      "departedName" | "departedTier" | "departedAge" | "departedId"
+    >
+  >();
+  const priorNews: Array<RosterNewsEvent & { teamId: string }> = [];
+  for (const n of season.rosterNews ?? []) {
+    const key = `${n.teamId}:${n.lane}`;
+    if (
+      n.marketNote === "agency-leave" &&
+      !n.entrantName &&
+      filledKeys.has(key)
+    ) {
+      leaveDeparted.set(key, {
+        ...(n.departedName ? { departedName: n.departedName } : {}),
+        ...(n.departedTier ? { departedTier: n.departedTier } : {}),
+        ...(n.departedAge != null ? { departedAge: n.departedAge } : {}),
+        ...(n.departedId ? { departedId: n.departedId } : {}),
+      });
+      continue;
+    }
+    priorNews.push(n);
+  }
+  const mergedNews = news
+    .map((n) => {
+      const key = `${n.teamId}:${n.lane}`;
+      const d = leaveDeparted.get(key);
+      if (!d) return n;
+      if (d.departedId && n.entrantId && d.departedId === n.entrantId) {
+        return null; // same-player churn — drop the row
+      }
+      return {
+        ...n,
+        ...(d.departedName && !n.departedName ? { departedName: d.departedName } : {}),
+        ...(d.departedTier && !n.departedTier ? { departedTier: d.departedTier } : {}),
+        ...(d.departedAge != null && n.departedAge == null
+          ? { departedAge: d.departedAge }
+          : {}),
+        ...(d.departedId && !n.departedId ? { departedId: d.departedId } : {}),
+      };
+    })
+    .filter((n): n is RosterNewsEvent & { teamId: string } => n != null);
+
+  return {
+    ...season,
+    teams,
+    franchise: {
+      ...season.franchise,
+      inactivePool: pool,
+      usedNames: [...usedNames],
+      sameWindowRookieIds,
+    },
+    rosterNews: [
+      ...priorNews,
+      ...withRosterTimeMark(mergedNews, rosterTimeMarkForSeason(season)),
+    ],
+    updatedAt: Date.now(),
+  };
+}
+
+/**
  * AI-fill any manual-demote vacancy placeholders on the followed team
  * (academy/FA scored pick, else academy-first mint+call-up). Same-window
  * demotees stay excluded. Clears vacancy stubs before mid-split demotions /
@@ -1286,100 +1482,8 @@ export function fillFollowedRosterVacancies(
   rng: RNG = Math.random,
 ): SeasonState {
   const me = season.config.controlledTeamId;
-  if (!me || !season.franchise?.aging) return season;
-  const team = season.teams.find((t) => t.id === me);
-  if (!team) return season;
-
-  const vacantIdx = team.players
-    .map((p, i) => ({ p, i }))
-    .filter(({ p }) => isRosterVacancy(p));
-  if (vacantIdx.length === 0) return season;
-
-  const exclude = new Set(season.franchise.sameWindowDemoteIds ?? []);
-  const byId = new Map(champions.map((c) => [c.id, c]));
-  const meta = season.currentMeta;
-  const year = season.franchise.year;
-  let pool = [...(season.franchise.inactivePool ?? [])];
-  const taken = new Set<string>(season.franchise.usedNames ?? []);
-  for (const t of season.teams) {
-    for (const p of t.players) if (p.name) taken.add(p.name);
-    if (t.coach?.name) taken.add(t.coach.name);
-  }
-  for (const e of pool) {
-    if (e.player.name) taken.add(e.player.name);
-  }
-
-  const players = [...team.players];
-  const news: Array<RosterNewsEvent & { teamId: string }> = [];
-  const sameWindowRookieIds = [...(season.franchise.sameWindowRookieIds ?? [])];
-
-  for (const { p, i } of vacantIdx) {
-    const lane = p.lane;
-    const pick = pickScoredReturnee(pool, lane, me, byId, meta, rng, exclude);
-    let entrant: Player;
-    let source: "rookie" | "academy" | "free-agent";
-    let passedAcademyName: string | undefined;
-    let marketNote: RosterNewsEvent["marketNote"];
-    if (pick) {
-      const [takenEntry] = pool.splice(pick.idx, 1);
-      entrant = applyComebackRust(
-        takenEntry!.player,
-        takenEntry!.inactiveYears,
-        team.leagueId,
-      );
-      source = takenEntry!.status === "academy" ? "academy" : "free-agent";
-      passedAcademyName = pick.passedAcademyName;
-      marketNote = pick.marketNote;
-      if (entrant.name) taken.add(entrant.name);
-    } else {
-      entrant = makeRookie(lane, champions, rng, taken, team.leagueId);
-      entrant.debutYear = year;
-      if (teamAcademyHasRoom(pool, me)) {
-        const parked = executeAddAcademyRookie(pool, me, team.name, entrant, year);
-        if (parked.ok) {
-          pool = parked.inactivePool.filter((e) => e.player.id !== entrant.id);
-          source = "academy";
-          marketNote = "academy-rookie";
-        } else {
-          source = "rookie";
-          marketNote = "rookie-gate";
-        }
-      } else {
-        source = "rookie";
-        marketNote = "rookie-gate";
-      }
-      if (entrant.id) sameWindowRookieIds.push(entrant.id);
-    }
-    players[i] = entrant;
-    news.push({
-      teamId: me,
-      lane,
-      entrantName: entrant.name ?? "",
-      entrantTier: entrant.tier,
-      entrantPotential: entrant.potential ?? entrant.tier,
-      ...(entrant.id ? { entrantId: entrant.id } : {}),
-      entrantSource: source,
-      ...(passedAcademyName ? { passedAcademyName } : {}),
-      ...(marketNote ? { marketNote } : {}),
-    });
-  }
-
-  const usedNames = new Set(taken);
-  for (const p of players) if (p.name) usedNames.add(p.name);
-
-  return {
-    ...season,
-    teams: season.teams.map((t) => (t.id === me ? { ...t, players } : t)),
-    franchise: {
-      ...season.franchise,
-      inactivePool: pool,
-      usedNames: [...usedNames],
-      sameWindowRookieIds,
-    },
-    rosterNews: [
-      ...(season.rosterNews ?? []),
-      ...withRosterTimeMark(news, rosterTimeMarkForSeason(season)),
-    ],
-    updatedAt: Date.now(),
-  };
+  if (!me) return season;
+  return fillRosterVacancies(season, champions, rng, {
+    teamIds: new Set([me]),
+  });
 }

@@ -80,6 +80,11 @@ function crossRegionBlocked(
   return fromLeague !== toLeague && PLAYER_TIER_VALUE[star.tier] > CROSS_REGION_TIER_CAP;
 }
 
+/** Inline vacancy check — avoid importing faMarket (cycle via transferValue). */
+function isVacancyStub(p: Player | null | undefined): boolean {
+  return !!p?.id?.startsWith("__vacancy__");
+}
+
 // Champion's meta tier in a lane under this snapshot: the split's full,
 // patch-shifted override first, then the baseline dataset. Null = untiered
 // there (skipped from pool fit). Mirrors applyPatchShift's source order.
@@ -365,7 +370,8 @@ export function applyTransfers(
     const entries: LaneEntry[] = [];
     for (const team of teams.values()) {
       const player = team.players[li];
-      if (!player) continue;
+      // Vacancy stubs are not transferable players (would show as "Unknown").
+      if (!player || isVacancyStub(player)) continue;
       entries.push({
         teamId: team.id,
         value: transferValue(player, gradeOf(team.id, li), byId, meta),
@@ -380,6 +386,9 @@ export function applyTransfers(
       const b = teams.get(bTeamId)!;
       const pa = a.players[li]; // stuck star → goes to b (better seat)
       const pb = b.players[li]; // weak link → goes to a (the poacher's old slot)
+      // Same-id / vacancy noops are not real transfers (tier-only noise).
+      if (!pa || !pb || isVacancyStub(pa) || isVacancyStub(pb)) continue;
+      if (pa.id && pb.id && pa.id === pb.id) continue;
       // Neither side of a cross-region swap may be elite — value (not tier)
       // ranks the pair, so a slumping S-tier can land as the weak-link `pb`;
       // keep top talent home so it doesn't funnel into the strongest regions.
@@ -754,7 +763,7 @@ export function offseasonTransferPass(
     const entries: LaneEntry[] = [];
     for (const t of map.values()) {
       const p = t.players[li];
-      if (!p) continue;
+      if (!p || isVacancyStub(p)) continue;
       if (t.id === skipTeamId) continue; // user's team — they shop it themselves
       if (movedLanes?.(t.id, li)) continue; // already transacted this lane
       entries.push({
@@ -772,6 +781,8 @@ export function offseasonTransferPass(
       const b = map.get(bTeamId)!;
       const pa = a.players[li];
       const pb = b.players[li];
+      if (!pa || !pb || isVacancyStub(pa) || isVacancyStub(pb)) continue;
+      if (pa.id && pb.id && pa.id === pb.id) continue;
       // Elite players (either side) stay in their region even in the big window.
       if (
         crossRegionBlocked(pa, a.leagueId, b.leagueId) ||

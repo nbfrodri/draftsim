@@ -391,3 +391,71 @@ describe("cross-region resistance (auto market)", () => {
     }
   });
 });
+
+describe("vacancy stubs never enter the transfer market", () => {
+  it("offseasonTransferPass skips vacancy slots and same-id pairs", () => {
+    let cid = 8000;
+    const champions = LANES2.flatMap((lane) =>
+      Array.from({ length: 8 }, () => ({
+        id: cid++,
+        name: `c${cid}`,
+        alias: `c${cid}`,
+        roles: [],
+        iconUrl: "",
+        lanes: [lane],
+      })),
+    ) as never;
+    const teams = generateSeasonTeams(
+      champions,
+      (() => {
+        let a = 22 >>> 0;
+        return () => {
+          a = (a + 0x6d2b79f5) | 0;
+          let t = Math.imul(a ^ (a >>> 15), 1 | a);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      })(),
+    );
+    // Plant vacancy stubs on two teams in the same lane.
+    const patched = teams.map((t, i) =>
+      i < 2
+        ? {
+            ...t,
+            players: t.players.map((p, li) =>
+              li === 4
+                ? {
+                    id: `__vacancy__support`,
+                    lane: "support" as const,
+                    tier: "D" as const,
+                    goodChamps: [],
+                    badChamps: [],
+                  }
+                : p,
+            ),
+          }
+        : t,
+    );
+    const byId = new Map(champions.map((c: { id: number }) => [c.id, c]));
+    const meta = {
+      metaOverride: null,
+      metaEnabled: true,
+      synergyOverride: null,
+      counterOverride: null,
+    };
+    const { teams: after, moves } = offseasonTransferPass(
+      patched,
+      () => null,
+      byId as never,
+      meta as never,
+    );
+    for (const m of moves) {
+      expect(m.star.id?.startsWith("__vacancy__")).toBeFalsy();
+      expect(m.swap.id?.startsWith("__vacancy__")).toBeFalsy();
+      if (m.star.id && m.swap.id) expect(m.star.id).not.toBe(m.swap.id);
+    }
+    // Vacancy stubs stay put (not swapped onto other rosters as "Unknown").
+    expect(after[0]!.players[4]!.id?.startsWith("__vacancy__")).toBe(true);
+    expect(after[1]!.players[4]!.id?.startsWith("__vacancy__")).toBe(true);
+  });
+});

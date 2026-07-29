@@ -9,8 +9,6 @@ import {
   makeBecameFaNews,
   isRosterVacancy,
   makeVacancyPlaceholder,
-  pickScoredReturnee,
-  applyComebackRust,
   releaseAcademyToFa,
   teamAcademyHasRoom,
   type MarketInactive,
@@ -33,6 +31,7 @@ import { teamSeasonGrades } from "./stats";
 import type { SeasonState } from "./types";
 import {
   fillFollowedRosterVacancies,
+  fillRosterVacancies,
   rosterTimeMarkForSeason,
 } from "./franchise";
 
@@ -68,15 +67,30 @@ function agencyGradeOf(season: SeasonState): (playerId: string) => number | null
   };
 }
 
+type VacatedSlot = {
+  teamId: string;
+  lane: AgencyDemand["lane"];
+  departedName?: string;
+  departedTier: AgencyDemand["playerTier"];
+  departedAge?: number;
+  departedId: string;
+};
+
+/**
+ * Walk a starter to FA and open a vacancy placeholder. Does not emit news —
+ * callers decide whether to leave the slot open (followed-team shop) or fill
+ * immediately (AI orgs must never keep `__vacancy__*` on the main roster).
+ */
 function agencyWalkToFa(
   season: SeasonState,
   demand: AgencyDemand,
-): SeasonState | null {
+): { season: SeasonState; vacated: VacatedSlot } | null {
   const team = season.teams.find((t) => t.id === demand.fromTeamId);
   if (!team || !season.franchise) return null;
   const slot = team.players.findIndex((p) => p.id === demand.playerId);
   if (slot < 0) return null;
   const player = team.players[slot]!;
+  if (isRosterVacancy(player) || !player.id) return null;
   const year = season.franchise.year;
   const grade = teamSeasonGrades(season, team.id).avg[slot] ?? null;
   const faEntry: MarketInactive = {
@@ -91,36 +105,49 @@ function agencyWalkToFa(
   };
   const players = [...team.players];
   players[slot] = makeVacancyPlaceholder(demand.lane);
-  const news: RosterNewsEvent & { teamId: string } = {
+  const vacated: VacatedSlot = {
     teamId: team.id,
     lane: demand.lane,
     ...(player.name ? { departedName: player.name } : {}),
     departedTier: player.tier,
     ...(player.age != null ? { departedAge: player.age } : {}),
-    ...(player.id ? { departedId: player.id } : {}),
+    departedId: player.id,
+  };
+  return {
+    season: {
+      ...season,
+      teams: season.teams.map((t) => (t.id === team.id ? { ...t, players } : t)),
+      franchise: {
+        ...season.franchise,
+        inactivePool: [...(season.franchise.inactivePool ?? []), faEntry],
+        sameWindowDemoteIds: [
+          ...(season.franchise.sameWindowDemoteIds ?? []),
+          demand.playerId,
+        ],
+      },
+      updatedAt: Date.now(),
+    },
+    vacated,
+  };
+}
+
+function agencyLeaveNews(
+  vacated: VacatedSlot,
+  demand: AgencyDemand,
+): RosterNewsEvent & { teamId: string } {
+  return {
+    teamId: vacated.teamId,
+    lane: vacated.lane,
+    ...(vacated.departedName ? { departedName: vacated.departedName } : {}),
+    departedTier: vacated.departedTier,
+    ...(vacated.departedAge != null ? { departedAge: vacated.departedAge } : {}),
+    departedId: vacated.departedId,
     entrantName: "",
-    entrantTier: player.tier,
-    entrantPotential: player.potential ?? player.tier,
+    entrantTier: vacated.departedTier,
+    entrantPotential: vacated.departedTier,
     entrantSource: "free-agent",
     marketNote: "agency-leave",
     ...(demand.wantTeamName ? { beatenNames: [demand.wantTeamName] } : {}),
-  };
-  return {
-    ...season,
-    teams: season.teams.map((t) => (t.id === team.id ? { ...t, players } : t)),
-    franchise: {
-      ...season.franchise,
-      inactivePool: [...(season.franchise.inactivePool ?? []), faEntry],
-      sameWindowDemoteIds: [
-        ...(season.franchise.sameWindowDemoteIds ?? []),
-        demand.playerId,
-      ],
-    },
-    rosterNews: [
-      ...(season.rosterNews ?? []),
-      ...withRosterTimeMark([news], rosterTimeMarkForSeason(season)),
-    ],
-    updatedAt: Date.now(),
   };
 }
 
@@ -246,6 +273,7 @@ export function honorAgencyDemand(
   season: SeasonState,
   champions: readonly Champion[],
   demandId: string,
+  rng: RNG = Math.random,
 ): SeasonState | null {
   if (!season.franchise?.aging) return null;
   const demand = season.franchise.agencyDemands?.find(
@@ -254,9 +282,50 @@ export function honorAgencyDemand(
   if (!demand) return null;
 
   let next: SeasonState | null = null;
-  if (demand.kind === "leave") next = agencyWalkToFa(season, demand);
-  else if (demand.kind === "call-up") next = agencyHonorCallUp(season, champions, demand);
-  else if (demand.kind === "depart-academy") next = agencyHonorDepart(season, demand);
+  if (demand.kind === "leave") {
+    const walked = agencyWalkToFa(season, demand);
+    if (!walked) return null;
+    const controlled = season.config.controlledTeamId;
+    const userShopping = !!controlled && demand.fromTeamId === controlled;
+    if (userShopping) {
+      // Followed-team shop: leave vacancy open for FA / academy / AI decide.
+      next = {
+        ...walked.season,
+        rosterNews: [
+          ...(walked.season.rosterNews ?? []),
+          ...withRosterTimeMark(
+            [agencyLeaveNews(walked.vacated, demand)],
+            rosterTimeMarkForSeason(season),
+          ),
+        ],
+      };
+    } else {
+      // AI org: fill immediately — never keep `__vacancy__*` on main roster.
+      const departedBySlot = new Map([
+        [
+          `${walked.vacated.teamId}:${walked.vacated.lane}`,
+          {
+            ...(walked.vacated.departedName
+              ? { departedName: walked.vacated.departedName }
+              : {}),
+            departedTier: walked.vacated.departedTier,
+            ...(walked.vacated.departedAge != null
+              ? { departedAge: walked.vacated.departedAge }
+              : {}),
+            departedId: walked.vacated.departedId,
+          },
+        ],
+      ]);
+      next = fillRosterVacancies(walked.season, champions, rng, {
+        teamIds: new Set([walked.vacated.teamId]),
+        departedBySlot,
+      });
+    }
+  } else if (demand.kind === "call-up") {
+    next = agencyHonorCallUp(season, champions, demand);
+  } else if (demand.kind === "depart-academy") {
+    next = agencyHonorDepart(season, demand);
+  }
   if (!next?.franchise) return null;
   return {
     ...next,
@@ -308,6 +377,7 @@ export function overrideAgencyDemand(
 /**
  * Seed agency demands for a shopping window. Auto-honors non-followed-org
  * demands (AI competition). Followed-org demands stay pending for UI.
+ * AI leaves are filled atomically — no `__vacancy__*` stubs left on rosters.
  */
 export function seedAgencyWindow(
   season: SeasonState,
@@ -343,58 +413,14 @@ export function seedAgencyWindow(
   for (const d of demands) {
     if (d.status !== "pending") continue;
     if (controlled && d.fromTeamId === controlled) continue;
-    const honored = honorAgencyDemand(next, champions, d.id);
+    const honored = honorAgencyDemand(next, champions, d.id, rng);
     if (honored) next = honored;
   }
 
-  if (controlled) {
-    const exclude = new Set(next.franchise?.sameWindowDemoteIds ?? []);
-    let pool = [...(next.franchise?.inactivePool ?? [])];
-    const teams = next.teams.map((t) => ({ ...t, players: [...t.players] }));
-    const news: Array<RosterNewsEvent & { teamId: string }> = [];
-    for (const t of teams) {
-      if (t.id === controlled) continue;
-      for (let i = 0; i < t.players.length; i++) {
-        if (!isRosterVacancy(t.players[i]!)) continue;
-        const lane = t.players[i]!.lane;
-        const pick = pickScoredReturnee(
-          pool,
-          lane,
-          t.id,
-          byId,
-          next.currentMeta,
-          rng,
-          exclude,
-        );
-        if (!pick) continue;
-        const [taken] = pool.splice(pick.idx, 1);
-        t.players[i] = applyComebackRust(
-          taken!.player,
-          taken!.inactiveYears,
-          t.leagueId,
-        );
-        news.push({
-          teamId: t.id,
-          lane,
-          entrantName: t.players[i]!.name ?? "",
-          entrantTier: t.players[i]!.tier,
-          entrantPotential: t.players[i]!.potential ?? t.players[i]!.tier,
-          ...(t.players[i]!.id ? { entrantId: t.players[i]!.id } : {}),
-          entrantSource: taken!.status === "academy" ? "academy" : "free-agent",
-          ...(pick.marketNote ? { marketNote: pick.marketNote } : {}),
-        });
-      }
-    }
-    next = {
-      ...next,
-      teams,
-      franchise: { ...next.franchise!, inactivePool: pool },
-      rosterNews: [
-        ...(next.rosterNews ?? []),
-        ...withRosterTimeMark(news, rosterTimeMarkForSeason(next)),
-      ],
-    };
-  }
+  // Safety net: scrub any vacancy stubs on AI (and uncontrolled) rosters.
+  next = fillRosterVacancies(next, champions, rng, {
+    ...(controlled ? { skipTeamIds: new Set([controlled]) } : {}),
+  });
 
   return next;
 }
