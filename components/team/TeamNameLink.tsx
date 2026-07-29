@@ -13,6 +13,9 @@ export interface TeamNameLinkProps {
   seasonId?: string;
   phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: TeamCardHint;
+  /** Match opponent — shows H2H on the hover card when set. */
+  opponentTeamId?: string;
+  opponentHint?: TeamCardHint;
   iconKey?: string;
   logoUrl?: string;
   color?: string;
@@ -37,6 +40,8 @@ function TeamNameLink({
   seasonId,
   phaseScope,
   hint,
+  opponentTeamId,
+  opponentHint,
   iconKey,
   logoUrl,
   color,
@@ -119,6 +124,8 @@ function TeamNameLink({
       seasonId={seasonId}
       phaseScope={phaseScope}
       hint={mergedHint}
+      opponentTeamId={opponentTeamId}
+      opponentHint={opponentHint}
       className={className}
     >
       {canNavigate ? (

@@ -7,6 +7,8 @@ import {
   executeUserTransfer,
   userTransferCount,
   userTransferCapReached,
+  activeWindowTransfers,
+  teamMovedAtLane,
   USER_MAX_TRANSFERS_PER_WINDOW,
   settle,
   transferValue,
@@ -279,6 +281,27 @@ describe("transferCandidates / executeUserTransfer", () => {
     expect(blocked).toBe(atCap); // no-op
     // … and the shop closes on every remaining lane.
     expect(transferCandidates(atCap, [], "middle")).toHaveLength(0);
+  });
+
+  it("offseason cap ignores prior-year Worlds carry below worldsOffseasonBaseline", () => {
+    const carry = {
+      event: "worlds" as const,
+      lane: "top" as const,
+      fromTeamId: "rivalB",
+      toTeamId: "mine",
+      star: { tier: "B" as const, grade: null, goodChamps: [] },
+      swap: { tier: "B" as const, grade: null, goodChamps: [] },
+    };
+    const withCarry = {
+      ...season(),
+      status: "complete" as const,
+      transfersByEvent: { worlds: [carry] },
+      worldsOffseasonBaseline: 1,
+    } as unknown as SeasonState;
+    expect(userTransferCount(withCarry, "worlds", "mine")).toBe(0);
+    expect(userTransferCapReached(withCarry, "worlds", "mine")).toBe(false);
+    expect(teamMovedAtLane(withCarry, "worlds", "mine", "top")).toBe(false);
+    expect(activeWindowTransfers(withCarry, "worlds")).toEqual([]);
   });
 });
 

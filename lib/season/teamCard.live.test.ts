@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import type { SeasonHistoryEntry } from "./history";
 import {
+  careerArchivedTeamH2H,
+  liveAllTimeTeamH2H,
+  liveTeamH2H,
   liveTeamSeriesResults,
   liveTeamWinRates,
   liveTitleCounts,
@@ -20,6 +24,14 @@ function team(id: string, leagueId: SeasonTeam["leagueId"] = "LCK"): SeasonTeam 
   };
 }
 
+function namedTeam(
+  id: string,
+  name: string,
+  leagueId: SeasonTeam["leagueId"] = "LCK",
+): SeasonTeam {
+  return { ...team(id, leagueId), name };
+}
+
 function fabricate(parts: Partial<SeasonState>): SeasonState {
   return {
     teams: [],
@@ -29,6 +41,24 @@ function fabricate(parts: Partial<SeasonState>): SeasonState {
     tournaments: {},
     ...parts,
   } as unknown as SeasonState;
+}
+
+function hallEntry(
+  id: string,
+  archivedAt: number,
+  headToHead: NonNullable<SeasonHistoryEntry["headToHead"]>,
+): SeasonHistoryEntry {
+  return {
+    id,
+    archivedAt,
+    name: id,
+    complete: true,
+    champion: null,
+    runnerUp: null,
+    intlChampions: {},
+    splitChampions: {},
+    headToHead,
+  };
 }
 
 describe("live team card metrics", () => {
@@ -142,6 +172,124 @@ describe("live team card metrics", () => {
     expect(liveTitleHighlights(season, a)).toEqual(
       expect.arrayContaining(["Winter Split", "First Stand", "Season finalist"]),
     );
+  });
+});
+
+describe("match-box H2H (all-time overall + recent)", () => {
+  const t1 = namedTeam("t1", "T1");
+  const geng = namedTeam("geng", "Gen.G");
+
+  const liveSeason = fabricate({
+    teams: [t1, geng],
+    phases: [
+      {
+        kind: "split",
+        split: "winter",
+        label: "Winter",
+        tournamentIds: ["t-live"],
+        status: "in-progress",
+      },
+    ],
+    tournaments: {
+      "t-live": {
+        id: "t-live",
+        matches: [
+          {
+            id: "m1",
+            round: 1,
+            blueTeamId: "t1",
+            redTeamId: "geng",
+            winner: { teamId: "t1", blueWins: 2, redWins: 0 },
+            isBye: false,
+          },
+          {
+            id: "m2",
+            round: 2,
+            blueTeamId: "t1",
+            redTeamId: "geng",
+            winner: { teamId: "geng", blueWins: 0, redWins: 2 },
+            isBye: false,
+          },
+        ],
+      },
+    },
+  } as unknown as Partial<SeasonState>);
+
+  it("sums Hall seasons for career archive H2H", () => {
+    const hall = [
+      hallEntry("y1", 1000, [
+        {
+          teamA: { name: "T1", leagueId: "LCK", color: "", iconKey: "shield" },
+          teamB: {
+            name: "Gen.G",
+            leagueId: "LCK",
+            color: "",
+            iconKey: "shield",
+          },
+          meetings: 4,
+          aWins: 3,
+          bWins: 1,
+        },
+      ]),
+      hallEntry("y2", 2000, [
+        {
+          teamA: { name: "T1", leagueId: "LCK", color: "", iconKey: "shield" },
+          teamB: {
+            name: "Gen.G",
+            leagueId: "LCK",
+            color: "",
+            iconKey: "shield",
+          },
+          meetings: 2,
+          aWins: 0,
+          bWins: 2,
+        },
+      ]),
+    ];
+    const h2h = careerArchivedTeamH2H(
+      hall,
+      { name: "T1", leagueId: "LCK" },
+      { name: "Gen.G", leagueId: "LCK" },
+    );
+    expect(h2h).toMatchObject({
+      meetings: 6,
+      overall: { wins: 3, losses: 3, winRate: 0.5 },
+      recent: { sampleSize: 0 },
+    });
+  });
+
+  it("with empty Hall, all-time overall matches current-season H2H", () => {
+    const seasonOnly = liveTeamH2H(liveSeason, "t1", "geng");
+    const allTime = liveAllTimeTeamH2H(liveSeason, [], "t1", "geng");
+    expect(allTime).toEqual(seasonOnly);
+    expect(allTime?.overall).toEqual({ wins: 1, losses: 1, winRate: 0.5 });
+    expect(allTime?.recent.sampleSize).toBe(2);
+  });
+
+  it("adds live meetings on top of Hall archive for overall", () => {
+    const hall = [
+      hallEntry("y1", 1000, [
+        {
+          teamA: { name: "T1", leagueId: "LCK", color: "", iconKey: "shield" },
+          teamB: {
+            name: "Gen.G",
+            leagueId: "LCK",
+            color: "",
+            iconKey: "shield",
+          },
+          meetings: 4,
+          aWins: 3,
+          bWins: 1,
+        },
+      ]),
+    ];
+    const h2h = liveAllTimeTeamH2H(liveSeason, hall, "t1", "geng");
+    // Archive 3-1 + live 1-1 → 4-2
+    expect(h2h).toMatchObject({
+      meetings: 6,
+      overall: { wins: 4, losses: 2, winRate: 4 / 6 },
+      recent: { wins: 1, losses: 1, sampleSize: 2 },
+    });
   });
 });
 

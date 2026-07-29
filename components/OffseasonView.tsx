@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { MAIN_POOL } from "@/lib/players";
 import {
+  activeWindowTransfers,
   offseasonCandidates,
   userTransferCount,
   USER_MAX_TRANSFERS_OFFSEASON,
@@ -170,7 +171,7 @@ export default function OffseasonView() {
   const championTeam = seasonTeam(season, season.champion);
   const movedLanes = new Set<Lane>();
   if (controlled) {
-    for (const m of season.transfersByEvent?.worlds ?? []) {
+    for (const m of activeWindowTransfers(season, "worlds")) {
       if (m.fromTeamId === controlled.id || m.toTeamId === controlled.id) movedLanes.add(m.lane);
     }
   }

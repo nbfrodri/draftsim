@@ -11,6 +11,9 @@ export interface TeamLogoLinkProps {
   seasonId?: string;
   phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: TeamCardHint;
+  /** Match opponent — shows H2H on the hover card when set. */
+  opponentTeamId?: string;
+  opponentHint?: TeamCardHint;
   name?: string;
   leagueId?: import("@/lib/season/types").LeagueId;
   iconKey?: string;
@@ -31,6 +34,8 @@ function TeamLogoLink({
   seasonId,
   phaseScope,
   hint,
+  opponentTeamId,
+  opponentHint,
   name,
   leagueId,
   iconKey = "shield",
@@ -88,6 +93,8 @@ function TeamLogoLink({
       seasonId={seasonId}
       phaseScope={phaseScope}
       hint={mergedHint}
+      opponentTeamId={opponentTeamId}
+      opponentHint={opponentHint}
       className="inline-flex shrink-0"
     >
       {canNavigate ? (

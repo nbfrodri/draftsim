@@ -528,6 +528,21 @@ function openWindowEvent(season: SeasonState): InternationalId | null {
   return phase?.kind === "transfer" && phase.event ? phase.event : null;
 }
 
+/**
+ * Moves that count toward the active window's cap / one-per-role locks.
+ * For Worlds during offseason, skips prior-year carry frozen at
+ * `worldsOffseasonBaseline` so the fresh window starts at zero.
+ */
+export function activeWindowTransfers(
+  season: Pick<SeasonState, "transfersByEvent" | "worldsOffseasonBaseline">,
+  event: InternationalId,
+): PlayerTransfer[] {
+  const moves = season.transfersByEvent?.[event] ?? [];
+  if (event !== "worlds") return moves;
+  const baseline = season.worldsOffseasonBaseline ?? 0;
+  return baseline > 0 ? moves.slice(baseline) : moves;
+}
+
 // Each team makes at most ONE move per role per window. Has `teamId` already
 // been part of a transfer at `lane` this window?
 export function teamMovedAtLane(
@@ -536,8 +551,7 @@ export function teamMovedAtLane(
   teamId: string,
   lane: Lane,
 ): boolean {
-  const moves = season.transfersByEvent?.[event] ?? [];
-  return moves.some(
+  return activeWindowTransfers(season, event).some(
     (m) => m.lane === lane && (m.fromTeamId === teamId || m.toTeamId === teamId),
   );
 }
@@ -562,8 +576,9 @@ export function userTransferCount(
   event: InternationalId,
   teamId: string,
 ): number {
-  const moves = season.transfersByEvent?.[event] ?? [];
-  return moves.filter((m) => m.fromTeamId === teamId || m.toTeamId === teamId).length;
+  return activeWindowTransfers(season, event).filter(
+    (m) => m.fromTeamId === teamId || m.toTeamId === teamId,
+  ).length;
 }
 
 // Has the followed team hit its per-window transfer cap?

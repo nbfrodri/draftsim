@@ -962,6 +962,7 @@ function SwissPairingRow({
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
         <SwissTeamSlot
           team={blueTeam}
+          opponent={redTeam}
           record={blueRec}
           side="blue"
           isWinner={!!blueWon}
@@ -971,6 +972,7 @@ function SwissPairingRow({
         </span>
         <SwissTeamSlot
           team={redTeam}
+          opponent={blueTeam}
           record={redRec}
           side="red"
           isWinner={!!redWon}
@@ -1013,12 +1015,14 @@ import type { Side } from "@/lib/types";
 
 function SwissTeamSlot({
   team,
+  opponent,
   record,
   side,
   isWinner,
   alignRight,
 }: {
   team: TournamentTeam | null;
+  opponent?: TournamentTeam | null;
   record: { w: number; l: number } | null | undefined;
   side: Side;
   isWinner: boolean;
@@ -1027,6 +1031,14 @@ function SwissTeamSlot({
   const accent =
     side === "blue" ? "text-rift-bluebright" : "text-rift-redbright";
   const winnerCls = isWinner ? "text-rift-goldbright" : accent;
+  const opponentHint = opponent
+    ? {
+        name: opponent.name,
+        iconKey: opponent.iconKey,
+        logoUrl: opponent.logoUrl,
+        color: opponent.color ?? undefined,
+      }
+    : undefined;
   return (
     <div
       className={`min-w-0 ${alignRight ? "text-right" : "text-left"}`}
@@ -1052,6 +1064,8 @@ function SwissTeamSlot({
               logoUrl: team.logoUrl,
               color: team.color ?? undefined,
             }}
+            opponentTeamId={opponent?.id}
+            opponentHint={opponentHint}
           />
         )}
         <div className={`font-display text-[12px] tracking-wider truncate ${winnerCls}`}>
@@ -1071,6 +1085,8 @@ function SwissTeamSlot({
                 logoUrl: team.logoUrl,
                 color: team.color ?? undefined,
               }}
+              opponentTeamId={opponent?.id}
+              opponentHint={opponentHint}
             />
           ) : (
             "TBD"

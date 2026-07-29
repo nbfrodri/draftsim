@@ -716,6 +716,14 @@ function MiniBracket({
               renderAs="span"
               className={`truncate ${blueWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/60"}`}
               hint={blueSeason ? { team: blueSeason } : { name: blue.name, iconKey: blue.iconKey, logoUrl: blue.logoUrl, color: blue.color }}
+              opponentTeamId={red?.id}
+              opponentHint={
+                redSeason
+                  ? { team: redSeason }
+                  : red
+                    ? { name: red.name, iconKey: red.iconKey, logoUrl: red.logoUrl, color: red.color }
+                    : undefined
+              }
             />
           ) : (
             <span className="truncate text-rift-mutedbright/60">TBD</span>
@@ -731,6 +739,14 @@ function MiniBracket({
               size={11}
               renderAs="span"
               hint={blueSeason ? { team: blueSeason } : { name: blue.name, iconKey: blue.iconKey, logoUrl: blue.logoUrl, color: blue.color }}
+              opponentTeamId={red?.id}
+              opponentHint={
+                redSeason
+                  ? { team: redSeason }
+                  : red
+                    ? { name: red.name, iconKey: red.iconKey, logoUrl: red.logoUrl, color: red.color }
+                    : undefined
+              }
             />
           )}
         </span>
@@ -749,6 +765,14 @@ function MiniBracket({
               size={11}
               renderAs="span"
               hint={redSeason ? { team: redSeason } : { name: red.name, iconKey: red.iconKey, logoUrl: red.logoUrl, color: red.color }}
+              opponentTeamId={blue?.id}
+              opponentHint={
+                blueSeason
+                  ? { team: blueSeason }
+                  : blue
+                    ? { name: blue.name, iconKey: blue.iconKey, logoUrl: blue.logoUrl, color: blue.color }
+                    : undefined
+              }
             />
           )}
           {red ? (
@@ -764,6 +788,14 @@ function MiniBracket({
               renderAs="span"
               className={`truncate ${redWon ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright/60"}`}
               hint={redSeason ? { team: redSeason } : { name: red.name, iconKey: red.iconKey, logoUrl: red.logoUrl, color: red.color }}
+              opponentTeamId={blue?.id}
+              opponentHint={
+                blueSeason
+                  ? { team: blueSeason }
+                  : blue
+                    ? { name: blue.name, iconKey: blue.iconKey, logoUrl: blue.logoUrl, color: blue.color }
+                    : undefined
+              }
             />
           ) : (
             <span className="truncate text-rift-mutedbright/60">TBD</span>
@@ -910,6 +942,14 @@ function LatestMatchdayPanel({
                           logoUrl: m.blue.logoUrl,
                           color: m.blue.color,
                         }}
+                        opponentTeamId={m.red.id}
+                        opponentHint={{
+                          name: m.red.name,
+                          ...(r.league ? { leagueId: r.league } : {}),
+                          iconKey: m.red.iconKey,
+                          logoUrl: m.red.logoUrl,
+                          color: m.red.color,
+                        }}
                       />
                       <TeamLogoLink
                         teamId={m.blue.id}
@@ -926,6 +966,14 @@ function LatestMatchdayPanel({
                           iconKey: m.blue.iconKey,
                           logoUrl: m.blue.logoUrl,
                           color: m.blue.color,
+                        }}
+                        opponentTeamId={m.red.id}
+                        opponentHint={{
+                          name: m.red.name,
+                          ...(r.league ? { leagueId: r.league } : {}),
+                          iconKey: m.red.iconKey,
+                          logoUrl: m.red.logoUrl,
+                          color: m.red.color,
                         }}
                       />
                     </span>
@@ -956,6 +1004,14 @@ function LatestMatchdayPanel({
                           logoUrl: m.red.logoUrl,
                           color: m.red.color,
                         }}
+                        opponentTeamId={m.blue.id}
+                        opponentHint={{
+                          name: m.blue.name,
+                          ...(r.league ? { leagueId: r.league } : {}),
+                          iconKey: m.blue.iconKey,
+                          logoUrl: m.blue.logoUrl,
+                          color: m.blue.color,
+                        }}
                       />
                       <TeamNameLink
                         teamId={m.red.id}
@@ -973,6 +1029,14 @@ function LatestMatchdayPanel({
                           iconKey: m.red.iconKey,
                           logoUrl: m.red.logoUrl,
                           color: m.red.color,
+                        }}
+                        opponentTeamId={m.blue.id}
+                        opponentHint={{
+                          name: m.blue.name,
+                          ...(r.league ? { leagueId: r.league } : {}),
+                          iconKey: m.blue.iconKey,
+                          logoUrl: m.blue.logoUrl,
+                          color: m.blue.color,
                         }}
                       />
                     </span>

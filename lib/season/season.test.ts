@@ -1814,14 +1814,15 @@ describe("transfer windows as phases", () => {
     for (const p of done.phases.filter((p) => p.kind === "transfer")) {
       expect(p.status).toBe("complete");
     }
-    expect(done.transfersByEvent?.worlds).toBeUndefined();
+    // Year 1 has no prior Worlds carry; baseline is 0 and bucket stays empty.
+    expect(done.worldsOffseasonBaseline).toBe(0);
+    expect(done.transfersByEvent?.worlds ?? []).toEqual([]);
   });
 
-  it("clears a carried-forward post-Worlds recap at completion (offseason cap resets yearly)", () => {
-    // Simulate last year's offseason carried into this season's "worlds" bucket
-    // (startNextSeason does this for the in-season recap). It must be dropped at
-    // completion so this year's offseason per-team cap counts from zero instead
-    // of accumulating across years.
+  it("preserves carried-forward post-Worlds recap at completion (cap via baseline)", () => {
+    // Last year's offseason carried into this season's "worlds" bucket must
+    // remain for the offseason digest. Cap resets via worldsOffseasonBaseline
+    // instead of wiping the array.
     const move = {
       event: "worlds" as const,
       lane: "middle" as const,
@@ -1836,7 +1837,8 @@ describe("transfer windows as phases", () => {
     };
     const done = runSeason(seeded, champions);
     expect(done.status).toBe("complete");
-    expect(done.transfersByEvent?.worlds).toBeUndefined();
+    expect(done.transfersByEvent?.worlds).toEqual([move]);
+    expect(done.worldsOffseasonBaseline).toBe(1);
   });
 });
 

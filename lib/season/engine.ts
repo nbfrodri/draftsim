@@ -2117,17 +2117,16 @@ export function applyTournamentUpdate(
 
   const isLastPhase = next.phaseIndex >= next.phases.length - 1;
   if (isLastPhase) {
-    // The post-Worlds offseason is a FRESH window each year. startNextSeason
-    // carried last year's offseason moves into "worlds" for the in-season recap;
-    // drop them now so this year's offseason per-team cap counts from zero
-    // (otherwise it accumulates across years and stays perma-capped).
-    const events = { ...(next.transfersByEvent ?? {}) };
-    delete events.worlds;
+    // Keep prior-year post-Worlds carry in `transfersByEvent.worlds` so the
+    // League digest can show real moves during offseason (no empty stub). Mark
+    // a baseline so this year's offseason cap / lane locks count from zero;
+    // `startNextSeason` only carries moves appended after the baseline.
+    const worldsLen = next.transfersByEvent?.worlds?.length ?? 0;
     let completed: SeasonState = {
       ...next,
       status: "complete",
       champion: next.intlResults.worlds?.[0] ?? null,
-      transfersByEvent: events,
+      worldsOffseasonBaseline: worldsLen,
       // Fresh FA-sign / manual-demote / same-window-rookie quota for the
       // post-Worlds offseason browse window.
       ...(next.franchise?.aging

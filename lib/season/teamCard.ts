@@ -28,6 +28,8 @@ import {
 import type { InactivePlayerSnapshot } from "./playerLifecycle";
 
 export const RECENT_SERIES_WINDOW = 20;
+/** Last-N series for match-context H2H on team hover cards. */
+export const RECENT_H2H_WINDOW = 5;
 
 export interface TeamSeriesWinLoss {
   wins: number;
@@ -39,6 +41,20 @@ export interface TeamSeriesWinLoss {
 export interface TeamCardWinRates {
   overall: TeamSeriesWinLoss;
   /** Last up-to-20 series (exact on live seasons; scope-ordered on archives). */
+  recent: TeamSeriesWinLoss & { sampleSize: number };
+}
+
+/** Head-to-head vs a specific opponent (match-box hover context). */
+export interface TeamCardH2H {
+  opponentName: string;
+  meetings: number;
+  /** All-time (Hall archive + live when available). */
+  overall: TeamSeriesWinLoss;
+  /**
+   * Last up-to-{@link RECENT_H2H_WINDOW} meetings.
+   * Live cards use current-season chronology (archives lack a match log).
+   * sampleSize 0 when unknown (archive-only).
+   */
   recent: TeamSeriesWinLoss & { sampleSize: number };
 }
 
@@ -78,6 +94,8 @@ export interface TeamCardData {
   titleCounts?: TeamCardTitleCounts | null;
   /** Series win rates — career or scoped year depending on resolver. */
   winRates?: TeamCardWinRates | null;
+  /** Vs opponent when hovering a team inside a match box. */
+  h2h?: TeamCardH2H | null;
   scope: string;
   archived: boolean;
 }
@@ -524,6 +542,186 @@ export function liveTeamWinRates(
   };
 }
 
+/** Series results for `teamId` vs `opponentId` only, phase chronology. */
+export function liveTeamH2HResults(
+  season: SeasonState,
+  teamId: string,
+  opponentId: string,
+): ("W" | "L")[] {
+  if (!teamId || !opponentId || teamId === opponentId) return [];
+  const out: ("W" | "L")[] = [];
+  const seen = new Set<string>();
+
+  const pushTournament = (tid: string) => {
+    if (seen.has(tid)) return;
+    const t = season.tournaments?.[tid];
+    if (!t) return;
+    seen.add(tid);
+    const played = [...t.matches]
+      .filter(
+        (m) =>
+          !m.isBye &&
+          m.winner != null &&
+          ((m.blueTeamId === teamId && m.redTeamId === opponentId) ||
+            (m.redTeamId === teamId && m.blueTeamId === opponentId)),
+      )
+      .sort(compareMatchChronology);
+    for (const m of played) {
+      out.push(m.winner!.teamId === teamId ? "W" : "L");
+    }
+  };
+
+  for (const phase of season.phases ?? []) {
+    for (const tid of phase.tournamentIds ?? []) pushTournament(tid);
+  }
+  for (const tid of Object.keys(season.tournaments ?? {})) pushTournament(tid);
+
+  return out;
+}
+
+export function liveTeamH2H(
+  season: SeasonState,
+  teamId: string,
+  opponentId: string,
+  recentN: number = RECENT_H2H_WINDOW,
+): TeamCardH2H | null {
+  const results = liveTeamH2HResults(season, teamId, opponentId);
+  if (results.length === 0) return null;
+  const opponent = seasonTeam(season, opponentId);
+  const wins = results.filter((r) => r === "W").length;
+  const slice = results.slice(-Math.max(1, recentN));
+  const recentWins = slice.filter((r) => r === "W").length;
+  return {
+    opponentName: opponent?.name ?? "Opponent",
+    meetings: results.length,
+    overall: wlRecord(wins, results.length - wins),
+    recent: {
+      ...wlRecord(recentWins, slice.length - recentWins),
+      sampleSize: slice.length,
+    },
+  };
+}
+
+/** One archived season's H2H W-L for a franchise pair (no recent match log). */
+function archivedPairWL(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+  opponent: { name: string; leagueId: LeagueId },
+): { wins: number; losses: number; meetings: number } | null {
+  const aKey = teamNavKey(team);
+  const bKey = teamNavKey(opponent);
+  if (franchiseKeysMatch(aKey, bKey)) return null;
+  for (const r of h2hRows(entry)) {
+    const ra = teamNavKey(r.teamA);
+    const rb = teamNavKey(r.teamB);
+    const teamIsA = franchiseKeysMatch(ra, aKey) && franchiseKeysMatch(rb, bKey);
+    const teamIsB = franchiseKeysMatch(rb, aKey) && franchiseKeysMatch(ra, bKey);
+    if (!teamIsA && !teamIsB) continue;
+    const wins = teamIsA ? r.aWins : r.bWins;
+    const losses = teamIsA ? r.bWins : r.aWins;
+    if (wins + losses <= 0) return null;
+    return { wins, losses, meetings: r.meetings };
+  }
+  return null;
+}
+
+/** Archive H2H from frozen headToHead / rivalries (overall only; no match log). */
+export function archivedTeamH2H(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+  opponent: { name: string; leagueId: LeagueId },
+): TeamCardH2H | null {
+  const row = archivedPairWL(entry, team, opponent);
+  if (!row) return null;
+  return {
+    opponentName: opponent.name,
+    meetings: row.meetings,
+    overall: wlRecord(row.wins, row.losses),
+    recent: { wins: 0, losses: 0, winRate: null, sampleSize: 0 },
+  };
+}
+
+/**
+ * All-time archive H2H: sum headToHead / rivalries across every Hall season.
+ * Recent is unknown (no chronologic match log in archives).
+ */
+export function careerArchivedTeamH2H(
+  entries: readonly SeasonHistoryEntry[],
+  team: { name: string; leagueId: LeagueId },
+  opponent: { name: string; leagueId: LeagueId },
+): TeamCardH2H | null {
+  const aKey = teamNavKey(team);
+  const bKey = teamNavKey(opponent);
+  if (franchiseKeysMatch(aKey, bKey)) return null;
+  let wins = 0;
+  let losses = 0;
+  let meetings = 0;
+  for (const entry of entries) {
+    const row = archivedPairWL(entry, team, opponent);
+    if (!row) continue;
+    wins += row.wins;
+    losses += row.losses;
+    meetings += row.meetings;
+  }
+  if (wins + losses <= 0) return null;
+  return {
+    opponentName: opponent.name,
+    meetings,
+    overall: wlRecord(wins, losses),
+    recent: { wins: 0, losses: 0, winRate: null, sampleSize: 0 },
+  };
+}
+
+/**
+ * Match-box H2H for a live season: overall = Hall archive + current live
+ * meetings; recent = last N from the live season only (archives have no
+ * match chronology). With an empty Hall, overall equals current-season H2H.
+ */
+export function liveAllTimeTeamH2H(
+  season: SeasonState,
+  hallEntries: readonly SeasonHistoryEntry[],
+  teamId: string,
+  opponentId: string,
+  recentN: number = RECENT_H2H_WINDOW,
+): TeamCardH2H | null {
+  if (!teamId || !opponentId || teamId === opponentId) return null;
+  const team = seasonTeam(season, teamId);
+  const opponent = seasonTeam(season, opponentId);
+  if (!team || !opponent) return liveTeamH2H(season, teamId, opponentId, recentN);
+
+  const liveResults = liveTeamH2HResults(season, teamId, opponentId);
+  const liveWins = liveResults.filter((r) => r === "W").length;
+  const liveLosses = liveResults.length - liveWins;
+
+  const archived = careerArchivedTeamH2H(
+    hallEntries,
+    { name: team.name, leagueId: team.leagueId },
+    { name: opponent.name, leagueId: opponent.leagueId },
+  );
+  const archWins = archived?.overall.wins ?? 0;
+  const archLosses = archived?.overall.losses ?? 0;
+  const archMeetings = archived?.meetings ?? 0;
+
+  const totalWins = archWins + liveWins;
+  const totalLosses = archLosses + liveLosses;
+  if (totalWins + totalLosses <= 0) return null;
+
+  const slice = liveResults.slice(-Math.max(1, recentN));
+  const recentWins = slice.filter((r) => r === "W").length;
+  return {
+    opponentName: opponent.name,
+    meetings: archMeetings + liveResults.length,
+    overall: wlRecord(totalWins, totalLosses),
+    recent:
+      slice.length > 0
+        ? {
+            ...wlRecord(recentWins, slice.length - recentWins),
+            sampleSize: slice.length,
+          }
+        : { wins: 0, losses: 0, winRate: null, sampleSize: 0 },
+  };
+}
+
 type ScopeWL = { wins: number; losses: number };
 
 function h2hRows(entry: SeasonHistoryEntry) {
@@ -831,6 +1029,7 @@ export function teamCardFromSeasonTeam(
     highlights?: string[];
     titleCounts?: TeamCardTitleCounts | null;
     winRates?: TeamCardWinRates | null;
+    h2h?: TeamCardH2H | null;
     scope: string;
     archived: boolean;
   },
@@ -854,6 +1053,7 @@ export function teamCardFromSeasonTeam(
     // Titles sections can render whenever the season has data.
     titleCounts: opts.titleCounts ?? null,
     winRates: opts.winRates ?? null,
+    ...(opts.h2h != null ? { h2h: opts.h2h } : {}),
     scope: opts.scope,
     archived: opts.archived,
   };

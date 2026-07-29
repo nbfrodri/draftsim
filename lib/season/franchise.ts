@@ -57,8 +57,10 @@ import { reassignCoaches } from "./coach";
 import { assignRoleElites } from "./teamGen";
 import { applyPoolDrift } from "./poolDrift";
 import {
+  INTERNATIONAL_DISPLAY_ORDER,
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
+  type InternationalId,
   type SeasonState,
   type SeasonTeam,
   type SplitId,
@@ -105,6 +107,90 @@ export function splitFromRosterTimeMark(mark?: string): RosterTimeSplit | null {
   if (m === "summer" || m.startsWith("worlds")) return "summer";
   if (m === "offseason") return "offseason";
   return null;
+}
+
+/** Accordion section order for the League transfer digest (always Worlds first). */
+export const TRANSFER_DIGEST_SECTION_ORDER: readonly InternationalId[] = [
+  "worlds",
+  "first-stand",
+  "msi",
+  "global-cup",
+];
+
+/**
+ * League-digest transfer accordion events.
+ *
+ * Shows completed current-year windows only (no phantom First Stand / MSI /
+ * before those internationals finish). Worlds is special:
+ * - Season complete (offseason shop): include `worlds` only when the bucket
+ *   has moves (empty Worlds is omitted — no "0 moves" section). Completion
+ *   preserves prior-year carry via `worldsOffseasonBaseline` instead of wiping.
+ * - Next year: `startNextSeason` carries this offseason's post-Worlds moves
+ *   into `transfersByEvent.worlds`; surface those until this year's Worlds ends.
+ *
+ * Visible sections always appear in `TRANSFER_DIGEST_SECTION_ORDER`
+ * (Worlds → First Stand → MSI), regardless of season status or carry.
+ */
+export function visibleTransferDigestEvents(
+  season: Pick<SeasonState, "transfersByEvent" | "phases" | "status">,
+): InternationalId[] {
+  const byEvent = season.transfersByEvent ?? {};
+  const present = INTERNATIONAL_DISPLAY_ORDER.filter(
+    (e) => (byEvent[e]?.length ?? 0) > 0,
+  );
+  const extras = (Object.keys(byEvent) as InternationalId[]).filter(
+    (e) =>
+      (byEvent[e]?.length ?? 0) > 0 &&
+      !(INTERNATIONAL_DISPLAY_ORDER as readonly string[]).includes(e),
+  );
+  const played = new Set<InternationalId>();
+  for (const p of season.phases ?? []) {
+    if (p.kind === "international" && p.status === "complete" && p.event) {
+      played.add(p.event);
+    }
+  }
+  const allowAll = season.status === "complete";
+  const filtered = new Set(
+    present.concat(extras).filter(
+      (e) =>
+        allowAll ||
+        played.has(e) ||
+        // Prior-year post-Worlds carry (Worlds not yet played this year).
+        (e === "worlds" && (byEvent.worlds?.length ?? 0) > 0),
+    ),
+  );
+  const ordered = TRANSFER_DIGEST_SECTION_ORDER.filter((e) => filtered.has(e));
+  const unknown = [...filtered].filter(
+    (e) => !(TRANSFER_DIGEST_SECTION_ORDER as readonly string[]).includes(e),
+  );
+  return ordered.concat(unknown);
+}
+
+/**
+ * Accordion title for a digest window. Prior-year Worlds carry is tagged with
+ * the closing franchise year; other windows rely on the League digest header.
+ */
+export function transferDigestSectionTitle(
+  event: InternationalId,
+  season: Pick<
+    SeasonState,
+    "status" | "franchise" | "transfersByEvent" | "worldsOffseasonBaseline"
+  >,
+): string {
+  const base = `Post ${INTERNATIONAL_LABELS[event]}`;
+  if (event !== "worlds") return base;
+  const year = season.franchise?.year;
+  if (season.status === "complete") {
+    // Preserved prior-year carry with no new offseason rows yet → Year N-1.
+    const baseline = season.worldsOffseasonBaseline ?? 0;
+    const len = season.transfersByEvent?.worlds?.length ?? 0;
+    if (year != null && year > 1 && baseline > 0 && len <= baseline) {
+      return `${base} · Year ${year - 1}`;
+    }
+    return base;
+  }
+  if (year != null && year > 1) return `${base} · Year ${year - 1}`;
+  return base;
 }
 
 function makeRealityId(rng: RNG): string {
@@ -479,11 +565,13 @@ export function startNextSeason(
         },
       };
     }
+    // Capture only news created during this advance. Prior-year Winter /
+    // Spring / Summer / MSI / First Stand rows stay on `prev` for Hall archive
+    // via buildSeasonHistoryEntry, but the live Transfer Window digest must
+    // reset to Offseason (+ subsequent windows of the new year).
+    const newsBeforeAdvance = working.rosterNews?.length ?? 0;
     working = fillFollowedRosterVacancies(working, champions, rng);
-    // Keep mid-year Winter/Spring/Summer/window news on the next season's
-    // digest — previously only vacancy fills + Offseason lifecycle were kept,
-    // which made Demotions & Roster Entries look "Offseason-only" after advance.
-    rosterNews.push(...(working.rosterNews ?? []));
+    rosterNews.push(...(working.rosterNews ?? []).slice(newsBeforeAdvance));
 
     const taken = new Set<string>(working.franchise?.usedNames ?? []);
     for (const t of working.teams) {
@@ -550,7 +638,11 @@ export function startNextSeason(
   });
 
   const byId = new Map(champions.map((c) => [c.id, c]));
-  const userMoves = prev.transfersByEvent?.worlds ?? [];
+  // Only this offseason's Worlds rows (after the completion baseline) carry
+  // forward — prior-year digest carry must not re-archive or stack forever.
+  const allWorlds = prev.transfersByEvent?.worlds ?? [];
+  const baseline = prev.worldsOffseasonBaseline ?? 0;
+  const userMoves = baseline > 0 ? allWorlds.slice(baseline) : allWorlds;
   const movedKey = new Set<string>();
   for (const m of userMoves) {
     movedKey.add(`${m.fromTeamId}:${m.lane}`);
@@ -581,10 +673,12 @@ export function startNextSeason(
 
   evolvedTeams = assignRoleElites(evolvedTeams);
 
-  const prevForHistory =
-    offseasonMoves.length > 0
-      ? { ...prev, transfersByEvent: { ...prev.transfersByEvent, worlds: offseasonMoves } }
-      : prev;
+  // History archives this year's FS/MSI + this offseason's Worlds only (not
+  // the prior-year carry still sitting below the baseline for digest UI).
+  const historyEvents = { ...(prev.transfersByEvent ?? {}) };
+  if (offseasonMoves.length > 0) historyEvents.worlds = offseasonMoves;
+  else delete historyEvents.worlds;
+  const prevForHistory = { ...prev, transfersByEvent: historyEvents };
   const prior =
     prev.status === "complete" ? buildSeasonHistoryEntry(prevForHistory, Date.now()) : undefined;
   const year = nextYear;
@@ -637,8 +731,11 @@ export function startNextSeason(
       : {}),
     name: `${franchise.name} — Year ${year}`,
     franchise,
+    // Only post-Worlds offseason swaps carry into the next year (First Stand /
+    // MSI stay on the archived history entry). The Transfer Window digest
+    // surfaces these as "Post Worlds · Year N" until this year completes.
     ...(offseasonMoves.length > 0
-      ? { transfersByEvent: { ...next.transfersByEvent, worlds: offseasonMoves } }
+      ? { transfersByEvent: { worlds: offseasonMoves } }
       : {}),
     ...(rosterNews.length > 0 ? { rosterNews } : {}),
   };

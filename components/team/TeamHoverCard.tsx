@@ -296,6 +296,32 @@ export function TeamCardBody({
         })()}
 
         {(() => {
+          const h2h = data.h2h;
+          if (!h2h || h2h.meetings <= 0) return null;
+          return (
+            <Section label={`H2H vs ${h2h.opponentName}`}>
+              <div className="grid grid-cols-2 gap-x-2">
+                <Stat
+                  label="Overall (all-time)"
+                  value={`${pct(h2h.overall.winRate)} · ${wlLabel(h2h.overall.wins, h2h.overall.losses)}`}
+                />
+                {h2h.recent.sampleSize > 0 ? (
+                  <Stat
+                    label={`Recent (last ${h2h.recent.sampleSize})`}
+                    value={`${pct(h2h.recent.winRate)} · ${wlLabel(h2h.recent.wins, h2h.recent.losses)}`}
+                  />
+                ) : (
+                  <Stat
+                    label="Meetings"
+                    value={`${h2h.meetings}`}
+                  />
+                )}
+              </div>
+            </Section>
+          );
+        })()}
+
+        {(() => {
           const titles = data.titleCounts;
           const chips = data.highlights;
           const showCounts = titles != null && titles.total > 0;
@@ -351,6 +377,8 @@ export default function TeamHoverCard({
   seasonId,
   phaseScope,
   hint,
+  opponentTeamId,
+  opponentHint,
   disabled,
   className = "",
   children,
@@ -359,6 +387,8 @@ export default function TeamHoverCard({
   seasonId?: string;
   phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: TeamCardHint;
+  opponentTeamId?: string;
+  opponentHint?: TeamCardHint;
   disabled?: boolean;
   className?: string;
   children: ReactNode;
@@ -397,13 +427,15 @@ export default function TeamHoverCard({
           ...(seasonId ? { seasonId } : {}),
           ...(phaseScope ? { phaseScope } : {}),
           ...(hint ? { hint } : {}),
+          ...(opponentTeamId ? { opponentTeamId } : {}),
+          ...(opponentHint ? { opponentHint } : {}),
         });
         if (resolved) setData(resolved);
       };
       if (immediate) run();
       else showTimer.current = setTimeout(run, SHOW_DELAY_MS);
     },
-    [active, ctx, teamId, seasonId, phaseScope, hint],
+    [active, ctx, teamId, seasonId, phaseScope, hint, opponentTeamId, opponentHint],
   );
 
   const close = useCallback((immediate = false) => {

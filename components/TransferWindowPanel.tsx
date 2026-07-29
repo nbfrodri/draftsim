@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import { MAIN_POOL, LANE_ORDER } from "@/lib/players";
@@ -21,6 +21,7 @@ import {
 import {
   INTERNATIONAL_LABELS,
   seasonTeam,
+  type InternationalId,
   type LeagueId,
   type PlayerTransfer,
   type SeasonState,
@@ -28,6 +29,8 @@ import {
 } from "@/lib/season/types";
 import {
   splitFromRosterTimeMark,
+  visibleTransferDigestEvents,
+  transferDigestSectionTitle,
   type RosterTimeSplit,
 } from "@/lib/season/franchise";
 import type { Champion, Lane } from "@/lib/types";
@@ -418,6 +421,32 @@ export default function TransferWindowPanel() {
     ).filter((r) => !r.entry.player.id || !sameWindowDemoteIds.has(r.entry.player.id));
   }, [showInactiveBoards, season, controlledId, byId, sameWindowDemoteIds]);
 
+  const byEvent = season?.transfersByEvent ?? {};
+  const windows = useMemo(() => {
+    if (!season) return [] as InternationalId[];
+    return visibleTransferDigestEvents(season);
+  }, [season?.transfersByEvent, season?.phases, season?.status, season?.updatedAt]);
+
+  const preferredWindow: InternationalId | null = useMemo(() => {
+    if (atWindow && phase?.event && windows.includes(phase.event)) return phase.event;
+    // Offseason shop / season complete: prefer Post Worlds when it has moves.
+    if (season?.status === "complete" && windows.includes("worlds")) return "worlds";
+    // Mid next year with only prior-Worlds carry (or Worlds last among played).
+    if (windows.includes("msi")) return "msi";
+    if (windows.includes("first-stand")) return "first-stand";
+    return windows.includes("worlds")
+      ? "worlds"
+      : (windows[windows.length - 1] ?? null);
+  }, [atWindow, phase?.event, windows, season?.status]);
+
+  const windowsKey = windows.join("|");
+  useEffect(() => {
+    if (!preferredWindow) return;
+    // Sync open accordion to the preferred window (active transfer phase, else
+    // MSI > First Stand > Worlds). length>1 used to leave every section closed.
+    setOpenEvent((prev) => (prev === "__none__" ? prev : preferredWindow));
+  }, [preferredWindow, windowsKey]);
+
   if (!season || !season.config.playerTransfers) return null;
 
   const controlled = seasonTeam(season, season.config.controlledTeamId);
@@ -425,7 +454,6 @@ export default function TransferWindowPanel() {
     controlled && season.franchise?.aging
       ? countTeamAcademy(season.franchise.inactivePool ?? [], controlled.id)
       : 0;
-  const byEvent = season.transfersByEvent ?? {};
   // Roles your team has already used this window — one move per role.
   const movedLanes = new Set<Lane>();
   if (atWindow && phase?.event && controlled) {
@@ -443,9 +471,6 @@ export default function TransferWindowPanel() {
   const capReached = usedCount >= USER_MAX_TRANSFERS_PER_WINDOW;
   // Hide any leftover proposal on a role already transacted.
   const proposals = (season.proposedTransfers ?? []).filter((p) => !movedLanes.has(p.lane));
-  const windows = (Object.keys(byEvent) as Array<keyof typeof byEvent>).filter(
-    (e) => (byEvent[e]?.length ?? 0) > 0,
-  );
 
   // Retirements + demotions + roster entries from mid-split checkpoints and
   // the post-Worlds offseason (aging on), league-wide.
@@ -465,7 +490,13 @@ export default function TransferWindowPanel() {
     if (!matchesTeamFilters(n.teamId, teamsById, leagueFilter, teamFilter)) {
       return false;
     }
-    if (splitFilter && splitFromRosterTimeMark(n.timeMark) !== splitFilter) {
+    const derivedSplit = splitFromRosterTimeMark(n.timeMark);
+    // Prefer to show the "Offseason roster move" only at the real end of
+    // the year (after Worlds), not at the start of the next year.
+    if (derivedSplit === "offseason" && season?.status !== "complete") {
+      return false;
+    }
+    if (splitFilter && derivedSplit !== splitFilter) {
       return false;
     }
     return true;
@@ -984,7 +1015,10 @@ export default function TransferWindowPanel() {
               ) : (
                 windows.map((e) => {
                   const moves = (byEvent[e] ?? []).filter(transferMatchesFilter);
-                  const isOpen = openEvent === e || windows.length === 1;
+                  const isOpen =
+                    openEvent === e ||
+                    (openEvent == null && e === preferredWindow) ||
+                    (windows.length === 1 && openEvent !== "__none__");
                   return (
                     <div key={e} className="mb-1.5 last:mb-0">
                       <button
@@ -993,7 +1027,7 @@ export default function TransferWindowPanel() {
                         className="w-full flex items-center justify-between px-2 py-1 border border-rift-line/40 bg-rift-bg/30 text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright hover:text-rift-goldbright transition-all"
                       >
                         <span>
-                          Post {INTERNATIONAL_LABELS[e]} — {moves.length} move
+                          {transferDigestSectionTitle(e, season)} — {moves.length} move
                           {moves.length === 1 ? "" : "s"}
                           {(leagueFilter || teamFilter) &&
                           (byEvent[e]?.length ?? 0) !== moves.length

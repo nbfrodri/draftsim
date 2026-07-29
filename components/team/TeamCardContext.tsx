@@ -19,10 +19,12 @@ import {
   archivedSeasonTeamWinRates,
   averageTierFromRoster,
   buildTeamCardIdentity,
+  careerArchivedTeamH2H,
   careerTeamWinRates,
   latestAcademyCount,
   latestTeamRoster,
   liveAcademyCount,
+  liveAllTimeTeamH2H,
   liveTeamStandingLabel,
   liveTeamWinRates,
   liveTitleCounts,
@@ -47,6 +49,9 @@ export interface TeamCardResolveOpts {
   /** Prefer roster from this split/intl phase within the pinned season. */
   phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: TeamCardHint;
+  /** Match-box opponent — attach H2H when both sides resolve. */
+  opponentTeamId?: string;
+  opponentHint?: TeamCardHint;
 }
 
 export interface TeamCardContextValue {
@@ -127,6 +132,20 @@ function resolveLive(
     idx.academyByTeam.get(resolved.id) ??
     liveAcademyCount(season.franchise?.inactivePool ?? [], resolved);
 
+  const opponentId =
+    opts?.opponentTeamId ??
+    opts?.opponentHint?.team?.id ??
+    undefined;
+  const h2h =
+    opponentId && resolved.id
+      ? liveAllTimeTeamH2H(
+          season,
+          idx.hallEntries,
+          resolved.id,
+          opponentId,
+        )
+      : null;
+
   return teamCardFromSeasonTeam(resolved, {
     academyCount,
     form,
@@ -134,6 +153,7 @@ function resolveLive(
     highlights: liveTitleHighlights(season, resolved),
     titleCounts: liveTitleCounts(season, resolved),
     winRates: liveTeamWinRates(season, resolved.id),
+    ...(h2h ? { h2h } : {}),
     scope: franchiseYear != null ? `Live · Year ${franchiseYear}` : "Live season",
     archived: false,
   });
@@ -276,6 +296,20 @@ function resolveHistory(
     ? archivedAcademyCount(entry, { name, leagueId })
     : latestAcademyCount(idx.entries, { name, leagueId });
 
+  const oppName =
+    opts?.opponentHint?.team?.name ?? opts?.opponentHint?.name;
+  const oppLeague =
+    opts?.opponentHint?.team?.leagueId ?? opts?.opponentHint?.leagueId;
+  // Overall is all-time across Hall seasons (not the pinned year alone).
+  const h2h =
+    oppName && oppLeague
+      ? careerArchivedTeamH2H(
+          idx.entries,
+          { name, leagueId },
+          { name: oppName, leagueId: oppLeague },
+        )
+      : null;
+
   return {
     ...(teamId && !teamId.includes(":") ? { teamId } : {}),
     ...buildTeamCardIdentity(name, leagueId, {
@@ -294,6 +328,7 @@ function resolveHistory(
     highlights,
     titleCounts,
     winRates,
+    ...(h2h ? { h2h } : {}),
     scope: entry
       ? `${entry.name}${yearSnap ? ` · ${yearSnap.stage}` : ""}`
       : latest

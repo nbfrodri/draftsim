@@ -19,6 +19,8 @@ import {
   fillFollowedRosterVacancies,
   aiDecideFollowedDemotes,
   splitFromRosterTimeMark,
+  visibleTransferDigestEvents,
+  transferDigestSectionTitle,
 } from "./franchise";
 import {
   USER_MAX_MANUAL_DEMOTES,
@@ -361,6 +363,48 @@ describe("startNextSeason", () => {
     // every sim update and the new year never progresses.
     for (const tid of y2.phases[0].tournamentIds) {
       expect(y2.tournaments[tid].seasonId).toBe(y2.id);
+    }
+  });
+
+  it("resets live rosterNews to Offseason-only (no prior-year split marks)", () => {
+    const base = makeReality(true);
+    const seeded = {
+      ...base,
+      status: "complete" as const,
+      rosterNews: [
+        {
+          teamId: base.teams[0]!.id,
+          lane: "middle" as const,
+          entrantName: "Bench",
+          entrantTier: "C" as const,
+          entrantPotential: "B" as const,
+          entrantSource: "academy" as const,
+          departedName: "OldMid",
+          departedTier: "C" as const,
+          timeMark: "MSI window",
+          marketNote: "ai-demote" as const,
+        },
+        {
+          teamId: base.teams[0]!.id,
+          lane: "top" as const,
+          entrantName: "Bench2",
+          entrantTier: "C" as const,
+          entrantPotential: "B" as const,
+          entrantSource: "academy" as const,
+          departedName: "OldTop",
+          departedTier: "C" as const,
+          timeMark: "Spring",
+          marketNote: "ai-demote" as const,
+        },
+      ],
+    };
+    const y2 = startNextSeason(seeded, champions, rngFrom(11));
+    expect((y2.rosterNews ?? []).some((n) => n.timeMark === "MSI window")).toBe(false);
+    expect((y2.rosterNews ?? []).some((n) => n.timeMark === "Spring")).toBe(false);
+    expect((y2.rosterNews ?? []).some((n) => n.timeMark === "Winter")).toBe(false);
+    expect((y2.rosterNews ?? []).some((n) => n.timeMark === "First Stand window")).toBe(false);
+    for (const n of y2.rosterNews ?? []) {
+      expect(n.timeMark === "Offseason" || n.timeMark == null).toBe(true);
     }
   });
 
@@ -962,5 +1006,236 @@ describe("splitFromRosterTimeMark", () => {
     expect(splitFromRosterTimeMark("Offseason")).toBe("offseason");
     expect(splitFromRosterTimeMark(undefined)).toBeNull();
     expect(splitFromRosterTimeMark("—")).toBeNull();
+  });
+});
+
+describe("post-Worlds transfer digest carry", () => {
+  const sampleMove = {
+    event: "worlds" as const,
+    lane: "middle" as const,
+    fromTeamId: "A",
+    toTeamId: "B",
+    star: { tier: "A" as const, grade: null, goodChamps: [] },
+    swap: { tier: "B" as const, grade: null, goodChamps: [] },
+  };
+
+  it("startNextSeason keeps Worlds moves and drops First Stand / MSI", () => {
+    const base = makeReality(false);
+    const y1 = {
+      ...base,
+      status: "complete" as const,
+      config: { ...base.config, playerTransfers: false },
+      transfersByEvent: {
+        "first-stand": [{ ...sampleMove, event: "first-stand" as const }],
+        msi: [{ ...sampleMove, event: "msi" as const }],
+        worlds: [sampleMove],
+      },
+    };
+    const y2 = startNextSeason(y1, champions, rngFrom(11));
+    expect(y2.franchise?.year).toBe(2);
+    expect(y2.transfersByEvent?.["first-stand"]).toBeUndefined();
+    expect(y2.transfersByEvent?.msi).toBeUndefined();
+    expect(y2.transfersByEvent?.worlds).toEqual([sampleMove]);
+  });
+
+  it("shows prior-year Worlds mid next year without phantom First Stand / MSI", () => {
+    const base = makeReality(false);
+    const midYear = {
+      ...base,
+      status: "in-progress" as const,
+      franchise: { ...base.franchise!, year: 2 },
+      transfersByEvent: {
+        worlds: [sampleMove],
+        // Stale keys must not invent UI sections before those events play.
+        "first-stand": [{ ...sampleMove, event: "first-stand" as const }],
+        msi: [{ ...sampleMove, event: "msi" as const }],
+      },
+      phases: base.phases.map((p) =>
+        p.kind === "international" ? { ...p, status: "pending" as const } : p,
+      ),
+    };
+    expect(visibleTransferDigestEvents(midYear)).toEqual(["worlds"]);
+    expect(transferDigestSectionTitle("worlds", midYear)).toBe("Post Worlds · Year 1");
+    expect(transferDigestSectionTitle("first-stand", midYear)).toBe("Post First Stand");
+  });
+
+  it("keeps prior Worlds beside completed First Stand, Worlds first chronologically", () => {
+    const base = makeReality(false);
+    const afterFs = {
+      ...base,
+      status: "in-progress" as const,
+      franchise: { ...base.franchise!, year: 2 },
+      transfersByEvent: {
+        worlds: [sampleMove],
+        "first-stand": [{ ...sampleMove, event: "first-stand" as const }],
+      },
+      phases: base.phases.map((p) => {
+        if (p.kind === "international" && p.event === "first-stand") {
+          return { ...p, status: "complete" as const };
+        }
+        return p;
+      }),
+    };
+    expect(visibleTransferDigestEvents(afterFs)).toEqual(["worlds", "first-stand"]);
+    expect(transferDigestSectionTitle("worlds", afterFs)).toBe("Post Worlds · Year 1");
+  });
+
+  it("labels offseason Worlds as current year when no prior-year baseline", () => {
+    const base = makeReality(false);
+    const offseason = {
+      ...base,
+      status: "complete" as const,
+      franchise: { ...base.franchise!, year: 2 },
+      transfersByEvent: { worlds: [sampleMove] },
+      // No worldsOffseasonBaseline → treated as this year's offseason rows.
+    };
+    expect(visibleTransferDigestEvents(offseason)).toEqual(["worlds"]);
+    expect(transferDigestSectionTitle("worlds", offseason)).toBe("Post Worlds");
+  });
+
+  it("labels preserved prior-year carry at offseason as Post Worlds · Year N-1", () => {
+    const base = makeReality(false);
+    const offseason = {
+      ...base,
+      status: "complete" as const,
+      franchise: { ...base.franchise!, year: 2 },
+      transfersByEvent: { worlds: [sampleMove] },
+      worldsOffseasonBaseline: 1,
+    };
+    expect(visibleTransferDigestEvents(offseason)).toEqual(["worlds"]);
+    expect(transferDigestSectionTitle("worlds", offseason)).toBe("Post Worlds · Year 1");
+  });
+
+  it("omits empty Post Worlds in offseason when bucket has no moves", () => {
+    // No carry and no new offseason rows — digest must not show a useless
+    // "Post Worlds — 0 moves" section.
+    const base = makeReality(false);
+    const offseason = {
+      ...base,
+      status: "complete" as const,
+      transfersByEvent: {
+        "first-stand": [{ ...sampleMove, event: "first-stand" as const }],
+        msi: [{ ...sampleMove, event: "msi" as const }],
+        // worlds intentionally absent
+      },
+      worldsOffseasonBaseline: 0,
+    };
+    expect(visibleTransferDigestEvents(offseason)).toEqual([
+      "first-stand",
+      "msi",
+    ]);
+  });
+
+  it("startNextSeason carries only post-baseline offseason moves, not prior digest carry", () => {
+    const base = makeReality(false);
+    const priorCarry = { ...sampleMove, lane: "top" as const };
+    const thisOffseason = { ...sampleMove, lane: "middle" as const };
+    const y1 = {
+      ...base,
+      status: "complete" as const,
+      config: { ...base.config, playerTransfers: false },
+      transfersByEvent: {
+        "first-stand": [{ ...sampleMove, event: "first-stand" as const }],
+        msi: [{ ...sampleMove, event: "msi" as const }],
+        worlds: [priorCarry, thisOffseason],
+      },
+      worldsOffseasonBaseline: 1,
+    };
+    const y2 = startNextSeason(y1, champions, rngFrom(11));
+    expect(y2.franchise?.year).toBe(2);
+    expect(y2.transfersByEvent?.["first-stand"]).toBeUndefined();
+    expect(y2.transfersByEvent?.msi).toBeUndefined();
+    expect(y2.transfersByEvent?.worlds).toEqual([thisOffseason]);
+    expect(y2.worldsOffseasonBaseline).toBeUndefined();
+    expect(transferDigestSectionTitle("worlds", y2)).toBe("Post Worlds · Year 1");
+  });
+
+  it("with playerTransfers on, startNextSeason writes Worlds moves that stay visible", () => {
+    const base = makeReality(false);
+    const y1 = {
+      ...base,
+      status: "complete" as const,
+      config: { ...base.config, playerTransfers: true },
+      // Cap-reset baseline with no prior carry; auto offseason pass fills on advance.
+      transfersByEvent: {
+        "first-stand": [{ ...sampleMove, event: "first-stand" as const }],
+        msi: [{ ...sampleMove, event: "msi" as const }],
+      },
+      worldsOffseasonBaseline: 0,
+    };
+    expect(visibleTransferDigestEvents(y1)).not.toContain("worlds");
+
+    const y2 = startNextSeason(y1, champions, rngFrom(11));
+    expect(y2.franchise?.year).toBe(2);
+    expect(y2.transfersByEvent?.["first-stand"]).toBeUndefined();
+    expect(y2.transfersByEvent?.msi).toBeUndefined();
+    expect((y2.transfersByEvent?.worlds?.length ?? 0) > 0).toBe(true);
+    expect(visibleTransferDigestEvents(y2)).toEqual(["worlds"]);
+    expect(transferDigestSectionTitle("worlds", y2)).toBe("Post Worlds · Year 1");
+  });
+
+  it("always orders digest sections Worlds → First Stand → MSI", () => {
+    const base = makeReality(false);
+    const fs = { ...sampleMove, event: "first-stand" as const };
+    const msi = { ...sampleMove, event: "msi" as const };
+    const markPlayed = (...events: Array<"first-stand" | "msi" | "worlds">) =>
+      base.phases.map((p) =>
+        p.kind === "international" && p.event && events.includes(p.event)
+          ? { ...p, status: "complete" as const }
+          : p,
+      );
+
+    // Offseason / complete: all three present → Worlds still first (not last).
+    expect(
+      visibleTransferDigestEvents({
+        ...base,
+        status: "complete",
+        transfersByEvent: {
+          msi: [msi],
+          worlds: [sampleMove],
+          "first-stand": [fs],
+        },
+      }),
+    ).toEqual(["worlds", "first-stand", "msi"]);
+
+    // Worlds + MSI only (no First Stand bucket).
+    expect(
+      visibleTransferDigestEvents({
+        ...base,
+        status: "complete",
+        transfersByEvent: { worlds: [sampleMove], msi: [msi] },
+      }),
+    ).toEqual(["worlds", "msi"]);
+
+    // First Stand + MSI only (empty Worlds omitted).
+    expect(
+      visibleTransferDigestEvents({
+        ...base,
+        status: "complete",
+        transfersByEvent: { "first-stand": [fs], msi: [msi] },
+      }),
+    ).toEqual(["first-stand", "msi"]);
+
+    // Prior-year Worlds carry + completed First Stand mid next year.
+    expect(
+      visibleTransferDigestEvents({
+        ...base,
+        status: "in-progress",
+        franchise: { ...base.franchise!, year: 2 },
+        transfersByEvent: { worlds: [sampleMove], "first-stand": [fs] },
+        phases: markPlayed("first-stand"),
+      }),
+    ).toEqual(["worlds", "first-stand"]);
+
+    // Worlds carry + MSI after both FS and MSI completed (keys inserted MSI-first).
+    expect(
+      visibleTransferDigestEvents({
+        ...base,
+        status: "in-progress",
+        franchise: { ...base.franchise!, year: 2 },
+        transfersByEvent: { msi: [msi], worlds: [sampleMove] },
+        phases: markPlayed("first-stand", "msi"),
+      }),
+    ).toEqual(["worlds", "msi"]);
   });
 });

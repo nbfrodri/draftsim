@@ -401,6 +401,12 @@ export interface SeasonState {
   // recap on each transfer-phase node. Absent until a window runs.
   // [playerTransfers]
   transfersByEvent?: Partial<Record<InternationalId, PlayerTransfer[]>>;
+  // Index into `transfersByEvent.worlds` at season completion. Prior-year
+  // post-Worlds carry is kept for the League digest during offseason; only
+  // moves at/after this index count toward the fresh offseason cap / lane
+  // locks, and only those are carried by `startNextSeason`. Absent mid-year.
+  // [playerTransfers]
+  worldsOffseasonBaseline?: number;
   // Pending moves that involve the FOLLOWED team — surfaced for the user to
   // accept or decline instead of auto-applying, so a controlled roster only
   // ever changes by the user's call. Cleared as each window is resolved or a

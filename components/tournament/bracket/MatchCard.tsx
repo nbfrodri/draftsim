@@ -122,6 +122,7 @@ function ReverseSweepTag() {
 // rows only re-render when their own data changes.
 const TeamRow = memo(function TeamRow({
   team,
+  opponent,
   side,
   won,
   score,
@@ -129,6 +130,7 @@ const TeamRow = memo(function TeamRow({
   streakCount,
 }: {
   team: TournamentTeam | null;
+  opponent: TournamentTeam | null;
   side: "blue" | "red";
   won: boolean;
   score: number | null;
@@ -143,6 +145,14 @@ const TeamRow = memo(function TeamRow({
   // only way to apply an arbitrary user-picked hex with Tailwind.
   const sideBorder =
     side === "blue" ? "border-l-rift-blue" : "border-l-rift-red";
+  const opponentHint = opponent
+    ? {
+        name: opponent.name,
+        iconKey: opponent.iconKey,
+        logoUrl: opponent.logoUrl,
+        color: opponent.color ?? undefined,
+      }
+    : undefined;
   return (
     <div
       className={`flex items-center justify-between gap-2 px-2 py-1 border-l-2 ${
@@ -176,6 +186,8 @@ const TeamRow = memo(function TeamRow({
               logoUrl: team.logoUrl,
               color: team.color ?? undefined,
             }}
+            opponentTeamId={opponent?.id}
+            opponentHint={opponentHint}
           />
         )}
         <span
@@ -203,6 +215,8 @@ const TeamRow = memo(function TeamRow({
                 logoUrl: team.logoUrl,
                 color: team.color ?? undefined,
               }}
+              opponentTeamId={opponent?.id}
+              opponentHint={opponentHint}
             />
           ) : (
             "TBD"
@@ -310,6 +324,7 @@ const MatchCardInner = memo(function MatchCardInner({
       {/* Teams */}
       <TeamRow
         team={blueTeam}
+        opponent={redTeam}
         side="blue"
         won={blueWon}
         score={winner?.blueWins ?? null}
@@ -318,6 +333,7 @@ const MatchCardInner = memo(function MatchCardInner({
       />
       <TeamRow
         team={redTeam}
+        opponent={blueTeam}
         side="red"
         won={redWon}
         score={winner?.redWins ?? null}
