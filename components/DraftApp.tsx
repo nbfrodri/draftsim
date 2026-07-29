@@ -21,11 +21,12 @@ import MetaLibrary from "./MetaLibrary";
 import PairingsLibrary from "./PairingsLibrary";
 import SeasonSetup from "./SeasonSetup";
 import SeasonDashboard from "./SeasonDashboard";
-import SeasonHistoryView from "./SeasonHistoryView";
+import SeasonHistoryGate from "./SeasonHistoryGate";
 import RealitiesHub from "./RealitiesHub";
 import Modal from "./Modal";
 import { LivePlayerCardProvider } from "./player/PlayerCardContext";
 import { LiveTeamCardProvider } from "./team/TeamCardContext";
+import { LiveCoachCardProvider } from "./coach/CoachCardContext";
 import {
   isDesktop,
   openFileNative,
@@ -72,6 +73,7 @@ export default function DraftApp({ champions }: Props) {
   // the live app is clicked, consumed by SeasonHistoryView's Search tab.
   const [hallPlayerId, setHallPlayerId] = useState<string | null>(null);
   const [hallTeamKey, setHallTeamKey] = useState<string | null>(null);
+  const [hallCoachName, setHallCoachName] = useState<string | null>(null);
   // Wait for Zustand persist rehydration before showing empty menus /
   // "no realities" — async AppData reads on desktop finish after first
   // paint, and a premature empty UI (or a pre-hydrate set()) used to
@@ -114,6 +116,7 @@ export default function DraftApp({ champions }: Props) {
     (playerId: string) => {
       setHallPlayerId(playerId);
       setHallTeamKey(null);
+      setHallCoachName(null);
       setEntryView("season-history");
       exitSeasonView();
     },
@@ -123,6 +126,17 @@ export default function DraftApp({ champions }: Props) {
     (teamKey: string) => {
       setHallTeamKey(teamKey);
       setHallPlayerId(null);
+      setHallCoachName(null);
+      setEntryView("season-history");
+      exitSeasonView();
+    },
+    [exitSeasonView],
+  );
+  const openHallCoach = useCallback(
+    (coachName: string) => {
+      setHallCoachName(coachName);
+      setHallPlayerId(null);
+      setHallTeamKey(null);
       setEntryView("season-history");
       exitSeasonView();
     },
@@ -131,6 +145,7 @@ export default function DraftApp({ champions }: Props) {
   const leaveHall = useCallback(() => {
     setHallPlayerId(null);
     setHallTeamKey(null);
+    setHallCoachName(null);
     setEntryView("menu");
   }, []);
 
@@ -198,10 +213,11 @@ export default function DraftApp({ champions }: Props) {
     }
     if (entryView === "season-history") {
       return (
-        <SeasonHistoryView
+        <SeasonHistoryGate
           onBack={leaveHall}
           initialPlayerId={hallPlayerId}
           initialTeamKey={hallTeamKey}
+          initialCoachName={hallCoachName}
         />
       );
     }
@@ -218,7 +234,9 @@ export default function DraftApp({ champions }: Props) {
   return (
     <LivePlayerCardProvider onOpenProfile={openHallPlayer}>
       <LiveTeamCardProvider onOpenProfile={openHallTeam}>
-        {routed}
+        <LiveCoachCardProvider onOpenProfile={openHallCoach}>
+          {routed}
+        </LiveCoachCardProvider>
       </LiveTeamCardProvider>
     </LivePlayerCardProvider>
   );

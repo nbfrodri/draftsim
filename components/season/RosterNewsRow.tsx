@@ -1,7 +1,9 @@
 "use client";
 
 import type { RosterNewsEvent } from "@/lib/season/playerLifecycle";
-import type { PlayerTier } from "@/lib/types";
+import type { PlayerTier, Lane } from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
+import { findLivePlayerForCard } from "@/lib/season/playerCard";
 import TeamLogoLink from "@/components/team/TeamLogoLink";
 import LaneIcon from "@/components/LaneIcon";
 import PlayerNameLink from "@/components/player/PlayerNameLink";
@@ -98,14 +100,23 @@ function PlayerBlock({
   id,
   name,
   tier,
+  lane,
   tone = "neutral",
 }: {
   id?: string;
   name?: string;
   tier?: PlayerTier;
+  lane: Lane;
   tone?: "out" | "in" | "neutral";
 }) {
+  const season = useDraftStore((s) => s.season);
   if (!name) return null;
+  const live = findLivePlayerForCard(season, {
+    ...(id ? { playerId: id } : {}),
+    name,
+    lane,
+  });
+  const playerId = id ?? live?.player.id;
   const nameCls =
     tone === "out"
       ? "text-rift-redbright/85"
@@ -116,9 +127,30 @@ function PlayerBlock({
     <span className="inline-flex items-center gap-1 min-w-0">
       {tier && <TierChip tier={tier} size="xs" />}
       <PlayerNameLink
-        playerId={id}
+        playerId={playerId}
         name={name}
-        className={`truncate max-w-[7rem] font-medium ${nameCls}`}
+        hint={
+          live
+            ? {
+                player: live.player,
+                ...(live.teamName ? { teamName: live.teamName } : {}),
+                lane: live.player.lane ?? lane,
+              }
+            : playerId
+              ? { lane }
+              : {
+                  player: {
+                    name,
+                    lane,
+                    tier: tier ?? "C",
+                    goodChamps: [],
+                    badChamps: [],
+                  },
+                  lane,
+                }
+        }
+        renderAs="span"
+        className={`truncate max-w-[7rem] font-medium cursor-pointer ${nameCls}`}
       />
     </span>
   );
@@ -198,6 +230,7 @@ export default function RosterNewsRow({
               id={n.departedId ?? n.entrantId}
               name={n.departedName ?? n.entrantName}
               tier={n.departedTier ?? n.entrantTier}
+              lane={n.lane}
               tone="out"
             />
             {n.departedAge != null && (
@@ -212,6 +245,7 @@ export default function RosterNewsRow({
               id={n.departedId ?? n.entrantId}
               name={n.departedName ?? n.entrantName}
               tier={n.departedTier ?? n.entrantTier}
+              lane={n.lane}
               tone="neutral"
             />
             <span className="text-[8px] text-rift-muted/55">
@@ -233,6 +267,7 @@ export default function RosterNewsRow({
               id={n.entrantId}
               name={n.entrantName}
               tier={n.entrantTier}
+              lane={n.lane}
               tone="in"
             />
             <span className="text-[8px] text-rift-muted/55">
@@ -253,6 +288,7 @@ export default function RosterNewsRow({
                   id={n.departedId}
                   name={n.departedName}
                   tier={n.departedTier}
+                  lane={n.lane}
                   tone="out"
                 />
                 {n.departedAge != null && (
@@ -274,6 +310,7 @@ export default function RosterNewsRow({
               id={n.entrantId}
               name={n.entrantName}
               tier={n.entrantTier}
+              lane={n.lane}
               tone="in"
             />
             {n.entrantPotential !== n.entrantTier && (
@@ -298,6 +335,7 @@ export default function RosterNewsRow({
                   id={n.departedId}
                   name={n.departedName}
                   tier={n.departedTier}
+                  lane={n.lane}
                   tone="out"
                 />
                 {n.departedAge != null && (

@@ -11,6 +11,7 @@ export interface TeamNameLinkProps {
   name?: string | null;
   leagueId?: import("@/lib/season/types").LeagueId;
   seasonId?: string;
+  phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: TeamCardHint;
   iconKey?: string;
   logoUrl?: string;
@@ -34,6 +35,7 @@ function TeamNameLink({
   name,
   leagueId,
   seasonId,
+  phaseScope,
   hint,
   iconKey,
   logoUrl,
@@ -48,7 +50,6 @@ function TeamNameLink({
   children,
 }: TeamNameLinkProps) {
   const ctx = useTeamCardContext();
-  const label = children ?? name ?? fallback;
   const mergedHint: TeamCardHint | undefined =
     hint ??
     (name && leagueId
@@ -75,6 +76,9 @@ function TeamNameLink({
     !noNavigate &&
     ctx.canOpenProfile(navKey);
 
+  // Keep logo + label as flex siblings. Wrapping custom children (e.g. Hall
+  // TeamRef's icon + name + league) in a truncate span makes block-level
+  // SVGs/imgs stack above the text instead of sitting inline.
   const inner = (
     <>
       {showLogo && (logoUrl || iconKey || mergedHint) && (
@@ -86,13 +90,24 @@ function TeamNameLink({
           className="shrink-0"
         />
       )}
-      <span className="min-w-0 truncate">{label}</span>
+      {children != null ? (
+        children
+      ) : (
+        <span className="min-w-0 truncate">{name ?? fallback}</span>
+      )}
     </>
   );
 
   if (!ctx) {
     return (
-      <span className={className} title={title}>
+      <span
+        className={
+          className
+            ? `inline-flex items-center min-w-0 ${className}`
+            : "inline-flex items-center gap-1.5 min-w-0"
+        }
+        title={title}
+      >
         {inner}
       </span>
     );
@@ -102,6 +117,7 @@ function TeamNameLink({
     <TeamHoverCard
       teamId={teamId}
       seasonId={seasonId}
+      phaseScope={phaseScope}
       hint={mergedHint}
       className={className}
     >
@@ -114,7 +130,7 @@ function TeamNameLink({
           {inner}
         </button>
       ) : (
-        <span className="inline-flex items-center gap-1.5 min-w-0 truncate">
+        <span className="inline-flex items-center gap-1.5 min-w-0">
           {inner}
         </span>
       )}

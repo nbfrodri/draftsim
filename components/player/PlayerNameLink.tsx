@@ -52,7 +52,11 @@ function PlayerNameLink({
   const ctx = usePlayerCardContext();
   const label = children ?? name ?? fallback;
   const canNavigate =
-    renderAs === "button" && !!ctx?.hasProfileNav && !!playerId && !noNavigate;
+    renderAs === "button" &&
+    !!ctx?.hasProfileNav &&
+    !!playerId &&
+    !noNavigate &&
+    ctx.canOpenProfile(playerId);
 
   if (!ctx) {
     return (

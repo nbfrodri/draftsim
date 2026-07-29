@@ -9,16 +9,20 @@ import {
 } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
-import { listTeamAcademy } from "@/lib/season/faMarket";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 import { buildTeamIdentity, refFor } from "@/lib/season/historySearch";
 import {
+  archivedAcademyCount,
   archivedTeamKeys,
   archivedTeamSnapshot,
+  archivedTeamSnapshotForScope,
   archivedSeasonTeamWinRates,
   averageTierFromRoster,
   buildTeamCardIdentity,
   careerTeamWinRates,
+  latestAcademyCount,
+  latestTeamRoster,
+  liveAcademyCount,
   liveTeamStandingLabel,
   liveTeamWinRates,
   liveTitleCounts,
@@ -40,6 +44,8 @@ import type { LeagueId, SeasonTeam } from "@/lib/season/types";
 export interface TeamCardResolveOpts {
   /** Archived season entry id — render THAT year's snapshot. */
   seasonId?: string;
+  /** Prefer roster from this split/intl phase within the pinned season. */
+  phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: TeamCardHint;
 }
 
@@ -117,8 +123,12 @@ function resolveLive(
   const standing = liveTeamStandingLabel(season, resolved.id);
   const form = season.teamForm?.[resolved.id] ?? null;
 
+  const academyCount =
+    idx.academyByTeam.get(resolved.id) ??
+    liveAcademyCount(season.franchise?.inactivePool ?? [], resolved);
+
   return teamCardFromSeasonTeam(resolved, {
-    academyCount: idx.academyByTeam.get(resolved.id) ?? 0,
+    academyCount,
     form,
     standing,
     highlights: liveTitleHighlights(season, resolved),
@@ -152,7 +162,7 @@ export function LiveTeamCardProvider({
     const academyByTeam = new Map<string, number>();
     const pool = season?.franchise?.inactivePool ?? [];
     for (const t of season?.teams ?? []) {
-      academyByTeam.set(t.id, listTeamAcademy(pool, t.id).length);
+      academyByTeam.set(t.id, liveAcademyCount(pool, t));
     }
     return {
       season: season ?? null,
@@ -236,10 +246,22 @@ function resolveHistory(
   if (!name || !leagueId) return null;
 
   const ref = refFor(idx.identity, name, leagueId, hint?.logoUrl ?? hint?.team?.logoUrl);
-  const snap = entry ? archivedTeamSnapshot(entry, { name, leagueId }) : null;
-  const roster = snap
-    ? rosterLinesFromPlayers(snap.players)
-    : rosterLinesFromPlayers(hint?.players ?? hint?.team?.players ?? []);
+  // Year-scoped: that season's phase roster. Career / all-time: newest
+  // non-empty archived snapshot (hint players only as last resort).
+  const yearSnap = entry
+    ? opts?.phaseScope
+      ? archivedTeamSnapshotForScope(entry, { name, leagueId }, opts.phaseScope)
+      : archivedTeamSnapshot(entry, { name, leagueId })
+    : null;
+  const latest = !entry
+    ? latestTeamRoster(idx.entries, { name, leagueId })
+    : null;
+  const snap = yearSnap ?? latest;
+  const hintPlayers = hint?.players ?? hint?.team?.players ?? [];
+  const rosterPlayers = snap?.players?.length
+    ? snap.players
+    : hintPlayers;
+  const roster = rosterLinesFromPlayers(rosterPlayers);
 
   const highlights = entry
     ? teamTitleHighlightsFromEntry(entry, { name, leagueId })
@@ -250,24 +272,33 @@ function resolveHistory(
   const winRates = entry
     ? archivedSeasonTeamWinRates(entry, { name, leagueId })
     : careerTeamWinRates(idx.entries, { name, leagueId });
+  const academyCount = entry
+    ? archivedAcademyCount(entry, { name, leagueId })
+    : latestAcademyCount(idx.entries, { name, leagueId });
 
   return {
     ...(teamId && !teamId.includes(":") ? { teamId } : {}),
     ...buildTeamCardIdentity(name, leagueId, {
       iconKey: ref.iconKey ?? hint?.iconKey ?? hint?.team?.iconKey,
-      logoUrl: ref.logoUrl ?? hint?.logoUrl ?? hint?.team?.logoUrl,
+      logoUrl:
+        snap?.logoUrl ??
+        ref.logoUrl ??
+        hint?.logoUrl ??
+        hint?.team?.logoUrl,
       color: ref.color ?? hint?.color ?? hint?.team?.color,
     }),
     roster,
-    academyCount: 0,
-    starRating: deriveStar(snap?.players ?? hint?.players ?? hint?.team?.players ?? []),
+    academyCount,
+    starRating: deriveStar(rosterPlayers),
     avgTier: averageTierFromRoster(roster),
     highlights,
     titleCounts,
     winRates,
     scope: entry
-      ? `${entry.name}${snap ? ` · ${snap.stage}` : ""}`
-      : "Career to date",
+      ? `${entry.name}${yearSnap ? ` · ${yearSnap.stage}` : ""}`
+      : latest
+        ? `Career · roster ${latest.entry.name}`
+        : "Career to date",
     archived: entry != null,
   };
 }

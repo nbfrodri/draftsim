@@ -32,9 +32,11 @@ import {
   archivedPlayerIds,
   archivedRosterSnapshot,
   buildPlayerCardTeam,
-  buildPlayerCardTeamFromInactiveSnap,
   buildPlayerCardTeamFromSeasonTeam,
   careerHighlights,
+  historyPlayerCardTeam,
+  isSparsePlayerHint,
+  latestPlayerRosterSnapshot,
   statusBadgeYears,
   type PlayerCardData,
   type PlayerCardStatus,
@@ -158,6 +160,15 @@ interface LiveIndex {
   hallIds: () => Set<string>;
 }
 
+/** Archived career OR currently on a live roster / inactive pool. */
+function isLiveProfileTarget(idx: LiveIndex, playerId: string): boolean {
+  return (
+    idx.hallIds().has(playerId) ||
+    idx.rosterById.has(playerId) ||
+    idx.inactiveById.has(playerId)
+  );
+}
+
 function teamRefOf(team: SeasonTeam): PlayerCardTeam {
   return buildPlayerCardTeamFromSeasonTeam(team);
 }
@@ -180,17 +191,55 @@ function resolveLive(
 ): PlayerCardData | null {
   const hint = opts?.hint;
   const faRow = hint?.faRow;
-  const rostered = playerId ? idx.rosterById.get(playerId) : undefined;
-  const inactive =
+  // Transfer chips may pass lane-only hints; id can also live on hint.player
+  // for legacy call sites that omit the playerId prop.
+  const resolvedId = playerId ?? hint?.player?.id;
+  let rostered = resolvedId ? idx.rosterById.get(resolvedId) : undefined;
+  let inactive =
     faRow?.entry ??
-    (playerId ? idx.inactiveById.get(playerId) : undefined) ??
+    (resolvedId ? idx.inactiveById.get(resolvedId) : undefined) ??
     undefined;
-  const player = rostered?.player ?? inactive?.player ?? hint?.player;
+
+  // Id-less (or stale-id) transfer rows: locate the live roster / pool row by
+  // name + lane so we never fall through to a sparse TransferPlayer stub.
+  if (!rostered && !inactive && idx.season) {
+    const name = hint?.player?.name?.trim();
+    const lane = hint?.lane ?? hint?.player?.lane;
+    if (name && lane) {
+      for (const team of idx.season.teams) {
+        const p = team.players.find(
+          (x) => x.lane === lane && x.name?.trim() === name,
+        );
+        if (p) {
+          rostered = { player: p, team };
+          break;
+        }
+      }
+      if (!rostered) {
+        for (const e of idx.season.franchise?.inactivePool ?? []) {
+          if (e.player.lane === lane && e.player.name?.trim() === name) {
+            inactive = e;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Live roster / inactive pool always beat a thin transfer/news snapshot hint.
+  // Never let a sparse stub replace a successful live resolve.
+  const hintPlayer = hint?.player;
+  const player =
+    rostered?.player ??
+    inactive?.player ??
+    (hintPlayer && !isSparsePlayerHint(hintPlayer) ? hintPlayer : undefined) ??
+    hintPlayer;
   if (!player) return null;
 
+  const effectiveId = resolvedId ?? player.id;
   const season = idx.season;
   const franchiseYear = season?.franchise?.year;
-  const hallHit = playerId ? idx.hallHits().get(playerId) : undefined;
+  const hallHit = effectiveId ? idx.hallHits().get(effectiveId) : undefined;
 
   // A player can sit in the pool AND be back on a roster in the same window
   // (signed back mid-offseason) — the roster always wins.
@@ -208,8 +257,8 @@ function resolveLive(
         ? buildPlayerCardTeam(hint.teamName)
         : null;
 
-  const line = playerId ? idx.seasonLines().get(playerId) : undefined;
-  const titles = playerId ? idx.titles().get(playerId) : undefined;
+  const line = effectiveId ? idx.seasonLines().get(effectiveId) : undefined;
+  const titles = effectiveId ? idx.titles().get(effectiveId) : undefined;
   const form =
     rostered && season
       ? (idx.playerForms[playerFormKey(rostered.team.id, rostered.player.lane)] ??
@@ -223,7 +272,7 @@ function resolveLive(
   const left = inactive ? yearsLeft(inactive.inactiveYears) : null;
 
   return {
-    ...(playerId ? { playerId } : {}),
+    ...(effectiveId ? { playerId: effectiveId } : {}),
     name: player.name ?? "Unknown",
     lane: player.lane ?? hint?.lane,
     tier: player.tier,
@@ -355,9 +404,12 @@ export function LivePlayerCardProvider({
       resolve: (playerId, opts) => resolveLive(indexRef.current, playerId, opts),
       hasProfileNav,
       canOpenProfile: (playerId) =>
-        !!playerId && !!navRef.current && indexRef.current.hallIds().has(playerId),
+        !!playerId &&
+        !!navRef.current &&
+        hallEntries.length > 0 &&
+        isLiveProfileTarget(indexRef.current, playerId),
       openProfile: (playerId) => {
-        if (!indexRef.current.hallIds().has(playerId)) return;
+        if (!isLiveProfileTarget(indexRef.current, playerId)) return;
         navRef.current?.(playerId);
       },
       get championsById() {
@@ -393,81 +445,136 @@ function resolveHistory(
   if (!playerId) return null;
   const hit = idx.hits().get(playerId);
   const entry = opts?.seasonId ? idx.entryById.get(opts.seasonId) : undefined;
-  const snap = entry ? archivedRosterSnapshot(entry, playerId) : null;
+  const hint = opts?.hint;
+  const hintPlayer = hint?.player;
+  // Year pin → that season's roster. Career → newest archive appearance for
+  // identity (tier/champs/team); never treat that snapshot as "active" status.
+  // When seasonId is pinned, latestPlayerRosterSnapshot / career hit identity
+  // must NOT override — that mixed "current team" into year-scoped Hall rows.
+  const yearSnap = entry ? archivedRosterSnapshot(entry, playerId) : null;
+  const latestSnap = !entry
+    ? latestPlayerRosterSnapshot(idx.entries, playerId)
+    : null;
+  const identitySnap = yearSnap ?? latestSnap;
   const inactiveSnap =
     entry?.inactivePlayers?.find((p) => p.playerId === playerId) ??
     (entry ? undefined : idx.liveInactiveById.get(playerId));
-  if (!hit && !snap && !inactiveSnap && !opts?.hint?.player) return null;
-
-  const hintPlayer = opts?.hint?.player;
-  const asOf = entry ? idx.statusAsOf(entry.id).get(playerId) : undefined;
-  const status: PlayerCardStatus =
-    asOf?.status ?? (snap ? "active" : (hit?.careerStatus ?? "active"));
-  const inactiveYears =
-    asOf?.inactiveYears ?? inactiveSnap?.inactiveYears ?? hit?.inactiveYears;
-
-  const team: PlayerCardTeam | null = snap
-    ? buildPlayerCardTeam(snap.teamName, {
-        leagueId: snap.leagueId,
-        logoUrl: snap.logoUrl,
-      })
-    : inactiveSnap
-      ? buildPlayerCardTeamFromInactiveSnap(inactiveSnap, entry)
-      : hit?.team
-        ? buildPlayerCardTeam(hit.team.name, {
-            leagueId: hit.team.leagueId,
-            iconKey: hit.team.iconKey,
-            color: hit.team.color,
-            logoUrl: hit.team.logoUrl,
-          })
-        : null;
-
   // Numbers for the archived year come from that season's own career record.
   const yearRecord = entry?.playerCareers?.find((r) => r.playerId === playerId);
+  if (
+    !hit &&
+    !identitySnap &&
+    !inactiveSnap &&
+    !hintPlayer &&
+    !yearRecord &&
+    !hint?.teamName
+  ) {
+    return null;
+  }
+
+  const asOf = entry ? idx.statusAsOf(entry.id).get(playerId) : undefined;
+  // Year-scoped status stays inside that archive — never live-overlaid hit.
+  const status: PlayerCardStatus = entry
+    ? (asOf?.status ??
+      (yearSnap
+        ? "active"
+        : inactiveSnap
+          ? inactiveStatusOf(inactiveSnap.status)
+          : "active"))
+    : (hit?.careerStatus ??
+      (inactiveSnap
+        ? inactiveStatusOf(inactiveSnap.status)
+        : "active"));
+  const inactiveYears =
+    asOf?.inactiveYears ??
+    inactiveSnap?.inactiveYears ??
+    (entry ? undefined : hit?.inactiveYears);
+
+  const team = historyPlayerCardTeam({
+    yearPinned: entry != null,
+    identitySnap,
+    inactiveSnap,
+    entry,
+    yearRecord,
+    hintTeamName: hint?.teamName,
+    careerTeam: hit?.team,
+  });
+
   const left = inactiveYears != null ? yearsLeft(inactiveYears) : null;
 
-  const lane = snap?.lane ?? inactiveSnap?.lane ?? hit?.lane ?? hintPlayer?.lane;
-  const tier = snap?.tier ?? inactiveSnap?.tier ?? hit?.tier ?? hintPlayer?.tier;
+  const lane = entry
+    ? (identitySnap?.lane ??
+      inactiveSnap?.lane ??
+      hint?.lane ??
+      hintPlayer?.lane ??
+      yearRecord?.lane)
+    : (identitySnap?.lane ??
+      inactiveSnap?.lane ??
+      hit?.lane ??
+      hint?.lane ??
+      hintPlayer?.lane);
+  const tier = entry
+    ? (identitySnap?.tier ?? inactiveSnap?.tier ?? hintPlayer?.tier)
+    : (identitySnap?.tier ??
+      inactiveSnap?.tier ??
+      hit?.tier ??
+      hintPlayer?.tier);
 
   return {
     playerId,
     name:
-      snap?.name ??
+      identitySnap?.name ??
       inactiveSnap?.playerName ??
-      hit?.name ??
+      (entry ? yearRecord?.playerName : hit?.name) ??
       hintPlayer?.name ??
+      hit?.name ??
       "Unknown",
     ...(lane ? { lane } : {}),
     ...(tier ? { tier } : {}),
-    ...(snap?.potential ?? inactiveSnap?.potential
-      ? { potential: (snap?.potential ?? inactiveSnap?.potential)! }
+    ...(identitySnap?.potential ?? inactiveSnap?.potential
+      ? { potential: (identitySnap?.potential ?? inactiveSnap?.potential)! }
       : {}),
-    ...(snap?.age ?? yearRecord?.age ?? inactiveSnap?.age ?? hintPlayer?.age
+    ...(identitySnap?.age ??
+    yearRecord?.age ??
+    inactiveSnap?.age ??
+    hintPlayer?.age
       ? {
-          age: (snap?.age ??
+          age: (identitySnap?.age ??
             yearRecord?.age ??
             inactiveSnap?.age ??
             hintPlayer?.age)!,
         }
       : {}),
-    ...(snap?.debutYear ?? inactiveSnap?.debutYear ?? hit?.debutYear
-      ? { debutYear: (snap?.debutYear ?? inactiveSnap?.debutYear ?? hit?.debutYear)! }
+    ...(identitySnap?.debutYear ??
+    inactiveSnap?.debutYear ??
+    (entry ? undefined : hit?.debutYear)
+      ? {
+          debutYear: (identitySnap?.debutYear ??
+            inactiveSnap?.debutYear ??
+            hit?.debutYear)!,
+        }
       : {}),
     status,
     ...(status !== "active"
       ? {
           statusYears: statusBadgeYears(status, inactiveYears),
-          yearsLeftToFa: hit?.yearsLeftToFa ?? left?.toFa,
-          yearsLeftToRetire: hit?.yearsLeftToRetire ?? left?.toRetire,
+          yearsLeftToFa: entry ? left?.toFa : (hit?.yearsLeftToFa ?? left?.toFa),
+          yearsLeftToRetire: entry
+            ? left?.toRetire
+            : (hit?.yearsLeftToRetire ?? left?.toRetire),
         }
       : {}),
     team,
     teamLabel: status === "active" ? "Team" : "Last team",
     form: null,
-    lastActiveGrade: inactiveSnap?.lastActiveGrade ?? hit?.lastActiveGrade ?? null,
-    shadowGrade: inactiveSnap?.shadowGrade ?? hit?.shadowGrade ?? null,
-    goodChamps: snap?.goodChamps ?? inactiveSnap?.goodChamps ?? [],
-    badChamps: snap?.badChamps ?? inactiveSnap?.badChamps ?? [],
+    lastActiveGrade:
+      inactiveSnap?.lastActiveGrade ??
+      (entry ? null : (hit?.lastActiveGrade ?? null)),
+    shadowGrade:
+      inactiveSnap?.shadowGrade ?? (entry ? null : (hit?.shadowGrade ?? null)),
+    goodChamps:
+      identitySnap?.goodChamps ?? inactiveSnap?.goodChamps ?? [],
+    badChamps: identitySnap?.badChamps ?? inactiveSnap?.badChamps ?? [],
     season:
       entry && yearRecord
         ? {
@@ -495,8 +602,10 @@ function resolveHistory(
       pentakills: hit?.pentakills ?? 0,
     }),
     scope: entry
-      ? `${entry.name}${snap?.transferred ? " · transferred" : snap ? ` · ${snap.stage}` : ""}`
-      : "Career to date",
+      ? `${entry.name}${yearSnap?.transferred ? " · transferred" : yearSnap ? ` · ${yearSnap.stage}` : ""}`
+      : latestSnap
+        ? `Career · as of ${latestSnap.entry.name}`
+        : "Career to date",
     archived: entry != null,
   };
 }

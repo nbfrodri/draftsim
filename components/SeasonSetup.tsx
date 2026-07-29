@@ -45,6 +45,7 @@ import {
 } from "@/lib/season/types";
 import MetaPanel from "./MetaPanel";
 import TeamIcon from "./TeamIcon";
+import CoachNameLink from "./coach/CoachNameLink";
 
 // Season creation: name, per-league (or shared) split formats, meta
 // behavior, and the 60 randomized-but-editable team identities.
@@ -960,9 +961,11 @@ function TeamRatingEditor({
           <span className="text-[8px] tracking-[0.12em] text-rift-gold/60 flex-shrink-0">
             COACH
           </span>
-          <span className="flex-1 min-w-0 truncate text-rift-mutedbright">
-            {team.coach.name}
-          </span>
+          <CoachNameLink
+            name={team.coach.name}
+            hint={{ coach: team.coach, team }}
+            className="flex-1 min-w-0 truncate text-rift-mutedbright"
+          />
           <span
             className="inline-flex items-center flex-shrink-0"
             title="Coach rating — drives draft AI strength"

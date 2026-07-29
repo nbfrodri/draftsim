@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { computePlayerSeasonLines } from "@/lib/season/stats";
 import { PLAYER_TIER_VALUE } from "@/lib/players";
-import type { PlayerTier } from "@/lib/types";
+import type { Player, PlayerTier } from "@/lib/types";
 import type { LeagueId } from "@/lib/season/types";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import LaneIcon from "./LaneIcon";
@@ -77,6 +77,7 @@ export default function FranchisePanel() {
     const teamById = new Map(season.teams.map((t) => [t.id, t]));
     const out: Array<{
       id: string;
+      player: Player;
       name: string;
       lane: import("@/lib/types").Lane;
       teamId: string;
@@ -102,6 +103,7 @@ export default function FranchisePanel() {
       const debut = (p.name && debutTier.get(p.name)) || null;
       out.push({
         id: p.id,
+        player: p,
         name: p.name ?? "—",
         lane: p.lane,
         teamId: e.lastTeamId,
@@ -131,6 +133,7 @@ export default function FranchisePanel() {
         const debut = (p.name && debutTier.get(p.name)) || null;
         out.push({
           id: p.id,
+          player: p,
           name: p.name ?? "—",
           lane: p.lane,
           teamId: t.id,
@@ -232,7 +235,7 @@ export default function FranchisePanel() {
           </button>
           {rookiesOpen && (
           <>
-          <div className="sticky top-0 z-10 -mx-3 px-3 py-2 mb-2 border-y border-rift-line/20 bg-[#010a13]/90 backdrop-blur-sm space-y-2">
+          <div className="-mx-3 px-3 py-2 mb-2 border-y border-rift-line/20 bg-[#010a13]/90 space-y-2">
             <div className="flex flex-wrap gap-2 text-[8px] uppercase tracking-[0.14em]">
               <span className="px-1.5 py-px border border-emerald-500/35 text-emerald-300/85 tabular-nums">
                 {rookieStats.main} main
@@ -332,6 +335,8 @@ export default function FranchisePanel() {
                           <PlayerNameLink
                             playerId={r.id}
                             name={r.name}
+                            hint={{ player: r.player, teamName: r.team.name }}
+                            title={r.name}
                             className="truncate text-rift-mutedbright font-medium"
                           />
                           {r.replaced && (

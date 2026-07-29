@@ -40,6 +40,7 @@ import InactiveMarketBoard from "./season/InactiveMarketBoard";
 import VacancyFillPicker from "./season/VacancyFillPicker";
 import AgencyDemandsPanel from "./season/AgencyDemandsPanel";
 import PlayerNameLink from "./player/PlayerNameLink";
+import CoachNameLink from "./coach/CoachNameLink";
 
 // The post-Worlds OFFSEASON for a reality: the year is decided, and before
 // rolling into the next one the user sees the season's headline stats and runs
@@ -499,8 +500,12 @@ export default function OffseasonView() {
           <div className="flex items-center gap-2 text-[10px] mb-1">
             <span className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/70">Coach</span>
             {controlled.coach ? (
-              <span className="text-rift-mutedbright font-medium">
-                {controlled.coach.name}
+              <span className="text-rift-mutedbright font-medium inline-flex items-center min-w-0">
+                <CoachNameLink
+                  name={controlled.coach.name}
+                  hint={{ coach: controlled.coach, team: controlled }}
+                  className="truncate"
+                />
                 <span className="text-rift-gold/80 ml-1.5 tabular-nums">★{controlled.coach.rating.toFixed(1)}</span>
                 <span className="text-rift-muted/60 ml-1.5">{coachPlaystyle(controlled.coach)}</span>
               </span>
@@ -536,7 +541,11 @@ export default function OffseasonView() {
                         className="inline-flex items-center gap-1 text-rift-mutedbright min-w-0 max-w-[120px]"
                         hint={{ team: t }}
                       />
-                      <span className="text-rift-mutedbright truncate max-w-[88px]">{t.coach!.name}</span>
+                      <CoachNameLink
+                        name={t.coach!.name}
+                        hint={{ coach: t.coach!, team: t }}
+                        className="text-rift-mutedbright truncate max-w-[88px]"
+                      />
                       <span className="text-rift-gold/80 tabular-nums">★{t.coach!.rating.toFixed(1)}</span>
                       <span className="text-rift-muted/60 truncate max-w-[80px]">{coachPlaystyle(t.coach)}</span>
                       <span className={`text-[9px] tabular-nums ${better > 0.05 ? "text-emerald-400" : better < -0.05 ? "text-rift-redbright" : "text-rift-muted/60"}`}>

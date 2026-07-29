@@ -12,27 +12,17 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import LaneIcon from "../LaneIcon";
 import LeagueIcon from "../LeagueIcon";
 import TeamIcon from "../TeamIcon";
-import TierChip from "../season/TierChip";
 import { isDesktop } from "@/lib/desktopStorage";
-import type { TeamCardData } from "@/lib/season/teamCard";
-import { useTeamCardContext, type TeamCardHint } from "./TeamCardContext";
+import type { CoachCardData } from "@/lib/season/coachCard";
+import { useCoachCardContext, type CoachCardHint } from "./CoachCardContext";
 
 const SHOW_DELAY_MS = 240;
 const HIDE_DELAY_MS = 110;
 const CARD_W = 276;
 const EDGE_PAD = 10;
 const GAP = 10;
-
-const LANE_LABEL: Record<string, string> = {
-  top: "Top",
-  jungle: "Jgl",
-  middle: "Mid",
-  bottom: "Bot",
-  support: "Sup",
-};
 
 function scrollParents(el: HTMLElement | null): (HTMLElement | Window)[] {
   const out: (HTMLElement | Window)[] = [window];
@@ -94,7 +84,11 @@ function computePlacement(
   let left: number;
   if (roomRight >= cardW) left = anchorX + GAP;
   else if (roomLeft >= cardW) left = anchorLeft - GAP - cardW;
-  else left = roomRight >= roomLeft ? vp.left + vp.width - cardW - EDGE_PAD : vp.left + EDGE_PAD;
+  else
+    left =
+      roomRight >= roomLeft
+        ? vp.left + vp.width - cardW - EDGE_PAD
+        : vp.left + EDGE_PAD;
 
   const minTop = vp.top + EDGE_PAD;
   const maxTop = vp.top + vp.height - cardH - EDGE_PAD;
@@ -107,13 +101,8 @@ function computePlacement(
   return { top, left };
 }
 
-const signed = (n: number, digits = 2) =>
-  `${n >= 0 ? "+" : ""}${n.toFixed(digits)}`;
-
-const pct = (rate: number | null | undefined) =>
-  rate != null ? `${Math.round(rate * 100)}%` : "—";
-
-const wlLabel = (w: number, l: number) => `${w}-${l}`;
+const pct = (n: number | null | undefined) =>
+  n == null || Number.isNaN(n) ? "—" : `${Math.round(n * 100)}%`;
 
 function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -151,46 +140,16 @@ function Stat({
   );
 }
 
-function FormMeter({ form }: { form: number }) {
-  const magnitude = Math.min(1, Math.abs(form)) * 50;
-  const hot = form >= 0;
-  return (
-    <div className="flex items-center gap-2">
-      <div className="player-card-meter relative h-[5px] flex-1 overflow-hidden">
-        <span
-          className={`absolute top-0 bottom-0 ${
-            hot ? "bg-emerald-400/80" : "bg-rift-red/80"
-          }`}
-          style={
-            hot
-              ? { left: "50%", width: `${magnitude}%` }
-              : { left: `${50 - magnitude}%`, width: `${magnitude}%` }
-          }
-        />
-      </div>
-      <span
-        className={`text-[10px] tabular-nums shrink-0 ${
-          hot ? "text-emerald-400/90" : "text-rift-redbright/85"
-        }`}
-      >
-        {signed(form, 2)}
-      </span>
-    </div>
-  );
-}
-
-export function TeamCardBody({
+export function CoachCardBody({
   data,
   clickable,
 }: {
-  data: TeamCardData;
+  data: CoachCardData;
   clickable: boolean;
 }) {
-  const accentHex = data.color && data.color.length > 3 ? data.color : "#c8aa6e";
-  const accentSoft =
-    data.color && data.color.length > 3
-      ? `${accentHex}33`
-      : "rgba(200, 170, 110, 0.16)";
+  const accentHex = "#0397ab";
+  const accentSoft = "rgba(3, 151, 171, 0.16)";
+  const titles = data.titleCounts;
 
   return (
     <div
@@ -206,129 +165,103 @@ export function TeamCardBody({
         <div className="player-card-rail" />
 
         <div className="player-card-hatch relative px-3 pt-2 pb-2 flex items-start gap-2">
-          <TeamIcon
-            iconKey={data.iconKey ?? "shield"}
-            logoUrl={data.logoUrl}
-            color={data.color}
-            size={28}
-            className="shrink-0"
-          />
+          <span
+            className="player-card-pennant shrink-0 w-7 h-7 grid place-items-center font-display text-[11px] leading-none border"
+            style={{
+              borderColor: accentHex,
+              color: "#cdfafa",
+              background: accentSoft,
+            }}
+            title="Coach rating"
+          >
+            ★{data.rating.toFixed(1)}
+          </span>
           <div className="min-w-0 flex-1">
             <div className="font-display text-[15px] leading-tight tracking-[0.04em] text-rift-goldbright truncate">
               {data.name}
             </div>
             <div className="flex items-center gap-1 mt-0.5 min-w-0">
-              <LeagueIcon league={data.leagueId} size={12} />
-              <span className="text-[8px] uppercase tracking-[0.2em] text-rift-mutedbright/70 truncate">
-                {data.leagueId}
-                {data.starRating ? ` · ${data.starRating}★` : ""}
+              <span className="text-[8px] uppercase tracking-[0.2em] text-rift-blue/70 truncate">
+                Coach
+                {data.playstyle ? ` · ${data.playstyle}` : ""}
               </span>
             </div>
           </div>
-          <span className="shrink-0 text-[7px] uppercase tracking-[0.16em] px-1 py-px border border-rift-gold/35 text-rift-gold/80 bg-rift-gold/10">
-            {data.avgTier}
-          </span>
         </div>
 
-        <Section label="Main roster">
-          <div className="space-y-0.5">
-            {data.roster.map((line) => (
-              <div
-                key={line.lane}
-                className="flex items-center gap-1.5 text-[10px] min-w-0"
-              >
-                <LaneIcon lane={line.lane} size="xs" className="shrink-0" />
-                <span className="w-7 text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 shrink-0">
-                  {LANE_LABEL[line.lane]}
-                </span>
-                <TierChip tier={line.tier} size="xs" />
-                <span className="truncate text-rift-mutedbright/85 min-w-0">
-                  {line.name ?? "—"}
-                </span>
-              </div>
-            ))}
+        {data.team?.name && (
+          <div className="px-3 py-1.5 border-t border-rift-line/30 flex items-center gap-1.5 min-w-0">
+            <TeamIcon
+              iconKey={data.team.iconKey ?? "shield"}
+              logoUrl={data.team.logoUrl}
+              color={data.team.color}
+              size={15}
+            />
+            <span className="font-display text-[11px] tracking-wide text-rift-mutedbright truncate">
+              {data.team.name}
+            </span>
+            {data.team.leagueId && (
+              <LeagueIcon league={data.team.leagueId} size={12} />
+            )}
+            <span className="ml-auto shrink-0 text-[7px] uppercase tracking-[0.2em] text-rift-muted/50">
+              Team
+            </span>
           </div>
-        </Section>
+        )}
 
-        <Section label="Org">
-          <div className="grid grid-cols-3 gap-x-2">
-            <Stat label="Academy" value={`${data.academyCount}`} />
-            <Stat label="Stars" value={`${data.starRating}★`} />
-            <Stat label="Avg tier" value={data.avgTier} />
-          </div>
-          {data.standing && (
-            <div className="mt-1 text-[9px] text-rift-mutedbright/80 tabular-nums">
-              {data.standing}
+        {(data.adaptability != null || data.motivation != null) && (
+          <Section label="Traits">
+            <div className="grid grid-cols-2 gap-x-2">
+              {data.adaptability != null && (
+                <Stat label="Adapt" value={pct(data.adaptability)} />
+              )}
+              {data.motivation != null && (
+                <Stat label="Motivate" value={pct(data.motivation)} />
+              )}
             </div>
-          )}
-        </Section>
-
-        {data.form != null && Math.abs(data.form) > 0.005 && (
-          <Section label="Form">
-            <FormMeter form={data.form} />
           </Section>
         )}
 
-        {(() => {
-          const wr = data.winRates;
-          if (!wr) return null;
-          const seriesPlayed =
-            wr.overall.wins + wr.overall.losses > 0 || wr.recent.sampleSize > 0;
-          if (!seriesPlayed) return null;
-          return (
-            <Section label="Series record">
-              <div className="grid grid-cols-2 gap-x-2">
-                <Stat
-                  label="Overall"
-                  value={`${pct(wr.overall.winRate)} · ${wlLabel(wr.overall.wins, wr.overall.losses)}`}
-                />
-                <Stat
-                  label={
-                    wr.recent.sampleSize > 0 && wr.recent.sampleSize < 20
-                      ? `Last ${wr.recent.sampleSize}`
-                      : "Last 20"
-                  }
-                  value={`${pct(wr.recent.winRate)} · ${wlLabel(wr.recent.wins, wr.recent.losses)}`}
-                />
-              </div>
-            </Section>
-          );
-        })()}
-
-        {(() => {
-          const titles = data.titleCounts;
-          const chips = data.highlights;
-          const showCounts = titles != null && titles.total > 0;
-          const showChips = chips.length > 0;
-          if (!showCounts && !showChips) return null;
-          return (
-            <Section label="Titles">
-              {showCounts && (
-                <div className="grid grid-cols-3 gap-x-2 mb-1">
+        {(data.seasons != null ||
+          (titles != null && titles.total > 0) ||
+          data.highlights.length > 0) && (
+          <Section label="Career">
+            <div className="grid grid-cols-3 gap-x-2 mb-1">
+              {data.seasons != null && (
+                <Stat label="Seasons" value={`${data.seasons}`} />
+              )}
+              {titles != null && titles.total > 0 && (
+                <>
                   <Stat label="Split" value={`${titles.split}`} />
-                  <Stat label="Intl" value={`${titles.intl}`} />
                   <Stat
-                    label="Worlds"
-                    value={`${titles.worlds}`}
+                    label="Titles"
+                    value={`${titles.total}`}
                     tone={titles.worlds > 0 ? "text-rift-goldbright" : ""}
                   />
-                </div>
+                </>
               )}
-              {showChips && (
-                <div className="flex flex-wrap gap-1">
-                  {chips.map((h) => (
-                    <span
-                      key={h}
-                      className="text-[7px] uppercase tracking-[0.14em] px-1 py-px border border-rift-gold/25 text-rift-gold/75"
-                    >
-                      {h}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </Section>
-          );
-        })()}
+            </div>
+            {titles != null && titles.total > 0 && (
+              <div className="text-[9px] tabular-nums text-rift-mutedbright/70 mb-1">
+                {titles.intl > 0 ? `${titles.intl} intl` : null}
+                {titles.intl > 0 && titles.worlds > 0 ? " · " : null}
+                {titles.worlds > 0 ? `${titles.worlds}× Worlds` : null}
+              </div>
+            )}
+            {data.highlights.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {data.highlights.map((h) => (
+                  <span
+                    key={h}
+                    className="text-[7px] uppercase tracking-[0.14em] px-1 py-px border border-rift-gold/25 text-rift-gold/75"
+                  >
+                    {h}
+                  </span>
+                ))}
+              </div>
+            )}
+          </Section>
+        )}
 
         <div className="px-3 py-1.5 border-t border-rift-gold/15 flex items-center gap-2 bg-rift-gold/[0.03]">
           <span className="text-[7px] uppercase tracking-[0.2em] text-rift-muted/60 truncate">
@@ -346,24 +279,22 @@ export function TeamCardBody({
   );
 }
 
-export default function TeamHoverCard({
-  teamId,
+export default function CoachHoverCard({
+  coachName,
   seasonId,
-  phaseScope,
   hint,
   disabled,
   className = "",
   children,
 }: {
-  teamId?: string;
+  coachName?: string;
   seasonId?: string;
-  phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
-  hint?: TeamCardHint;
+  hint?: CoachCardHint;
   disabled?: boolean;
   className?: string;
   children: ReactNode;
 }) {
-  const ctx = useTeamCardContext();
+  const ctx = useCoachCardContext();
   const tipId = useId();
   const triggerRef = useRef<HTMLSpanElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -371,7 +302,7 @@ export default function TeamHoverCard({
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerRef = useRef<Pointer | null>(null);
   const clickStartRef = useRef<Pointer | null>(null);
-  const [data, setData] = useState<TeamCardData | null>(null);
+  const [data, setData] = useState<CoachCardData | null>(null);
   const [pos, setPos] = useState<Placement | null>(null);
   const [mounted, setMounted] = useState(false);
 
@@ -386,16 +317,18 @@ export default function TeamHoverCard({
   useEffect(() => clearTimers, []);
 
   const active =
-    isDesktop() && !disabled && !!ctx && (!!teamId || !!hint?.name || !!hint?.team);
+    isDesktop() &&
+    !disabled &&
+    !!ctx &&
+    (!!coachName || !!hint?.coach || !!hint?.name);
 
   const open = useCallback(
     (immediate = false) => {
       if (!active || !ctx) return;
       clearTimers();
       const run = () => {
-        const resolved = ctx.resolve(teamId, {
+        const resolved = ctx.resolve(coachName, {
           ...(seasonId ? { seasonId } : {}),
-          ...(phaseScope ? { phaseScope } : {}),
           ...(hint ? { hint } : {}),
         });
         if (resolved) setData(resolved);
@@ -403,7 +336,7 @@ export default function TeamHoverCard({
       if (immediate) run();
       else showTimer.current = setTimeout(run, SHOW_DELAY_MS);
     },
-    [active, ctx, teamId, seasonId, phaseScope, hint],
+    [active, ctx, coachName, seasonId, hint],
   );
 
   const close = useCallback((immediate = false) => {
@@ -467,8 +400,8 @@ export default function TeamHoverCard({
     };
   }, [data]);
 
-  const canOpenProfile = !!ctx?.canOpenProfile(data?.navKey);
-  const profileKey = data?.navKey;
+  const canOpenProfile = !!ctx?.canOpenProfile(data?.name);
+  const profileKey = data?.name;
 
   const onCardMouseDown = (e: MouseEvent) => {
     e.stopPropagation();
@@ -510,7 +443,7 @@ export default function TeamHoverCard({
               canOpenProfile ? " cursor-pointer" : ""
             }`}
           >
-            <TeamCardBody data={data} clickable={canOpenProfile} />
+            <CoachCardBody data={data} clickable={canOpenProfile} />
           </div>,
           document.body,
         )

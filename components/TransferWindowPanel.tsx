@@ -31,6 +31,8 @@ import {
   type RosterTimeSplit,
 } from "@/lib/season/franchise";
 import type { Champion, Lane } from "@/lib/types";
+import { playerFromTransferSnapshot, findLivePlayerForCard } from "@/lib/season/playerCard";
+import type { PlayerCardHint } from "./player/PlayerCardContext";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import TeamLogoLink from "./team/TeamLogoLink";
 import LaneIcon from "./LaneIcon";
@@ -56,15 +58,31 @@ import RosterNewsRow, {
 // full player detail — skill tier, this split's grade, and champion pool. The
 // season pauses on a transfer phase only while the user has decisions to make.
 
+/** Chronological order for Demotions & Roster Entries section headers. */
+const ROSTER_TIME_SORT: Record<string, number> = {
+  Winter: 1,
+  "First Stand window": 2,
+  Spring: 3,
+  "MSI window": 4,
+  Summer: 5,
+  "Worlds window": 6,
+  Offseason: 7,
+};
+
 function groupRosterNewsByTime(items: readonly RosterNewsItem[]) {
   const groups = new Map<string, RosterNewsItem[]>();
   for (const n of items) {
-    const key = n.timeMark ?? "Unknown";
+    const key = n.timeMark?.trim() || "Unknown";
     const list = groups.get(key);
     if (list) list.push(n);
     else groups.set(key, [n]);
   }
-  return [...groups.entries()];
+  return [...groups.entries()].sort(([a], [b]) => {
+    const ra = ROSTER_TIME_SORT[a] ?? 50;
+    const rb = ROSTER_TIME_SORT[b] ?? 50;
+    if (ra !== rb) return ra - rb;
+    return a.localeCompare(b);
+  });
 }
 
 type PanelTab = "yours" | "league";
@@ -166,20 +184,47 @@ const WINDOW_SPLIT: Record<string, string> = {
 function PlayerChip({
   p,
   byId,
+  lane,
+  hint,
 }: {
   p: TransferPlayer;
   byId: Map<number, Champion>;
+  lane: Lane;
+  hint?: PlayerCardHint;
 }) {
+  const season = useDraftStore((s) => s.season);
+  // Prefer the live roster / inactive row (same richness as Team Browser).
+  // TransferPlayer snapshots only carry tier/grade/pool — never use them as the
+  // card body when the player still exists in the season universe.
+  const live = findLivePlayerForCard(season, {
+    ...(p.id ? { playerId: p.id } : {}),
+    ...(p.name ? { name: p.name } : {}),
+    lane,
+  });
+  const cardHint: PlayerCardHint | undefined =
+    hint ??
+    (live
+      ? {
+          player: live.player,
+          ...(live.teamName ? { teamName: live.teamName } : {}),
+          lane: live.player.lane ?? lane,
+        }
+      : p.id
+        ? { lane }
+        : { player: playerFromTransferSnapshot(p, lane), lane });
+  const playerId = p.id ?? live?.player.id;
+  const displayName = p.name?.trim() || live?.player.name?.trim() || "Unknown";
+
   return (
     <span className="inline-flex items-center gap-1.5 align-middle min-w-0">
-      {p.name && (
-        <PlayerNameLink
-          playerId={p.id}
-          name={p.name}
-          title={p.name}
-          className="text-[10px] text-rift-mutedbright font-medium max-w-[7.5rem] truncate"
-        />
-      )}
+      <PlayerNameLink
+        playerId={playerId}
+        name={displayName}
+        hint={cardHint}
+        renderAs="span"
+        title={displayName}
+        className="text-[10px] text-rift-mutedbright font-medium max-w-[7.5rem] truncate cursor-pointer"
+      />
       <TierChip tier={p.tier} size="xs" />
       <span className={`text-[9px] tabular-nums ${noteColor(p.grade)}`} title="Split grade (1-10)">
         {fmtNote(p.grade)}
@@ -243,14 +288,14 @@ function TransferRow({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 min-w-0">
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 border border-emerald-500/30 bg-emerald-500/[0.06]">
           <span className="text-[7px] uppercase tracking-[0.12em] text-emerald-400/70 shrink-0">In</span>
-          <PlayerChip p={tr.star} byId={byId} />
+          <PlayerChip p={tr.star} byId={byId} lane={tr.lane} />
         </span>
         <span className="text-rift-muted/35 shrink-0" aria-hidden>
           ⇄
         </span>
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 border border-rift-red/25 bg-rift-red/[0.04]">
           <span className="text-[7px] uppercase tracking-[0.12em] text-rift-redbright/70 shrink-0">Out</span>
-          <PlayerChip p={tr.swap} byId={byId} />
+          <PlayerChip p={tr.swap} byId={byId} lane={tr.lane} />
         </span>
       </div>
     </div>
@@ -579,11 +624,11 @@ export default function TransferWindowPanel() {
                     <div className="grid sm:grid-cols-2 gap-2">
                       <div className="flex items-center gap-2 px-1.5 py-1 border border-emerald-500/25 bg-emerald-500/[0.04]">
                         <span className="text-[7px] uppercase tracking-[0.14em] text-emerald-400/70 shrink-0 w-6">In</span>
-                        <PlayerChip p={pr.theirs} byId={byId} />
+                        <PlayerChip p={pr.theirs} byId={byId} lane={pr.lane} />
                       </div>
                       <div className="flex items-center gap-2 px-1.5 py-1 border border-rift-red/25 bg-rift-red/[0.04]">
                         <span className="text-[7px] uppercase tracking-[0.14em] text-rift-redbright/70 shrink-0 w-6">Out</span>
-                        <PlayerChip p={pr.mine} byId={byId} />
+                        <PlayerChip p={pr.mine} byId={byId} lane={pr.lane} />
                       </div>
                     </div>
                   </div>
@@ -660,6 +705,8 @@ export default function TransferWindowPanel() {
                                 goodChamps: p.goodChamps,
                               }}
                               byId={byId}
+                              lane={lane}
+                              hint={{ player: p, teamName: controlled.name, lane }}
                             />
                             <ChemScore me={p} roster={controlled.players} />
                           </>
@@ -777,7 +824,7 @@ export default function TransferWindowPanel() {
                                   className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] px-1.5 py-1 border border-rift-line/25 bg-rift-bg/30"
                                 >
                                   <TransferTeamLogo team={other} size={14} />
-                                  <PlayerChip p={c.theirs} byId={byId} />
+                                  <PlayerChip p={c.theirs} byId={byId} lane={lane} />
                                   {incoming && (
                                     <ProjectedChemScore
                                       roster={controlled.players}
@@ -1011,45 +1058,47 @@ export default function TransferWindowPanel() {
                     No roster moves match the current filters.
                   </div>
                 ) : (
-                  rosterNewsGroups.map(([timeMark, items]) => (
-                    <div key={timeMark}>
-                      <div className="px-2.5 py-1 border-b border-rift-line/20 bg-rift-bg/25 flex items-center gap-2">
-                        <span
-                          className="w-1.5 h-1.5 rounded-full bg-emerald-400/70 shrink-0"
-                          aria-hidden
-                        />
-                        <span className="text-[8px] uppercase tracking-[0.2em] text-rift-gold/60 flex-1 truncate">
-                          {timeMark}
-                        </span>
-                        <span className="text-[8px] text-rift-muted/45 tabular-nums shrink-0">
-                          {items.length}
-                        </span>
+                  <div className="space-y-4">
+                    {rosterNewsGroups.map(([timeMark, items]) => (
+                      <div key={timeMark}>
+                        <div className="px-2.5 py-1 border-b border-rift-line/20 bg-rift-bg/25 flex items-center gap-2">
+                          <span
+                            className="w-1.5 h-1.5 rounded-full bg-emerald-400/70 shrink-0"
+                            aria-hidden
+                          />
+                          <span className="text-[8px] uppercase tracking-[0.2em] text-rift-gold/60 flex-1 truncate">
+                            {timeMark}
+                          </span>
+                          <span className="text-[8px] text-rift-muted/45 tabular-nums shrink-0">
+                            {items.length}
+                          </span>
+                        </div>
+                        <div className="divide-y divide-rift-line/12 max-h-[28rem] overflow-y-auto">
+                          {items.map((n, i) => {
+                            const team = seasonTeam(season, n.teamId);
+                            const highlight = !!controlledId && n.teamId === controlledId;
+                            return (
+                              <RosterNewsRow
+                                key={`${n.teamId}-${n.lane}-${timeMark}-${i}`}
+                                item={n}
+                                team={
+                                  team
+                                    ? {
+                                        name: team.name,
+                                        iconKey: team.iconKey,
+                                        logoUrl: resolveTeamLogo(team.name, team.logoUrl),
+                                        color: team.color,
+                                      }
+                                    : undefined
+                                }
+                                highlight={highlight}
+                              />
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div className="divide-y divide-rift-line/12 max-h-[28rem] overflow-y-auto">
-                        {items.map((n, i) => {
-                          const team = seasonTeam(season, n.teamId);
-                          const highlight = !!controlledId && n.teamId === controlledId;
-                          return (
-                            <RosterNewsRow
-                              key={`${n.teamId}-${n.lane}-${timeMark}-${i}`}
-                              item={n}
-                              team={
-                                team
-                                  ? {
-                                      name: team.name,
-                                      iconKey: team.iconKey,
-                                      logoUrl: resolveTeamLogo(team.name, team.logoUrl),
-                                      color: team.color,
-                                    }
-                                  : undefined
-                              }
-                              highlight={highlight}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))
+                    ))}
+                  </div>
                 )}
               </div>
             )}

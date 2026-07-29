@@ -23,6 +23,7 @@ import LeagueIcon from "./LeagueIcon";
 import LaneIcon from "./LaneIcon";
 import InactiveBrowseRow from "./season/InactiveBrowseRow";
 import PlayerHoverCard from "./player/PlayerHoverCard";
+import CoachNameLink from "./coach/CoachNameLink";
 
 // Region/team browser — every team in every region with each player's full
 // identity: handle, skill tier, age, potential, and champion pool. A scouting
@@ -209,9 +210,11 @@ export default function TeamBrowserPanel() {
                           <span className="shrink-0 px-1 py-px border border-rift-blue/40 text-rift-blue/80 text-[7px] uppercase tracking-[0.15em]">
                             Coach
                           </span>
-                          <span className="text-rift-bluebright font-medium truncate" title={team.coach.name}>
-                            {team.coach.name}
-                          </span>
+                          <CoachNameLink
+                            name={team.coach.name}
+                            hint={{ coach: team.coach, team }}
+                            className="text-rift-bluebright font-medium truncate"
+                          />
                           <span className="shrink-0 text-[9px] text-rift-gold/80 tabular-nums" title="Coach rating — drives AI draft strength">
                             ★{team.coach.rating.toFixed(1)}
                           </span>

@@ -24,6 +24,7 @@ import TeamNameLink from "./team/TeamNameLink";
 import LaneIcon from "./LaneIcon";
 import InactiveBrowseRow from "./season/InactiveBrowseRow";
 import PlayerNameLink from "./player/PlayerNameLink";
+import CoachNameLink from "./coach/CoachNameLink";
 
 // "My Team" dashboard panel for the controlled team: the live roster with
 // tier badges (and ▲/▼ shift arrows when a tier moved this split) + current
@@ -357,7 +358,7 @@ export default function MyTeamPanel() {
       {news.length > 0 && (
         <div className="px-3 py-2 border-b border-amber-500/25 bg-amber-500/[0.06]">
           <div className="text-[8px] uppercase tracking-[0.3em] text-amber-300/80 mb-1">
-            Offseason roster news
+            Roster news
           </div>
           <div className="space-y-0.5">
             {news.map((n, i) => {
@@ -546,7 +547,11 @@ export default function MyTeamPanel() {
           {controlled.coach && (
             <div className="flex items-center gap-1.5 mb-1 text-[9px]">
               <span className="uppercase tracking-[0.2em] text-rift-blue/70">Coach</span>
-              <span className="text-rift-bluebright font-medium truncate">{controlled.coach.name}</span>
+              <CoachNameLink
+                name={controlled.coach.name}
+                hint={{ coach: controlled.coach, team: controlled }}
+                className="text-rift-bluebright font-medium truncate"
+              />
               <span className="text-rift-gold/70 tabular-nums" title="Rating — drives your AI draft on Watch-live">
                 ★{controlled.coach.rating.toFixed(1)}
               </span>

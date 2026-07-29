@@ -479,9 +479,11 @@ export function startNextSeason(
         },
       };
     }
-    const priorNewsLen = working.rosterNews?.length ?? 0;
     working = fillFollowedRosterVacancies(working, champions, rng);
-    rosterNews.push(...(working.rosterNews ?? []).slice(priorNewsLen));
+    // Keep mid-year Winter/Spring/Summer/window news on the next season's
+    // digest — previously only vacancy fills + Offseason lifecycle were kept,
+    // which made Demotions & Roster Entries look "Offseason-only" after advance.
+    rosterNews.push(...(working.rosterNews ?? []));
 
     const taken = new Set<string>(working.franchise?.usedNames ?? []);
     for (const t of working.teams) {

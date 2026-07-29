@@ -11,10 +11,10 @@
 // Everything here is pure so the resolvers in the React provider stay thin and
 // the year-snapshot lookup is testable without mounting anything.
 
-import type { Lane, PlayerTier } from "../types";
+import type { Lane, Player, PlayerTier } from "../types";
 import type { SeasonHistoryEntry } from "./history";
 import { resolveTeamLogo } from "./realTeams";
-import type { SeasonTeam } from "./types";
+import type { SeasonTeam, TransferPlayer, SeasonState } from "./types";
 import type { ValueBreakdown } from "./faMarket";
 import {
   TOTAL_INACTIVE_BEFORE_RETIRE,
@@ -230,6 +230,86 @@ export function archivedRosterSnapshot(
   return latest;
 }
 
+/**
+ * Newest archived season where the player appears on a phase roster.
+ * Career / all-time cards use this for identity (tier, champs, team) when no
+ * `seasonId` is pinned — stats still come from the Hall career aggregate.
+ *
+ * Callers with a year pin must use {@link archivedRosterSnapshot} on that
+ * entry instead — never this — or Hall timeline cards leak "current" teams.
+ */
+export function latestPlayerRosterSnapshot(
+  entries: readonly SeasonHistoryEntry[],
+  playerId: string,
+): (ArchivedRosterSnapshot & { entry: SeasonHistoryEntry }) | null {
+  const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
+  for (const entry of ordered) {
+    const snap = archivedRosterSnapshot(entry, playerId);
+    if (snap) return { ...snap, entry };
+  }
+  return null;
+}
+
+/**
+ * Team row for a Hall player card. When `yearPinned`, career/live most-recent
+ * team is ignored — only that year's roster / inactive / year record / hint.
+ */
+export function historyPlayerCardTeam(opts: {
+  yearPinned: boolean;
+  identitySnap: {
+    teamName: string;
+    leagueId: LeagueId;
+    logoUrl?: string;
+  } | null;
+  inactiveSnap?: { lastTeamId: string; lastTeamName?: string } | null;
+  entry?: SeasonHistoryEntry;
+  yearRecord?: { teamName?: string; leagueId?: LeagueId | null } | null;
+  hintTeamName?: string;
+  careerTeam?: {
+    name: string;
+    leagueId?: LeagueId | null;
+    iconKey?: string;
+    color?: string;
+    logoUrl?: string;
+  } | null;
+}): PlayerCardTeam | null {
+  const {
+    yearPinned,
+    identitySnap,
+    inactiveSnap,
+    entry,
+    yearRecord,
+    hintTeamName,
+    careerTeam,
+  } = opts;
+  if (identitySnap) {
+    return buildPlayerCardTeam(identitySnap.teamName, {
+      leagueId: identitySnap.leagueId,
+      logoUrl: identitySnap.logoUrl,
+    });
+  }
+  if (inactiveSnap) {
+    return buildPlayerCardTeamFromInactiveSnap(inactiveSnap, entry);
+  }
+  if (yearPinned) {
+    if (yearRecord?.teamName) {
+      return buildPlayerCardTeam(yearRecord.teamName, {
+        leagueId: yearRecord.leagueId,
+      });
+    }
+    return hintTeamName ? buildPlayerCardTeam(hintTeamName) : null;
+  }
+  if (careerTeam) {
+    return buildPlayerCardTeam(careerTeam.name, {
+      leagueId: careerTeam.leagueId,
+      iconKey: careerTeam.iconKey,
+      color: careerTeam.color,
+      logoUrl: careerTeam.logoUrl,
+    });
+  }
+  return hintTeamName ? buildPlayerCardTeam(hintTeamName) : null;
+}
+
 /** Every player id that appears on an archived roster — drives click-to-profile. */
 export function archivedPlayerIds(
   entries: readonly SeasonHistoryEntry[],
@@ -249,6 +329,87 @@ export function archivedPlayerIds(
     }
   }
   return out;
+}
+
+/** Rehydrate a transfer-window snapshot into a minimal {@link Player} for hover hints. */
+export function playerFromTransferSnapshot(
+  tp: TransferPlayer,
+  lane: Lane,
+): Player {
+  return {
+    ...(tp.id ? { id: tp.id } : {}),
+    ...(tp.name ? { name: tp.name } : {}),
+    lane,
+    tier: tp.tier,
+    goodChamps: tp.goodChamps,
+    badChamps: [],
+  };
+}
+
+/**
+ * True when a hint `Player` looks like a transfer/news stub (tier + pool only)
+ * rather than a live roster row with age / potential / region / etc.
+ */
+export function isSparsePlayerHint(p: Player): boolean {
+  return (
+    p.age == null &&
+    p.potential == null &&
+    p.acclimation == null &&
+    p.debutYear == null &&
+    !p.homeRegion &&
+    (p.badChamps?.length ?? 0) === 0
+  );
+}
+
+/**
+ * Find the live roster / inactive-pool player for a card hover.
+ * Prefers stable id; falls back to name + lane for id-less universes.
+ */
+export function findLivePlayerForCard(
+  season: SeasonState | null | undefined,
+  opts: { playerId?: string; name?: string; lane?: Lane },
+): { player: Player; teamName?: string } | null {
+  if (!season) return null;
+  const pool = season.franchise?.inactivePool;
+
+  if (opts.playerId) {
+    for (const team of season.teams) {
+      const p = team.players.find((x) => x.id === opts.playerId);
+      if (p) return { player: p, teamName: team.name };
+    }
+    if (pool) {
+      for (const e of pool) {
+        if (e.player.id === opts.playerId) {
+          return {
+            player: e.player,
+            ...(e.lastTeamName ? { teamName: e.lastTeamName } : {}),
+          };
+        }
+      }
+    }
+  }
+
+  const name = opts.name?.trim();
+  if (name && opts.lane) {
+    for (const team of season.teams) {
+      const p = team.players.find(
+        (x) => x.lane === opts.lane && x.name?.trim() === name,
+      );
+      if (p) return { player: p, teamName: team.name };
+    }
+    if (pool) {
+      for (const e of pool) {
+        if (e.player.lane === opts.lane && e.player.name?.trim() === name) {
+          return {
+            player: e.player,
+            ...(e.lastTeamName ? { teamName: e.lastTeamName } : {}),
+          };
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 /** Accolade chips for the card footer — most prestigious first, capped at 4. */

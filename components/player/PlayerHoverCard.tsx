@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -16,6 +17,7 @@ import LeagueIcon from "../LeagueIcon";
 import TeamIcon from "../TeamIcon";
 import { isDesktop } from "@/lib/desktopStorage";
 import type { PlayerCardData, PlayerCardStatus } from "@/lib/season/playerCard";
+import { isSparsePlayerHint } from "@/lib/season/playerCard";
 import type { Champion, PlayerTier } from "@/lib/types";
 import {
   usePlayerCardContext,
@@ -546,6 +548,7 @@ export default function PlayerHoverCard({
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerRef = useRef<Pointer | null>(null);
+  const clickStartRef = useRef<Pointer | null>(null);
   const [data, setData] = useState<PlayerCardData | null>(null);
   const [pos, setPos] = useState<Placement | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -564,6 +567,20 @@ export default function PlayerHoverCard({
   const active =
     isDesktop() && !disabled && !!ctx && (!!playerId || !!hint?.player);
 
+  // Sparse transfer/news stubs must not wipe a live resolve keyed by playerId.
+  // Keep lane / teamName / faRow; drop the thin player body when an id is present.
+  const resolveHint: PlayerCardHint | undefined = (() => {
+    if (!hint) return undefined;
+    if (playerId && hint.player && isSparsePlayerHint(hint.player)) {
+      const next: PlayerCardHint = {};
+      if (hint.faRow) next.faRow = hint.faRow;
+      if (hint.teamName) next.teamName = hint.teamName;
+      if (hint.lane) next.lane = hint.lane;
+      return next.faRow || next.teamName || next.lane ? next : undefined;
+    }
+    return hint;
+  })();
+
   const open = useCallback(
     (immediate = false) => {
       if (!active || !ctx) return;
@@ -571,14 +588,14 @@ export default function PlayerHoverCard({
       const run = () => {
         const resolved = ctx.resolve(playerId, {
           ...(seasonId ? { seasonId } : {}),
-          ...(hint ? { hint } : {}),
+          ...(resolveHint ? { hint: resolveHint } : {}),
         });
         if (resolved) setData(resolved);
       };
       if (immediate) run();
       else showTimer.current = setTimeout(run, SHOW_DELAY_MS);
     },
-    [active, ctx, playerId, seasonId, hint],
+    [active, ctx, playerId, seasonId, resolveHint],
   );
 
   const close = useCallback((immediate = false) => {
@@ -644,6 +661,28 @@ export default function PlayerHoverCard({
     };
   }, [data]);
 
+  const canOpenProfile = !!ctx?.canOpenProfile(playerId);
+
+  const onCardMouseDown = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!canOpenProfile) return;
+    clickStartRef.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const onCardClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!canOpenProfile || !ctx || !playerId) return;
+    const start = clickStartRef.current;
+    clickStartRef.current = null;
+    if (start) {
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (dx * dx + dy * dy > 64) return;
+    }
+    ctx.openProfile(playerId);
+    close(true);
+  };
+
   const card =
     mounted && data
       ? createPortal(
@@ -653,17 +692,21 @@ export default function PlayerHoverCard({
             role="tooltip"
             onMouseEnter={() => open(true)}
             onMouseLeave={() => close()}
+            onMouseDown={onCardMouseDown}
+            onClick={onCardClick}
             style={
               pos
                 ? { top: pos.top, left: pos.left }
                 : { top: -9999, left: -9999, visibility: "hidden" }
             }
-            className="fixed z-[90] pointer-events-auto"
+            className={`fixed z-[90] pointer-events-auto${
+              canOpenProfile ? " cursor-pointer" : ""
+            }`}
           >
             <PlayerCardBody
               data={data}
               championsById={ctx?.championsById ?? new Map()}
-              clickable={!!ctx?.canOpenProfile(playerId)}
+              clickable={canOpenProfile}
             />
           </div>,
           document.body,

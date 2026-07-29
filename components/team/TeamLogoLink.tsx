@@ -9,6 +9,7 @@ import { useTeamCardContext, type TeamCardHint } from "./TeamCardContext";
 export interface TeamLogoLinkProps {
   teamId?: string;
   seasonId?: string;
+  phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: TeamCardHint;
   name?: string;
   leagueId?: import("@/lib/season/types").LeagueId;
@@ -28,6 +29,7 @@ const NAV_CLS = "inline-flex shrink-0 hover:opacity-80 transition-opacity";
 function TeamLogoLink({
   teamId,
   seasonId,
+  phaseScope,
   hint,
   name,
   leagueId,
@@ -84,6 +86,7 @@ function TeamLogoLink({
     <TeamHoverCard
       teamId={teamId}
       seasonId={seasonId}
+      phaseScope={phaseScope}
       hint={mergedHint}
       className="inline-flex shrink-0"
     >

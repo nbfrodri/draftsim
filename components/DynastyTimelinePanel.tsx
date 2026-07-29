@@ -11,13 +11,15 @@ import {
   type MatrixRow,
   type MatrixYear,
 } from "@/lib/season/franchiseTimeline";
-import type { SeasonHistoryEntry } from "@/lib/season/history";
-import type { LeagueId, InternationalId } from "@/lib/season/types";
+import type { SeasonHistoryEntry, SeasonHistoryTeamRef } from "@/lib/season/history";
+import type { LeagueId, InternationalId, SplitId } from "@/lib/season/types";
 import { LEAGUE_IDS } from "@/lib/season/types";
 import type { DynastyTier } from "@/lib/season/historyRecords";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import TeamLogoLink from "./team/TeamLogoLink";
 import TeamNameLink from "./team/TeamNameLink";
+import TeamHoverCard from "./team/TeamHoverCard";
+import type { TeamCardHint } from "./team/TeamCardContext";
 import LeagueIcon from "./LeagueIcon";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -47,6 +49,47 @@ const STICKY_COL_SHADOW =
 function tierRank(t: DynastyTier): number {
   return t === "legendary" ? 3 : t === "dynasty" ? 2 : 1;
 }
+
+function eventPhaseScope(event: MatrixEvent): SplitId | InternationalId | undefined {
+  return event.splitId ?? event.eventId;
+}
+
+function teamCardHint(team: SeasonHistoryTeamRef): TeamCardHint {
+  return {
+    name: team.name,
+    leagueId: team.leagueId,
+    iconKey: team.iconKey,
+    logoUrl: team.logoUrl,
+    color: team.color,
+  };
+}
+
+/** Hover card pinned to the championship year + stage roster. */
+const ChampionTeamHover = memo(function ChampionTeamHover({
+  team,
+  seasonId,
+  event,
+  children,
+  className = "inline-flex",
+}: {
+  team: SeasonHistoryTeamRef;
+  seasonId: string;
+  event: MatrixEvent;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const phaseScope = eventPhaseScope(event);
+  return (
+    <TeamHoverCard
+      seasonId={seasonId}
+      {...(phaseScope ? { phaseScope } : {})}
+      hint={teamCardHint(team)}
+      className={className}
+    >
+      {children}
+    </TeamHoverCard>
+  );
+});
 
 type LeagueFilter = LeagueId | "all";
 type TierFilterValue = "all" | "dynasty+" | "legendary";
@@ -114,7 +157,15 @@ const EventIcon = memo(function EventIcon({
 
 // ─── Matrix cell ──────────────────────────────────────────────────────────────
 
-const YearCell = memo(function YearCell({ cell }: { cell: MatrixCell }) {
+const YearCell = memo(function YearCell({
+  cell,
+  seasonId,
+  team,
+}: {
+  cell: MatrixCell;
+  seasonId: string;
+  team: SeasonHistoryTeamRef;
+}) {
   if (cell.totalInCell === 0) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -129,11 +180,17 @@ const YearCell = memo(function YearCell({ cell }: { cell: MatrixCell }) {
       {cell.intl.length > 0 && (
         <div className="flex flex-wrap gap-[3px] justify-center">
           {cell.intl.map((ev, i) => (
-            <EventIcon
+            <ChampionTeamHover
               key={`intl-${i}`}
+              team={team}
+              seasonId={seasonId}
               event={ev}
-              size={ev.kind === "global-cup-title" || ev.kind === "worlds-title" ? 14 : 12}
-            />
+            >
+              <EventIcon
+                event={ev}
+                size={ev.kind === "global-cup-title" || ev.kind === "worlds-title" ? 14 : 12}
+              />
+            </ChampionTeamHover>
           ))}
         </div>
       )}
@@ -141,7 +198,14 @@ const YearCell = memo(function YearCell({ cell }: { cell: MatrixCell }) {
       {cell.splits.length > 0 && (
         <div className="flex flex-wrap gap-[2px] justify-center">
           {cell.splits.map((ev, i) => (
-            <EventIcon key={`split-${i}`} event={ev} size={10} />
+            <ChampionTeamHover
+              key={`split-${i}`}
+              team={team}
+              seasonId={seasonId}
+              event={ev}
+            >
+              <EventIcon event={ev} size={10} />
+            </ChampionTeamHover>
           ))}
         </div>
       )}
@@ -167,9 +231,11 @@ function StatChip({ label, value }: { label: string; value: number }) {
 function TitleListSection({
   heading,
   items,
+  team,
 }: {
   heading: string;
   items: MatrixRow["titleList"];
+  team: SeasonHistoryTeamRef;
 }) {
   if (items.length === 0) return null;
   return (
@@ -180,17 +246,24 @@ function TitleListSection({
       </div>
       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 max-h-40 overflow-y-auto pr-1">
         {items.map((t, i) => (
-          <li key={i} className="flex items-center gap-1.5 min-w-0">
-            <EventIcon event={t.event} size={t.event.kind === "split-title" ? 10 : 12} />
-            <span
-              className="text-[10px] text-rift-mutedbright/85 truncate flex-1 min-w-0"
-              title={t.event.label}
+          <li key={i}>
+            <ChampionTeamHover
+              team={team}
+              seasonId={t.seasonId}
+              event={t.event}
+              className="flex items-center gap-1.5 min-w-0 w-full"
             >
-              {t.event.label}
-            </span>
-            <span className="text-[8px] tabular-nums text-rift-muted/50 flex-shrink-0 px-1 py-px border border-rift-line/30 bg-rift-bg/40">
-              {t.yearLabel}
-            </span>
+              <EventIcon event={t.event} size={t.event.kind === "split-title" ? 10 : 12} />
+              <span
+                className="text-[10px] text-rift-mutedbright/85 truncate flex-1 min-w-0"
+                title={t.event.label}
+              >
+                {t.event.label}
+              </span>
+              <span className="text-[8px] tabular-nums text-rift-muted/50 flex-shrink-0 px-1 py-px border border-rift-line/30 bg-rift-bg/40">
+                {t.yearLabel}
+              </span>
+            </ChampionTeamHover>
           </li>
         ))}
       </ul>
@@ -265,8 +338,8 @@ function ExpandedDetail({
               {/* Title lists */}
               {(intls.length > 0 || splits.length > 0) && (
                 <div className="flex flex-col lg:flex-row gap-4 pt-1 border-t border-rift-line/20">
-                  <TitleListSection heading="International" items={intls} />
-                  <TitleListSection heading="Splits" items={splits} />
+                  <TitleListSection heading="International" items={intls} team={row.team} />
+                  <TitleListSection heading="Splits" items={splits} team={row.team} />
                 </div>
               )}
             </div>
@@ -395,7 +468,7 @@ const FranchiseRow = memo(function FranchiseRow({
                 .join(" ")}
               style={{ width: COL_W, minWidth: COL_W, maxWidth: COL_W }}
             >
-              <YearCell cell={cell} />
+              <YearCell cell={cell} seasonId={year.seasonId} team={row.team} />
             </td>
           );
         })}

@@ -10,10 +10,12 @@ import {
   useState,
   useEffect,
   useCallback,
+  useTransition,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 
+import HallPanelLoading from "./hall/HallPanelLoading";
 import { useDraftStore } from "@/store/draftStore";
 import {
   diffMetaOverrides,
@@ -94,7 +96,6 @@ import {
   type SplitId,
   INTERNATIONAL_DISPLAY_ORDER,
 } from "@/lib/season/types";
-import TeamIcon from "./TeamIcon";
 import LeagueIcon from "./LeagueIcon";
 import LaneIcon from "./LaneIcon";
 import Modal from "./Modal";
@@ -104,9 +105,10 @@ import GoldenRoadBadge from "./GoldenRoadBadge";
 import GlobalCupBadge from "./GlobalCupBadge";
 import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
 import PlayerNameLink from "./player/PlayerNameLink";
-import PlayerHoverCard from "./player/PlayerHoverCard";
 import { HistoryPlayerCardProvider } from "./player/PlayerCardContext";
 import { HistoryTeamCardProvider } from "./team/TeamCardContext";
+import { HistoryCoachCardProvider } from "./coach/CoachCardContext";
+import CoachNameLink from "./coach/CoachNameLink";
 import TeamNameLink from "./team/TeamNameLink";
 import TeamLogoLink from "./team/TeamLogoLink";
 import {
@@ -209,12 +211,15 @@ const PlayerTeamIcon = memo(function PlayerTeamIcon({
   identity,
   size = 13,
   onNavigate: _onNavigate,
+  nested = false,
 }: {
   teamName?: string;
   leagueId?: LeagueId | null;
   identity: Map<string, SeasonHistoryTeamRef>;
   size?: number;
   onNavigate?: NavFn;
+  /** When true, renders as span — safe inside picker-row buttons. */
+  nested?: boolean;
 }) {
   if (!teamName || !leagueId) return null;
   const ref = refFor(identity, teamName, leagueId);
@@ -228,6 +233,7 @@ const PlayerTeamIcon = memo(function PlayerTeamIcon({
       logoUrl={resolveTeamLogo(ref.name, ref.logoUrl)}
       color={ref.color}
       size={size}
+      renderAs={nested ? "span" : "button"}
       hint={{ name: ref.name, leagueId: ref.leagueId, iconKey: ref.iconKey, logoUrl: ref.logoUrl, color: ref.color }}
     />
   );
@@ -280,6 +286,7 @@ const NavPlayerName = memo(function NavPlayerName({
   onNavigate: _onNavigate,
   className = "",
   nested = false,
+  hint,
 }: {
   name: string;
   playerId?: string;
@@ -287,6 +294,8 @@ const NavPlayerName = memo(function NavPlayerName({
   className?: string;
   /** When true, renders as span — safe inside expand-row buttons. */
   nested?: boolean;
+  /** Year-row team / lane the resolver can't derive without a phase snapshot. */
+  hint?: { teamName?: string; lane?: Lane };
 }) {
   const seasonId = useContext(SeasonScope);
   if (!playerId) {
@@ -297,6 +306,7 @@ const NavPlayerName = memo(function NavPlayerName({
       playerId={playerId}
       name={name}
       seasonId={seasonId}
+      hint={hint}
       className={className}
       renderAs={nested ? "span" : "button"}
     />
@@ -305,24 +315,28 @@ const NavPlayerName = memo(function NavPlayerName({
 
 const NavCoachName = memo(function NavCoachName({
   name,
-  onNavigate,
+  onNavigate: _onNavigate,
   className = "",
+  nested = false,
+  hint,
 }: {
   name: string;
   onNavigate?: NavFn;
   className?: string;
+  /** When true, renders as span — safe inside expand-row buttons. */
+  nested?: boolean;
+  hint?: { teamName?: string; leagueId?: LeagueId };
 }) {
-  if (!onNavigate || !name) {
-    return <span className={className}>{name}</span>;
-  }
+  const seasonId = useContext(SeasonScope);
+  if (!name) return <span className={className}>{name}</span>;
   return (
-    <button
-      type="button"
-      onClick={() => onNavigate("coaches", name)}
-      className={`${navBtnCls} ${className}`}
-    >
-      {name}
-    </button>
+    <CoachNameLink
+      name={name}
+      seasonId={seasonId}
+      hint={hint}
+      className={className}
+      renderAs={nested ? "span" : "button"}
+    />
   );
 });
 
@@ -332,6 +346,16 @@ const NavCoachName = memo(function NavCoachName({
 // title holders, the split-champions board — and its meta story: the
 // starting and final tier tables side by side (per lane) plus the drift
 // between them.
+
+type HallTab = "timeline" | "records" | "dynasties" | "search";
+type TimelineView = "seasons" | "overall";
+
+const HALL_TAB_LOADING: Record<HallTab, string> = {
+  timeline: "Loading timeline…",
+  records: "Loading records & dynasties…",
+  dynasties: "Loading franchise timeline…",
+  search: "Loading search…",
+};
 
 const INTL_ORDER = INTERNATIONAL_DISPLAY_ORDER;
 const SPLIT_ORDER: readonly SplitId[] = ["winter", "spring", "summer"];
@@ -373,22 +397,36 @@ const TeamRef = memo(function TeamRef({
   muted = false,
   onNavigate: _onNavigate,
   nested = false,
+  seasonId: seasonIdProp,
 }: {
   team: SeasonHistoryTeamRef;
   size?: number;
   muted?: boolean;
   onNavigate?: NavFn;
+  /** When true, renders as span — safe inside outer nav buttons. */
   nested?: boolean;
+  /**
+   * Pin the hover card to this archived year. When omitted, uses SeasonScope
+   * if present; otherwise career / latest-roster resolution.
+   */
+  seasonId?: string;
 }) {
-  const seasonId = useContext(SeasonScope);
+  const scopeSeasonId = useContext(SeasonScope);
+  const seasonId = seasonIdProp ?? scopeSeasonId;
+  const logoUrl = resolveTeamLogo(team.name, team.logoUrl);
   return (
     <TeamNameLink
       name={team.name}
       leagueId={team.leagueId}
       seasonId={seasonId}
-      showLogo={false}
+      iconKey={team.iconKey}
+      logoUrl={logoUrl}
+      color={team.color}
+      showLogo
+      logoSize={size}
+      noNavigate={nested}
       renderAs={nested ? "span" : "button"}
-      className={`min-w-0 max-w-full overflow-hidden ${
+      className={`inline-flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden ${
         muted ? "text-rift-mutedbright" : "text-rift-goldbright"
       }`}
       hint={{
@@ -399,13 +437,6 @@ const TeamRef = memo(function TeamRef({
         color: team.color,
       }}
     >
-      <TeamIcon
-        iconKey={team.iconKey}
-        logoUrl={resolveTeamLogo(team.name, team.logoUrl)}
-        size={size}
-        color={team.color}
-        className="flex-shrink-0"
-      />
       <span className={`min-w-0 truncate ${muted ? "text-rift-mutedbright" : "text-rift-goldbright"}`}>
         {team.name}
       </span>
@@ -837,7 +868,7 @@ function SeasonDetail({
       {/* Transfer log — every roster move of the year, recap-able forever */}
       {entry.transfers && entry.transfers.length > 0 && (
         <div className="cv-section">
-          <TransferLog transfers={entry.transfers} />
+          <TransferLog transfers={entry.transfers} seasonId={entry.id} />
         </div>
       )}
 
@@ -1416,6 +1447,8 @@ function StageRosters({
                 <TeamNameLink
                   name={t.teamName}
                   leagueId={t.leagueId}
+                  seasonId={entry.id}
+                  teamId={t.teamId}
                   iconKey="shield"
                   logoUrl={resolveTeamLogo(t.teamName, t.logoUrl)}
                   logoSize={13}
@@ -1494,7 +1527,13 @@ function StageRosters({
 // happened in (post First Stand / post MSI / post Worlds offseason). Each move
 // is a lane swap between two clubs; we show who arrived on each side.
 const XFER_TIER_CLS = STAGE_TIER_CLS;
-function TransferLog({ transfers }: { transfers: HistoryTransfer[] }) {
+function TransferLog({
+  transfers,
+  seasonId,
+}: {
+  transfers: HistoryTransfer[];
+  seasonId?: string;
+}) {
   const byEvent = new Map<InternationalId, HistoryTransfer[]>();
   for (const t of transfers) {
     const arr = byEvent.get(t.event) ?? [];
@@ -1506,6 +1545,7 @@ function TransferLog({ transfers }: { transfers: HistoryTransfer[] }) {
       <TeamNameLink
         name={team.name}
         leagueId={team.leagueId}
+        seasonId={seasonId}
         iconKey={team.iconKey}
         logoUrl={resolveTeamLogo(team.name, team.logoUrl)}
         color={team.color}
@@ -2174,18 +2214,19 @@ function PlayerComparePanel({
                   leagueId={p.leagueId}
                   identity={identity}
                   size={13}
+                  nested
                 />
               )}
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5 min-w-0">
-                  <PlayerHoverCard
+                  <PlayerNameLink
                     playerId={p.playerId}
+                    name={p.playerName}
+                    noNavigate
+                    renderAs="span"
                     className="block text-[11px] text-rift-mutedbright truncate min-w-0"
-                  >
-                    <span className="truncate" title={p.playerName}>
-                      {p.playerName}
-                    </span>
-                  </PlayerHoverCard>
+                    title={p.playerName}
+                  />
                   <CareerStatusBadge
                     status={careerStatus.get(p.playerId)?.status}
                     academyYears={careerStatus.get(p.playerId)?.academyYears}
@@ -2847,16 +2888,26 @@ function RecordsPanel({
       .map((e) => `${r.intlTitles[e]}× ${INTERNATIONAL_LABELS[e]}`)
       .join(" · ");
   // Chronological roll of honour for each international — every season's
-  // winner of First Stand, MSI, and Worlds, oldest first.
+  // winner of First Stand, MSI, and Worlds, oldest first. Each row carries
+  // seasonId so team hover cards resolve THAT year's roster snapshot.
   const intlRoll = useMemo(() => {
     const chrono = [...entries].sort((a, b) => a.archivedAt - b.archivedAt);
     return INTL_ORDER.map((event) => ({
       event,
       winners: chrono
-        .map((e) => ({ season: e.name, team: e.intlChampions[event] ?? null }))
+        .map((e) => ({
+          season: e.name,
+          seasonId: e.id,
+          team: e.intlChampions[event] ?? null,
+        }))
         .filter(
-          (w): w is { season: string; team: SeasonHistoryTeamRef } =>
-            w.team != null,
+          (
+            w,
+          ): w is {
+            season: string;
+            seasonId: string;
+            team: SeasonHistoryTeamRef;
+          } => w.team != null,
         ),
     }));
   }, [entries]);
@@ -2934,7 +2985,12 @@ function RecordsPanel({
                         {i + 1}
                       </span>
                       <span className="min-w-0 flex-1 overflow-hidden">
-                        <TeamRef team={w.team} size={13} onNavigate={onNavigate} />
+                        <TeamRef
+                          team={w.team}
+                          size={13}
+                          seasonId={w.seasonId}
+                          onNavigate={onNavigate}
+                        />
                       </span>
                       <span className="text-[8px] uppercase tracking-[0.18em] text-rift-mutedbright/60 flex-shrink-0 truncate max-w-[40%]">
                         {w.season}
@@ -3058,7 +3114,12 @@ function RecordsPanel({
                   ★
                 </span>
                 <span className="min-w-0 flex-1 overflow-hidden">
-                  <TeamRef team={g.team} size={14} onNavigate={onNavigate} />
+                  <TeamRef
+                    team={g.team}
+                    size={14}
+                    seasonId={g.entry.id}
+                    onNavigate={onNavigate}
+                  />
                   <span className="block text-[8px] uppercase tracking-[0.2em] text-rift-mutedbright/60 mt-0.5">
                     {g.season}
                   </span>
@@ -3779,13 +3840,29 @@ function OverallTimeline({
                                   playerId={p.id}
                                   onNavigate={onNavigate}
                                   className="text-rift-mutedbright truncate max-w-[64px]"
+                                  hint={
+                                    row.team
+                                      ? { teamName: row.team.name, lane: p.lane }
+                                      : undefined
+                                  }
                                 />
                               </span>
                             ))}
                             {roster.coach && (
                               <span className="text-[7px] uppercase tracking-[0.15em] text-rift-blue/70 w-full">
                                 coach{" "}
-                                <NavCoachName name={roster.coach} onNavigate={onNavigate} />
+                                <NavCoachName
+                                  name={roster.coach}
+                                  onNavigate={onNavigate}
+                                  hint={
+                                    row.team
+                                      ? {
+                                          teamName: row.team.name,
+                                          leagueId: row.team.leagueId,
+                                        }
+                                      : undefined
+                                  }
+                                />
                               </span>
                             )}
                           </div>
@@ -3806,6 +3883,10 @@ function OverallTimeline({
                                 playerId={mvp.playerId}
                                 onNavigate={onNavigate}
                                 className="truncate max-w-[90px]"
+                                hint={{
+                                  teamName: mvp.team.name,
+                                  lane: mvp.lane,
+                                }}
                               />
                               <span className="text-rift-gold/60 tabular-nums">★{mvp.avgRating.toFixed(1)}</span>
                             </div>
@@ -4116,7 +4197,13 @@ const PlayerProfileView = memo(function PlayerProfileView({
       <div className="flex items-center gap-2 flex-wrap">
         {p.lane && <LaneIcon lane={p.lane} size="sm" />}
         {p.tier && <span className={`w-5 text-center border font-display text-[10px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>}
-        <span className="font-display text-lg tracking-wide text-rift-goldbright">{p.name}</span>
+        <PlayerNameLink
+          playerId={id}
+          name={p.name}
+          noNavigate
+          className="font-display text-lg tracking-wide text-rift-goldbright"
+          hint={p.lane ? { lane: p.lane } : undefined}
+        />
         {p.age != null && (
           <span className="text-[9px] uppercase tracking-[0.2em] text-rift-muted/70 border border-rift-line/40 px-1.5 py-0.5">
             Age {p.age}
@@ -4244,7 +4331,8 @@ const PlayerProfileView = memo(function PlayerProfileView({
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Career History</div>
         <div className="space-y-1.5">
           {p.tenures.map((t, i) => (
-            <div key={t.seasonId || i} className="border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5 text-[10px]">
+            <SeasonScope.Provider key={t.seasonId || i} value={t.seasonId}>
+            <div className="border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5 text-[10px]">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-16 flex-shrink-0">{t.season}</span>
                 {/* One row per completed season: roster stints, academy affiliate,
@@ -4256,7 +4344,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
                       <span key={j} className="inline-flex items-center gap-1 min-w-0 max-w-full overflow-hidden">
                         {j > 0 && <span className="text-rift-muted/40 flex-shrink-0">→</span>}
                         <button type="button" onClick={() => onNavigate("teams", teamRefKey(st.team))} className="min-w-0 max-w-full overflow-hidden hover:opacity-75 transition-opacity" title={`View ${st.team.name}`}>
-                          <TeamRef team={st.team} size={12} />
+                          <TeamRef team={st.team} size={12} nested seasonId={t.seasonId} />
                         </button>
                         <LaneIcon lane={st.lane} size="xs" />
                         <span className={`px-1 border font-display text-[8px] flex-shrink-0 ${STAGE_TIER_CLS[st.tier] ?? ""}`}>{st.tier}</span>
@@ -4277,7 +4365,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
                         className="min-w-0 max-w-full overflow-hidden hover:opacity-75 transition-opacity"
                         title={`View ${t.affiliateTeam.name}`}
                       >
-                        <TeamRef team={t.affiliateTeam} size={12} />
+                        <TeamRef team={t.affiliateTeam} size={12} nested seasonId={t.seasonId} />
                       </button>
                       <span className="text-[7px] uppercase tracking-[0.15em] text-rift-muted/45">
                         {t.careerStatus === "academy"
@@ -4309,6 +4397,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
               </div>
               {t.windows && <CareerWindowChips windows={t.windows} />}
             </div>
+            </SeasonScope.Provider>
           ))}
         </div>
       </div>
@@ -4399,14 +4488,12 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
                 <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">{i + 1}</span>
                 <LaneIcon lane={h.lane} size="xs" />
                 {h.playerId ? (
-                  <button
-                    type="button"
-                    onClick={() => onNavigate("players", h.playerId!)}
-                    className="min-w-0 flex-1 truncate text-left text-rift-mutedbright font-medium hover:text-rift-goldbright transition-colors"
-                    title={`View ${h.name}`}
-                  >
-                    {h.name}
-                  </button>
+                  <PlayerNameLink
+                    playerId={h.playerId}
+                    name={h.name}
+                    className="min-w-0 flex-1 truncate text-left text-rift-mutedbright font-medium"
+                    hint={{ lane: h.lane }}
+                  />
                 ) : (
                   <span className="min-w-0 flex-1 truncate text-rift-mutedbright font-medium">{h.name}</span>
                 )}
@@ -4589,14 +4676,11 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
                   <span className="shrink-0 px-1.5 py-0.5 border border-rift-blue/45 text-rift-blue/85 text-[7px] uppercase tracking-[0.2em]">
                     Coach
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => onNavigate("coaches", selectedStage.coach!)}
-                    className="min-w-0 truncate text-[11px] text-rift-mutedbright hover:text-rift-bluebright transition-colors"
-                    title={`View ${selectedStage.coach}`}
-                  >
-                    {selectedStage.coach}
-                  </button>
+                  <NavCoachName
+                    name={selectedStage.coach}
+                    onNavigate={onNavigate}
+                    className="min-w-0 truncate text-[11px] text-rift-mutedbright"
+                  />
                 </div>
               )}
               <div className="divide-y divide-rift-line/20">
@@ -4721,11 +4805,19 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
 
 const CoachProfileView = memo(function CoachProfileView({ entries, name, onNavigate }: { entries: SeasonHistoryEntry[]; name: string; onNavigate: NavFn }) {
   const c = useMemo(() => coachProfile(entries, name), [entries, name]);
+  const seasonIdByName = useMemo(
+    () => new Map(entries.map((e) => [e.name, e.id])),
+    [entries],
+  );
   if (!c) return <p className="text-[11px] italic text-rift-muted">No data.</p>;
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap min-w-0">
-        <span className="font-display text-lg tracking-wide text-rift-bluebright truncate min-w-0" title={c.name}>{c.name}</span>
+        <CoachNameLink
+          name={c.name}
+          noNavigate
+          className="font-display text-lg tracking-wide text-rift-bluebright truncate min-w-0"
+        />
         <span className="text-[8px] uppercase tracking-[0.2em] text-rift-blue/60 border border-rift-blue/40 px-1 flex-shrink-0">Coach</span>
         {c.playstyle && (
           <span className="text-[8px] uppercase tracking-[0.2em] text-rift-gold/70 border border-rift-gold/40 px-1 flex-shrink-0" title="Drafting playstyle">
@@ -4763,15 +4855,17 @@ const CoachProfileView = memo(function CoachProfileView({ entries, name, onNavig
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Coaching History</div>
         <div className="space-y-1.5">
           {c.tenures.map((t, i) => (
-            <div key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5 text-[10px] min-w-0">
+            <SeasonScope.Provider key={i} value={seasonIdByName.get(t.season)}>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5 text-[10px] min-w-0">
               <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-16 flex-shrink-0">{t.season}</span>
               <button type="button" onClick={() => onNavigate("teams", teamRefKey(t.team))} className="min-w-0 max-w-full overflow-hidden hover:opacity-75 transition-opacity" title={`View ${t.team.name}`}>
-                <TeamRef team={t.team} size={13} />
+                <TeamRef team={t.team} size={13} nested seasonId={seasonIdByName.get(t.season)} />
               </button>
               <span className="text-rift-gold/80 tabular-nums text-[9px] flex-shrink-0">★{t.rating.toFixed(1)}</span>
               {t.playstyle && <span className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/70 flex-shrink-0">{t.playstyle}</span>}
               <TitleTallyInline titles={t.titles} />
             </div>
+            </SeasonScope.Provider>
           ))}
         </div>
       </div>
@@ -4817,6 +4911,10 @@ type SearchRow = {
   id: string;
   label: string;
   sub: string;
+  /** Stable id for player rows — drives PlayerNameLink hover cards. */
+  playerId?: string;
+  /** Coach playstyle shown after the team on coach rows. */
+  coachPlaystyle?: string;
   lane: Lane | null;
   tier: PlayerTier | null;
   team: SeasonHistoryTeamRef | null;
@@ -4860,7 +4958,7 @@ const SearchResultRow = memo(function SearchResultRow({
       {r.tier && (
         <span className={`w-4 text-center border font-display text-[8px] shrink-0 ${STAGE_TIER_CLS[r.tier] ?? ""}`}>{r.tier}</span>
       )}
-      {r.team && (
+      {r.team && kind !== "teams" && (
         <TeamLogoLink
           name={r.team.name}
           leagueId={r.team.leagueId}
@@ -4869,6 +4967,7 @@ const SearchResultRow = memo(function SearchResultRow({
           color={r.team.color}
           size={14}
           renderAs="span"
+          noNavigate
           hint={{
             name: r.team.name,
             leagueId: r.team.leagueId,
@@ -4879,11 +4978,95 @@ const SearchResultRow = memo(function SearchResultRow({
         />
       )}
       <span className="min-w-0 flex-1 overflow-hidden">
-        <span className="block text-[11px] text-rift-mutedbright truncate" title={r.label}>{r.label}</span>
-        {/* Players: team logo's region; teams/coaches: the sub line. */}
-        <span className="flex items-center gap-1 text-[8px] uppercase tracking-[0.15em] text-rift-muted/50 truncate" title={r.sub || undefined}>
+        {kind === "players" ? (
+          <PlayerNameLink
+            playerId={r.playerId}
+            name={r.label}
+            noNavigate
+            renderAs="span"
+            className="block text-[11px] text-rift-mutedbright truncate"
+            hint={
+              r.lane || r.team?.name
+                ? {
+                    ...(r.lane ? { lane: r.lane } : {}),
+                    ...(r.team?.name ? { teamName: r.team.name } : {}),
+                  }
+                : undefined
+            }
+          />
+        ) : kind === "teams" && r.team ? (
+          <TeamNameLink
+            name={r.label}
+            leagueId={r.team.leagueId}
+            iconKey={r.team.iconKey}
+            logoUrl={resolveTeamLogo(r.team.name, r.team.logoUrl)}
+            color={r.team.color}
+            logoSize={14}
+            noNavigate
+            renderAs="span"
+            className="block text-[11px] text-rift-mutedbright truncate min-w-0"
+            hint={{
+              name: r.team.name,
+              leagueId: r.team.leagueId,
+              iconKey: r.team.iconKey,
+              logoUrl: r.team.logoUrl,
+              color: r.team.color,
+            }}
+          />
+        ) : (
+          <CoachNameLink
+            name={r.label}
+            noNavigate
+            renderAs="span"
+            className="block text-[11px] text-rift-mutedbright truncate"
+            hint={
+              r.team
+                ? {
+                    name: r.label,
+                    teamName: r.team.name,
+                    leagueId: r.team.leagueId,
+                    ...(r.coachPlaystyle ? { playstyle: r.coachPlaystyle } : {}),
+                  }
+                : undefined
+            }
+          />
+        )}
+        {/* Players: team logo's region; teams: league; coaches: team + playstyle. */}
+        <span className="flex items-center gap-1 text-[8px] uppercase tracking-[0.15em] text-rift-muted/50 truncate min-w-0" title={r.sub || undefined}>
           {kind === "players" && r.team && <LeagueIcon league={r.team.leagueId} size={9} />}
-          {r.sub}
+          {kind === "teams" && r.sub}
+          {kind === "coaches" && (
+            <>
+              {r.team ? (
+                <TeamNameLink
+                  name={r.team.name}
+                  leagueId={r.team.leagueId}
+                  iconKey={r.team.iconKey}
+                  logoUrl={resolveTeamLogo(r.team.name, r.team.logoUrl)}
+                  color={r.team.color}
+                  showLogo={false}
+                  noNavigate
+                  renderAs="span"
+                  className="truncate min-w-0"
+                  hint={{
+                    name: r.team.name,
+                    leagueId: r.team.leagueId,
+                    iconKey: r.team.iconKey,
+                    logoUrl: r.team.logoUrl,
+                    color: r.team.color,
+                  }}
+                />
+              ) : (
+                "Coach"
+              )}
+              {r.coachPlaystyle && (
+                <>
+                  <span className="text-rift-muted/35 flex-shrink-0">·</span>
+                  <span className="truncate min-w-0 normal-case tracking-normal">{r.coachPlaystyle}</span>
+                </>
+              )}
+            </>
+          )}
         </span>
       </span>
       {r.debutYear != null && (
@@ -5001,6 +5184,7 @@ function SearchPanel({
         )
         .map((p) => ({
           id: p.id,
+          playerId: p.id,
           label: p.name,
           sub: p.leagueId ?? "",
           lane: p.lane,
@@ -5058,8 +5242,8 @@ function SearchPanel({
         .map((c) => ({
           id: c.name,
           label: c.name,
-          // Fold the playstyle into the sub line so it shows in the list.
-          sub: [c.team ? c.team.name : "Coach", c.playstyle].filter(Boolean).join(" · "),
+          sub: c.team?.leagueId ?? "",
+          coachPlaystyle: c.playstyle,
           lane: null as Lane | null,
           tier: null as PlayerTier | null,
           team: c.team,
@@ -5269,12 +5453,15 @@ export default function SeasonHistoryView({
   onBack,
   initialPlayerId,
   initialTeamKey,
+  initialCoachName,
 }: {
   onBack: () => void;
   /** Deep-link target — opens straight onto this player's Search profile. */
   initialPlayerId?: string | null;
   /** Deep-link target — opens straight onto this team's Search profile. */
   initialTeamKey?: string | null;
+  /** Deep-link target — opens straight onto this coach's Search profile. */
+  initialCoachName?: string | null;
 }) {
   // Season mode and Realities each keep their OWN Hall — season mode doesn't
   // carry rosters between years, realities do, so they never mix. The user
@@ -5310,9 +5497,15 @@ export default function SeasonHistoryView({
   const importSeasonHistory = useDraftStore((s) => s.importSeasonHistory);
   const champions = useDraftStore((s) => s.champions);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"timeline" | "records" | "dynasties" | "search">(
-    initialPlayerId || initialTeamKey ? "search" : "timeline",
+  const [tab, setTab] = useState<HallTab>(
+    initialPlayerId || initialTeamKey || initialCoachName ? "search" : "timeline",
   );
+  const [isTabPending, startTabTransition] = useTransition();
+  const deferredTab = useDeferredValue(tab);
+  const tabLoading = isTabPending || tab !== deferredTab;
+  const selectTab = useCallback((next: HallTab) => {
+    startTabTransition(() => setTab(next));
+  }, []);
   const [pendingSearchNav, setPendingSearchNav] = useState<{
     kind: "players" | "teams" | "coaches";
     id: string;
@@ -5321,12 +5514,14 @@ export default function SeasonHistoryView({
       ? { kind: "players", id: initialPlayerId }
       : initialTeamKey
         ? { kind: "teams", id: initialTeamKey }
-        : null,
+        : initialCoachName
+          ? { kind: "coaches", id: initialCoachName }
+          : null,
   );
   const hallNavigate = useCallback<NavFn>((kind, id) => {
-    setTab("search");
+    selectTab("search");
     setPendingSearchNav({ kind, id });
-  }, []);
+  }, [selectTab]);
   const openPlayerProfile = useCallback(
     (playerId: string) => hallNavigate("players", playerId),
     [hallNavigate],
@@ -5335,11 +5530,27 @@ export default function SeasonHistoryView({
     (teamKey: string) => hallNavigate("teams", teamKey),
     [hallNavigate],
   );
+  const openCoachProfile = useCallback(
+    (coachName: string) => hallNavigate("coaches", coachName),
+    [hallNavigate],
+  );
   // Within the Timeline tab: "seasons" = the list + selected-season résumé;
   // "overall" = a single chronological timeline across all seasons.
-  const [timelineView, setTimelineView] = useState<"seasons" | "overall">(
-    "seasons",
-  );
+  const [timelineView, setTimelineView] = useState<TimelineView>("seasons");
+  const [isTimelinePending, startTimelineTransition] = useTransition();
+  const deferredTimelineView = useDeferredValue(timelineView);
+  const timelineViewLoading =
+    isTimelinePending || timelineView !== deferredTimelineView;
+  const selectTimelineView = useCallback((next: TimelineView) => {
+    startTimelineTransition(() => setTimelineView(next));
+  }, []);
+  const [isSeasonPending, startSeasonTransition] = useTransition();
+  const deferredSelectedId = useDeferredValue(selectedId);
+  const seasonDetailLoading =
+    isSeasonPending || selectedId !== deferredSelectedId;
+  const selectSeason = useCallback((id: string) => {
+    startSeasonTransition(() => setSelectedId(id));
+  }, []);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"all" | "one" | null>(null);
   const [importing, setImporting] = useState(false);
@@ -5350,7 +5561,10 @@ export default function SeasonHistoryView({
     text: string;
   } | null>(null);
   const selected =
-    seasonHistory.find((e) => e.id === selectedId) ?? seasonHistory[0] ?? null;
+    seasonHistory.find((e) => e.id === deferredSelectedId) ??
+    seasonHistory[0] ??
+    null;
+  const listSelectedId = selectedId ?? seasonHistory[0]?.id ?? null;
   const confirmEntry =
     confirmRemove && confirmRemove !== "all"
       ? seasonHistory.find((e) => e.id === confirmRemove)
@@ -5479,6 +5693,10 @@ export default function SeasonHistoryView({
       entries={seasonHistory}
       onOpenProfile={openTeamProfile}
     >
+    <HistoryCoachCardProvider
+      entries={seasonHistory}
+      onOpenProfile={openCoachProfile}
+    >
     <div className="min-h-screen px-4 py-10 md:py-14">
       <div className="max-w-6xl mx-auto">
         <button
@@ -5605,7 +5823,8 @@ export default function SeasonHistoryView({
               <button
                 key={id}
                 type="button"
-                onClick={() => setTab(id)}
+                onClick={() => selectTab(id)}
+                aria-busy={tabLoading && tab === id}
                 className={`px-3 py-1.5 border text-[9px] uppercase tracking-[0.25em] transition-all ${
                   tab === id
                     ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
@@ -5626,16 +5845,18 @@ export default function SeasonHistoryView({
             champions, finalists, and the metas they played on. You can also
             restore a previously exported archive with “Import (.xlsx)”.
           </p>
-        ) : tab === "records" ? (
+        ) : tabLoading ? (
+          <HallPanelLoading label={HALL_TAB_LOADING[tab]} />
+        ) : deferredTab === "records" ? (
           <RecordsPanel
             entries={seasonHistory}
             onNavigate={hallNavigate}
             liveInactive={liveSearchOpts?.liveInactive}
             liveRosterIds={liveSearchOpts?.liveRosterIds}
           />
-        ) : tab === "dynasties" ? (
+        ) : deferredTab === "dynasties" ? (
           <DynastyTimelinePanel entries={seasonHistory} onNavigate={hallNavigate} />
-        ) : tab === "search" ? (
+        ) : deferredTab === "search" ? (
           <SearchPanel
             entries={seasonHistory}
             initialNav={pendingSearchNav}
@@ -5656,7 +5877,8 @@ export default function SeasonHistoryView({
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setTimelineView(id)}
+                  onClick={() => selectTimelineView(id)}
+                  aria-busy={timelineViewLoading && timelineView === id}
                   className={`px-3 py-1.5 border text-[9px] uppercase tracking-[0.25em] transition-all ${
                     timelineView === id
                       ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
@@ -5667,7 +5889,15 @@ export default function SeasonHistoryView({
                 </button>
               ))}
             </div>
-            {timelineView === "overall" ? (
+            {timelineViewLoading ? (
+              <HallPanelLoading
+                label={
+                  timelineView === "overall"
+                    ? "Loading overall timeline…"
+                    : "Loading seasons…"
+                }
+              />
+            ) : deferredTimelineView === "overall" ? (
               <OverallTimeline entries={seasonHistory} onNavigate={hallNavigate} />
             ) : (
             <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-5 items-start">
@@ -5675,7 +5905,7 @@ export default function SeasonHistoryView({
                 while the selected season's résumé stays in view */}
             <div className="space-y-1.5 lg:max-h-[72vh] lg:overflow-y-auto lg:pr-1">
               {seasonHistory.map((entry) => {
-                const active = entry.id === selected?.id;
+                const active = entry.id === listSelectedId;
                 const date = new Date(entry.archivedAt);
                 const dateLabel = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
                 return (
@@ -5690,8 +5920,8 @@ export default function SeasonHistoryView({
                     <div
                       role="button"
                       tabIndex={0}
-                      onClick={() => setSelectedId(entry.id)}
-                      onKeyDown={(e) => activateOnEnterSpace(e, () => setSelectedId(entry.id))}
+                      onClick={() => selectSeason(entry.id)}
+                      onKeyDown={(e) => activateOnEnterSpace(e, () => selectSeason(entry.id))}
                       className="w-full text-left px-3 py-2 cursor-pointer"
                     >
                       <div className="flex items-baseline justify-between gap-2">
@@ -5726,6 +5956,7 @@ export default function SeasonHistoryView({
                               logoUrl={resolveTeamLogo(entry.champion.name, entry.champion.logoUrl)}
                               color={entry.champion.color}
                               logoSize={12}
+                              renderAs="span"
                               className="inline-flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden text-[10px] text-rift-mutedbright"
                               hint={{
                                 name: entry.champion.name,
@@ -5763,6 +5994,7 @@ export default function SeasonHistoryView({
                               )}
                               color={entry.intlChampions["global-cup"]!.color}
                               logoSize={12}
+                              renderAs="span"
                               className="inline-flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden text-[10px] text-rift-mutedbright"
                               hint={{
                                 name: entry.intlChampions["global-cup"]!.name,
@@ -5789,8 +6021,12 @@ export default function SeasonHistoryView({
             </div>
 
             {/* Selected season */}
-            {selected && (
+            {(selected || listSelectedId) && (
               <div className="min-w-0 lg:sticky lg:top-4">
+                {seasonDetailLoading ? (
+                  <HallPanelLoading label="Loading season detail…" />
+                ) : selected ? (
+                <>
                 <div className="flex items-center justify-end gap-4 mb-2">
                   {exportMsg?.where === "one" && (
                     <span
@@ -5814,6 +6050,8 @@ export default function SeasonHistoryView({
                   </button>
                 </div>
                 <SeasonDetail entry={selected} onNavigate={hallNavigate} />
+                </>
+                ) : null}
               </div>
             )}
             </div>
@@ -5849,6 +6087,7 @@ export default function SeasonHistoryView({
         onCancel={() => setConfirmRemove(null)}
       />
     </div>
+    </HistoryCoachCardProvider>
     </HistoryTeamCardProvider>
     </HistoryPlayerCardProvider>
   );

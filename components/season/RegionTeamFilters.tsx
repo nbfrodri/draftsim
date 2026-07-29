@@ -151,7 +151,7 @@ export default function RegionTeamFilters({
             <button
               key={id}
               type="button"
-              onClick={() => onSplitFilter(id)}
+              onClick={() => onSplitFilter(splitFilter === id ? null : id)}
               className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
                 splitFilter === id
                   ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"

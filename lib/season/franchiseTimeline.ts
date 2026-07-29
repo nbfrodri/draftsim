@@ -51,6 +51,7 @@ export interface MatrixYear {
 export interface MatrixTitleEntry {
   yearLabel: string;
   seasonName: string;
+  seasonId: string;
   event: MatrixEvent;
 }
 
@@ -167,7 +168,12 @@ export function computeFranchiseMatrix(
         cells[year.seasonId] = cell;
 
         for (const ev of [...cell.splits, ...cell.intl]) {
-          titleList.push({ yearLabel: year.yearLabel, seasonName: year.seasonName, event: ev });
+          titleList.push({
+            yearLabel: year.yearLabel,
+            seasonName: year.seasonName,
+            seasonId: year.seasonId,
+            event: ev,
+          });
         }
       }
 

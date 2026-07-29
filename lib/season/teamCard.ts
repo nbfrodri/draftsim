@@ -19,10 +19,13 @@ import {
   seasonTeam,
   type InternationalId,
   type LeagueId,
+  type PhaseInactiveSnapshot,
+  type PhaseRosterSnapshot,
   type SeasonState,
   type SeasonTeam,
   type SplitId,
 } from "./types";
+import type { InactivePlayerSnapshot } from "./playerLifecycle";
 
 export const RECENT_SERIES_WINDOW = 20;
 
@@ -133,31 +136,239 @@ export function archivedTeamKeys(
   return out;
 }
 
+type ArchivedTeamSnap = {
+  players: Roster;
+  stage: string;
+  logoUrl?: string;
+};
+
 /** Latest phase roster for a team within one archived season. */
 export function archivedTeamSnapshot(
   entry: SeasonHistoryEntry,
   team: { name: string; leagueId: LeagueId },
-) {
+): ArchivedTeamSnap | null {
   const phases = [...(entry.phaseRosters ?? [])].sort(
     (a, b) => a.phaseIndex - b.phaseIndex,
   );
-  let latest: {
-    players: Roster;
-    stage: string;
-    logoUrl?: string;
-  } | null = null;
+  let latest: ArchivedTeamSnap | null = null;
+  let latestNonEmpty: ArchivedTeamSnap | null = null;
   for (const phase of phases) {
     const found = phase.teams.find(
       (t) => t.teamName === team.name && t.leagueId === team.leagueId,
     );
     if (!found) continue;
-    latest = {
+    const snap: ArchivedTeamSnap = {
       players: found.players as Roster,
       stage: phase.label,
       ...(found.logoUrl ? { logoUrl: found.logoUrl } : {}),
     };
+    latest = snap;
+    // Prefer a non-empty stage roster — some late phases archive the team
+    // chrome with an empty players array and would otherwise blank the card.
+    if (found.players.length > 0) latestNonEmpty = snap;
   }
-  return latest;
+  return latestNonEmpty ?? latest;
+}
+
+function snapFromPhase(
+  phase: PhaseRosterSnapshot,
+  team: { name: string; leagueId: LeagueId },
+): ArchivedTeamSnap | null {
+  const found = phase.teams.find(
+    (t) => t.teamName === team.name && t.leagueId === team.leagueId,
+  );
+  if (!found) return null;
+  return {
+    players: found.players as Roster,
+    stage: phase.label,
+    ...(found.logoUrl ? { logoUrl: found.logoUrl } : {}),
+  };
+}
+
+/**
+ * Phase roster for a team within one archived season, preferring the split or
+ * international stage that matches `scope`. Falls back to {@link archivedTeamSnapshot}.
+ */
+export function archivedTeamSnapshotForScope(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+  scope: SplitId | InternationalId,
+): ArchivedTeamSnap | null {
+  const phases = [...(entry.phaseRosters ?? [])].sort(
+    (a, b) => a.phaseIndex - b.phaseIndex,
+  );
+  let scoped: ArchivedTeamSnap | null = null;
+  let scopedNonEmpty: ArchivedTeamSnap | null = null;
+  for (const phase of phases) {
+    const phaseScope = phase.split ?? phase.event;
+    if (phaseScope !== scope) continue;
+    const snap = snapFromPhase(phase, team);
+    if (!snap) continue;
+    scoped = snap;
+    if (snap.players.length > 0) scopedNonEmpty = snap;
+  }
+  return scopedNonEmpty ?? scoped ?? archivedTeamSnapshot(entry, team);
+}
+
+/** Live academy size: inactive pool rows with status academy for this org. */
+export function liveAcademyCount(
+  pool: readonly { status: string; lastTeamId: string; lastTeamName?: string }[],
+  team: { id?: string; name?: string },
+): number {
+  let n = 0;
+  for (const e of pool) {
+    if (e.status !== "academy") continue;
+    if (team.id && e.lastTeamId === team.id) n++;
+    else if (team.name && e.lastTeamName === team.name) n++;
+  }
+  return n;
+}
+
+function academyStampMatchesTeam(
+  stamp: { teamId?: string; teamName?: string },
+  team: { name: string; teamId?: string },
+): boolean {
+  if (team.teamId && stamp.teamId === team.teamId) return true;
+  if (stamp.teamName === team.name) return true;
+  return false;
+}
+
+function countPhaseAcademy(
+  inactive: readonly PhaseInactiveSnapshot[],
+  team: { name: string; teamId?: string },
+): number {
+  let n = 0;
+  for (const p of inactive) {
+    if (p.status !== "academy") continue;
+    if (academyStampMatchesTeam(p, team)) n++;
+  }
+  return n;
+}
+
+function countYearEndAcademy(
+  pool: readonly InactivePlayerSnapshot[],
+  team: { name: string; teamId?: string },
+): number {
+  let n = 0;
+  for (const p of pool) {
+    if (p.status !== "academy") continue;
+    if (
+      academyStampMatchesTeam(
+        { teamId: p.lastTeamId, teamName: p.lastTeamName },
+        team,
+      )
+    ) {
+      n++;
+    }
+  }
+  return n;
+}
+
+/**
+ * Pick the phase-inactive stamp that pairs with {@link archivedTeamSnapshot}:
+ * prefer the latest non-empty roster phase that recorded `inactive`.
+ */
+function phaseInactiveForTeam(
+  phases: readonly PhaseRosterSnapshot[],
+  team: { name: string; leagueId: LeagueId },
+): { inactive: PhaseInactiveSnapshot[]; teamId?: string } | null {
+  const ordered = [...phases].sort((a, b) => a.phaseIndex - b.phaseIndex);
+  let teamId: string | undefined;
+  let withInactive: PhaseInactiveSnapshot[] | undefined;
+  let withInactiveNonEmpty: PhaseInactiveSnapshot[] | undefined;
+  for (const phase of ordered) {
+    const found = phase.teams.find(
+      (t) => t.teamName === team.name && t.leagueId === team.leagueId,
+    );
+    if (!found) continue;
+    if (!teamId) teamId = found.teamId;
+    if (phase.inactive === undefined) continue;
+    withInactive = phase.inactive;
+    if (found.players.length > 0) withInactiveNonEmpty = phase.inactive;
+  }
+  const inactive = withInactiveNonEmpty ?? withInactive;
+  if (inactive === undefined) return null;
+  return { inactive, ...(teamId ? { teamId } : {}) };
+}
+
+function resolveArchivedTeamId(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+): string | undefined {
+  for (const phase of entry.phaseRosters ?? []) {
+    const found = phase.teams.find(
+      (t) => t.teamName === team.name && t.leagueId === team.leagueId,
+    );
+    if (found?.teamId) return found.teamId;
+  }
+  return undefined;
+}
+
+/**
+ * Academy size for one archived year.
+ * Prefer mid-year {@link PhaseInactiveSnapshot}; else end-of-year
+ * `inactivePlayers`; `0` when neither source exists.
+ */
+export function archivedAcademyCount(
+  entry: SeasonHistoryEntry,
+  team: { name: string; leagueId: LeagueId },
+): number {
+  const teamId = resolveArchivedTeamId(entry, team);
+  const org = { name: team.name, ...(teamId ? { teamId } : {}) };
+
+  const phaseHit = phaseInactiveForTeam(entry.phaseRosters ?? [], team);
+  if (phaseHit) {
+    return countPhaseAcademy(phaseHit.inactive, {
+      name: team.name,
+      teamId: phaseHit.teamId ?? teamId,
+    });
+  }
+
+  if (entry.inactivePlayers !== undefined) {
+    return countYearEndAcademy(entry.inactivePlayers, org);
+  }
+
+  return 0;
+}
+
+/**
+ * Newest archive that recorded academy/FA pool data for this franchise.
+ * Used by career / unscoped history cards.
+ */
+export function latestAcademyCount(
+  entries: readonly SeasonHistoryEntry[],
+  team: { name: string; leagueId: LeagueId },
+): number {
+  const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
+  for (const entry of ordered) {
+    const hasPhaseInactive = (entry.phaseRosters ?? []).some(
+      (p) => p.inactive !== undefined,
+    );
+    if (!hasPhaseInactive && entry.inactivePlayers === undefined) continue;
+    return archivedAcademyCount(entry, team);
+  }
+  return 0;
+}
+
+/**
+ * Newest archived season's non-empty phase roster for a franchise.
+ * Used by career / all-time team cards when no `seasonId` is pinned.
+ */
+export function latestTeamRoster(
+  entries: readonly SeasonHistoryEntry[],
+  team: { name: string; leagueId: LeagueId },
+): (ArchivedTeamSnap & { entry: SeasonHistoryEntry }) | null {
+  const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
+  let emptyFallback: (ArchivedTeamSnap & { entry: SeasonHistoryEntry }) | null =
+    null;
+  for (const entry of ordered) {
+    const snap = archivedTeamSnapshot(entry, team);
+    if (!snap) continue;
+    const withEntry = { ...snap, entry };
+    if (snap.players.length > 0) return withEntry;
+    emptyFallback ??= withEntry;
+  }
+  return emptyFallback;
 }
 
 /** Accolade chips for one archived year (or live season tally). */
