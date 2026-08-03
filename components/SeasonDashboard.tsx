@@ -1521,18 +1521,18 @@ function TournamentCard({
             {standings.map((s) => (
               <div
                 key={s.team.id}
-                className={`flex items-center gap-1.5 text-[10px] ${
+                className={`grid grid-cols-[0.75rem_minmax(0,1fr)_2rem_8.5rem] gap-1.5 items-center text-[10px] ${
                   s.team.id === controlledId
                     ? "text-rift-bluebright"
                     : "text-rift-mutedbright"
                 }`}
               >
-                <span className="w-3 text-rift-muted/70 tabular-nums flex-shrink-0">
+                <span className="text-rift-muted/70 tabular-nums">
                   {s.rank}
                 </span>
-                {/* Name + badges share one flex-1 cell so qualifier/form
-                    pills truncate the name instead of shifting W/L. */}
-                <span className="min-w-0 flex-1 flex items-center gap-1.5">
+                {/* Name + form/qualifier absorb variable chrome; W-L and
+                    season (S1/I1) sit on fixed tracks so columns align. */}
+                <span className="min-w-0 flex items-center gap-1.5 overflow-hidden">
                   <TeamNameLink
                     teamId={s.team.id}
                     name={s.team.name}
@@ -1542,7 +1542,7 @@ function TournamentCard({
                     color={s.team.color}
                     logoSize={12}
                     renderAs="span"
-                    className={`truncate min-w-0 flex-1 text-[10px] ${
+                    className={`truncate min-w-0 text-[10px] ${
                       s.team.id === controlledId
                         ? "text-rift-bluebright"
                         : "text-rift-mutedbright"
@@ -1558,14 +1558,14 @@ function TournamentCard({
                   <QualifierTagView tag={regionSeeds?.get(s.team.id)} />
                 </span>
                 <span
-                  className="tabular-nums text-rift-muted/70 flex-shrink-0 w-8 text-right"
+                  className="tabular-nums text-rift-muted/70 text-right"
                   title="This tournament match W-L"
                 >
                   {s.wins}-{s.losses}
                 </span>
-                <TeamLiveStatsInline
-                  stats={teamStats.get(s.team.id)}
-                />
+                <span className="min-w-0 overflow-hidden flex justify-end">
+                  <TeamLiveStatsInline stats={teamStats.get(s.team.id)} />
+                </span>
               </div>
             ))}
             {standings.length === 0 && (

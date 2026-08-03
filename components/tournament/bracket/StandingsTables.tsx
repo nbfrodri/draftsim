@@ -44,6 +44,8 @@ function StreakChip({ streak }: { streak: TeamStreak | undefined }) {
 // in the team's brand color, name, streak chip. The icon keeps its brand
 // color regardless of the row's lead/advancing tint — same convention as
 // the match cards, where it acts as a stable identity mark.
+// min-w-0 is required so the grid's team track (minmax(0,1fr)) can shrink
+// and truncate instead of shoving fixed W/L columns sideways.
 function TeamCell({
   team,
   streak,
@@ -52,8 +54,8 @@ function TeamCell({
   streak: TeamStreak | undefined;
 }) {
   return (
-    <span className="truncate flex items-center gap-0">
-      <span className="text-rift-mutedbright/60 mr-2 tabular-nums text-[9px]">
+    <span className="min-w-0 truncate flex items-center gap-0">
+      <span className="text-rift-mutedbright/60 mr-2 tabular-nums text-[9px] flex-shrink-0">
         #{team.seed}
       </span>
       <TeamNameLink
@@ -77,6 +79,25 @@ function TeamCell({
   );
 }
 
+// Season series + title chips (S1 / I1 / …). Fixed last-track width — never
+// `auto` — because each standings row is its own CSS grid; an auto-sized
+// last column would grow per-row and shift every P/W/L column out of
+// vertical alignment. Team track uses minmax(0,1fr) so name/streak can
+// shrink instead of forcing rem columns sideways.
+// Full static class strings (Tailwind JIT can't see template interpolations).
+const RR_COLS =
+  "grid-cols-[2.5rem_minmax(0,1fr)_2.5rem_2.5rem_2.5rem_3.5rem_3rem]";
+const RR_COLS_SEASON =
+  "grid-cols-[2.5rem_minmax(0,1fr)_2.5rem_2.5rem_2.5rem_3.5rem_3rem_8.5rem]";
+const GROUP_COLS =
+  "grid-cols-[2.5rem_minmax(0,1fr)_3rem_3rem_3.5rem_3.5rem]";
+const GROUP_COLS_SEASON =
+  "grid-cols-[2.5rem_minmax(0,1fr)_2.5rem_2.5rem_2.5rem_3rem_8.5rem]";
+const SWISS_COLS =
+  "grid-cols-[2.5rem_minmax(0,1fr)_2.5rem_2.5rem_2.5rem_3.5rem_2.75rem_3rem]";
+const SWISS_COLS_SEASON =
+  "grid-cols-[2.5rem_minmax(0,1fr)_2.5rem_2.5rem_2.5rem_3.5rem_2.75rem_3rem_8.5rem]";
+
 // ─── Round-robin standings table ──────────────────────────────────────
 
 export function StandingsTable({
@@ -93,9 +114,7 @@ export function StandingsTable({
   const standings = useMemo(() => computeStandings(tournament), [tournament]);
   const streaks = teamStreaksFor(tournament);
   const showSeason = !!teamStats && teamStats.size > 0;
-  const cols = showSeason
-    ? "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_3rem_minmax(5.5rem,auto)]"
-    : "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_3rem]";
+  const cols = showSeason ? RR_COLS_SEASON : RR_COLS;
   return (
     <div className="border border-rift-line/50 bg-rift-panel/40 overflow-x-auto">
       <div className="min-w-[560px]">
@@ -153,10 +172,12 @@ export function StandingsTable({
               {row.gameDiff}
             </span>
             {showSeason && (
-              <TeamLiveStatsInline
-                stats={teamStats?.get(row.team.id)}
-                className="justify-end"
-              />
+              <span className="min-w-0 overflow-hidden flex justify-end">
+                <TeamLiveStatsInline
+                  stats={teamStats?.get(row.team.id)}
+                  className="justify-end"
+                />
+              </span>
             )}
           </div>
         );
@@ -183,9 +204,7 @@ export function GroupStandingsTable({
 }) {
   const streaks = teamStreaksFor(tournament);
   const showSeason = !!teamStats && teamStats.size > 0;
-  const cols = showSeason
-    ? "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3rem_minmax(5.5rem,auto)]"
-    : "grid-cols-[2.5rem_1fr_3rem_3rem_3.5rem_3.5rem]";
+  const cols = showSeason ? GROUP_COLS_SEASON : GROUP_COLS;
   return (
     <div className="border border-rift-line/50 bg-rift-panel/40 overflow-x-auto">
       <div className={`grid ${cols} gap-2 px-3 py-2 border-b border-rift-line/40 text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 min-w-[320px]`}>
@@ -242,10 +261,12 @@ export function GroupStandingsTable({
                 {row.gameDiff}
               </span>
               {showSeason && (
-                <TeamLiveStatsInline
-                  stats={stats}
-                  className="justify-end"
-                />
+                <span className="min-w-0 overflow-hidden flex justify-end">
+                  <TeamLiveStatsInline
+                    stats={stats}
+                    className="justify-end"
+                  />
+                </span>
               )}
             </div>
             {isCutLine && idx < standings.length - 1 && (
@@ -303,9 +324,7 @@ export function SwissStandingsTable({
   const winTarget = tournament.swissWinTarget ?? null;
   const showCut = winTarget == null && advancing > 0 && advancing < standings.length;
   const showSeason = !!teamStats && teamStats.size > 0;
-  const cols = showSeason
-    ? "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_2.75rem_3rem_minmax(5.5rem,auto)]"
-    : "grid-cols-[2.5rem_1fr_2.5rem_2.5rem_2.5rem_3.5rem_2.75rem_3rem]";
+  const cols = showSeason ? SWISS_COLS_SEASON : SWISS_COLS;
   return (
     <div className="border border-rift-line/50 bg-rift-panel/40">
       {winTarget != null && (
@@ -380,10 +399,12 @@ export function SwissStandingsTable({
                 </span>
                 <span className="text-center tabular-nums">{row.medianBuchholz}</span>
                 {showSeason && (
-                  <TeamLiveStatsInline
-                    stats={teamStats?.get(row.team.id)}
-                    className="justify-end"
-                  />
+                  <span className="min-w-0 overflow-hidden flex justify-end">
+                    <TeamLiveStatsInline
+                      stats={teamStats?.get(row.team.id)}
+                      className="justify-end"
+                    />
+                  </span>
                 )}
               </div>
               {showCut && row.rank === advancing && idx < standings.length - 1 && (
