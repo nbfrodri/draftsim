@@ -1475,20 +1475,23 @@ function TournamentCard({
             <div className="space-y-0.5">
               {playInQualified.map((t) => {
                 const st = season.teams.find((x) => x.id === t.id);
+                // TeamNameLink renders inline-flex; wrap so qualifiers stack
+                // top/bottom instead of sitting side-by-side.
                 return (
-                  <TeamNameLink
-                    key={t.id}
-                    teamId={t.id}
-                    name={t.name}
-                    leagueId={st?.leagueId}
-                    iconKey={t.iconKey}
-                    logoUrl={t.logoUrl}
-                    color={t.color}
-                    logoSize={12}
-                    renderAs="span"
-                    className="flex items-center gap-1.5 text-[10px] text-rift-goldbright"
-                    hint={st ? { team: st } : { name: t.name, iconKey: t.iconKey, logoUrl: t.logoUrl, color: t.color }}
-                  />
+                  <div key={t.id}>
+                    <TeamNameLink
+                      teamId={t.id}
+                      name={t.name}
+                      leagueId={st?.leagueId}
+                      iconKey={t.iconKey}
+                      logoUrl={t.logoUrl}
+                      color={t.color}
+                      logoSize={12}
+                      renderAs="span"
+                      className="flex items-center gap-1.5 text-[10px] text-rift-goldbright"
+                      hint={st ? { team: st } : { name: t.name, iconKey: t.iconKey, logoUrl: t.logoUrl, color: t.color }}
+                    />
+                  </div>
                 );
               })}
             </div>
@@ -1524,34 +1527,38 @@ function TournamentCard({
                     : "text-rift-mutedbright"
                 }`}
               >
-                <span className="w-3 text-rift-muted/70 tabular-nums">
+                <span className="w-3 text-rift-muted/70 tabular-nums flex-shrink-0">
                   {s.rank}
                 </span>
-                <TeamNameLink
-                  teamId={s.team.id}
-                  name={s.team.name}
-                  leagueId={season.teams.find((t) => t.id === s.team.id)?.leagueId}
-                  iconKey={s.team.iconKey}
-                  logoUrl={s.team.logoUrl}
-                  color={s.team.color}
-                  logoSize={12}
-                  renderAs="span"
-                  className={`truncate flex-1 text-[10px] ${
-                    s.team.id === controlledId
-                      ? "text-rift-bluebright"
-                      : "text-rift-mutedbright"
-                  }`}
-                  hint={{
-                    team: season.teams.find((t) => t.id === s.team.id),
-                  }}
-                />
-                <TeamFormBadge
-                  form={s.team.form}
-                  baseStar={s.team.starRating}
-                />
-                <QualifierTagView tag={regionSeeds?.get(s.team.id)} />
+                {/* Name + badges share one flex-1 cell so qualifier/form
+                    pills truncate the name instead of shifting W/L. */}
+                <span className="min-w-0 flex-1 flex items-center gap-1.5">
+                  <TeamNameLink
+                    teamId={s.team.id}
+                    name={s.team.name}
+                    leagueId={season.teams.find((t) => t.id === s.team.id)?.leagueId}
+                    iconKey={s.team.iconKey}
+                    logoUrl={s.team.logoUrl}
+                    color={s.team.color}
+                    logoSize={12}
+                    renderAs="span"
+                    className={`truncate min-w-0 flex-1 text-[10px] ${
+                      s.team.id === controlledId
+                        ? "text-rift-bluebright"
+                        : "text-rift-mutedbright"
+                    }`}
+                    hint={{
+                      team: season.teams.find((t) => t.id === s.team.id),
+                    }}
+                  />
+                  <TeamFormBadge
+                    form={s.team.form}
+                    baseStar={s.team.starRating}
+                  />
+                  <QualifierTagView tag={regionSeeds?.get(s.team.id)} />
+                </span>
                 <span
-                  className="tabular-nums text-rift-muted/70 flex-shrink-0"
+                  className="tabular-nums text-rift-muted/70 flex-shrink-0 w-8 text-right"
                   title="This tournament match W-L"
                 >
                   {s.wins}-{s.losses}
