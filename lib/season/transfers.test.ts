@@ -9,6 +9,7 @@ import {
   userTransferCapReached,
   activeWindowTransfers,
   teamMovedAtLane,
+  rebucketTransfersByStamp,
   USER_MAX_TRANSFERS_PER_WINDOW,
   settle,
   transferValue,
@@ -302,6 +303,26 @@ describe("transferCandidates / executeUserTransfer", () => {
     expect(userTransferCapReached(withCarry, "worlds", "mine")).toBe(false);
     expect(teamMovedAtLane(withCarry, "worlds", "mine", "top")).toBe(false);
     expect(activeWindowTransfers(withCarry, "worlds")).toEqual([]);
+  });
+
+  it("rebucketTransfersByStamp pulls First Stand / MSI stamps out of worlds", () => {
+    const worlds = {
+      event: "worlds" as const,
+      lane: "middle" as const,
+      fromTeamId: "A",
+      toTeamId: "B",
+      star: { tier: "A" as const, grade: null, goodChamps: [] },
+      swap: { tier: "B" as const, grade: null, goodChamps: [] },
+    };
+    const fs = { ...worlds, event: "first-stand" as const, lane: "top" as const };
+    const msi = { ...worlds, event: "msi" as const, lane: "jungle" as const };
+    const next = rebucketTransfersByStamp({
+      worlds: [worlds, fs, msi],
+      "first-stand": [fs], // duplicate — deduped
+    });
+    expect(next.worlds).toEqual([worlds]);
+    expect(next["first-stand"]).toEqual([fs]);
+    expect(next.msi).toEqual([msi]);
   });
 });
 

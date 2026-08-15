@@ -19,7 +19,6 @@ import {
   type InternationalId,
   type LeagueId,
   type PhaseRosterSnapshot,
-  type PlayerTransfer,
   type SeasonState,
   type SplitId,
 } from "./types";
@@ -41,6 +40,7 @@ import {
   type AllProScope,
 } from "./allPro";
 import { buildSeasonStory, type SeasonStory } from "./seasonStory";
+import { transfersForHistoryArchive } from "./transfers";
 
 /** A roster move frozen for the Hall: team names (not ids — teams regenerate)
  *  plus the two players who swapped lanes between the two clubs. */
@@ -596,22 +596,19 @@ export function buildSeasonHistoryEntry(
     }
   }
   // Freeze the year's roster moves with team names so they recap forever.
+  // Attribute by event stamp; drop prior-year Worlds carry below baseline.
   const transfers: HistoryTransfer[] = [];
-  for (const [event, moves] of Object.entries(season.transfersByEvent ?? {}) as Array<
-    [InternationalId, PlayerTransfer[]]
-  >) {
-    for (const m of moves ?? []) {
-      transfers.push({
-        event,
-        lane: m.lane,
-        from: teamRef(season, m.fromTeamId),
-        to: teamRef(season, m.toTeamId),
-        ...(m.star.name ? { inName: m.star.name } : {}),
-        inTier: m.star.tier,
-        ...(m.swap.name ? { outName: m.swap.name } : {}),
-        outTier: m.swap.tier,
-      });
-    }
+  for (const m of transfersForHistoryArchive(season)) {
+    transfers.push({
+      event: m.event,
+      lane: m.lane,
+      from: teamRef(season, m.fromTeamId),
+      to: teamRef(season, m.toTeamId),
+      ...(m.star.name ? { inName: m.star.name } : {}),
+      inTier: m.star.tier,
+      ...(m.swap.name ? { outName: m.swap.name } : {}),
+      outTier: m.swap.tier,
+    });
   }
   // Templated narrative recap (only attach when it found at least one
   // headline, so empty/sparse archives serialize unchanged).

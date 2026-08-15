@@ -22,6 +22,8 @@ import {
   splitFromRosterTimeMark,
   visibleTransferDigestEvents,
   transferDigestSectionTitle,
+  transfersForDigestEvent,
+  transfersForHistoryArchive,
 } from "./franchise";
 import {
   USER_MAX_MANUAL_DEMOTES,
@@ -1240,6 +1242,92 @@ describe("post-Worlds transfer digest carry", () => {
         phases: markPlayed("first-stand", "msi"),
       }),
     ).toEqual(["worlds", "msi"]);
+  });
+
+  it("attributes mis-bucketed First Stand / MSI stamps away from Post Worlds", () => {
+    const base = makeReality(false);
+    const fs = {
+      ...sampleMove,
+      event: "first-stand" as const,
+      lane: "top" as const,
+    };
+    const msi = {
+      ...sampleMove,
+      event: "msi" as const,
+      lane: "jungle" as const,
+    };
+    const worldsCarry = { ...sampleMove, lane: "middle" as const };
+    // Simulate leak: mid-season rows appended into the worlds carry array.
+    const polluted = {
+      ...base,
+      status: "complete" as const,
+      franchise: { ...base.franchise!, year: 2 },
+      transfersByEvent: {
+        worlds: [worldsCarry, fs, msi],
+      },
+      worldsOffseasonBaseline: 3,
+    };
+    expect(transfersForDigestEvent(polluted, "worlds")).toEqual([worldsCarry]);
+    expect(transfersForDigestEvent(polluted, "first-stand")).toEqual([fs]);
+    expect(transfersForDigestEvent(polluted, "msi")).toEqual([msi]);
+    expect(visibleTransferDigestEvents(polluted)).toEqual([
+      "worlds",
+      "first-stand",
+      "msi",
+    ]);
+
+    const archived = transfersForHistoryArchive(polluted);
+    // Prior-year worlds carry below baseline is omitted; FS/MSI stamps kept.
+    expect(archived.map((m) => m.event).sort()).toEqual([
+      "first-stand",
+      "msi",
+    ]);
+  });
+
+  it("roster news timeMarks stay on their window at offseason (not all Offseason)", () => {
+    const base = makeReality(true);
+    const season = {
+      ...base,
+      status: "complete" as const,
+      rosterNews: [
+        {
+          teamId: base.teams[0]!.id,
+          lane: "middle" as const,
+          entrantName: "A",
+          entrantTier: "B" as const,
+          entrantPotential: "B" as const,
+          entrantSource: "academy" as const,
+          timeMark: "First Stand window",
+        },
+        {
+          teamId: base.teams[0]!.id,
+          lane: "top" as const,
+          entrantName: "B",
+          entrantTier: "A" as const,
+          entrantPotential: "A" as const,
+          entrantSource: "free-agent" as const,
+          timeMark: "MSI window",
+        },
+        {
+          teamId: base.teams[0]!.id,
+          lane: "support" as const,
+          entrantName: "C",
+          entrantTier: "C" as const,
+          entrantPotential: "C" as const,
+          entrantSource: "rookie" as const,
+          timeMark: "Offseason",
+        },
+      ],
+    };
+    const marks = (season.rosterNews ?? []).map((n) => n.timeMark);
+    expect(marks).toEqual([
+      "First Stand window",
+      "MSI window",
+      "Offseason",
+    ]);
+    expect(splitFromRosterTimeMark("First Stand window")).toBe("winter");
+    expect(splitFromRosterTimeMark("MSI window")).toBe("spring");
+    expect(splitFromRosterTimeMark("Offseason")).toBe("offseason");
   });
 });
 

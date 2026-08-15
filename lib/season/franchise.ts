@@ -54,7 +54,11 @@ import {
   type SeasonPlayerOutcome,
   type RosterNewsEvent,
 } from "./playerLifecycle";
-import { offseasonTransferPass, transferValue } from "./transfers";
+import {
+  offseasonTransferPass,
+  transferValue,
+  transfersForDigestEvent,
+} from "./transfers";
 import { reassignCoaches } from "./coach";
 import { assignRoleElites } from "./teamGen";
 import { applyPoolDrift } from "./poolDrift";
@@ -67,6 +71,12 @@ import {
   type SeasonTeam,
   type SplitId,
 } from "./types";
+
+export {
+  transfersForDigestEvent,
+  transfersForHistoryArchive,
+  transferEventStamp,
+} from "./transfers";
 
 const SHORT_SPLIT_MARK: Record<SplitId, string> = {
   winter: "Winter",
@@ -132,19 +142,27 @@ export const TRANSFER_DIGEST_SECTION_ORDER: readonly InternationalId[] = [
  *
  * Visible sections always appear in `TRANSFER_DIGEST_SECTION_ORDER`
  * (Worlds → First Stand → MSI), regardless of season status or carry.
+ * Presence is driven by each move's event stamp (not raw bucket length) so
+ * mis-bucketed mid-season rows still open the correct accordion.
  */
 export function visibleTransferDigestEvents(
-  season: Pick<SeasonState, "transfersByEvent" | "phases" | "status">,
+  season: Pick<
+    SeasonState,
+    "transfersByEvent" | "phases" | "status" | "worldsOffseasonBaseline"
+  >,
 ): InternationalId[] {
-  const byEvent = season.transfersByEvent ?? {};
-  const present = INTERNATIONAL_DISPLAY_ORDER.filter(
-    (e) => (byEvent[e]?.length ?? 0) > 0,
-  );
-  const extras = (Object.keys(byEvent) as InternationalId[]).filter(
-    (e) =>
-      (byEvent[e]?.length ?? 0) > 0 &&
-      !(INTERNATIONAL_DISPLAY_ORDER as readonly string[]).includes(e),
-  );
+  const stamped = new Set<InternationalId>();
+  for (const e of INTERNATIONAL_DISPLAY_ORDER) {
+    if (transfersForDigestEvent(season, e).length > 0) stamped.add(e);
+  }
+  for (const bucket of Object.keys(season.transfersByEvent ?? {}) as InternationalId[]) {
+    if (
+      transfersForDigestEvent(season, bucket).length > 0 &&
+      !(INTERNATIONAL_DISPLAY_ORDER as readonly string[]).includes(bucket)
+    ) {
+      stamped.add(bucket);
+    }
+  }
   const played = new Set<InternationalId>();
   for (const p of season.phases ?? []) {
     if (p.kind === "international" && p.status === "complete" && p.event) {
@@ -153,12 +171,12 @@ export function visibleTransferDigestEvents(
   }
   const allowAll = season.status === "complete";
   const filtered = new Set(
-    present.concat(extras).filter(
+    [...stamped].filter(
       (e) =>
         allowAll ||
         played.has(e) ||
         // Prior-year post-Worlds carry (Worlds not yet played this year).
-        (e === "worlds" && (byEvent.worlds?.length ?? 0) > 0),
+        (e === "worlds" && transfersForDigestEvent(season, "worlds").length > 0),
     ),
   );
   const ordered = TRANSFER_DIGEST_SECTION_ORDER.filter((e) => filtered.has(e));

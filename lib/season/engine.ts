@@ -57,7 +57,7 @@ import {
   type SplitId,
 } from "./types";
 import type { SeasonHistoryEntry } from "./history";
-import { applyTransfers, awardStabilityBonus } from "./transfers";
+import { applyTransfers, awardStabilityBonus, rebucketTransfersByStamp } from "./transfers";
 import {
   coachDifficulty,
   coachMotivationFactor,
@@ -2117,15 +2117,18 @@ export function applyTournamentUpdate(
 
   const isLastPhase = next.phaseIndex >= next.phases.length - 1;
   if (isLastPhase) {
-    // Keep prior-year post-Worlds carry in `transfersByEvent.worlds` so the
-    // League digest can show real moves during offseason (no empty stub). Mark
-    // a baseline so this year's offseason cap / lane locks count from zero;
+    // Rebucket by event stamp first so First Stand / MSI rows that leaked into
+    // the worlds carry array do not inflate the offseason baseline or show
+    // under Post Worlds. Then keep true Worlds carry for the League digest
+    // and mark the baseline so this year's offseason cap starts at zero;
     // `startNextSeason` only carries moves appended after the baseline.
-    const worldsLen = next.transfersByEvent?.worlds?.length ?? 0;
+    const rebucketed = rebucketTransfersByStamp(next.transfersByEvent);
+    const worldsLen = rebucketed.worlds?.length ?? 0;
     let completed: SeasonState = {
       ...next,
       status: "complete",
       champion: next.intlResults.worlds?.[0] ?? null,
+      transfersByEvent: rebucketed,
       worldsOffseasonBaseline: worldsLen,
       // Fresh FA-sign / manual-demote / same-window-rookie quota for the
       // post-Worlds offseason browse window.

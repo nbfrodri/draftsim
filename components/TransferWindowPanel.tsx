@@ -32,6 +32,7 @@ import {
   splitFromRosterTimeMark,
   visibleTransferDigestEvents,
   transferDigestSectionTitle,
+  transfersForDigestEvent,
   type RosterTimeSplit,
 } from "@/lib/season/franchise";
 import type { Champion, Lane } from "@/lib/types";
@@ -426,7 +427,17 @@ export default function TransferWindowPanel() {
   const windows = useMemo(() => {
     if (!season) return [] as InternationalId[];
     return visibleTransferDigestEvents(season);
-  }, [season?.transfersByEvent, season?.phases, season?.status, season?.updatedAt]);
+  }, [season?.transfersByEvent, season?.phases, season?.status, season?.updatedAt, season?.worldsOffseasonBaseline]);
+
+  /** Moves shown per digest section — by event stamp, not raw bucket. */
+  const digestMovesByEvent = useMemo(() => {
+    if (!season) return {} as Partial<Record<InternationalId, PlayerTransfer[]>>;
+    const out: Partial<Record<InternationalId, PlayerTransfer[]>> = {};
+    for (const e of windows) {
+      out[e] = transfersForDigestEvent(season, e);
+    }
+    return out;
+  }, [season, windows]);
 
   const preferredWindow: InternationalId | null = useMemo(() => {
     if (atWindow && phase?.event && windows.includes(phase.event)) return phase.event;
@@ -551,7 +562,7 @@ export default function TransferWindowPanel() {
         {(windows.length > 0 || rosterNews.length > 0) && (
           <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/45 tabular-nums">
             {windows.length > 0
-              ? `${windows.reduce((n, e) => n + (byEvent[e]?.length ?? 0), 0)} moves`
+              ? `${windows.reduce((n, e) => n + (digestMovesByEvent[e]?.length ?? 0), 0)} moves`
               : ""}
             {windows.length > 0 && rosterNews.length > 0 ? " · " : ""}
             {rosterNews.length > 0 ? `${rosterNews.length} roster` : ""}
@@ -579,7 +590,7 @@ export default function TransferWindowPanel() {
                 id: "league",
                 label: "League digest",
                 count:
-                  windows.reduce((n, e) => n + (byEvent[e]?.length ?? 0), 0) +
+                  windows.reduce((n, e) => n + (digestMovesByEvent[e]?.length ?? 0), 0) +
                   rosterNews.length,
                 hint: "Completed swaps and roster moves league-wide",
               },
@@ -948,7 +959,7 @@ export default function TransferWindowPanel() {
             </span>
             {(windows.length > 0 || rosterNews.length > 0) && (
               <span className="text-[8px] text-rift-muted/45 tabular-nums">
-                {windows.reduce((n, e) => n + (byEvent[e]?.length ?? 0), 0)} swaps ·{" "}
+                {windows.reduce((n, e) => n + (digestMovesByEvent[e]?.length ?? 0), 0)} swaps ·{" "}
                 {rosterNews.length} roster
               </span>
             )}
@@ -1016,7 +1027,8 @@ export default function TransferWindowPanel() {
                 )
               ) : (
                 windows.map((e) => {
-                  const moves = (byEvent[e] ?? []).filter(transferMatchesFilter);
+                  const allForEvent = digestMovesByEvent[e] ?? [];
+                  const moves = allForEvent.filter(transferMatchesFilter);
                   const isOpen =
                     openEvent === e ||
                     (openEvent == null && e === preferredWindow) ||
@@ -1032,8 +1044,8 @@ export default function TransferWindowPanel() {
                           {transferDigestSectionTitle(e, season)} — {moves.length} move
                           {moves.length === 1 ? "" : "s"}
                           {(leagueFilter || teamFilter) &&
-                          (byEvent[e]?.length ?? 0) !== moves.length
-                            ? ` of ${byEvent[e]?.length ?? 0}`
+                          allForEvent.length !== moves.length
+                            ? ` of ${allForEvent.length}`
                             : ""}
                         </span>
                         <span>{isOpen ? "▴" : "▾"}</span>

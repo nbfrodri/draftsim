@@ -553,6 +553,117 @@ export function activeWindowTransfers(
   return baseline > 0 ? moves.slice(baseline) : moves;
 }
 
+/**
+ * Authoritative event for a transfer row: prefer the stamp on the move, fall
+ * back to the bucket key it was stored under.
+ */
+export function transferEventStamp(
+  move: { event?: InternationalId },
+  bucket: InternationalId,
+): InternationalId {
+  return move.event ?? bucket;
+}
+
+/**
+ * League-digest moves for one accordion section.
+ *
+ * Groups by each move's `event` stamp across every `transfersByEvent` bucket
+ * so First Stand / MSI rows cannot "leak" into Post Worlds just because they
+ * were appended to the worlds array (carry / offseason write bugs).
+ */
+export function transfersForDigestEvent(
+  season: Pick<SeasonState, "transfersByEvent" | "worldsOffseasonBaseline">,
+  event: InternationalId,
+): PlayerTransfer[] {
+  const byEvent = season.transfersByEvent ?? {};
+  const out: PlayerTransfer[] = [];
+  const seen = new Set<string>();
+  for (const [bucket, moves] of Object.entries(byEvent) as Array<
+    [InternationalId, PlayerTransfer[] | undefined]
+  >) {
+    for (const m of moves ?? []) {
+      if (transferEventStamp(m, bucket) !== event) continue;
+      const key = transferDedupeKey({ ...m, event });
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(m);
+    }
+  }
+  return out;
+}
+
+/**
+ * Transfers to freeze into Hall for this season: drop prior-year Worlds carry
+ * (below `worldsOffseasonBaseline` with stamp `worlds`) and attribute every
+ * row by its event stamp so mis-bucketed mid-season moves land in the right
+ * Post First Stand / Post MSI section.
+ */
+export function transfersForHistoryArchive(
+  season: Pick<SeasonState, "transfersByEvent" | "worldsOffseasonBaseline">,
+): PlayerTransfer[] {
+  const byEvent = season.transfersByEvent ?? {};
+  const baseline = season.worldsOffseasonBaseline ?? 0;
+  const out: PlayerTransfer[] = [];
+  for (const [bucket, moves] of Object.entries(byEvent) as Array<
+    [InternationalId, PlayerTransfer[] | undefined]
+  >) {
+    const list = moves ?? [];
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i]!;
+      const stamp = transferEventStamp(m, bucket);
+      if (
+        bucket === "worlds" &&
+        baseline > 0 &&
+        i < baseline &&
+        stamp === "worlds"
+      ) {
+        // Already archived with the prior year — do not re-attribute here.
+        continue;
+      }
+      out.push(stamp === m.event ? m : { ...m, event: stamp });
+    }
+  }
+  return out;
+}
+
+function transferDedupeKey(m: PlayerTransfer): string {
+  return [
+    m.event,
+    m.lane,
+    m.fromTeamId,
+    m.toTeamId,
+    m.star.id ?? m.star.name ?? "",
+    m.swap.id ?? m.swap.name ?? "",
+  ].join("|");
+}
+
+/**
+ * Move every row into the bucket matching its `event` stamp (deduped).
+ * Call at season completion so First Stand / MSI rows that leaked into
+ * `worlds` (prior-year carry array) do not inflate the offseason baseline
+ * or Post Worlds digest.
+ */
+export function rebucketTransfersByStamp(
+  byEvent: Partial<Record<InternationalId, PlayerTransfer[]>> | undefined,
+): Partial<Record<InternationalId, PlayerTransfer[]>> {
+  if (!byEvent) return {};
+  const next: Partial<Record<InternationalId, PlayerTransfer[]>> = {};
+  const seen = new Set<string>();
+  for (const [bucket, moves] of Object.entries(byEvent) as Array<
+    [InternationalId, PlayerTransfer[] | undefined]
+  >) {
+    for (const m of moves ?? []) {
+      const stamp = transferEventStamp(m, bucket);
+      const row = stamp === m.event ? m : { ...m, event: stamp };
+      const key = transferDedupeKey(row);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      (next[stamp] ??= []).push(row);
+    }
+  }
+  return next;
+}
+
 // Each team makes at most ONE move per role per window. Has `teamId` already
 // been part of a transfer at `lane` this window?
 export function teamMovedAtLane(
