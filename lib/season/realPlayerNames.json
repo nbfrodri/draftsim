@@ -32,7 +32,7 @@
       "top": "PerfecT",
       "jungle": "Cuzz",
       "middle": "Bdd",
-      "bottom": "Aiming",
+      "bottom": "Jiwoo",
       "support": "Effort"
     },
     "Dplus KIA": {
@@ -52,7 +52,7 @@
     "HANJIN BRION": {
       "top": "Casting",
       "jungle": "GIDEON",
-      "middle": "Loki ",
+      "middle": "Roamer",
       "bottom": "Teddy",
       "support": "Namgung"
     },
@@ -67,7 +67,7 @@
       "top": "Rich",
       "jungle": "Willer",
       "middle": "Ucal",
-      "bottom": "Jiwoo",
+      "bottom": "Aiming",
       "support": "Andil"
     }
   },
@@ -91,10 +91,10 @@
       "jungle": "Tian",
       "middle": "Creme",
       "bottom": "JackeyLove",
-      "support": "fengyue"
+      "support": "Zhuo"
     },
     "Anyone's Legend": {
-      "top": "Flandre",
+      "top": "Breathe",
       "jungle": "Tarzan",
       "middle": "Shanks",
       "bottom": "Hope",
@@ -104,25 +104,25 @@
       "top": "Hoya",
       "jungle": "Guwon",
       "middle": "Care",
-      "bottom": "Assum",
-      "support": "Zhuo"
+      "bottom": "Photic",
+      "support": "fengyue"
     },
     "EDWARD GAMING": {
       "top": "Zdz",
-      "jungle": "Xiaohao",
-      "middle": "Angel",
+      "jungle": "Jiejie",
+      "middle": "sinian",
       "bottom": "Leave",
-      "support": "Jwei"
+      "support": "Parukia"
     },
     "LGD GAMING": {
       "top": "Burdol",
       "jungle": "Heng",
       "middle": "Tangyuan",
       "bottom": "Shaoye",
-      "support": "Ycx"
+      "support": "Crisp"
     },
     "Invictus Gaming": {
-      "top": "Breathe",
+      "top": "TheShy",
       "jungle": "Wei",
       "middle": "Rookie",
       "bottom": "JiaQi",
@@ -133,13 +133,13 @@
       "jungle": "Monki",
       "middle": "Karis",
       "bottom": "About",
-      "support": "Dorian"
+      "support": "Erha"
     },
     "THUNDER TALK GAMING": {
       "top": "Keshi",
       "jungle": "Junhao",
       "middle": "Heru",
-      "bottom": "Ryan3",
+      "bottom": "Ahn",
       "support": "Feather"
     }
   },
@@ -201,7 +201,7 @@
       "support": "Lospa"
     },
     "G2 Esports": {
-      "top": "BrokenBIade",
+      "top": "BrokenBlade",
       "jungle": "SkewMond",
       "middle": "Caps",
       "bottom": "Hans Sama",
@@ -228,7 +228,7 @@
       "jungle": "Contractz",
       "middle": "Zinie",
       "bottom": "Bvoy",
-      "support": "Ceos"
+      "support": "Zeyzal"
     },
     "Cloud9 Kia": {
       "top": "Thanatos",
@@ -291,7 +291,7 @@
     "RED Canids Kalunga": {
       "top": "zynts",
       "jungle": "STEPZ",
-      "middle": "Kaze",
+      "middle": null,
       "bottom": "Morttheus",
       "support": "frosty"
     },
@@ -306,8 +306,8 @@
       "top": "zekas",
       "jungle": "sarolu",
       "middle": "Mireu",
-      "bottom": "ceo",
-      "support": "Kaiwing"
+      "bottom": "Jeskla",
+      "support": "scamber"
     },
     "LOS": {
       "top": "Zest",
@@ -325,24 +325,24 @@
     },
     "LOUD": {
       "top": "Xyno",
-      "jungle": "YoungJae",
-      "middle": "Envy",
-      "bottom": "Bull",
+      "jungle": "Sinatra",
+      "middle": "Kaze",
+      "bottom": "Rabelo",
       "support": "uZent"
     },
     "paiN Gaming": {
-      "top": "Robo",
+      "top": "Boal",
       "jungle": "CarioK",
       "middle": "Keine",
-      "bottom": "Trigger",
-      "support": "Kuri"
+      "bottom": "Hena",
+      "support": "Ceos"
     },
     "LEVIATÁN": {
       "top": "Devost",
       "jungle": "Booki",
       "middle": "Enga",
-      "bottom": "Snaker",
-      "support": "TopLop"
+      "bottom": "Strensh",
+      "support": "Shiku"
     },
     "KaBuM!": {
       "top": null,
@@ -355,7 +355,7 @@
       "top": "Kiari",
       "jungle": "StineR",
       "middle": "Leleko",
-      "bottom": "scuro",
+      "bottom": "Netuno",
       "support": "konseki"
     }
   },
@@ -370,7 +370,7 @@
     "GAM Esports": {
       "top": "Kiaya",
       "jungle": "Draktharr",
-      "middle": "Aress",
+      "middle": "Gloryy",
       "bottom": "Artemis",
       "support": "Taki"
     },
@@ -392,7 +392,7 @@
       "top": "Flauren",
       "jungle": "Pop9",
       "middle": "HongSuo",
-      "bottom": "Feng ",
+      "bottom": "Feng",
       "support": "ShiauC"
     },
     "CTBC Flying Oyster": {
@@ -405,9 +405,9 @@
     "Ground Zero Gaming": {
       "top": "1Jiang",
       "jungle": "Husha",
-      "middle": null,
+      "middle": "Uniboy",
       "bottom": "Shunn",
-      "support": "Orca"
+      "support": "Kaiwing"
     },
     "DetonatioN FocusMe": {
       "top": "Momo",
@@ -434,15 +434,15 @@
   "extraTeamLogos": {
     "WeiboGaming": {
       "top": "Zika",
-      "jungle": "Jiejie",
+      "jungle": "Xiaohao",
       "middle": "Xiaohu",
       "bottom": "Elk",
-      "support": "TheHank"
+      "support": "Jwei"
     },
     "Suzhou LNG Esports": {
       "top": "sheer",
       "jungle": "Croco",
-      "middle": "BuLLDoG",
+      "middle": "Nia1",
       "bottom": "1xn",
       "support": "MISSING"
     },
@@ -450,12 +450,12 @@
       "top": "sasii",
       "jungle": "climber",
       "middle": "Saber",
-      "bottom": "Hena",
+      "bottom": null,
       "support": "Xiaoxia"
     },
     "Oh My God": {
       "top": "Hery",
-      "jungle": "Juhan",
+      "jungle": "re0",
       "middle": "haichao",
       "bottom": "Starry",
       "support": "Moham"

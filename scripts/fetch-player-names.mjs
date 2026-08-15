@@ -7,10 +7,22 @@
 // Writes lib/season/realPlayerNames.json:
 //   { [league]: { [teamName]: { top, jungle, middle, bottom, support } } }
 //   npm run fetch-player-names
+//
+// Academy / Challengers / sub-cup traps:
+//   • getTeams lists academy players first (no starter flag)
+//   • schedule can surface Challengers or cup games under the same team code
+// Sticky prior starters (still on the org) win before match lineups; a full
+// academy five is also dropped when prior starters remain on the squad.
 
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  isLikelyAcademyLineup,
+  preferPriorOnTeamObject,
+  stickyPriorStarters,
+  trimHandle,
+} from "./rosterFetchHelpers.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const snap = JSON.parse(await readFile(resolve(ROOT, "lib/season/realTeamNames.json"), "utf8"));
@@ -29,15 +41,27 @@ const ALIAS = {};
 // Hand-verified lanes the official feed can't resolve (defunct orgs, or a player
 // the recency resolver assigned elsewhere). Applied FIRST, so these claim their
 // handle and any conflicting feed pick is dropped. NRG positions for
-// Zamudo/Kisno/Sushee are a best guess — correct if wrong.
+// Zamudo/Kisno/Sushee are a best guess — correct if wrong. PSG / Chiefs keep
+// full prior starters because getTeams currently returns an empty squad.
 const MANUAL = {
-  "PSG Talon": { support: "Woody" },
-  "The Chiefs Esports Club": { middle: "JimieN" },
+  "PSG Talon": {
+    top: "Azhi",
+    jungle: "Karsa",
+    middle: "Maple",
+    bottom: "Betty",
+    support: "Woody",
+  },
+  "The Chiefs Esports Club": {
+    top: "BioPanther",
+    jungle: "Whynot",
+    middle: "JimieN",
+    bottom: "Slayder",
+    support: "Luon",
+  },
   "NRG Kia": { top: "Zamudo", jungle: "Kisno", middle: "PhyMini", bottom: "Sushee", support: "Spica" },
 };
 
-// Existing bundled rosters — the last-resort fallback for teams the official API
-// can't cover (no roster object AND no recent match: defunct/offseason orgs).
+// Existing bundled rosters — fallback for gaps / academy false-positives.
 const prev = {};
 try {
   const p = JSON.parse(await readFile(resolve(ROOT, "lib/season/realPlayerNames.json"), "utf8"));
@@ -71,8 +95,7 @@ async function latestEvent(leagueId, code) {
 }
 
 // Authoritative: the five who actually played the team's most recent game, plus
-// WHEN — { roster, date }. A stale date (team hasn't played in ~a year) lets the
-// resolver drop a defunct team's roster rather than steal current players.
+// WHEN — { roster, date }.
 async function lineupRoster(team) {
   const leagueId = leagues.get(team?.homeLeague?.name);
   if (!leagueId || !team?.code) return null;
@@ -89,46 +112,41 @@ async function lineupRoster(team) {
   for (const p of all) {
     const lane = ROLE2LANE[p.role];
     const nm = p.summonerName ?? ""; // live-stats prefixes the team code: "100T Dhokla"
-    if (lane && !roster[lane] && nm.startsWith(`${team.code} `)) roster[lane] = nm.slice(team.code.length + 1);
+    if (lane && !roster[lane] && nm.startsWith(`${team.code} `)) {
+      roster[lane] = trimHandle(nm.slice(team.code.length + 1));
+    }
   }
   return Object.keys(roster).length ? { roster, date: Date.parse(ev.startTime) || 0 } : null;
 }
 
-// Fallback: the team-object roster (full squad, no starter flag → first per role).
-function teamObjRoster(team) {
-  if (!team?.players?.length) return null;
-  const roster = {};
-  for (const p of team.players) {
-    const l = ROLE2LANE[p.role];
-    if (l && !roster[l] && p.summonerName) roster[l] = p.summonerName;
-  }
-  return Object.keys(roster).length ? roster : null;
+function squadHandles(es) {
+  return (es?.players ?? []).map((p) => p.summonerName);
 }
 
 // Gather each team's lineup (with date) and team-object roster.
 const lineups = new Map(); // ourName → { roster, date }
 const teamObjs = new Map(); // ourName → { lane: handle }
-const noEsTeam = new Set(); // teams the official feed doesn't know at all
+const esByOurName = new Map(); // ourName → es team
+const noEsTeam = new Set();
+let skippedAcademy = 0;
 for (const teams of Object.values(snap)) {
   for (const t of teams) {
     const es = esTeams.get(norm(ALIAS[t.name] ?? t.name));
     if (!es) { noEsTeam.add(t.name); continue; }
+    esByOurName.set(t.name, es);
     const line = await lineupRoster(es).catch(() => null);
-    if (line) lineups.set(t.name, line);
-    const obj = teamObjRoster(es);
+    if (line) {
+      if (isLikelyAcademyLineup(prev[t.name], line.roster, squadHandles(es))) skippedAcademy++;
+      else lineups.set(t.name, line);
+    }
+    const obj = preferPriorOnTeamObject(es.players, ROLE2LANE, prev[t.name]);
     if (obj) teamObjs.set(t.name, obj);
   }
 }
 
-const teamOf = new Map(); // ourName → its league key (for output)
+const teamOf = new Map();
 for (const [lg, teams] of Object.entries(snap)) for (const t of teams) teamOf.set(t.name, lg);
 
-// Lineup candidates, freshest first — a player goes to the team that played him
-// MOST RECENTLY. This alone resolves transfers AND defunct teams: a player who
-// left 100 Thieves (last game months ago) for an active team is claimed by the
-// active team's recent lineup, stripping him from the defunct one. No absolute
-// age cutoff — that would wrongly drop active teams whose league is between
-// splits (e.g. LCP) relative to one currently playing (e.g. LEC).
 const cands = [];
 for (const [name, { roster, date }] of lineups)
   for (const lane of LANES) if (roster[lane]) cands.push({ team: name, lane, handle: roster[lane], date });
@@ -140,24 +158,31 @@ for (const [lg, teams] of Object.entries(snap)) for (const t of teams)
   out[lg][t.name] = { top: null, jungle: null, middle: null, bottom: null, support: null };
 const assigned = new Set();
 const setLane = (team, lane, handle) => {
-  if (!handle || assigned.has(handle) || out[teamOf.get(team)][team][lane]) return false;
-  out[teamOf.get(team)][team][lane] = handle;
-  assigned.add(handle);
+  const h = trimHandle(handle);
+  if (!h || assigned.has(h) || out[teamOf.get(team)][team][lane]) return false;
+  out[teamOf.get(team)][team][lane] = h;
+  assigned.add(h);
   return true;
 };
 
-const via = { manual: 0, lineup: 0, teamObj: 0, prev: 0 };
-// Round 0 — hand-verified overrides claim their handle first, so a conflicting
-// feed pick for the same player is dropped from the other team.
+const via = { manual: 0, sticky: 0, lineup: 0, teamObj: 0, prev: 0 };
+// Round 0 — hand-verified overrides.
 for (const [team, lanes] of Object.entries(MANUAL))
   for (const [lane, handle] of Object.entries(lanes)) if (setLane(team, lane, handle)) via.manual++;
-// Round 1 — official lineups, by recency (the authoritative starting fives).
+// Round 0.5 — prior starters still on the org (blocks sub/cup false positives).
+for (const [team, es] of esByOurName) {
+  const sticky = stickyPriorStarters(prev[team], squadHandles(es));
+  for (const [lane, handle] of Object.entries(sticky)) if (setLane(team, lane, handle)) via.sticky++;
+}
+// Round 1 — official lineups by recency (fills vacated lanes / transfers).
 for (const c of cands) if (setLane(c.team, c.lane, c.handle)) via.lineup++;
-// Round 2 — team-object rosters for active teams without a usable lineup.
+// Round 2 — team-object rosters for remaining gaps.
 for (const [team, roster] of teamObjs) for (const l of LANES) if (setLane(team, l, roster[l])) via.teamObj++;
-// Round 3 — prior bundled data ONLY for teams the official feed doesn't know
-// (so a defunct team the feed DOES list stays empty → generated, not stale).
-for (const team of noEsTeam) for (const l of LANES) if (setLane(team, l, prev[team]?.[l])) via.prev++;
+// Round 3 — prior bundled data for remaining gaps.
+for (const [team, roster] of Object.entries(prev)) {
+  if (!teamOf.has(team)) continue;
+  for (const l of LANES) if (setLane(team, l, roster?.[l])) via.prev++;
+}
 
 let filled = 0, total = 0;
 const misses = [];
@@ -168,5 +193,6 @@ for (const [lg, teams] of Object.entries(snap)) for (const t of teams) {
 }
 await writeFile(resolve(ROOT, "lib/season/realPlayerNames.json"), JSON.stringify(out, null, 2) + "\n");
 console.log(`Lanes ${filled}/${total} (${Math.round((100 * filled) / total)}%) · ` +
-  `${via.manual} manual + ${via.lineup} via lineup + ${via.teamObj} via team roster + ${via.prev} kept from prior`);
+  `${via.manual} manual + ${via.sticky} sticky + ${via.lineup} via lineup + ${via.teamObj} via team roster + ${via.prev} kept from prior` +
+  (skippedAcademy ? ` · skipped ${skippedAcademy} academy lineups` : ""));
 if (misses.length) console.log("Empty (not in the official feed):", misses.join(", "));
