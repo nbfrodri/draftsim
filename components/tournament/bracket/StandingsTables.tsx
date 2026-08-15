@@ -205,78 +205,83 @@ export function GroupStandingsTable({
   const streaks = teamStreaksFor(tournament);
   const showSeason = !!teamStats && teamStats.size > 0;
   const cols = showSeason ? GROUP_COLS_SEASON : GROUP_COLS;
+  // min-w wrapper (like RR/Swiss): without it, fixed P/W/L/Season tracks
+  // in a narrow league card leave minmax(0,1fr) at ~0 and TeamCell clips.
+  const minW = showSeason ? "min-w-[520px]" : "min-w-[360px]";
   return (
     <div className="border border-rift-line/50 bg-rift-panel/40 overflow-x-auto">
-      <div className={`grid ${cols} gap-2 px-3 py-2 border-b border-rift-line/40 text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 min-w-[320px]`}>
-        <span>#</span>
-        <span>Team</span>
-        <span className="text-center" title="Played: matches played">P</span>
-        <span className="text-center" title="Match wins">W</span>
-        <span className="text-center" title="Match losses">L</span>
-        <span className="text-center" title="Game differential (gamesWon − gamesLost). Tiebreaker after head-to-head.">+/-</span>
-        {showSeason && (
-          <span className="text-right" title="Season-wide series win% · W-L and titles">
-            Season
-          </span>
-        )}
-      </div>
-      {standings.map((row, idx) => {
-        const isAdvancing = row.rank <= advancingTeams;
-        const isCutLine = row.rank === advancingTeams;
-        const rowCls = isAdvancing
-          ? row.rank === 1 && tournament.status === "complete"
-            ? "bg-rift-gold/15 text-rift-goldbright"
-            : "text-rift-bluebright bg-rift-blue/[0.04]"
-          : "text-rift-mutedbright/65";
-        const stats = teamStats?.get(row.team.id);
-        return (
-          <div key={row.team.id}>
-            <div
-              className={`grid ${cols} gap-2 px-3 py-1.5 border-b border-rift-line/20 last:border-b-0 text-[11px] md:text-xs items-baseline ${rowCls}`}
-            >
-              <span className="font-display tabular-nums">
-                {row.rank}
-                {isAdvancing && (
-                  <span className="text-emerald-300/80 ml-0.5">▲</span>
-                )}
-              </span>
-              <TeamCell team={row.team} streak={streaks[row.team.id]} />
-              <span className="text-center tabular-nums">{row.played}</span>
-              <span className="text-center tabular-nums text-rift-bluebright">
-                {row.wins}
-              </span>
-              <span className="text-center tabular-nums text-rift-redbright">
-                {row.losses}
-              </span>
-              <span
-                className={`text-center tabular-nums ${
-                  row.gameDiff > 0
-                    ? "text-emerald-300"
-                    : row.gameDiff < 0
-                    ? "text-rift-redbright"
-                    : "text-rift-mutedbright/60"
-                }`}
+      <div className={minW}>
+        <div className={`grid ${cols} gap-2 px-3 py-2 border-b border-rift-line/40 text-[8px] uppercase tracking-[0.3em] text-rift-gold/60`}>
+          <span>#</span>
+          <span>Team</span>
+          <span className="text-center" title="Played: matches played">P</span>
+          <span className="text-center" title="Match wins">W</span>
+          <span className="text-center" title="Match losses">L</span>
+          <span className="text-center" title="Game differential (gamesWon − gamesLost). Tiebreaker after head-to-head.">+/-</span>
+          {showSeason && (
+            <span className="text-right" title="Season-wide series win% · W-L and titles">
+              Season
+            </span>
+          )}
+        </div>
+        {standings.map((row, idx) => {
+          const isAdvancing = row.rank <= advancingTeams;
+          const isCutLine = row.rank === advancingTeams;
+          const rowCls = isAdvancing
+            ? row.rank === 1 && tournament.status === "complete"
+              ? "bg-rift-gold/15 text-rift-goldbright"
+              : "text-rift-bluebright bg-rift-blue/[0.04]"
+            : "text-rift-mutedbright/65";
+          const stats = teamStats?.get(row.team.id);
+          return (
+            <div key={row.team.id}>
+              <div
+                className={`grid ${cols} gap-2 px-3 py-1.5 border-b border-rift-line/20 last:border-b-0 text-[11px] md:text-xs items-baseline ${rowCls}`}
               >
-                {row.gameDiff > 0 ? "+" : ""}
-                {row.gameDiff}
-              </span>
-              {showSeason && (
-                <span className="min-w-0 overflow-hidden flex justify-end">
-                  <TeamLiveStatsInline
-                    stats={stats}
-                    className="justify-end"
-                  />
+                <span className="font-display tabular-nums">
+                  {row.rank}
+                  {isAdvancing && (
+                    <span className="text-emerald-300/80 ml-0.5">▲</span>
+                  )}
                 </span>
+                <TeamCell team={row.team} streak={streaks[row.team.id]} />
+                <span className="text-center tabular-nums">{row.played}</span>
+                <span className="text-center tabular-nums text-rift-bluebright">
+                  {row.wins}
+                </span>
+                <span className="text-center tabular-nums text-rift-redbright">
+                  {row.losses}
+                </span>
+                <span
+                  className={`text-center tabular-nums ${
+                    row.gameDiff > 0
+                      ? "text-emerald-300"
+                      : row.gameDiff < 0
+                      ? "text-rift-redbright"
+                      : "text-rift-mutedbright/60"
+                  }`}
+                >
+                  {row.gameDiff > 0 ? "+" : ""}
+                  {row.gameDiff}
+                </span>
+                {showSeason && (
+                  <span className="min-w-0 overflow-hidden flex justify-end">
+                    <TeamLiveStatsInline
+                      stats={stats}
+                      className="justify-end"
+                    />
+                  </span>
+                )}
+              </div>
+              {isCutLine && idx < standings.length - 1 && (
+                <div className="px-3 py-0.5 text-[8px] uppercase tracking-[0.4em] text-rift-mutedbright/50 border-b border-dashed border-rift-gold/40 bg-rift-bg/40 text-center">
+                  — playoff cutline —
+                </div>
               )}
             </div>
-            {isCutLine && idx < standings.length - 1 && (
-              <div className="px-3 py-0.5 text-[8px] uppercase tracking-[0.4em] text-rift-mutedbright/50 border-b border-dashed border-rift-gold/40 bg-rift-bg/40 text-center">
-                — playoff cutline —
-              </div>
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
