@@ -412,6 +412,14 @@ export function isAITurn(
   return false;
 }
 
+// Options bag para las funciones de decisión de IA.
+// forceHeuristic: true ? omite la política neural aunque esté cargada.
+//   Usar en dataset generation (la heurística es el "profesor" de BC),
+//   debugging o comparaciones controladas.
+export interface AIActionOptions {
+  forceHeuristic?: boolean;
+}
+
 // Backwards-compatible thin wrapper. Used by hot-paths where rationale
 // isn't surfaced (e.g., the AI vs AI fast-forward loop).
 export function chooseAIAction(
@@ -421,6 +429,7 @@ export function chooseAIAction(
   seriesCtx?: SeriesAIContext,
   rng: RNG = Math.random,
   personality?: DraftPersonality,
+  options?: AIActionOptions,
 ): number | null {
   return (
     chooseAIActionWithRationale(
@@ -430,14 +439,19 @@ export function chooseAIAction(
       seriesCtx,
       rng,
       personality,
+      options,
     )?.championId ?? null
   );
 }
 
-// Full decision with rationale. Intenta primero la pol?tica neural si est?
-// cargada; cae de vuelta a la heur?stica si el modelo no existe en disco.
-// La inicializaci?n perezosa del modelo ocurre en la primera llamada con
-// cada lista de campeones; llamadas posteriores reutilizan el modelo en cach?.
+// Full decision with rationale. Intenta primero la política neural si está
+// cargada; cae de vuelta a la heurística si el modelo no existe en disco.
+// La inicialización perezosa del modelo ocurre en la primera llamada con
+// cada lista de campeones; llamadas posteriores reutilizan el modelo en caché.
+//
+// Pasar options.forceHeuristic = true para forzar heurística explícitamente
+// (dataset generation, debugging). También respeta la env var
+// NEURAL_DRAFT_FORCE_HEURISTIC=1 para overrides a nivel de proceso.
 export function chooseAIActionWithRationale(
   game: GameDraft,
   champions: Champion[],
@@ -447,11 +461,19 @@ export function chooseAIActionWithRationale(
   // Optional draft personality (see personalities.ts). Omitted or the
   // 'balanced' preset ? decisions identical to historical behavior.
   personality?: DraftPersonality,
+  options?: AIActionOptions,
 ): AIRationale | null {
-  const neuralResult = chooseNeuralDraftActionWithRationale(
-    game, champions, fearlessLocked, seriesCtx, rng, personality,
-  );
-  if (neuralResult !== null) return neuralResult;
+  const skipNeural =
+    options?.forceHeuristic === true ||
+    process.env.NEURAL_DRAFT_FORCE_HEURISTIC === "1" ||
+    process.env.NEURAL_DRAFT_FORCE_HEURISTIC === "true";
+
+  if (!skipNeural) {
+    const neuralResult = chooseNeuralDraftActionWithRationale(
+      game, champions, fearlessLocked, seriesCtx, rng, personality,
+    );
+    if (neuralResult !== null) return neuralResult;
+  }
 
   const action = currentAction(game);
   if (!action) return null;

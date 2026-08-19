@@ -21,6 +21,7 @@ import { finalizeRoles } from "../lib/sim/finalizeRoles";
 import {
   chooseAIActionWithRationale,
   type SeriesAIContext,
+  type AIActionOptions,
 } from "../lib/draftAI";
 import {
   buildChampionIndex,
@@ -40,6 +41,12 @@ const DATASET_GAMES = parseInt(process.env.DATASET_GAMES ?? "1000", 10);
 const DATASET_OUTPUT = process.env.DATASET_OUTPUT ?? "data/draft-dataset.jsonl";
 const DATASET_APPEND = process.env.DATASET_APPEND === "true";
 const LOG_INTERVAL = 100;
+
+// Este script es el "profesor" de Behavior Cloning: SIEMPRE usa heurística.
+// La red neuronal aprende a imitar las decisiones heurísticas; si usara
+// neural para generar los datos de entrenamiento, el dataset estaría
+// contaminado con las propias predicciones del modelo (covariate shift).
+const FORCE_HEURISTIC_OPTS: AIActionOptions = { forceHeuristic: true };
 
 // ─── Fetch de campeones (igual que calibrate.ts) ─────────────────────────────
 
@@ -185,13 +192,15 @@ function simulateAndLogGame(
       seriesCtx,
     );
 
-    // La IA heurística elige la acción
+    // La IA heurística elige la acción (SIEMPRE — es el profesor de BC)
     const rationale = chooseAIActionWithRationale(
       game,
       champions,
       fearlessLocked,
       seriesCtx,
       rng,
+      undefined,
+      FORCE_HEURISTIC_OPTS,
     );
 
     if (!rationale) {

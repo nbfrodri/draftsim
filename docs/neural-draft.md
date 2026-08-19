@@ -5,6 +5,21 @@ cuándo se usa la red neuronal, cuándo la heurística, y cómo se inicializa el
 
 ---
 
+## Filosofía: "Neural en runtime, heurística como profesor"
+
+La heurística es **fundamental**, no descartable:
+
+- **Fallback garantizado** cuando el modelo no existe o está deshabilitado.
+- **Profesor de Behavior Cloning (BC)**: el dataset de entrenamiento se genera
+  *exclusivamente* con la heurística para evitar covariate shift.
+- **Base de re-ranking híbrido** si se implementa en el futuro.
+- **Debugging y comparación**: se puede forzar en cualquier momento.
+
+La red neuronal es **el default en runtime**: una vez cargada, todos los paths
+de juego (DraftApp, bulkSim worker, autoPlayMatch) la usan como primera opción.
+
+---
+
 ## Tabla resumen: Neural vs Heurística
 
 | Contexto | Path usado | Condición |
@@ -15,10 +30,10 @@ cuándo se usa la red neuronal, cuándo la heurística, y cómo se inicializa el
 | **autoPlayMatch (via worker)** | `ensureNeuralReady` → neural | Worker inicializa antes del primer match |
 | **autoPlayMatch (main thread)** | Neural si ya cargado, heurística si no | `initNeuralDraftPolicyAsync` debe haberse llamado antes |
 | **bulkSim.worker.ts** | `initNeuralDraftPolicyAsync` → neural | Se llama antes del primer mensaje |
-| **scripts (generate-draft-dataset.ts)** | Heurística siempre | Scripts no llaman `initNeuralDraftPolicyAsync` |
-| **scripts (compare-neural-vs-heuristic.ts)** | Selectable por condición | Usa `injectNeuralPolicy` / `resetNeuralDraftPolicy` |
+| **`generate-draft-dataset.ts`** | **Heurística siempre** (explícito) | `forceHeuristic: true` — es el "profesor" de BC |
+| **`compare-neural-vs-heuristic.ts`** | Selectable por condición | Usa `injectNeuralPolicy` / `resetNeuralDraftPolicy` |
 | **`NEURAL_DRAFT_DISABLED=1`** | Heurística siempre | Sobreescribe cualquier init |
-| **`NEURAL_DRAFT_DISABLED=true`** | Heurística siempre | Equivalente al anterior |
+| **`NEURAL_DRAFT_FORCE_HEURISTIC=1`** | Heurística siempre (sin desactivar init) | Debug / inspección comparativa |
 | **Tests (Vitest)** | Heurística (a menos que `injectNeuralPolicy`) | Tests usan `injectNeuralPolicy` explícitamente |
 
 ---
@@ -26,7 +41,10 @@ cuándo se usa la red neuronal, cuándo la heurística, y cómo se inicializa el
 ## Flujo `chooseAIActionWithRationale`
 
 ```
-chooseAIActionWithRationale(game, champions, fearlessLocked, seriesCtx, rng, personality)
+chooseAIActionWithRationale(game, champions, fearlessLocked, seriesCtx, rng, personality, options?)
+  │
+  ├─ options.forceHeuristic || NEURAL_DRAFT_FORCE_HEURISTIC?
+  │    └─ sí → saltar neural, ir directamente a heurística
   │
   ├─ llama chooseNeuralDraftActionWithRationale(...)
   │    │
@@ -38,6 +56,19 @@ chooseAIActionWithRationale(game, champions, fearlessLocked, seriesCtx, rng, per
 
 **El caller no necesita detectar si el modelo está cargado.** Si no hay modelo, la función
 retorna el resultado heurístico transparentemente.
+
+### API de `forceHeuristic`
+
+```typescript
+import { chooseAIActionWithRationale, type AIActionOptions } from "@/lib/draftAI";
+
+// Heurística explícita (dataset generation, tests, debugging)
+const rationale = chooseAIActionWithRationale(
+  game, champions, fearlessLocked, seriesCtx, rng,
+  undefined,
+  { forceHeuristic: true },
+);
+```
 
 ---
 
@@ -86,7 +117,8 @@ mediante `injectNeuralPolicy` / `resetNeuralDraftPolicy`.
 
 | Variable | Valor | Efecto |
 |---|---|---|
-| `NEURAL_DRAFT_DISABLED` | `1` o `true` | Desactiva la red neural; todo va a heurística |
+| `NEURAL_DRAFT_DISABLED` | `1` o `true` | Desactiva la red neural; todo va a heurística. Impide el init del modelo. |
+| `NEURAL_DRAFT_FORCE_HEURISTIC` | `1` o `true` | Fuerza heurística en runtime sin impedir el init del modelo. Útil para debugging comparativo. |
 | `NEURAL_DRAFT_MODEL_PATH` | ruta absoluta o URL | Sobreescribe la ruta del modelo |
 | `DATASET_GAMES` | entero | Número de partidas para `generate-draft-dataset.ts` |
 | `DATASET_OUTPUT` | ruta | Archivo JSONL de salida del dataset |

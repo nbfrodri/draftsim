@@ -43,6 +43,11 @@ El script:
 - Simula el resultado del partido y anota el outcome por turno.
 - Escribe un archivo JSONL (una línea = un turno del draft).
 
+> **Importante**: el script usa `{ forceHeuristic: true }` de forma explícita. La heurística
+> es el "profesor" del Behavior Cloning — si se usara neural para generar los datos, el
+> dataset estaría contaminado con las predicciones del propio modelo (covariate shift).
+> La neural **aprende de la heurística**, no de sí misma.
+
 Tamaño estimado: ~2 KB por línea → 1000 partidas ≈ 40 MB.
 
 ---
