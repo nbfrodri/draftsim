@@ -53,7 +53,7 @@ def main():
         raise FileNotFoundError(f"Checkpoint no encontrado: {ckpt_path}")
 
     print(f"[export] Cargando checkpoint desde {ckpt_path}...")
-    ckpt = torch.load(ckpt_path, map_location="cpu")
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 
     # Intentar reconstruir la arquitectura desde los args del checkpoint
     saved_args = ckpt.get("args", {})
@@ -79,3 +79,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

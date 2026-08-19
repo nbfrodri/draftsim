@@ -306,7 +306,7 @@ def main():
         raise FileNotFoundError(f"Checkpoint BC no encontrado: {bc_path}")
 
     print(f"[rl] Cargando checkpoint BC desde {bc_path}...")
-    ckpt = torch.load(bc_path, map_location=device)
+    ckpt = torch.load(bc_path, map_location=device, weights_only=False)
 
     # Reconstruir arquitectura del modelo EXACTAMENTE como fue entrenado en BC
     saved_args = ckpt.get("args", {})
@@ -402,7 +402,7 @@ def main():
     rl_best = ckpt_dir / "rl_best.pt"
     if rl_best.exists():
         print(f"\n[rl] Exportando mejor modelo RL desde {rl_best} → {out_path}")
-        ckpt = torch.load(rl_best, map_location="cpu")
+        ckpt = torch.load(rl_best, map_location="cpu", weights_only=False)
         model.load_state_dict(ckpt["model"])
     else:
         print(f"\n[rl] Exportando modelo final (sin mejora encontrada) → {out_path}")
@@ -415,3 +415,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

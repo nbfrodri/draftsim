@@ -247,7 +247,7 @@ def main():
     epochs_without_improvement = 0
 
     if args.resume:
-        ckpt = torch.load(args.resume, map_location=device)
+        ckpt = torch.load(args.resume, map_location=device, weights_only=False)
         model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
         scheduler.load_state_dict(ckpt["scheduler"])
@@ -343,7 +343,7 @@ def main():
     best_ckpt = ckpt_dir / "best.pt"
     if best_ckpt.exists():
         print(f"\n[train] Exportando mejor modelo desde {best_ckpt} → {out_path}")
-        ckpt = torch.load(best_ckpt, map_location="cpu")
+        ckpt = torch.load(best_ckpt, map_location="cpu", weights_only=False)
         model.load_state_dict(ckpt["model"])
 
     model.save_weights_json(out_path)
@@ -359,3 +359,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
