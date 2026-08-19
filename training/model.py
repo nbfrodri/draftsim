@@ -32,8 +32,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # Dimensiones por defecto (deben coincidir con dataset.py y stateEncoder.ts)
-DEFAULT_STATE_DIM = 3227
-DEFAULT_NUM_ACTIONS = 200
+# Single source: training/dimensions.json
+import json as _json
+from pathlib import Path as _Path
+
+_dims = _json.loads((_Path(__file__).parent / "dimensions.json").read_text())
+DEFAULT_STATE_DIM = _dims["STATE_DIM"]
+DEFAULT_NUM_ACTIONS = _dims["CHAMPION_POOL_SIZE"]
 DEFAULT_HIDDEN_DIMS = [512, 256, 128]
 
 

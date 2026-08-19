@@ -84,7 +84,8 @@ describe("encodeDraftState", () => {
 
   it("tiene STATE_DIM = SCALAR_DIMS + CHAMPION_POOL_SIZE × CHAMP_DIMS", () => {
     expect(STATE_DIM).toBe(SCALAR_DIMS + CHAMPION_POOL_SIZE * CHAMP_DIMS);
-    expect(STATE_DIM).toBe(3227);
+    // 27 + 236 × 16 = 3803
+    expect(STATE_DIM).toBe(3803);
   });
 
   it("codifica el índice de acción normalizado en la posición 0", () => {

@@ -22195,10 +22195,10 @@
 
   // training/dimensions.json
   var dimensions_default = {
-    CHAMPION_POOL_SIZE: 200,
+    CHAMPION_POOL_SIZE: 236,
     SCALAR_DIMS: 27,
     CHAMP_DIMS: 16,
-    STATE_DIM: 3227,
+    STATE_DIM: 3803,
     LEGAL_OFFSET: 4
   };
 

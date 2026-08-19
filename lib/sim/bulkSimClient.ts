@@ -3,6 +3,10 @@ import type { PlayerFormMap } from "@/lib/playerForm";
 import type { TournamentState } from "@/lib/tournament";
 import { autoPlayMatch } from "./autoPlayMatch";
 import type { BulkSimWorkerRequest, BulkSimWorkerResponse } from "./bulkSim.worker";
+import {
+  initNeuralDraftPolicyAsync,
+  isNeuralPolicyDisabled,
+} from "@/lib/draftAI";
 
 let worker: Worker | null = null;
 let nextId = 1;
@@ -47,6 +51,19 @@ function ensureWorker(): Worker | null {
   }
 }
 
+// Lazy neural init for the main-thread fallback path (no Worker available).
+// Cached so concurrent calls all await the same promise.
+let _mainThreadNeuralReady: Promise<void> | null = null;
+
+function ensureMainThreadNeuralReady(champions: Champion[]): Promise<void> {
+  if (!_mainThreadNeuralReady) {
+    _mainThreadNeuralReady = isNeuralPolicyDisabled()
+      ? Promise.resolve()
+      : initNeuralDraftPolicyAsync(champions).then(() => void 0);
+  }
+  return _mainThreadNeuralReady;
+}
+
 /** Run one AI-vs-AI match off the main thread when a worker is available. */
 export function runAutoPlayMatch(
   tournament: TournamentState,
@@ -56,7 +73,9 @@ export function runAutoPlayMatch(
 ): Promise<[TournamentState, PlayerFormMap]> {
   const w = ensureWorker();
   if (!w) {
-    return Promise.resolve(autoPlayMatch(tournament, matchId, champions, playerForms));
+    return ensureMainThreadNeuralReady(champions).then(() =>
+      autoPlayMatch(tournament, matchId, champions, playerForms),
+    );
   }
   const id = nextId++;
   return new Promise((resolve, reject) => {
@@ -77,5 +96,6 @@ export function runAutoPlayMatch(
 export function terminateBulkSimWorker(): void {
   worker?.terminate();
   worker = null;
+  _mainThreadNeuralReady = null;
   rejectAllPending("Worker terminated");
 }
