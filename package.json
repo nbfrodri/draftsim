@@ -17,6 +17,7 @@
     "fetch-coaches": "node scripts/fetch-coaches.mjs",
     "calibrate": "tsx scripts/calibrate.ts",
     "generate-dataset": "tsx scripts/generate-draft-dataset.ts",
+    "compare-draft-ai": "tsx scripts/compare-neural-vs-heuristic.ts",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build"
   },

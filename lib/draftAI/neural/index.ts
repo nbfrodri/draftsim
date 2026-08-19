@@ -51,14 +51,25 @@ export function isNeuralPolicyDisabled(): boolean {
  *
  * Orden de resolución:
  *   1. Variable de entorno NEURAL_DRAFT_MODEL_PATH
- *   2. Browser: `/models/draft-policy.json` (servido desde public/)
- *   3. Node: `public/models/draft-policy.json` relativo al proyecto
+ *   2. Browser (main thread): `/models/draft-policy.json` (servido desde public/)
+ *   3. Web Worker (browser/Tauri): `/models/draft-policy.json` — workers tienen
+ *      fetch global pero no tienen `window`, se detectan por ausencia de Node.js.
+ *   4. Node: `public/models/draft-policy.json` relativo al proyecto
  */
 function resolveModelPath(): string {
   if (process.env.NEURAL_DRAFT_MODEL_PATH) {
     return process.env.NEURAL_DRAFT_MODEL_PATH;
   }
   if (typeof window !== "undefined") {
+    return "/models/draft-policy.json";
+  }
+  // Web Worker (browser/Tauri): no hay `window` pero tampoco es Node.js.
+  // En Node.js process.versions.node es un string; en workers del browser no.
+  const isNode =
+    typeof process !== "undefined" &&
+    typeof process.versions !== "undefined" &&
+    typeof process.versions.node === "string";
+  if (!isNode) {
     return "/models/draft-policy.json";
   }
   return tryResolvePath(__dirname, "../../../public/models/draft-policy.json");

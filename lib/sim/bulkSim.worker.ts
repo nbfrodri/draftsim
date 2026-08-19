@@ -1,11 +1,16 @@
 import { autoPlayMatch } from "@/lib/sim/autoPlayMatch";
+import {
+  initNeuralDraftPolicyAsync,
+  isNeuralPolicyDisabled,
+} from "@/lib/draftAI";
+import type { Champion } from "@/lib/types";
 
 export type BulkSimWorkerRequest = {
   type: "autoPlayMatch";
   id: number;
   tournament: import("@/lib/tournament").TournamentState;
   matchId: string;
-  champions: import("@/lib/types").Champion[];
+  champions: Champion[];
   playerForms: import("@/lib/playerForm").PlayerFormMap;
 };
 
@@ -16,10 +21,24 @@ export type BulkSimWorkerResponse = {
   error?: string;
 };
 
-self.onmessage = (event: MessageEvent<BulkSimWorkerRequest>) => {
+// Lazy neural init — runs once per worker lifetime, before the first match.
+// Cached so concurrent messages all await the same promise.
+let _neuralReady: Promise<void> | null = null;
+
+function ensureNeuralReady(champions: Champion[]): Promise<void> {
+  if (!_neuralReady) {
+    _neuralReady = isNeuralPolicyDisabled()
+      ? Promise.resolve()
+      : initNeuralDraftPolicyAsync(champions).then(() => void 0);
+  }
+  return _neuralReady;
+}
+
+self.onmessage = async (event: MessageEvent<BulkSimWorkerRequest>) => {
   const msg = event.data;
   if (msg.type !== "autoPlayMatch") return;
   try {
+    await ensureNeuralReady(msg.champions);
     const [tournament, playerForms] = autoPlayMatch(
       msg.tournament,
       msg.matchId,

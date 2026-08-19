@@ -1,5 +1,34 @@
 "use strict";
 (() => {
+  var __create = Object.create;
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __getProtoOf = Object.getPrototypeOf;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+    get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+  }) : x)(function(x) {
+    if (typeof require !== "undefined") return require.apply(this, arguments);
+    throw Error('Dynamic require of "' + x + '" is not supported');
+  });
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+    // If the importer is in node compatibility mode or this is not an ESM
+    // file that has been converted to a CommonJS file using a Babel-
+    // compatible transform (i.e. "__esModule" has not been set), then set
+    // "default" to the CommonJS "module.exports" for node compatibility.
+    isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+    mod
+  ));
+
   // lib/draftOrder.ts
   var DRAFT_ORDER = [
     { index: 0, kind: "ban", side: "blue", slot: 0 },
@@ -22164,6 +22193,453 @@
     return set;
   }
 
+  // training/dimensions.json
+  var dimensions_default = {
+    CHAMPION_POOL_SIZE: 200,
+    SCALAR_DIMS: 27,
+    CHAMP_DIMS: 16,
+    STATE_DIM: 3227,
+    LEGAL_OFFSET: 4
+  };
+
+  // lib/draftAI/neural/stateEncoder.ts
+  var CHAMPION_POOL_SIZE = dimensions_default.CHAMPION_POOL_SIZE;
+  var SCALAR_DIMS = dimensions_default.SCALAR_DIMS;
+  var CHAMP_DIMS = dimensions_default.CHAMP_DIMS;
+  var STATE_DIM = dimensions_default.STATE_DIM;
+  function buildChampionIndex(champions) {
+    if (champions.length > CHAMPION_POOL_SIZE) {
+      console.warn(
+        `[stateEncoder] Pool de campeones (${champions.length}) excede CHAMPION_POOL_SIZE (${CHAMPION_POOL_SIZE}). Los campeones sobrantes se ignorar\xE1n.`
+      );
+    }
+    const sorted = [...champions].sort((a, b) => a.id - b.id).slice(0, CHAMPION_POOL_SIZE);
+    const idToSlot = /* @__PURE__ */ new Map();
+    const slotToId = [];
+    const slotToAlias = [];
+    for (let i = 0; i < sorted.length; i++) {
+      idToSlot.set(sorted[i].id, i);
+      slotToId.push(sorted[i].id);
+      slotToAlias.push(sorted[i].alias);
+    }
+    return { idToSlot, slotToId, slotToAlias, poolSize: sorted.length };
+  }
+  var POSITIONAL_LANES2 = [
+    "top",
+    "jungle",
+    "middle",
+    "bottom",
+    "support"
+  ];
+  var TIER_NORM = TIER_VALUE["S+"];
+  var PLAYER_TIER_VALUE2 = {
+    "S+": 6,
+    S: 5,
+    A: 4,
+    B: 3,
+    C: 2,
+    D: 1
+  };
+  function getPhaseIndex(actionIndex) {
+    if (actionIndex < 6) return 0;
+    if (actionIndex < 12) return 1;
+    if (actionIndex < 16) return 2;
+    return 3;
+  }
+  function synergyScoreFor(candidate, myPickIds, byId) {
+    let total = 0;
+    for (const id of myPickIds) {
+      if (id == null) continue;
+      const ally = byId.get(id);
+      if (!ally || ally.id === candidate.id) continue;
+      const s = getSynergy(candidate.alias, ally.alias);
+      if (s) total += s.bonus;
+    }
+    return Math.min(6, total);
+  }
+  function counterScoreFor(candidate, enemyPickIds, byId) {
+    let total = 0;
+    for (const id of enemyPickIds) {
+      if (id == null) continue;
+      const enemy = byId.get(id);
+      if (!enemy) continue;
+      total += laneMatchup(candidate, enemy);
+    }
+    return total;
+  }
+  function encodeDraftState(game, champions, champIndex, aiSide, fearlessLocked, seriesCtx) {
+    const vec = new Float32Array(STATE_DIM);
+    const byId = new Map(champions.map((c) => [c.id, c]));
+    let s = 0;
+    vec[s++] = game.actionIndex / 19;
+    const phaseIdx = getPhaseIndex(game.actionIndex);
+    vec[s + phaseIdx] = 1;
+    s += 4;
+    vec[s++] = aiSide === "blue" ? 1 : 0;
+    vec[s++] = aiSide === "red" ? 1 : 0;
+    const diff = seriesCtx?.difficulty ?? "normal";
+    vec[s++] = diff === "easy" ? 1 : 0;
+    vec[s++] = diff === "normal" ? 1 : 0;
+    vec[s++] = diff === "hard" ? 1 : 0;
+    vec[s++] = seriesCtx?.fearless ? 1 : 0;
+    const totalGames = seriesCtx?.totalGames ?? 1;
+    const gameIndex = seriesCtx?.gameIndex ?? 0;
+    vec[s++] = totalGames > 1 ? gameIndex / (totalGames - 1) : 0;
+    const myWins = seriesCtx?.myWins ?? 0;
+    const oppWins = seriesCtx?.oppWins ?? 0;
+    const winsBehind = seriesCtx?.winsBehind ?? 0;
+    vec[s++] = myWins / 3;
+    vec[s++] = oppWins / 3;
+    vec[s++] = winsBehind / 3;
+    vec[s++] = seriesCtx?.eliminationGame ? 1 : 0;
+    vec[s++] = seriesCtx?.closeoutGame ? 1 : 0;
+    const myPlayers = seriesCtx?.myPlayers;
+    for (let lane = 0; lane < 5; lane++) {
+      const player = myPlayers?.[lane];
+      vec[s++] = player ? PLAYER_TIER_VALUE2[player.tier] / TIER_NORM : 0.5;
+    }
+    const oppPlayers = seriesCtx?.oppPlayers;
+    for (let lane = 0; lane < 5; lane++) {
+      const player = oppPlayers?.[lane];
+      vec[s++] = player ? PLAYER_TIER_VALUE2[player.tier] / TIER_NORM : 0.5;
+    }
+    const blueBanSet = new Set(game.blueBans.filter((x) => x != null));
+    const redBanSet = new Set(game.redBans.filter((x) => x != null));
+    const bluePickSet = new Set(game.bluePicks.filter((x) => x != null));
+    const redPickSet = new Set(game.redPicks.filter((x) => x != null));
+    const usedSet = /* @__PURE__ */ new Set([
+      ...blueBanSet,
+      ...redBanSet,
+      ...bluePickSet,
+      ...redPickSet
+    ]);
+    const myPickIds = aiSide === "blue" ? game.bluePicks : game.redPicks;
+    const enemyPickIds = aiSide === "blue" ? game.redPicks : game.bluePicks;
+    const myGoodPool = /* @__PURE__ */ new Set();
+    const myBadPool = /* @__PURE__ */ new Set();
+    const oppGoodPool = /* @__PURE__ */ new Set();
+    if (myPlayers) {
+      for (const p of myPlayers) {
+        for (const id of p.goodChamps) myGoodPool.add(id);
+        for (const id of p.badChamps) myBadPool.add(id);
+      }
+    }
+    if (oppPlayers) {
+      for (const p of oppPlayers) {
+        for (const id of p.goodChamps) oppGoodPool.add(id);
+      }
+    }
+    for (let slot = 0; slot < champIndex.poolSize; slot++) {
+      const champId = champIndex.slotToId[slot];
+      const champ = byId.get(champId);
+      const base = SCALAR_DIMS + slot * CHAMP_DIMS;
+      if (!champ) {
+        continue;
+      }
+      vec[base + 0] = blueBanSet.has(champId) ? 1 : 0;
+      vec[base + 1] = redBanSet.has(champId) ? 1 : 0;
+      vec[base + 2] = bluePickSet.has(champId) ? 1 : 0;
+      vec[base + 3] = redPickSet.has(champId) ? 1 : 0;
+      vec[base + 4] = !usedSet.has(champId) && !fearlessLocked.has(champId) ? 1 : 0;
+      for (let li = 0; li < 5; li++) {
+        const lane = POSITIONAL_LANES2[li];
+        const tier = getMetaTier(champ.alias, lane);
+        vec[base + 5 + li] = tier ? TIER_VALUE[tier] / TIER_NORM : 0;
+      }
+      vec[base + 10] = myGoodPool.has(champId) ? 1 : 0;
+      vec[base + 11] = oppGoodPool.has(champId) ? 1 : 0;
+      vec[base + 12] = myBadPool.has(champId) ? 1 : 0;
+      vec[base + 13] = synergyScoreFor(champ, myPickIds, byId) / 6;
+      vec[base + 14] = counterScoreFor(champ, enemyPickIds, byId) / 30;
+      const twr = seriesCtx?.tournamentChampionWR?.get(champId);
+      vec[base + 15] = twr != null ? twr.winRate : 0.5;
+    }
+    return vec;
+  }
+  function buildLegalMask(game, champIndex, fearlessLocked) {
+    const mask = new Uint8Array(CHAMPION_POOL_SIZE);
+    const usedSet = /* @__PURE__ */ new Set([
+      ...game.blueBans.filter((x) => x != null),
+      ...game.redBans.filter((x) => x != null),
+      ...game.bluePicks.filter((x) => x != null),
+      ...game.redPicks.filter((x) => x != null)
+    ]);
+    for (let slot = 0; slot < champIndex.poolSize; slot++) {
+      const id = champIndex.slotToId[slot];
+      mask[slot] = !usedSet.has(id) && !fearlessLocked.has(id) ? 1 : 0;
+    }
+    return mask;
+  }
+
+  // lib/draftAI/neural/policy.ts
+  function linearForward(layer, input) {
+    const outDim = layer.b.length;
+    const out = new Float64Array(outDim);
+    for (let o = 0; o < outDim; o++) {
+      let sum = layer.b[o];
+      const row = layer.W[o];
+      for (let i = 0; i < input.length; i++) {
+        sum += row[i] * input[i];
+      }
+      out[o] = sum;
+    }
+    return out;
+  }
+  function relu(x) {
+    for (let i = 0; i < x.length; i++) {
+      if (x[i] < 0) x[i] = 0;
+    }
+    return x;
+  }
+  function sigmoid(x) {
+    return 1 / (1 + Math.exp(-x));
+  }
+  function maskedSoftmax(logits, mask) {
+    let maxVal = -Infinity;
+    for (let i = 0; i < logits.length; i++) {
+      if (mask[i] && logits[i] > maxVal) maxVal = logits[i];
+    }
+    const probs = new Float64Array(logits.length);
+    let sumExp = 0;
+    for (let i = 0; i < logits.length; i++) {
+      if (mask[i]) {
+        const e = Math.exp(logits[i] - maxVal);
+        probs[i] = e;
+        sumExp += e;
+      }
+    }
+    if (sumExp > 0) {
+      for (let i = 0; i < probs.length; i++) {
+        probs[i] /= sumExp;
+      }
+    }
+    return probs;
+  }
+  function makeNeuralPolicy(weights) {
+    if (weights.state_dim !== STATE_DIM) {
+      console.warn(
+        `[neuralPolicy] state_dim del modelo (${weights.state_dim}) no coincide con STATE_DIM del encoder (${STATE_DIM}). La inferencia puede ser incorrecta.`
+      );
+    }
+    if (weights.num_actions !== CHAMPION_POOL_SIZE) {
+      console.warn(
+        `[neuralPolicy] num_actions del modelo (${weights.num_actions}) no coincide con CHAMPION_POOL_SIZE (${CHAMPION_POOL_SIZE}). La inferencia puede ser incorrecta.`
+      );
+    }
+    return {
+      chooseAction(stateVec, legalMask) {
+        let hidden = new Float64Array(stateVec);
+        for (const layer of weights.layers) {
+          hidden = relu(linearForward(layer, hidden));
+        }
+        const logits = linearForward(weights.policy_head, hidden);
+        for (let i = 0; i < logits.length; i++) {
+          if (!legalMask[i]) logits[i] = -Infinity;
+        }
+        const probs = maskedSoftmax(logits, legalMask);
+        let bestSlot = -1;
+        let bestProb = -1;
+        for (let i = 0; i < probs.length; i++) {
+          if (legalMask[i] && probs[i] > bestProb) {
+            bestProb = probs[i];
+            bestSlot = i;
+          }
+        }
+        if (bestSlot < 0) {
+          for (let i = 0; i < legalMask.length; i++) {
+            if (legalMask[i]) {
+              bestSlot = i;
+              break;
+            }
+          }
+        }
+        const result = { actionSlot: bestSlot, probs };
+        if (weights.value_head) {
+          const valueLogit = linearForward(weights.value_head, hidden);
+          result.winProb = sigmoid(valueLogit[0]);
+        }
+        return result;
+      },
+      meta: {
+        stateDim: weights.state_dim,
+        numActions: weights.num_actions,
+        hiddenDims: weights.hidden_dims,
+        hasValueHead: !!weights.value_head
+      }
+    };
+  }
+  function parseNeuralPolicyWeights(raw) {
+    try {
+      const weights = JSON.parse(raw);
+      if (weights.version !== 1) {
+        console.warn(`[neuralPolicy] Versi\xF3n de pesos no soportada: ${weights.version}`);
+        return null;
+      }
+      return makeNeuralPolicy(weights);
+    } catch (e) {
+      console.error("[neuralPolicy] Error parseando pesos JSON:", e);
+      return null;
+    }
+  }
+  async function readModelJson(source) {
+    if (source.startsWith("http://") || source.startsWith("https://") || source.startsWith("/")) {
+      const res = await fetch(source);
+      if (!res.ok) return null;
+      return res.text();
+    }
+    try {
+      const fs = await import("node:fs/promises");
+      return await fs.readFile(source, "utf8");
+    } catch {
+      return null;
+    }
+  }
+  var _cachedPolicy = null;
+  var _cachedPolicyPath = "";
+  async function loadNeuralPolicyAsync(weightsPath) {
+    if (_cachedPolicy && _cachedPolicyPath === weightsPath) {
+      return _cachedPolicy;
+    }
+    let raw;
+    try {
+      raw = await readModelJson(weightsPath);
+    } catch (e) {
+      console.error(`[neuralPolicy] Error al descargar pesos desde ${weightsPath}:`, e);
+      return null;
+    }
+    if (!raw) return null;
+    const policy = parseNeuralPolicyWeights(raw);
+    if (!policy) return null;
+    _cachedPolicy = policy;
+    _cachedPolicyPath = weightsPath;
+    console.log(`[neuralPolicy] Modelo cargado desde ${weightsPath}`);
+    return policy;
+  }
+
+  // lib/draftAI/neural/index.ts
+  function tryResolvePath(...segments) {
+    try {
+      const nodePath = __require("path");
+      return nodePath.resolve(...segments);
+    } catch {
+      return "";
+    }
+  }
+  function isNeuralPolicyDisabled() {
+    return process.env.NEURAL_DRAFT_DISABLED === "1" || process.env.NEURAL_DRAFT_DISABLED === "true";
+  }
+  function resolveModelPath() {
+    if (process.env.NEURAL_DRAFT_MODEL_PATH) {
+      return process.env.NEURAL_DRAFT_MODEL_PATH;
+    }
+    if (typeof window !== "undefined") {
+      return "/models/draft-policy.json";
+    }
+    const isNode = typeof process !== "undefined" && typeof process.versions !== "undefined" && typeof process.versions.node === "string";
+    if (!isNode) {
+      return "/models/draft-policy.json";
+    }
+    return tryResolvePath(__dirname, "../../../public/models/draft-policy.json");
+  }
+  var _policy = null;
+  var _champIndex = null;
+  var _champIndexChampions = null;
+  var _initialized = false;
+  var _initPromise = null;
+  function applyLoadedPolicy(champions, resolvedPath, policy) {
+    _champIndex = buildChampionIndex(champions);
+    _champIndexChampions = champions;
+    _policy = policy;
+    _initialized = true;
+    if (_policy) {
+      console.log(
+        `[neuralDraft] Pol\xEDtica neural activa \u2014 ${_champIndex.poolSize} campeones, dim=${_policy.meta.stateDim}`
+      );
+    } else {
+      console.log(
+        `[neuralDraft] Modelo no encontrado en ${resolvedPath}. Usando IA heur\xEDstica como fallback.`
+      );
+    }
+    return _policy !== null;
+  }
+  async function initNeuralDraftPolicyAsync(champions, modelPath) {
+    if (isNeuralPolicyDisabled()) {
+      _initialized = true;
+      _policy = null;
+      return false;
+    }
+    if (_initialized && _champIndexChampions === champions) {
+      return _policy !== null;
+    }
+    if (_initPromise && _champIndexChampions === champions) {
+      return _initPromise;
+    }
+    const resolvedPath = modelPath ?? resolveModelPath();
+    _initPromise = (async () => {
+      const policy = await loadNeuralPolicyAsync(resolvedPath);
+      return applyLoadedPolicy(champions, resolvedPath, policy);
+    })();
+    try {
+      return await _initPromise;
+    } finally {
+      _initPromise = null;
+    }
+  }
+  function chooseNeuralDraftActionWithRationale(game, champions, fearlessLocked, seriesCtx, rng = Math.random, personality) {
+    if (!_policy || !_champIndex) return null;
+    const action = currentAction(game);
+    if (!action) return null;
+    if (_champIndexChampions !== champions) {
+      _champIndex = buildChampionIndex(champions);
+      _champIndexChampions = champions;
+    }
+    const aiSide = action.side;
+    const stateVec = encodeDraftState(
+      game,
+      champions,
+      _champIndex,
+      aiSide,
+      fearlessLocked,
+      seriesCtx
+    );
+    const legalMask = buildLegalMask(game, _champIndex, fearlessLocked);
+    let hasLegal = false;
+    for (let i = 0; i < legalMask.length; i++) {
+      if (legalMask[i]) {
+        hasLegal = true;
+        break;
+      }
+    }
+    if (!hasLegal) return null;
+    const result = _policy.chooseAction(stateVec, legalMask);
+    const championId = _champIndex.slotToId[result.actionSlot];
+    if (championId == null) return null;
+    const chosenProb = result.probs[result.actionSlot] ?? 0;
+    const components = [
+      { label: "Neural confidence", value: chosenProb }
+    ];
+    if (result.winProb != null) {
+      components.push({ label: "Win estimate", value: result.winProb });
+    }
+    const alternatives = [];
+    for (let slot = 0; slot < result.probs.length; slot++) {
+      if (!legalMask[slot] || slot === result.actionSlot) continue;
+      const id = _champIndex.slotToId[slot];
+      if (id == null) continue;
+      alternatives.push({ championId: id, score: result.probs[slot] });
+    }
+    alternatives.sort((a, b) => b.score - a.score);
+    return {
+      kind: action.kind,
+      championId,
+      intendedLane: null,
+      components,
+      total: chosenProb,
+      identityLabel: null,
+      alternatives: alternatives.slice(0, 3)
+    };
+  }
+
   // lib/draftAI/personalities.ts
   var DEFAULT_PERSONALITY_ID = "balanced";
   var PERSONALITIES = {
@@ -22344,7 +22820,7 @@
       // current sides (startNextGame swaps them), so a simple side lookup is
       // correct even after a mid-series side swap.
       myPlayers: mySide === "blue" ? series.bluePlayers : series.redPlayers,
-      // The opponent's roster — the OTHER side.
+      // The opponent's roster ? the OTHER side.
       oppPlayers: mySide === "blue" ? series.redPlayers : series.bluePlayers,
       // Project this side's lane forms, if a form source was supplied.
       myForms: forms ? sideFormsFor(forms.map, (forms.keyFor ?? ((n2) => n2))(myTeamName)) : void 0,
@@ -22373,7 +22849,7 @@
           banTopN: 2,
           banTemperature: 0.8,
           enableLookahead: true,
-          // 2-ply only on hard — costly (~500ms extra on B1/R1/R2). The
+          // 2-ply only on hard ? costly (~500ms extra on B1/R1/R2). The
           // strategic edge against a human player is worth it.
           enable2PlyLookahead: true,
           enableAnticipation: true,
@@ -22430,6 +22906,15 @@
     )?.championId ?? null;
   }
   function chooseAIActionWithRationale(game, champions, fearlessLocked, seriesCtx, rng = Math.random, personality) {
+    const neuralResult = chooseNeuralDraftActionWithRationale(
+      game,
+      champions,
+      fearlessLocked,
+      seriesCtx,
+      rng,
+      personality
+    );
+    if (neuralResult !== null) return neuralResult;
     const action = currentAction(game);
     if (!action) return null;
     const used = usedChampionsInGame(game);
@@ -22588,7 +23073,7 @@
   }
 
   // lib/sim/descriptions.ts
-  var POSITIONAL_LANES2 = [
+  var POSITIONAL_LANES3 = [
     "top",
     "jungle",
     "middle",
@@ -22668,7 +23153,7 @@
     return getChampionMeta(c.alias) ?? fallbackMeta(c);
   }
   function laneOf(picks, lane) {
-    const idx = POSITIONAL_LANES2.indexOf(lane);
+    const idx = POSITIONAL_LANES3.indexOf(lane);
     return idx >= 0 ? picks[idx] : null;
   }
   function findByArchetype(picks, archetypes) {
@@ -22770,7 +23255,7 @@
     const killer = findByArchetype(winnerPicks, ["assassin", "skirmish", "pick", "dive"]) ?? winnerPicks.find((c) => c != null);
     if (!killer) return null;
     const idx = winnerPicks.indexOf(killer);
-    return idx >= 0 ? POSITIONAL_LANES2[idx] : null;
+    return idx >= 0 ? POSITIONAL_LANES3[idx] : null;
   }
   function describeFirstBlood(side, winnerPicks, loserPicks, earlyTime, rng = Math.random) {
     const killer = findByArchetype(winnerPicks, ["assassin", "skirmish", "pick", "dive"]) ?? winnerPicks.find((c) => c != null);
@@ -22895,15 +23380,15 @@
     return `${teamName(side, blueName, redName)} destroys the Nexus at ${time}`;
   }
   function describeSoloKill(side, winnerPicks, lane) {
-    const idx = POSITIONAL_LANES2.indexOf(lane);
+    const idx = POSITIONAL_LANES3.indexOf(lane);
     const winnerChamp = winnerPicks[idx];
     const laneShort = lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
     if (!winnerChamp) return `Solo kill in ${laneShort}`;
     return `${winnerChamp.name} solo-kills in ${laneShort}`;
   }
   function describeGank(side, picks, lane, blueName, redName) {
-    const jg = picks[POSITIONAL_LANES2.indexOf("jungle")];
-    const idx = POSITIONAL_LANES2.indexOf(lane);
+    const jg = picks[POSITIONAL_LANES3.indexOf("jungle")];
+    const idx = POSITIONAL_LANES3.indexOf(lane);
     const laner = picks[idx];
     const laneShort = lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
     if (jg && laner) {
@@ -22912,7 +23397,7 @@
     return `${teamName(side, blueName, redName)} successful ${laneShort} gank`;
   }
   function describeCounterGank(side, picks, blueName, redName) {
-    const jg = picks[POSITIONAL_LANES2.indexOf("jungle")];
+    const jg = picks[POSITIONAL_LANES3.indexOf("jungle")];
     if (jg) {
       return `${jg.name} counter-ganks the play`;
     }
@@ -22941,7 +23426,7 @@
     return `${teamName(side, blueName, redName)} wins the level 1 invade at ${place}`;
   }
   function describeScuttle(side, picks, blueName, redName, rng = Math.random) {
-    const jg = picks[POSITIONAL_LANES2.indexOf("jungle")];
+    const jg = picks[POSITIONAL_LANES3.indexOf("jungle")];
     const where = pickRandom(["bot side", "top side"], rng);
     if (jg) {
       return `${jg.name} fights for ${where} scuttler \u2014 wins the crab`;
@@ -22949,8 +23434,8 @@
     return `${teamName(side, blueName, redName)} secures ${where} scuttle`;
   }
   function describeRoam(side, picks, targetLane, blueName, redName, roamerLane) {
-    const midIdx = POSITIONAL_LANES2.indexOf("middle");
-    const supIdx = POSITIONAL_LANES2.indexOf("support");
+    const midIdx = POSITIONAL_LANES3.indexOf("middle");
+    const supIdx = POSITIONAL_LANES3.indexOf("support");
     const roamer = (roamerLane != null ? laneOf(picks, roamerLane) : null) ?? findByArchetype(picks, ["assassin", "pick", "burst"]) ?? picks[midIdx] ?? picks[supIdx];
     const laneShort = targetLane === "middle" ? "mid" : targetLane === "bottom" ? "bot" : targetLane;
     if (roamer) {
@@ -22959,7 +23444,7 @@
     return `${teamName(side, blueName, redName)} roams ${laneShort} for a kill`;
   }
   function describeBuffSteal(side, picks, blueName, redName, rng = Math.random) {
-    const jg = picks[POSITIONAL_LANES2.indexOf("jungle")];
+    const jg = picks[POSITIONAL_LANES3.indexOf("jungle")];
     const buff = pickRandom(["red buff", "blue buff", "raptors", "krugs"], rng);
     if (jg) {
       return `${jg.name} invades the enemy jungle, steals ${buff}`;
@@ -22973,7 +23458,7 @@
     const victim = shutdownVictim(loserPicks);
     if (!victim) return null;
     const idx = loserPicks.indexOf(victim);
-    return idx >= 0 ? POSITIONAL_LANES2[idx] : null;
+    return idx >= 0 ? POSITIONAL_LANES3[idx] : null;
   }
   function describeShutdown(side, winnerPicks, loserPicks, bounty, killerLane) {
     const killer = (killerLane != null ? laneOf(winnerPicks, killerLane) : null) ?? findByArchetype(winnerPicks, ["assassin", "pick", "burst", "skirmish"]) ?? winnerPicks.find((c) => c != null);
@@ -23056,7 +23541,7 @@
     return `${flair} ${thrower} over-extends on ${what} \u2014 ${teamName(side, blueName, redName)} punishes and swings it back`;
   }
   function describeCounterJungle(side, picks, blueName, redName) {
-    const jg = picks[POSITIONAL_LANES2.indexOf("jungle")];
+    const jg = picks[POSITIONAL_LANES3.indexOf("jungle")];
     if (jg) {
       return `${jg.name} invades and clears the enemy jungle \u2014 their jungler falls behind`;
     }
@@ -23073,7 +23558,7 @@
     return `BASE RACE! both Nexuses crumbling \u2014 ${teamName(side, blueName, redName)} hits home first`;
   }
   function describeWaveCrash(side, picks, lane, blueName, redName) {
-    const idx = POSITIONAL_LANES2.indexOf(lane);
+    const idx = POSITIONAL_LANES3.indexOf(lane);
     const laner = picks[idx];
     const laneShort = lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
     if (laner) {
@@ -23083,7 +23568,7 @@
   }
   function describeTowerDive(side, picks, lane, blueName, redName, traded) {
     const laneShort = lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
-    const diver = picks[POSITIONAL_LANES2.indexOf(lane === "jungle" ? "middle" : "jungle")];
+    const diver = picks[POSITIONAL_LANES3.indexOf(lane === "jungle" ? "middle" : "jungle")];
     const team = teamName(side, blueName, redName);
     if (traded) {
       return `${team} dives ${laneShort} under tower \u2014 trades a body but takes the kill`;
@@ -23102,13 +23587,13 @@
     );
   }
   function describeTeleportFlank(side, picks, blueName, redName) {
-    const top = picks[POSITIONAL_LANES2.indexOf("top")];
+    const top = picks[POSITIONAL_LANES3.indexOf("top")];
     const team = teamName(side, blueName, redName);
     return top ? `${top.name} Teleports behind \u2014 the flank turns the fight` : `${team} flanks with a cross-map Teleport and flips it`;
   }
   function describeCheese(side, picks, blueName, redName, success, rng = Math.random) {
     const team = teamName(side, blueName, redName);
-    const c = picks[POSITIONAL_LANES2.indexOf(pickRandom(["top", "middle"], rng))];
+    const c = picks[POSITIONAL_LANES3.indexOf(pickRandom(["top", "middle"], rng))];
     if (success) {
       return c ? `${c.name} cheeses the early all-in \u2014 first blood off the gamble` : `${team} cheeses the level-2 all-in and it lands`;
     }
@@ -23116,7 +23601,7 @@
   }
   function describeDisengage(side, picks, blueName, redName, rng = Math.random) {
     const team = teamName(side, blueName, redName);
-    const sup = picks[POSITIONAL_LANES2.indexOf("support")];
+    const sup = picks[POSITIONAL_LANES3.indexOf("support")];
     return pickRandom(
       [
         sup ? `${sup.name} peels it back \u2014 the dive is denied, everyone lives` : `${team} peels the dive \u2014 nobody dies, the lead holds at bay`,
@@ -23276,7 +23761,7 @@
   function pentakiller(winnerPicks, rng = Math.random, forms) {
     const weights = [];
     let total = 0;
-    for (let i = 0; i < POSITIONAL_LANES2.length; i++) {
+    for (let i = 0; i < POSITIONAL_LANES3.length; i++) {
       const c = winnerPicks[i];
       if (!c) {
         weights.push(0);
@@ -23287,22 +23772,22 @@
         w = Math.max(w, PENTA_ARCHETYPE_WEIGHT[a] ?? 1);
       }
       if (c.roles.some((r2) => r2.toLowerCase() === "marksman")) w = Math.max(w, 5);
-      if (POSITIONAL_LANES2[i] === "support") w *= 0.3;
-      const form = forms?.[POSITIONAL_LANES2[i]] ?? 0;
+      if (POSITIONAL_LANES3[i] === "support") w *= 0.3;
+      const form = forms?.[POSITIONAL_LANES3[i]] ?? 0;
       w = Math.max(0.05, w * (1 + form * FORM_PENTA_WEIGHT));
       weights.push(w);
       total += w;
     }
     if (total <= 0) return null;
     let r = rng() * total;
-    for (let i = 0; i < POSITIONAL_LANES2.length; i++) {
+    for (let i = 0; i < POSITIONAL_LANES3.length; i++) {
       r -= weights[i];
       if (r <= 0 && winnerPicks[i]) {
-        return { lane: POSITIONAL_LANES2[i], champ: winnerPicks[i] };
+        return { lane: POSITIONAL_LANES3[i], champ: winnerPicks[i] };
       }
     }
-    for (let i = POSITIONAL_LANES2.length - 1; i >= 0; i--) {
-      if (winnerPicks[i]) return { lane: POSITIONAL_LANES2[i], champ: winnerPicks[i] };
+    for (let i = POSITIONAL_LANES3.length - 1; i >= 0; i--) {
+      if (winnerPicks[i]) return { lane: POSITIONAL_LANES3[i], champ: winnerPicks[i] };
     }
     return null;
   }
@@ -33212,12 +33697,12 @@
       support: 0
     };
     for (const e of tl.events) {
-      for (const lane of POSITIONAL_LANES2) {
+      for (const lane of POSITIONAL_LANES3) {
         finalLaneGold[lane] += e.laneGoldDelta[lane] ?? 0;
       }
     }
     const lanePhaseTime = Math.min(tl.duration, 14);
-    for (const lane of POSITIONAL_LANES2) {
+    for (const lane of POSITIONAL_LANES3) {
       finalLaneGold[lane] += tl.ctx.laneAdvantages[lane] * lanePhaseTime;
     }
     return finalLaneGold;
@@ -33417,10 +33902,10 @@
     );
     const laningEndMinute = firstTower?.minutes ?? 14;
     let laneAdvSum = 0;
-    for (const lane of POSITIONAL_LANES2) laneAdvSum += tl.ctx.laneAdvantages[lane];
+    for (const lane of POSITIONAL_LANES3) laneAdvSum += tl.ctx.laneAdvantages[lane];
     let cumulativeEventGold = 0;
     for (const e of events) {
-      for (const lane of POSITIONAL_LANES2) {
+      for (const lane of POSITIONAL_LANES3) {
         cumulativeEventGold += e.laneGoldDelta[lane] ?? 0;
       }
       const lanePhaseTime = Math.min(e.minutes, laningEndMinute);
@@ -33558,7 +34043,7 @@
       const lane = pickBullyLane(tl.state.laneLead, bullySide);
       const advMag = Math.abs(tl.state.laneLead[lane]);
       const numKills = advMag >= 100 ? rollInt(2, 3, tl.rng) : advMag >= 65 ? rollInt(1, 2, tl.rng) : 1;
-      const winnerChamp = picksOf(tl.ctx, bullySide)[POSITIONAL_LANES2.indexOf(lane)];
+      const winnerChamp = picksOf(tl.ctx, bullySide)[POSITIONAL_LANES3.indexOf(lane)];
       const laneShort = lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
       const desc = numKills > 1 && winnerChamp ? `${winnerChamp.name} dominates ${laneShort} (${numKills} solo kills)` : describeSoloKill(bullySide, picksOf(tl.ctx, bullySide), lane);
       addEvent(
@@ -33588,7 +34073,7 @@
       );
       const fbLanes = ["top", "jungle", "middle", "bottom"];
       const fbLane = pickRandom(fbLanes, tl.rng);
-      const winnerChamp = picksOf(tl.ctx, side)[POSITIONAL_LANES2.indexOf(fbLane)] ?? null;
+      const winnerChamp = picksOf(tl.ctx, side)[POSITIONAL_LANES3.indexOf(fbLane)] ?? null;
       const desc = isFirstBlood ? describeFirstBlood(
         side,
         picksOf(tl.ctx, side),
@@ -33837,7 +34322,7 @@
       if (tl.rng() >= BALANCE.LEVEL_SPIKE_GANK_CHANCE) return;
       const side = rollEventSide(tl, t, tl.laneBias * 0.4 + tl.mods.gankBias);
       const lane = pickRandom(["top", "middle", "bottom"], tl.rng);
-      const champ = picksOf(tl.ctx, side)[POSITIONAL_LANES2.indexOf(lane)];
+      const champ = picksOf(tl.ctx, side)[POSITIONAL_LANES3.indexOf(lane)];
       const laneShort = lane === "middle" ? "mid" : lane === "bottom" ? "bot" : lane;
       const desc = champ ? `LEVEL 6 \u2014 ${champ.name} hits ult and all-ins ${laneShort}` : `Level-6 all-in ${laneShort}`;
       addEvent(
@@ -34550,7 +35035,7 @@
         );
       }
       const baseOutplay = describeOutplay(side, wp, lp, outnumber, tl.rng, heroLane);
-      const heroChamp = wp[POSITIONAL_LANES2.indexOf(heroLane)];
+      const heroChamp = wp[POSITIONAL_LANES3.indexOf(heroLane)];
       const outplayDesc = (heroChamp ? championSignature(heroChamp) : null) ?? baseOutplay;
       addEvent(
         tl,
@@ -35554,8 +36039,8 @@
   function carryGoldLeadBonus(bluePicks, redPicks, laneGold) {
     let blueBonus = 0;
     let redBonus = 0;
-    for (let i = 0; i < POSITIONAL_LANES2.length; i++) {
-      const lane = POSITIONAL_LANES2[i];
+    for (let i = 0; i < POSITIONAL_LANES3.length; i++) {
+      const lane = POSITIONAL_LANES3[i];
       const lead = laneGold[lane];
       const absLead = Math.abs(lead);
       if (absLead < 1500) continue;
@@ -35811,8 +36296,8 @@
   function highlightForms(players, picks, baseForms) {
     if (!players) return baseForms;
     const out = { ...baseForms ?? {} };
-    for (let i = 0; i < POSITIONAL_LANES2.length; i++) {
-      const lane = POSITIONAL_LANES2[i];
+    for (let i = 0; i < POSITIONAL_LANES3.length; i++) {
+      const lane = POSITIONAL_LANES3[i];
       const comfort = poolBias(playerForLane(players, lane), picks[i]?.id ?? null);
       const base = baseForms?.[lane] ?? 0;
       out[lane] = Math.max(-1, Math.min(1, base + comfort * COMFORT_HIGHLIGHT_WEIGHT));
@@ -35827,8 +36312,8 @@
       bottom: 0,
       support: 0
     };
-    for (let i = 0; i < POSITIONAL_LANES2.length; i++) {
-      const lane = POSITIONAL_LANES2[i];
+    for (let i = 0; i < POSITIONAL_LANES3.length; i++) {
+      const lane = POSITIONAL_LANES3[i];
       const blue = bluePicks[i];
       const red = redPicks[i];
       if (!blue || !red) continue;
@@ -35887,9 +36372,9 @@
     let cold = null;
     let hi = -Infinity;
     let lo = Infinity;
-    for (let i = 0; i < POSITIONAL_LANES2.length; i++) {
+    for (let i = 0; i < POSITIONAL_LANES3.length; i++) {
       if (!bluePicks[i] || !redPicks[i]) continue;
-      const lane = POSITIONAL_LANES2[i];
+      const lane = POSITIONAL_LANES3[i];
       const f = forms[lane] ?? 0;
       if (f > hi) {
         hi = f;
@@ -35909,9 +36394,9 @@
   }
   function applyLaneNoise(adv, bluePicks, redPicks, rng) {
     const out = { ...adv };
-    for (let i = 0; i < POSITIONAL_LANES2.length; i++) {
+    for (let i = 0; i < POSITIONAL_LANES3.length; i++) {
       if (!bluePicks[i] || !redPicks[i]) continue;
-      out[POSITIONAL_LANES2[i]] += (rng() - 0.5) * 20;
+      out[POSITIONAL_LANES3[i]] += (rng() - 0.5) * 20;
     }
     return out;
   }
@@ -35961,7 +36446,7 @@
     const events = [];
     const laneBias = (() => {
       let total = 0;
-      for (const lane of POSITIONAL_LANES2) total += ctx.laneAdvantages[lane];
+      for (const lane of POSITIONAL_LANES3) total += ctx.laneAdvantages[lane];
       return total / 1e3;
     })();
     const mods = strategyTimelineModifiers(
@@ -35993,9 +36478,9 @@
       spikeBias,
       combatRatioBlue: (bp, rp, time, goldLead) => combatRatioBlue(
         bp,
-        [...POSITIONAL_LANES2],
+        [...POSITIONAL_LANES3],
         rp,
-        [...POSITIONAL_LANES2],
+        [...POSITIONAL_LANES3],
         time,
         goldLead,
         null
@@ -36045,7 +36530,7 @@
     phaseElder(tl);
     tasks.sort((a, b) => a.time - b.time || a.seq - b.seq);
     for (const task of tasks) task.resolve();
-    const positionalRoles = [...POSITIONAL_LANES2];
+    const positionalRoles = [...POSITIONAL_LANES3];
     const finalLaneGold = computeFinalLaneGold(tl);
     const combat = resolveCombat(
       ctx.bluePicks,
@@ -37420,10 +37905,18 @@
   }
 
   // lib/sim/bulkSim.worker.ts
-  self.onmessage = (event) => {
+  var _neuralReady = null;
+  function ensureNeuralReady(champions) {
+    if (!_neuralReady) {
+      _neuralReady = isNeuralPolicyDisabled() ? Promise.resolve() : initNeuralDraftPolicyAsync(champions).then(() => void 0);
+    }
+    return _neuralReady;
+  }
+  self.onmessage = async (event) => {
     const msg = event.data;
     if (msg.type !== "autoPlayMatch") return;
     try {
+      await ensureNeuralReady(msg.champions);
       const [tournament, playerForms] = autoPlayMatch(
         msg.tournament,
         msg.matchId,
