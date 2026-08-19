@@ -14,6 +14,7 @@ import {
   chooseAIActionWithRationale,
   getPersonality,
   isAITurn,
+  isNeuralPolicyLoaded,
   seriesAIContextFrom,
 } from "@/lib/draftAI";
 import { phaseLabel, TOTAL_ACTIONS } from "@/lib/draftOrder";
@@ -169,6 +170,16 @@ export default function DraftView({ champions }: Props) {
             · action {game.actionIndex + 1} / {TOTAL_ACTIONS}
           </span>
         )}
+        <span
+          className="relative z-10 inline-flex items-center gap-1 px-1.5 py-px text-[8px] md:text-[9px] uppercase tracking-[0.2em] border border-rift-line/50 bg-rift-bg/40 text-rift-mutedbright"
+          title={
+            isNeuralPolicyLoaded()
+              ? "Neural policy model is driving AI decisions"
+              : "Heuristic scoring AI is driving decisions"
+          }
+        >
+          {isNeuralPolicyLoaded() ? "Neural" : "Heuristic"}
+        </span>
         {aiOnClock && action && (
           <span
             className={`relative z-10 inline-flex items-center gap-1.5 ${

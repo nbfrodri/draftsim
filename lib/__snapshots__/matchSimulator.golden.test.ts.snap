@@ -880,8 +880,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
     "laneGoldDelta": {
      "top": 160,
      "jungle": 1160,
-     "middle": 560,
-     "bottom": 260,
+     "middle": 460,
+     "bottom": 360,
      "support": 360
     },
     "kdaDelta": {
@@ -894,7 +894,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
       "middle": {
        "k": 1,
        "d": 0,
-       "a": 2
+       "a": 1
       },
       "support": {
        "k": 1,
@@ -904,7 +904,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
       "bottom": {
        "k": 0,
        "d": 0,
-       "a": 2
+       "a": 3
       },
       "top": {
        "k": 0,
@@ -1175,16 +1175,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: fu
 
 exports[`simulateMatch golden snapshots (behavior lock) > brawl-with-players: result hashes across 10 seeds 1`] = `
 [
-  "11:f6a88d97",
-  "42:28cec9a7",
-  "101:df404d98",
-  "777:b65f0f09",
-  "1234:5c710281",
-  "5150:9cd42069",
-  "9001:27bab4f3",
-  "31337:c5629654",
-  "65535:6ebd0002",
-  "999983:3b68445b",
+  "11:83888395",
+  "42:65a6295f",
+  "101:f2c4bc06",
+  "777:25471a78",
+  "1234:af6e8c37",
+  "5150:fcf9489a",
+  "9001:7c72a470",
+  "31337:e1108817",
+  "65535:ced0ecbf",
+  "999983:b0b95051",
 ]
 `;
 
@@ -1736,8 +1736,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
     "laneGoldDelta": {
      "top": 50,
      "jungle": 50,
-     "middle": -150,
-     "bottom": 450,
+     "middle": -250,
+     "bottom": 550,
      "support": 350
     },
     "kdaDelta": {
@@ -1745,17 +1745,12 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
       "bottom": {
        "k": 1,
        "d": 0,
-       "a": 2
+       "a": 3
       },
       "support": {
        "k": 1,
        "d": 1,
        "a": 0
-      },
-      "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 1
       }
      },
      "red": {
@@ -2241,8 +2236,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
     "laneGoldDelta": {
      "top": 844,
      "jungle": 544,
-     "middle": 644,
-     "bottom": 444,
+     "middle": 544,
+     "bottom": 544,
      "support": 544
     },
     "kdaDelta": {
@@ -2250,7 +2245,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
       "bottom": {
        "k": 1,
        "d": 0,
-       "a": 0
+       "a": 1
       },
       "jungle": {
        "k": 2,
@@ -2265,7 +2260,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
       "middle": {
        "k": 1,
        "d": 1,
-       "a": 3
+       "a": 2
       },
       "support": {
        "k": 0,
@@ -2349,16 +2344,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: full
 
 exports[`simulateMatch golden snapshots (behavior lock) > early-stomp-bias: result hashes across 10 seeds 1`] = `
 [
-  "11:cac32ab9",
-  "42:c16ff1c4",
-  "101:82d8b06c",
-  "777:cddd201e",
-  "1234:c4a1a165",
-  "5150:0442d766",
-  "9001:f64b5c78",
-  "31337:ebeab187",
+  "11:cb7082aa",
+  "42:089d8673",
+  "101:dec5bb90",
+  "777:64d0e0f9",
+  "1234:5634d91d",
+  "5150:6e705196",
+  "9001:02a1d60b",
+  "31337:6022715f",
   "65535:95446aed",
-  "999983:af8f31c9",
+  "999983:6eaa39a6",
 ]
 `;
 
@@ -2834,8 +2829,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
     "laneGoldDelta": {
      "top": -50,
      "jungle": -50,
-     "middle": 150,
-     "bottom": -450,
+     "middle": 250,
+     "bottom": -550,
      "support": -350
     },
     "kdaDelta": {
@@ -2860,17 +2855,12 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
       "bottom": {
        "k": 1,
        "d": 0,
-       "a": 2
+       "a": 3
       },
       "support": {
        "k": 1,
        "d": 1,
        "a": 0
-      },
-      "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 1
       }
      }
     },
@@ -3177,8 +3167,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
     "laneGoldDelta": {
      "top": 120,
      "jungle": -480,
-     "middle": -580,
-     "bottom": 20,
+     "middle": -180,
+     "bottom": -380,
      "support": -80
     },
     "kdaDelta": {
@@ -3210,15 +3200,10 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
        "d": 1,
        "a": 1
       },
-      "middle": {
-       "k": 1,
-       "d": 0,
-       "a": 1
-      },
       "bottom": {
-       "k": 0,
+       "k": 1,
        "d": 1,
-       "a": 1
+       "a": 2
       }
      }
     },
@@ -3278,8 +3263,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
     "laneGoldDelta": {
      "top": 664,
      "jungle": 364,
-     "middle": 264,
-     "bottom": 464,
+     "middle": 164,
+     "bottom": 564,
      "support": 364
     },
     "kdaDelta": {
@@ -3297,7 +3282,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
       "bottom": {
        "k": 1,
        "d": 0,
-       "a": 1
+       "a": 2
       },
       "support": {
        "k": 0,
@@ -3307,7 +3292,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
       "middle": {
        "k": 0,
        "d": 0,
-       "a": 2
+       "a": 1
       }
      },
      "red": {
@@ -3384,8 +3369,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
     "laneGoldDelta": {
      "top": -420,
      "jungle": -520,
-     "middle": -920,
-     "bottom": -420,
+     "middle": -820,
+     "bottom": -520,
      "support": -520
     },
     "kdaDelta": {
@@ -3410,7 +3395,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
       "bottom": {
        "k": 1,
        "d": 0,
-       "a": 0
+       "a": 1
       },
       "support": {
        "k": 1,
@@ -3425,7 +3410,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
       "middle": {
        "k": 2,
        "d": 0,
-       "a": 2
+       "a": 1
       },
       "top": {
        "k": 0,
@@ -3487,16 +3472,16 @@ exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: full re
 
 exports[`simulateMatch golden snapshots (behavior lock) > late-vs-early: result hashes across 10 seeds 1`] = `
 [
-  "11:e1227d50",
-  "42:9d83101c",
-  "101:0ec5925b",
-  "777:2c8507df",
-  "1234:fe49b067",
-  "5150:32fe92d6",
-  "9001:013b288c",
-  "31337:d4bcae49",
-  "65535:bced6cdb",
-  "999983:9b1f3b3a",
+  "11:64f21614",
+  "42:87d64ebf",
+  "101:56b436cc",
+  "777:d2723f7a",
+  "1234:bd77a330",
+  "5150:d2c65d05",
+  "9001:8c619adb",
+  "31337:5d675e61",
+  "65535:8e367ff4",
+  "999983:2472e37b",
 ]
 `;
 
@@ -3971,8 +3956,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
     "laneGoldDelta": {
      "top": -50,
      "jungle": -50,
-     "middle": 150,
-     "bottom": -450,
+     "middle": 250,
+     "bottom": -550,
      "support": -350
     },
     "kdaDelta": {
@@ -3997,17 +3982,12 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
       "bottom": {
        "k": 1,
        "d": 0,
-       "a": 2
+       "a": 3
       },
       "support": {
        "k": 1,
        "d": 1,
        "a": 0
-      },
-      "middle": {
-       "k": 0,
-       "d": 0,
-       "a": 1
       }
      }
     },
@@ -4459,8 +4439,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
     "laneGoldDelta": {
      "top": -180,
      "jungle": -280,
-     "middle": -580,
-     "bottom": -480,
+     "middle": -480,
+     "bottom": -580,
      "support": -380
     },
     "kdaDelta": {
@@ -4480,12 +4460,12 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
       "middle": {
        "k": 1,
        "d": 0,
-       "a": 1
+       "a": 0
       },
       "bottom": {
        "k": 1,
        "d": 0,
-       "a": 0
+       "a": 1
       },
       "support": {
        "k": 0,
@@ -4525,8 +4505,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
     "laneGoldDelta": {
      "top": 332,
      "jungle": 32,
-     "middle": 432,
-     "bottom": 32,
+     "middle": 332,
+     "bottom": 132,
      "support": 232
     },
     "kdaDelta": {
@@ -4534,12 +4514,17 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
       "middle": {
        "k": 1,
        "d": 0,
-       "a": 1
+       "a": 0
       },
       "top": {
        "k": 1,
        "d": 0,
        "a": 0
+      },
+      "bottom": {
+       "k": 0,
+       "d": 0,
+       "a": 1
       },
       "support": {
        "k": 0,
@@ -4729,15 +4714,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: full resu
 
 exports[`simulateMatch golden snapshots (behavior lock) > mirror-even: result hashes across 10 seeds 1`] = `
 [
-  "11:8237a3b5",
-  "42:55bcf5f5",
-  "101:770034c5",
-  "777:0ee7e9ae",
+  "11:9dfafc9d",
+  "42:57092efe",
+  "101:5e53a5df",
+  "777:ff2b6e66",
   "1234:55011919",
-  "5150:00496024",
-  "9001:50283762",
-  "31337:d3707b6a",
-  "65535:b645c097",
+  "5150:50999f5d",
+  "9001:8c185ce2",
+  "31337:818cd3a8",
+  "65535:c7f3354e",
   "999983:2b424dd9",
 ]
 `;
@@ -5672,8 +5657,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
     "laneGoldDelta": {
      "top": 172,
      "jungle": 1372,
-     "middle": 772,
-     "bottom": 172,
+     "middle": 372,
+     "bottom": 572,
      "support": 572
     },
     "kdaDelta": {
@@ -5689,14 +5674,14 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
        "a": 4
       },
       "middle": {
-       "k": 2,
+       "k": 1,
        "d": 0,
-       "a": 1
+       "a": 0
       },
       "bottom": {
-       "k": 0,
+       "k": 1,
        "d": 0,
-       "a": 1
+       "a": 2
       },
       "top": {
        "k": 0,
@@ -6163,15 +6148,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategie
 
 exports[`simulateMatch golden snapshots (behavior lock) > pick-vs-late-strategies: result hashes across 10 seeds 1`] = `
 [
-  "11:17b1de54",
-  "42:7e2bfd7a",
+  "11:ff21f120",
+  "42:7a7f91d4",
   "101:b041fd7c",
   "777:853002b4",
   "1234:b3c0eb1b",
-  "5150:ee6124ea",
-  "9001:127d03c7",
-  "31337:7629b195",
-  "65535:f37f6df6",
+  "5150:69679d97",
+  "9001:d0290116",
+  "31337:e70a4918",
+  "65535:13ad4908",
   "999983:9ff713ab",
 ]
 `;
@@ -7049,9 +7034,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "red": 0
     },
     "laneGoldDelta": {
-     "bottom": 340,
+     "bottom": 440,
      "jungle": 900,
-     "middle": 500,
+     "middle": 400,
      "support": 300
     },
     "kdaDelta": {
@@ -7064,7 +7049,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
       "middle": {
        "k": 1,
        "d": 0,
-       "a": 2
+       "a": 1
       },
       "support": {
        "k": 1,
@@ -7074,7 +7059,7 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
       "bottom": {
        "k": 0,
        "d": 0,
-       "a": 1
+       "a": 2
       }
      },
      "red": {
@@ -7253,8 +7238,8 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
      "red": 0
     },
     "laneGoldDelta": {
-     "top": 296,
-     "jungle": 196,
+     "top": -4,
+     "jungle": 496,
      "middle": 496,
      "bottom": 396,
      "support": 496
@@ -7294,14 +7279,9 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
        "a": 0
       },
       "top": {
-       "k": 0,
+       "k": 1,
        "d": 1,
        "a": 1
-      },
-      "jungle": {
-       "k": 1,
-       "d": 0,
-       "a": 0
       }
      }
     },
@@ -7388,15 +7368,15 @@ exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strate
 
 exports[`simulateMatch golden snapshots (behavior lock) > split-vs-mirror-strategies: result hashes across 10 seeds 1`] = `
 [
-  "11:a027e2c1",
-  "42:53d48192",
+  "11:fdc87c4b",
+  "42:83f76007",
   "101:9af128f2",
-  "777:d98be2a7",
-  "1234:ad6273b0",
-  "5150:cd5ba022",
-  "9001:6e3a1f86",
-  "31337:3a01e4a6",
+  "777:556fcec2",
+  "1234:7bd41057",
+  "5150:a4343454",
+  "9001:abd4aa45",
+  "31337:ca6063db",
   "65535:429f52c9",
-  "999983:2f5583a9",
+  "999983:46eb7baa",
 ]
 `;

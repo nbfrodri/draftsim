@@ -21,14 +21,16 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
 
-# Dimensiones del vector (deben coincidir con stateEncoder.ts)
-CHAMPION_POOL_SIZE = 200
-CHAMP_DIMS = 16
-SCALAR_DIMS = 27
-STATE_DIM = SCALAR_DIMS + CHAMPION_POOL_SIZE * CHAMP_DIMS  # 3227
+# Dimensiones del vector — single source: training/dimensions.json
+_DIMS_PATH = Path(__file__).parent / "dimensions.json"
+with open(_DIMS_PATH, encoding="utf-8") as _dims_file:
+    _DIMS = json.load(_dims_file)
 
-# Offset del feature "legal" dentro del bloque de un campeón
-LEGAL_OFFSET = 4  # índice relativo dentro de CHAMP_DIMS
+CHAMPION_POOL_SIZE = _DIMS["CHAMPION_POOL_SIZE"]
+CHAMP_DIMS = _DIMS["CHAMP_DIMS"]
+SCALAR_DIMS = _DIMS["SCALAR_DIMS"]
+STATE_DIM = _DIMS["STATE_DIM"]
+LEGAL_OFFSET = _DIMS["LEGAL_OFFSET"]
 
 
 def build_legal_mask(state: np.ndarray) -> np.ndarray:

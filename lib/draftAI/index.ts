@@ -1,10 +1,10 @@
 // Public draft AI API. Two entry points:
 //
-//   chooseAIAction — backwards-compatible wrapper that returns just the
+//   chooseAIAction ? backwards-compatible wrapper that returns just the
 //                    chosen champion id. Used by store hot paths where
 //                    rationale isn't needed.
 //
-//   chooseAIActionWithRationale — full decision object including a labeled
+//   chooseAIActionWithRationale ? full decision object including a labeled
 //                                 score breakdown, intended lane, comp
 //                                 identity target, and top-3 alternatives.
 //                                 Used by the UI to surface what the AI is
@@ -67,12 +67,11 @@ import {
 import type { DraftPersonality } from "./personalities";
 import {
   chooseNeuralDraftActionWithRationale,
-  initNeuralDraftPolicy,
 } from "./neural";
 
-// ─── Public types ───────────────────────────────────────────────────────────
+// ??? Public types ???????????????????????????????????????????????????????????
 
-// Optional cross-game hints — lets the AI plan across a fearless series.
+// Optional cross-game hints ? lets the AI plan across a fearless series.
 export interface SeriesAIContext {
   fearless: boolean;
   gameIndex: number;
@@ -83,7 +82,7 @@ export interface SeriesAIContext {
   // this list to actively diversify (avoid building the same comp shape
   // repeatedly even in non-fearless if the user runs multiple sims).
   myPriorPicks: ReadonlySet<number>;
-  // Same for the opponent side — useful for anticipation (opponent likely
+  // Same for the opponent side ? useful for anticipation (opponent likely
   // won't repeat the comp shape they used last game).
   oppPriorPicks: ReadonlySet<number>;
   // Identity label the OPPONENT ran in each prior game, most-recent first.
@@ -97,33 +96,33 @@ export interface SeriesAIContext {
   // individual game identities differ.
   oppPriorArchetypeProfile: Readonly<Record<Archetype, number>>;
   // Wins so far in the series, by team identity (so side-swaps don't
-  // misattribute). myWins ≥ 0; oppWins ≥ 0; their sum = games played
+  // misattribute). myWins ? 0; oppWins ? 0; their sum = games played
   // before this one.
   myWins: number;
   oppWins: number;
   // myWins - oppWins. Negative = behind, positive = ahead, 0 = tied.
   // Drives the "play safer / pick meta" signal in scoring.
   winsBehind: number;
-  // True when losing this game ends the series for the AI's team — i.e.
+  // True when losing this game ends the series for the AI's team ? i.e.
   // the AI is on series-point against. In a BO5 with the AI at 1-2, a
   // loss makes it 1-3 (over). 2-2 is the canonical do-or-die game.
-  // In a BO3 the elimination game is at 0-1 (loss → 0-2) AND 1-1.
+  // In a BO3 the elimination game is at 0-1 (loss ? 0-2) AND 1-1.
   eliminationGame: boolean;
-  // True when winning this game ends the series in the AI's favor —
+  // True when winning this game ends the series in the AI's favor ?
   // series-point. The AI doesn't need to risk anything wild on this game.
   closeoutGame: boolean;
   // Optional tournament-wide champion W/L observed so far. Drives a
   // per-champion strength modulator in scoring so the in-tournament
-  // "meta" shifts based on observed performance — a champ on a 4-1
+  // "meta" shifts based on observed performance ? a champ on a 4-1
   // streak gets a small bump; one going 1-4 gets a small penalty.
-  // Undefined outside tournament context (regular series → no shift).
+  // Undefined outside tournament context (regular series ? no shift).
   tournamentChampionWR?: ReadonlyMap<
     number,
     { games: number; wins: number; winRate: number }
   >;
   // THIS AI's own player roster (the side it's drafting for). Lets scoring
   // nudge toward champions the lane's player is comfortable on and away from
-  // ones they're bad at — weighed against meta tier, matchup, and synergy,
+  // ones they're bad at ? weighed against meta tier, matchup, and synergy,
   // never overriding them. Undefined outside roster-configured series.
   myPlayers?: Roster;
   // The OPPONENT's player roster. Lets scoring target-ban the enemy's
@@ -131,12 +130,12 @@ export interface SeriesAIContext {
   // picks first, and avoid wasting bans on champions the enemy is weak on.
   // Undefined outside roster-configured series.
   oppPlayers?: Roster;
-  // THIS AI's per-lane player form (hot/cold across the series — see
+  // THIS AI's per-lane player form (hot/cold across the series ? see
   // lib/playerForm.ts). Lets scoring prioritize comfort picks for an in-form
   // player so the team drafts around whoever's carrying. Undefined in game 1 /
-  // when the caller supplies no form map; absent ⇒ no carry nudge.
+  // when the caller supplies no form map; absent ? no carry nudge.
   myForms?: SideForms;
-  // THIS team's own per-champion win rate so far (computeTeamChampionWR →
+  // THIS team's own per-champion win rate so far (computeTeamChampionWR ?
   // myTeamName). Lets scoring lean toward champions the team wins on and away
   // from ones it loses on. `recentWinRate` weights recent games over old ones.
   // Undefined outside tournament/season context.
@@ -160,7 +159,7 @@ export function seriesAIContextFrom(
   >,
   // Optional player-form source for the carry nudge. `map` is the store's flat
   // PlayerFormMap; `keyFor` resolves a team NAME to the map's team key (team id
-  // in tournaments, the name itself in standalone series — default identity).
+  // in tournaments, the name itself in standalone series ? default identity).
   // The function projects only THIS AI's side, keyed by its own team name.
   forms?: { map: PlayerFormMap; keyFor?: (teamName: string) => string },
   // Optional per-team champion win rate (computeTeamChampionWR, keyed by team
@@ -196,8 +195,8 @@ export function seriesAIContextFrom(
 
   // Compute opponent's identity per prior game (most-recent first) and
   // their aggregated archetype profile across all prior games. Both are
-  // only meaningful when the champion roster is provided — without it we
-  // can't resolve ids → archetypes. Falls back to empty data.
+  // only meaningful when the champion roster is provided ? without it we
+  // can't resolve ids ? archetypes. Falls back to empty data.
   const oppPriorIdentities: (string | null)[] = [];
   const oppPriorArchetypeProfile: Record<Archetype, number> = {
     engage: 0,
@@ -233,7 +232,7 @@ export function seriesAIContextFrom(
     }
   }
 
-  // Series score is keyed by team name (not side) — sides may have flipped
+  // Series score is keyed by team name (not side) ? sides may have flipped
   // between games and we never want to misattribute wins.
   const wins = winsByTeamName(series);
   const myWins = wins.get(myTeamName) ?? 0;
@@ -241,7 +240,7 @@ export function seriesAIContextFrom(
   const need = requiredWins(series.format);
   // Elimination game = a loss here means the opponent reaches `need` wins.
   // Closeout game = a win here means we reach `need` wins.
-  // Bo1 (need === 1) is NOT a series — at 0-0 both conditions are trivially
+  // Bo1 (need === 1) is NOT a series ? at 0-0 both conditions are trivially
   // true, which would wrongly stamp every standalone game with elimination-
   // game meta pressure. Gate on the format actually being a series.
   const isSeries = maxGames(series.format) > 1;
@@ -269,7 +268,7 @@ export function seriesAIContextFrom(
     // current sides (startNextGame swaps them), so a simple side lookup is
     // correct even after a mid-series side swap.
     myPlayers: mySide === "blue" ? series.bluePlayers : series.redPlayers,
-    // The opponent's roster — the OTHER side.
+    // The opponent's roster ? the OTHER side.
     oppPlayers: mySide === "blue" ? series.redPlayers : series.bluePlayers,
     // Project this side's lane forms, if a form source was supplied.
     myForms: forms
@@ -288,7 +287,7 @@ interface DifficultyKnobs {
   banTopN: number;
   banTemperature: number;
   enableLookahead: boolean;
-  // 2-ply lookahead — predicts enemy response AND our follow-up. Hard only.
+  // 2-ply lookahead ? predicts enemy response AND our follow-up. Hard only.
   enable2PlyLookahead: boolean;
   enableAnticipation: boolean;
   enableIdentity: boolean;
@@ -316,7 +315,7 @@ function knobsFor(difficulty: AIDifficulty): DifficultyKnobs {
         banTopN: 2,
         banTemperature: 0.8,
         enableLookahead: true,
-        // 2-ply only on hard — costly (~500ms extra on B1/R1/R2). The
+        // 2-ply only on hard ? costly (~500ms extra on B1/R1/R2). The
         // strategic edge against a human player is worth it.
         enable2PlyLookahead: true,
         enableAnticipation: true,
@@ -341,9 +340,9 @@ function knobsFor(difficulty: AIDifficulty): DifficultyKnobs {
 
 // Personality sampling overrides, layered on top of the difficulty knobs.
 // Multipliers compose with the difficulty's own temperature; top-N deltas
-// shift the sampling pool (clamped to ≥1). When the personality defines no
+// shift the sampling pool (clamped to ?1). When the personality defines no
 // overrides (e.g. 'balanced', or no personality at all) the original knobs
-// object is returned UNTOUCHED — guaranteeing the default path is
+// object is returned UNTOUCHED ? guaranteeing the default path is
 // bit-identical to historical behavior.
 function applyPersonalityKnobs(
   knobs: DifficultyKnobs,
@@ -384,9 +383,9 @@ export interface AIRationale {
   // For picks: the lane the AI plans to slot the pick into. Null for bans.
   intendedLane: Lane | null;
   // Labeled score components for the chosen champion (sorted by absolute
-  // contribution, biggest first — UI shows the most decisive factors).
+  // contribution, biggest first ? UI shows the most decisive factors).
   components: ScoreComponent[];
-  // Total score — same as the sum of components.
+  // Total score ? same as the sum of components.
   total: number;
   // For picks: the comp identity the AI is targeting (if any).
   identityLabel: string | null;
@@ -399,7 +398,7 @@ export interface AIRationale {
   personalityId?: string;
 }
 
-// ─── Public functions ───────────────────────────────────────────────────────
+// ??? Public functions ???????????????????????????????????????????????????????
 
 export function isAITurn(
   game: GameDraft,
@@ -435,10 +434,10 @@ export function chooseAIAction(
   );
 }
 
-// Full decision with rationale. Intenta primero la política neural si está
-// cargada; cae de vuelta a la heurística si el modelo no existe en disco.
-// La inicialización perezosa del modelo ocurre en la primera llamada con
-// cada lista de campeones; llamadas posteriores reutilizan el modelo en caché.
+// Full decision with rationale. Intenta primero la pol?tica neural si est?
+// cargada; cae de vuelta a la heur?stica si el modelo no existe en disco.
+// La inicializaci?n perezosa del modelo ocurre en la primera llamada con
+// cada lista de campeones; llamadas posteriores reutilizan el modelo en cach?.
 export function chooseAIActionWithRationale(
   game: GameDraft,
   champions: Champion[],
@@ -446,19 +445,13 @@ export function chooseAIActionWithRationale(
   seriesCtx?: SeriesAIContext,
   rng: RNG = Math.random,
   // Optional draft personality (see personalities.ts). Omitted or the
-  // 'balanced' preset → decisions identical to historical behavior.
+  // 'balanced' preset ? decisions identical to historical behavior.
   personality?: DraftPersonality,
 ): AIRationale | null {
-  // ── Ruta neural (primaria) ────────────────────────────────────────────────
-  // initNeuralDraftPolicy es idempotente y retorna false si el archivo de
-  // pesos no existe, en cuyo caso la IA cae directamente a la heurística sin
-  // overhead en llamadas posteriores (el resultado negativo se cachea).
-  initNeuralDraftPolicy(champions);
   const neuralResult = chooseNeuralDraftActionWithRationale(
     game, champions, fearlessLocked, seriesCtx, rng, personality,
   );
   if (neuralResult !== null) return neuralResult;
-  // ── Fallback: IA heurística ───────────────────────────────────────────────
 
   const action = currentAction(game);
   if (!action) return null;
@@ -503,7 +496,7 @@ export function chooseAIActionWithRationale(
   );
 }
 
-// ─── Pick decision ──────────────────────────────────────────────────────────
+// ??? Pick decision ??????????????????????????????????????????????????????????
 
 function decidePick(
   side: Side,
@@ -522,7 +515,7 @@ function decidePick(
   const enemyBans = bansFor(game, side === "blue" ? "red" : "blue");
   const myCounts = archetypeCounts(myPicks, byId);
   const myPicksLocked = countNonNull(myPicks);
-  // Easy mode skips identity targeting — feels less coordinated, like a
+  // Easy mode skips identity targeting ? feels less coordinated, like a
   // beginner drafter who picks individual strong champs without committing
   // to a comp shape.
   const identity = knobs.enableIdentity
@@ -563,10 +556,10 @@ function decidePick(
   });
 
   // Second pass: 1-ply lookahead for the top-K candidates (off in easy).
-  // Hard adds 2-ply on top — predicts enemy response AND our follow-up,
+  // Hard adds 2-ply on top ? predicts enemy response AND our follow-up,
   // so picks that lead to a strategic dead-end get marked down further.
   if (knobs.enableLookahead && nextActionIsEnemyPick(game, side)) {
-    // Personality lookahead weight — applied conditionally (skip the
+    // Personality lookahead weight ? applied conditionally (skip the
     // multiply at weight 1) to keep the default path bit-identical.
     const lookW = personality?.weights.lookahead ?? 1;
     const scaleLook = lookW !== 1;
@@ -583,7 +576,7 @@ function decidePick(
 
   // Pocket pick: occasionally widen the sampling pool. Off in hard mode
   // (hard always plays the top-tier optimal). Personalities can scale the
-  // probability (cheese pockets often; meta-slave never) — the rng() draw
+  // probability (cheese pockets often; meta-slave never) ? the rng() draw
   // happens either way, so the RNG stream stays aligned with defaults.
   const pocketProb =
     personality?.pocketPickProbMul != null &&
@@ -633,7 +626,7 @@ function decidePick(
     identityLabel: identity?.label ?? null,
     alternatives,
   };
-  // Surface which personality shaped the decision — only for non-default
+  // Surface which personality shaped the decision ? only for non-default
   // personalities so the default rationale object is unchanged.
   if (personality && personality.id !== "balanced") {
     rationale.personalityId = personality.id;
@@ -641,7 +634,7 @@ function decidePick(
   return rationale;
 }
 
-// ─── Ban decision ───────────────────────────────────────────────────────────
+// ??? Ban decision ???????????????????????????????????????????????????????????
 
 function decideBan(
   action: { side: Side; index: number },
@@ -659,7 +652,7 @@ function decideBan(
   const oppPicks = picksFor(game, action.side === "blue" ? "red" : "blue");
   const myCounts = archetypeCounts(myPicks, byId);
 
-  // Easy skips anticipation — bans become generic high-tier denials.
+  // Easy skips anticipation ? bans become generic high-tier denials.
   const enemyAnticipated = knobs.enableAnticipation
     ? predictEnemyAnticipated(game, action.side, champions, fearlessLocked)
     : new Set<number>();
@@ -719,7 +712,7 @@ function decideBan(
 // Re-export types that callers need.
 export type { ScoreComponent } from "./scoring";
 
-// Draft personalities — registry + resolver re-exported so callers (store,
+// Draft personalities ? registry + resolver re-exported so callers (store,
 // setup UIs) can import everything from "lib/draftAI" directly.
 export {
   DEFAULT_PERSONALITY_ID,
@@ -733,3 +726,9 @@ export type {
   SamplingOverrides,
   ScoreComponentKind,
 } from "./personalities";
+export {
+  initNeuralDraftPolicy,
+  initNeuralDraftPolicyAsync,
+  isNeuralPolicyLoaded,
+  isNeuralPolicyDisabled,
+} from "./neural";

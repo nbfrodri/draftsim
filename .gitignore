@@ -16,3 +16,7 @@ data/draft-dataset.jsonl
 # Checkpoints de entrenamiento (pesados, no committear)
 training/checkpoints/
 
+# Pesos del modelo neural exportados (generados por training/export.py)
+public/models/*.json
+!public/models/.gitkeep
+

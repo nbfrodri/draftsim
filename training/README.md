@@ -97,29 +97,43 @@ python export.py \
 
 ---
 
-### 4. Desplegar en la aplicación
+## Dimensiones compartidas (TS ↔ Python)
 
-El archivo de pesos JSON debe colocarse en una ruta accesible desde el proceso
-Node.js del servidor. Las opciones son:
+Las constantes del encoder viven en `training/dimensions.json` y son consumidas por:
 
-**A. Archivo en `public/models/` (Next.js)**
-```
-public/
-  models/
-    draft-policy.json   ← colocar aquí
-```
+- `lib/draftAI/neural/stateEncoder.ts` (inferencia TypeScript)
+- `training/dataset.py` (DataLoader PyTorch)
 
-**B. Ruta personalizada via variable de entorno**
+Si cambias el tamaño del pool o el número de features, edita **solo** ese archivo y re-exporta el modelo.
+
+---
+
+## Desplegar en la aplicación
+
+El archivo de pesos JSON **no se commitea** (está en `.gitignore`). Tras entrenar:
+
 ```bash
-# .env.local
+# Copiar o exportar a public/models/
+python export.py --checkpoint checkpoints/best.pt --output ../public/models/draft-policy.json
+```
+
+En runtime:
+- **Browser**: `fetch('/models/draft-policy.json')` al montar `DraftApp`
+- **Node / scripts**: lectura síncrona vía `fs` en la misma ruta
+
+Variable de entorno opcional:
+
+```bash
 NEURAL_DRAFT_MODEL_PATH=./public/models/draft-policy.json
 ```
 
-La inferencia TypeScript (`lib/draftAI/neural/policy.ts`) lee la ruta desde:
-1. `process.env.NEURAL_DRAFT_MODEL_PATH`
-2. Por defecto: `public/models/draft-policy.json`
+Para desactivar la red en tests o CI:
 
-Si el archivo no existe, la IA cae de vuelta a la heurística clásica sin error.
+```bash
+NEURAL_DRAFT_DISABLED=1
+```
+
+Si el archivo no existe, la IA cae a heurística sin error.
 
 ---
 

@@ -29,7 +29,7 @@ import {
   type EncoderChampionIndex,
 } from "./stateEncoder";
 import {
-  loadNeuralPolicy,
+  loadNeuralPolicyAsync,
   invalidatePolicyCache,
   createNeuralPolicyFromWeights,
   type NeuralPolicy,
@@ -38,18 +38,29 @@ import {
 
 // ─── Configuración de ruta del modelo ────────────────────────────────────────
 
+/** True when neural loading is disabled (vitest, explicit opt-out). */
+export function isNeuralPolicyDisabled(): boolean {
+  return (
+    process.env.NEURAL_DRAFT_DISABLED === "1" ||
+    process.env.NEURAL_DRAFT_DISABLED === "true"
+  );
+}
+
 /**
  * Ruta por defecto al JSON de pesos del modelo.
  *
  * Orden de resolución:
  *   1. Variable de entorno NEURAL_DRAFT_MODEL_PATH
- *   2. public/models/draft-policy.json (relativo a la raíz del proyecto)
+ *   2. Browser: `/models/draft-policy.json` (servido desde public/)
+ *   3. Node: `public/models/draft-policy.json` relativo al proyecto
  */
 function resolveModelPath(): string {
   if (process.env.NEURAL_DRAFT_MODEL_PATH) {
     return process.env.NEURAL_DRAFT_MODEL_PATH;
   }
-  // Relativo a este archivo: lib/draftAI/neural/ → ../../../public/models/
+  if (typeof window !== "undefined") {
+    return "/models/draft-policy.json";
+  }
   return tryResolvePath(__dirname, "../../../public/models/draft-policy.json");
 }
 
@@ -59,33 +70,16 @@ let _policy: NeuralPolicy | null = null;
 let _champIndex: EncoderChampionIndex | null = null;
 let _champIndexChampions: Champion[] | null = null;
 let _initialized = false;
+let _initPromise: Promise<boolean> | null = null;
 
-// ─── Inicialización ──────────────────────────────────────────────────────────
-
-/**
- * Carga el modelo de pesos y construye el índice de campeones.
- *
- * Debe llamarse UNA VEZ antes de `chooseNeuralDraftAction`. La función es
- * idempotente: si ya está inicializado con los mismos campeones, no hace nada.
- *
- * @param champions Lista completa del roster (estable durante la sesión).
- * @param modelPath Ruta al JSON de pesos (optional, usa resolveModelPath por defecto).
- * @returns true si el modelo fue cargado exitosamente, false si no existe.
- */
-export function initNeuralDraftPolicy(
+function applyLoadedPolicy(
   champions: Champion[],
-  modelPath?: string,
+  resolvedPath: string,
+  policy: NeuralPolicy | null,
 ): boolean {
-  const resolvedPath = modelPath ?? resolveModelPath();
-
-  // Re-inicializar si los campeones cambian (e.g., entre tests)
-  if (_initialized && _champIndexChampions === champions) {
-    return _policy !== null;
-  }
-
   _champIndex = buildChampionIndex(champions);
   _champIndexChampions = champions;
-  _policy = loadNeuralPolicy(resolvedPath);
+  _policy = policy;
   _initialized = true;
 
   if (_policy) {
@@ -101,6 +95,73 @@ export function initNeuralDraftPolicy(
   }
 
   return _policy !== null;
+}
+
+// ─── Inicialización ──────────────────────────────────────────────────────────
+
+/**
+ * Carga el modelo de pesos de forma asíncrona (browser fetch o Node fs).
+ * Idempotente: reutiliza el modelo en caché si los campeones no cambiaron.
+ */
+export async function initNeuralDraftPolicyAsync(
+  champions: Champion[],
+  modelPath?: string,
+): Promise<boolean> {
+  if (isNeuralPolicyDisabled()) {
+    _initialized = true;
+    _policy = null;
+    return false;
+  }
+
+  if (_initialized && _champIndexChampions === champions) {
+    return _policy !== null;
+  }
+
+  if (_initPromise && _champIndexChampions === champions) {
+    return _initPromise;
+  }
+
+  const resolvedPath = modelPath ?? resolveModelPath();
+  _initPromise = (async () => {
+    const policy = await loadNeuralPolicyAsync(resolvedPath);
+    return applyLoadedPolicy(champions, resolvedPath, policy);
+  })();
+
+  try {
+    return await _initPromise;
+  } finally {
+    _initPromise = null;
+  }
+}
+
+/**
+ * Carga el modelo de pesos de forma síncrona (Node.js scripts vía tsx).
+ * En browser/app usar `initNeuralDraftPolicyAsync`.
+ */
+export function initNeuralDraftPolicy(
+  champions: Champion[],
+  modelPath?: string,
+): boolean {
+  if (isNeuralPolicyDisabled()) {
+    _initialized = true;
+    _policy = null;
+    return false;
+  }
+
+  if (typeof window !== "undefined") {
+    return isNeuralPolicyLoaded();
+  }
+
+  const resolvedPath = modelPath ?? resolveModelPath();
+
+  if (_initialized && _champIndexChampions === champions) {
+    return _policy !== null;
+  }
+
+  console.warn(
+    "[neuralDraft] initNeuralDraftPolicy sync is deprecated — use initNeuralDraftPolicyAsync",
+  );
+  return false;
 }
 
 /**
@@ -123,6 +184,7 @@ export function resetNeuralDraftPolicy(): void {
   _champIndex = null;
   _champIndexChampions = null;
   _initialized = false;
+  _initPromise = null;
   invalidatePolicyCache();
 }
 
@@ -208,27 +270,62 @@ export function chooseNeuralDraftActionWithRationale(
   rng: RNG = Math.random,
   personality?: DraftPersonality,
 ): AIRationale | null {
-  const championId = chooseNeuralDraftAction(
-    game,
-    champions,
-    fearlessLocked,
-    seriesCtx,
-    rng,
-    personality,
-  );
-  if (championId == null) return null;
+  if (!_policy || !_champIndex) return null;
 
   const action = currentAction(game);
   if (!action) return null;
+
+  if (_champIndexChampions !== champions) {
+    _champIndex = buildChampionIndex(champions);
+    _champIndexChampions = champions;
+  }
+
+  const aiSide: Side = action.side;
+  const stateVec = encodeDraftState(
+    game,
+    champions,
+    _champIndex,
+    aiSide,
+    fearlessLocked,
+    seriesCtx,
+  );
+  const legalMask = buildLegalMask(game, _champIndex, fearlessLocked);
+
+  let hasLegal = false;
+  for (let i = 0; i < legalMask.length; i++) {
+    if (legalMask[i]) { hasLegal = true; break; }
+  }
+  if (!hasLegal) return null;
+
+  const result = _policy.chooseAction(stateVec, legalMask);
+  const championId = _champIndex.slotToId[result.actionSlot];
+  if (championId == null) return null;
+
+  const chosenProb = result.probs[result.actionSlot] ?? 0;
+  const components: AIRationale["components"] = [
+    { label: "Neural confidence", value: chosenProb },
+  ];
+  if (result.winProb != null) {
+    components.push({ label: "Win estimate", value: result.winProb });
+  }
+
+  const alternatives: AIRationale["alternatives"] = [];
+  for (let slot = 0; slot < result.probs.length; slot++) {
+    if (!legalMask[slot] || slot === result.actionSlot) continue;
+    const id = _champIndex.slotToId[slot];
+    if (id == null) continue;
+    alternatives.push({ championId: id, score: result.probs[slot] });
+  }
+  alternatives.sort((a, b) => b.score - a.score);
 
   return {
     kind: action.kind,
     championId,
     intendedLane: null,
-    components: [{ label: "Neural policy", value: 1.0 }],
-    total: 1.0,
+    components,
+    total: chosenProb,
     identityLabel: null,
-    alternatives: [],
+    alternatives: alternatives.slice(0, 3),
   };
 }
 
@@ -247,3 +344,4 @@ export type { DraftStateVector, EncoderChampionIndex } from "./stateEncoder";
 export { createDraftLogger, mergeToJSONL } from "./logger";
 export type { DraftLogger, DraftTurnRecord, TurnMetadata, MatchOutcome } from "./logger";
 export type { NeuralPolicy, NeuralPolicyWeights, NeuralPolicyResult } from "./policy";
+export { loadNeuralPolicyAsync } from "./policy";

@@ -377,6 +377,31 @@ draftsim/
 
 ---
 
+## Neural draft policy
+
+Behavior-cloning MLP trained in Python (`training/`) and exported to JSON for pure TypeScript inference (`lib/draftAI/neural/`). Encoder dimensions are shared via `training/dimensions.json` (TS + Python).
+
+| Step | Command |
+|---|---|
+| Train + export | See [training/README.md](training/README.md) — output goes to `public/models/draft-policy.json` |
+| Runtime (browser) | `DraftApp` calls `initNeuralDraftPolicyAsync` → `fetch('/models/draft-policy.json')` |
+| Runtime (Node scripts) | `initNeuralDraftPolicyAsync` or `NEURAL_DRAFT_MODEL_PATH` |
+| Disable in tests/CI | `NEURAL_DRAFT_DISABLED=1` (set automatically by Vitest) |
+
+Model weights are **gitignored** (`public/models/*.json`); only `public/models/.gitkeep` is tracked. Place the exported JSON locally after training.
+
+The draft UI shows a **Neural / Heuristic** badge; neural rationale surfaces top-3 policy probabilities as alternatives.
+
+---
+
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs `npm test` and `npm run build` on push/PR. Lint is omitted until Next 16 ESLint wiring is stable.
+
+**E2E (Playwright):** not yet configured — critical draft→sim flows are covered by Vitest golden tests on `simulateMatch` and neural unit tests. Playwright smoke setup is deferred.
+
+---
+
 ## 📜 Scripts
 
 | Command | Description |
@@ -385,7 +410,7 @@ draftsim/
 | `npm run build` | Production build (static prerender) |
 | `npm start` | Serve the production build |
 | `npm run lint` | Next.js ESLint |
-| `npm test` | Vitest unit suite (`lib/**/*.test.ts`) |
+| `npm test` | Vitest unit suite (`lib/**/*.test.ts`); sets `NEURAL_DRAFT_DISABLED=1` so tests use heuristic AI |
 | `npm run refresh-data` | Pull latest Meraki ability + item data into `lib/data/*.json` |
 | `npm run calibrate` | Run N drafts × M sims; report TeamScore.diff ↔ blue win-rate correlation + leave-one-out analysis. Tweak via `CALIB_DRAFTS=600 CALIB_SIMS_PER_DRAFT=40`. |
 

@@ -28,16 +28,18 @@ import type { Champion, GameDraft, Lane, Side } from "../../types";
 import type { SeriesAIContext } from "../index";
 import type { PlayerTier } from "../../types";
 
-// ─── Dimensiones fijas ───────────────────────────────────────────────────────
+import dimensions from "../../../training/dimensions.json";
+
+// ─── Dimensiones fijas (single source: training/dimensions.json) ─────────────
 
 /** Número máximo de campeones en el pool (padding fijo). */
-export const CHAMPION_POOL_SIZE = 200;
+export const CHAMPION_POOL_SIZE = dimensions.CHAMPION_POOL_SIZE;
 /** Features globales escalares al inicio del vector. */
-export const SCALAR_DIMS = 27;
+export const SCALAR_DIMS = dimensions.SCALAR_DIMS;
 /** Features por campeón (slot en el pool). */
-export const CHAMP_DIMS = 16;
+export const CHAMP_DIMS = dimensions.CHAMP_DIMS;
 /** Dimensión total del vector de estado. */
-export const STATE_DIM = SCALAR_DIMS + CHAMPION_POOL_SIZE * CHAMP_DIMS;
+export const STATE_DIM = dimensions.STATE_DIM;
 
 /** Vector de estado de una acción del draft. Tipo alias por claridad. */
 export type DraftStateVector = Float32Array;

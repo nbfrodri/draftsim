@@ -15,5 +15,9 @@ export default defineConfig({
     environment: "node",
     include: ["lib/**/*.test.ts", "lib/**/__tests__/**/*.test.ts"],
     globals: false,
+    setupFiles: ["./vitest.setup.ts"],
+    env: {
+      NEURAL_DRAFT_DISABLED: "1",
+    },
   },
 });

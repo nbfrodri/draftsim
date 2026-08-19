@@ -1,25 +1,11 @@
 // Inferencia pura TypeScript del modelo de política de draft.
 //
 // Carga los pesos exportados desde el pipeline Python (training/export.py) y
-// ejecuta el forward pass del MLP sin dependencias externas. La inferencia es
-// síncrona y no requiere ONNX ni bindings nativos.
+// ejecuta el forward pass del MLP sin dependencias externas.
 //
-// Formato esperado de weights.json (generado por model.py#save_weights_json):
-//   {
-//     "version": 1,
-//     "state_dim": 3227,
-//     "num_actions": 200,
-//     "hidden_dims": [512, 256, 128],
-//     "layers": [{"W": number[][], "b": number[]}, ...],
-//     "policy_head": {"W": number[][], "b": number[]},
-//     "value_head": {"W": number[][], "b": number[]}  // opcional
-//   }
-//
-// Uso:
-//   const policy = loadNeuralPolicy("/path/to/weights.json");
-//   const result = policy.chooseAction(stateVec, legalMask);
-//   // result.actionSlot — índice en el pool de campeones
-//   // result.winProb   — probabilidad de victoria estimada (si hay value head)
+// Carga de pesos:
+//   - Browser: fetch('/models/draft-policy.json')
+//   - Node.js: import dinámico de node:fs/promises (sin bundlear fs en el cliente)
 
 import {
   CHAMPION_POOL_SIZE,
@@ -27,27 +13,8 @@ import {
   type DraftStateVector,
 } from "./stateEncoder";
 
-// fs se importa dinámicamente para evitar romper bundles de browser.
-// En contextos Node.js (servidor Next.js, workers) el require funciona.
-// En el browser, la función devuelve null y la IA cae de vuelta a heurística.
-function tryReadFileSync(filePath: string): string | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const nodeFs = require("fs") as typeof import("fs");
-    return nodeFs.readFileSync(filePath, "utf8");
-  } catch {
-    return null;
-  }
-}
-
-function fileExistsSync(filePath: string): boolean {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const nodeFs = require("fs") as typeof import("fs");
-    return nodeFs.existsSync(filePath);
-  } catch {
-    return false;
-  }
+function isBrowserRuntime(): boolean {
+  return typeof window !== "undefined" && typeof window.fetch === "function";
 }
 
 // ─── Tipos de pesos ─────────────────────────────────────────────────────────
@@ -234,32 +201,8 @@ function makeNeuralPolicy(weights: NeuralPolicyWeights): NeuralPolicy {
 
 // ─── Carga del modelo ────────────────────────────────────────────────────────
 
-// Caché del modelo cargado (singleton por ruta).
-let _cachedPolicy: NeuralPolicy | null = null;
-let _cachedPolicyPath = "";
-
-/**
- * Carga los pesos del modelo desde el sistema de archivos y devuelve la
- * política de inferencia. La segunda llamada con la misma ruta devuelve
- * el objeto cacheado sin releer el disco.
- *
- * Devuelve null si el archivo no existe o es inválido — el caller puede
- * caer de vuelta a la IA heurística.
- *
- * @param weightsPath Ruta absoluta o relativa al JSON de pesos.
- */
-export function loadNeuralPolicy(weightsPath: string): NeuralPolicy | null {
-  if (_cachedPolicy && _cachedPolicyPath === weightsPath) {
-    return _cachedPolicy;
-  }
-
-  if (!fileExistsSync(weightsPath)) {
-    return null;
-  }
-
+function parseNeuralPolicyWeights(raw: string): NeuralPolicy | null {
   try {
-    const raw = tryReadFileSync(weightsPath);
-    if (!raw) return null;
     const weights = JSON.parse(raw) as NeuralPolicyWeights;
 
     if (weights.version !== 1) {
@@ -267,17 +210,78 @@ export function loadNeuralPolicy(weightsPath: string): NeuralPolicy | null {
       return null;
     }
 
-    _cachedPolicy = makeNeuralPolicy(weights);
-    _cachedPolicyPath = weightsPath;
-    console.log(
-      `[neuralPolicy] Modelo cargado desde ${weightsPath} ` +
-        `(dim=${weights.state_dim}, hidden=${weights.hidden_dims.join("→")})`,
-    );
-    return _cachedPolicy;
+    return makeNeuralPolicy(weights);
   } catch (e) {
-    console.error(`[neuralPolicy] Error cargando pesos desde ${weightsPath}:`, e);
+    console.error("[neuralPolicy] Error parseando pesos JSON:", e);
     return null;
   }
+}
+
+async function readModelJson(source: string): Promise<string | null> {
+  if (
+    source.startsWith("http://") ||
+    source.startsWith("https://") ||
+    source.startsWith("/")
+  ) {
+    const res = await fetch(source);
+    if (!res.ok) return null;
+    return res.text();
+  }
+
+  try {
+    const fs = await import("node:fs/promises");
+    return await fs.readFile(source, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+// Caché del modelo cargado (singleton por ruta).
+let _cachedPolicy: NeuralPolicy | null = null;
+let _cachedPolicyPath = "";
+
+/**
+ * Carga los pesos del modelo de forma asíncrona.
+ *
+ * - Browser / rutas web: `fetch('/models/draft-policy.json')`
+ * - Node.js: `fs.readFile` en la ruta del sistema de archivos
+ */
+export async function loadNeuralPolicyAsync(
+  weightsPath: string,
+): Promise<NeuralPolicy | null> {
+  if (_cachedPolicy && _cachedPolicyPath === weightsPath) {
+    return _cachedPolicy;
+  }
+
+  let raw: string | null;
+  try {
+    raw = await readModelJson(weightsPath);
+  } catch (e) {
+    console.error(`[neuralPolicy] Error al descargar pesos desde ${weightsPath}:`, e);
+    return null;
+  }
+
+  if (!raw) return null;
+
+  const policy = parseNeuralPolicyWeights(raw);
+  if (!policy) return null;
+
+  _cachedPolicy = policy;
+  _cachedPolicyPath = weightsPath;
+  console.log(`[neuralPolicy] Modelo cargado desde ${weightsPath}`);
+  return policy;
+}
+
+/**
+ * Alias síncrono para scripts Node.js — delega en la ruta async.
+ * En browser devuelve null inmediatamente.
+ */
+export function loadNeuralPolicy(weightsPath: string): NeuralPolicy | null {
+  if (isBrowserRuntime()) return null;
+  if (_cachedPolicy && _cachedPolicyPath === weightsPath) {
+    return _cachedPolicy;
+  }
+  return null;
 }
 
 /**

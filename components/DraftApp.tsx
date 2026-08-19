@@ -34,6 +34,10 @@ import {
   subscribePersistReady,
 } from "@/lib/desktopStorage";
 import { hydrateMetaConfigFromDesktopFile } from "@/lib/metaRandomizer";
+import {
+  initNeuralDraftPolicyAsync,
+  isNeuralPolicyLoaded,
+} from "@/lib/draftAI";
 
 interface Props {
   champions: Champion[];
@@ -87,11 +91,33 @@ export default function DraftApp({ champions }: Props) {
     isPersistReady,
     () => false,
   );
+  const [neuralPolicyState, setNeuralPolicyState] = useState<
+    "idle" | "loading" | "ready" | "fallback" | "error"
+  >("idle");
 
   useEffect(() => {
     if (!persistReady) return;
     setChampions(champions);
   }, [persistReady, champions, setChampions]);
+
+  useEffect(() => {
+    if (!persistReady) return;
+    let cancelled = false;
+    setNeuralPolicyState("loading");
+    void initNeuralDraftPolicyAsync(champions)
+      .then((ok) => {
+        if (!cancelled) {
+          setNeuralPolicyState(ok ? "ready" : "fallback");
+        }
+      })
+      .catch((err) => {
+        console.error("[DraftApp] Neural policy load failed:", err);
+        if (!cancelled) setNeuralPolicyState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [persistReady, champions]);
 
   useEffect(() => {
     // Desktop: the meta config (tiers, synergies, counters, spikes) is
@@ -155,6 +181,28 @@ export default function DraftApp({ champions }: Props) {
   if (!persistReady) {
     return <div aria-hidden="true" className="min-h-screen bg-rift-bg" />;
   }
+
+  const neuralPolicyBadge =
+    neuralPolicyState === "loading" ? (
+      <span className="fixed bottom-3 right-3 z-50 px-2 py-1 text-[9px] uppercase tracking-[0.25em] border border-rift-line/60 bg-rift-panel/90 text-rift-mutedbright">
+        Loading AI…
+      </span>
+    ) : neuralPolicyState === "error" ? (
+      <span
+        className="fixed bottom-3 right-3 z-50 px-2 py-1 text-[9px] uppercase tracking-[0.25em] border border-rift-red/40 bg-rift-panel/90 text-rift-redbright"
+        title="Neural model failed to load — using heuristic AI"
+      >
+        AI: Heuristic (load error)
+      </span>
+    ) : isNeuralPolicyLoaded() ? (
+      <span className="fixed bottom-3 right-3 z-50 px-2 py-1 text-[9px] uppercase tracking-[0.25em] border border-rift-blue/40 bg-rift-panel/90 text-rift-bluebright">
+        AI: Neural
+      </span>
+    ) : neuralPolicyState === "fallback" ? (
+      <span className="fixed bottom-3 right-3 z-50 px-2 py-1 text-[9px] uppercase tracking-[0.25em] border border-rift-line/60 bg-rift-panel/90 text-rift-mutedbright">
+        AI: Heuristic
+      </span>
+    ) : null;
 
   const routed = (() => {
     // Tournament mode is active. Route between dashboard and the active
@@ -236,6 +284,7 @@ export default function DraftApp({ champions }: Props) {
       <LiveTeamCardProvider onOpenProfile={openHallTeam}>
         <LiveCoachCardProvider onOpenProfile={openHallCoach}>
           {routed}
+          {neuralPolicyBadge}
         </LiveCoachCardProvider>
       </LiveTeamCardProvider>
     </LivePlayerCardProvider>
