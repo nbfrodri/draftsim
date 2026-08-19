@@ -22895,26 +22895,30 @@
     }
     return out;
   }
-  function chooseAIAction(game, champions, fearlessLocked, seriesCtx, rng = Math.random, personality) {
+  function chooseAIAction(game, champions, fearlessLocked, seriesCtx, rng = Math.random, personality, options) {
     return chooseAIActionWithRationale(
       game,
       champions,
       fearlessLocked,
       seriesCtx,
       rng,
-      personality
+      personality,
+      options
     )?.championId ?? null;
   }
-  function chooseAIActionWithRationale(game, champions, fearlessLocked, seriesCtx, rng = Math.random, personality) {
-    const neuralResult = chooseNeuralDraftActionWithRationale(
-      game,
-      champions,
-      fearlessLocked,
-      seriesCtx,
-      rng,
-      personality
-    );
-    if (neuralResult !== null) return neuralResult;
+  function chooseAIActionWithRationale(game, champions, fearlessLocked, seriesCtx, rng = Math.random, personality, options) {
+    const skipNeural = options?.forceHeuristic === true || process.env.NEURAL_DRAFT_FORCE_HEURISTIC === "1" || process.env.NEURAL_DRAFT_FORCE_HEURISTIC === "true";
+    if (!skipNeural) {
+      const neuralResult = chooseNeuralDraftActionWithRationale(
+        game,
+        champions,
+        fearlessLocked,
+        seriesCtx,
+        rng,
+        personality
+      );
+      if (neuralResult !== null) return neuralResult;
+    }
     const action = currentAction(game);
     if (!action) return null;
     const used = usedChampionsInGame(game);

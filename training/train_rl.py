@@ -308,15 +308,17 @@ def main():
     print(f"[rl] Cargando checkpoint BC desde {bc_path}...")
     ckpt = torch.load(bc_path, map_location=device)
 
-    # Reconstruir arquitectura del modelo
+    # Reconstruir arquitectura del modelo EXACTAMENTE como fue entrenado en BC
     saved_args = ckpt.get("args", {})
     hidden_dims = saved_args.get("hidden", [512, 256, 128])
+    # Usar el mismo dropout que en BC para que los índices de capas coincidan
+    bc_dropout = saved_args.get("dropout", 0.1)
 
     model = DraftPolicyNet(
         state_dim=STATE_DIM,
         num_actions=CHAMPION_POOL_SIZE,
         hidden_dims=hidden_dims,
-        dropout=0.0,  # Sin dropout en RL para inferencia estable
+        dropout=bc_dropout,
         use_value_head=True,
     ).to(device)
 
@@ -366,7 +368,7 @@ def main():
         elapsed = time.time() - t0
 
         improved = avg["win_rate"] > best_win_rate
-        marker = " ✓" if improved else ""
+        marker = " [BEST]" if improved else ""
 
         print(
             f"[rl] Época {epoch + 1:3d}/{args.epochs} | "
@@ -406,7 +408,7 @@ def main():
         print(f"\n[rl] Exportando modelo final (sin mejora encontrada) → {out_path}")
 
     model.save_weights_json(out_path)
-    print(f"[rl] ✓ RL fine-tuning completado. Mejor win_rate en dataset: {best_win_rate:.3f}")
+    print(f"[rl] RL fine-tuning completado. Mejor win_rate en dataset: {best_win_rate:.3f}")
     print(f"[rl] Modelo en {out_path}")
     print(f"[rl] Reconstruye el worker con: node scripts/build-bulk-sim-worker.mjs")
 

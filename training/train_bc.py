@@ -185,6 +185,11 @@ def parse_args():
                    help="Entrenar solo en picks, solo en bans, o en ambos")
     p.add_argument("--no-value-head", action="store_true")
     p.add_argument("--resume", default=None, help="Ruta a checkpoint .pt para continuar")
+    p.add_argument("--augment", action="store_true",
+                   help="Activar augmentación de datos (ruido en tiers/sinergia)")
+    p.add_argument("--augment-prob", type=float, default=0.5)
+    p.add_argument("--max-records", type=int, default=None,
+                   help="Número máximo de registros a cargar (None=todos; útil para limitar RAM)")
     return p.parse_args()
 
 
@@ -198,7 +203,13 @@ def main():
 
     # Dataset
     kind_filter = None if args.kind == "all" else args.kind
-    dataset = DraftDataset(args.data, kind_filter=kind_filter)
+    dataset = DraftDataset(
+        args.data,
+        kind_filter=kind_filter,
+        augment=args.augment,
+        augment_prob=args.augment_prob,
+        max_records=args.max_records,
+    )
     if len(dataset) == 0:
         raise RuntimeError(f"Dataset vacío en {args.data}")
 
@@ -286,7 +297,7 @@ def main():
         elapsed = time.time() - t0
 
         improved = val_metrics["loss"] < best_val_loss
-        marker = " ✓" if improved else ""
+        marker = " [BEST]" if improved else ""
 
         print(
             f"[train] Época {epoch + 1:3d}/{start_epoch + args.epochs} | "
@@ -336,8 +347,8 @@ def main():
         model.load_state_dict(ckpt["model"])
 
     model.save_weights_json(out_path)
-    status = "Early stopped" if early_stopped else "Completado"
-    print(f"[train] ✓ {status}. Modelo en {out_path}")
+    status = "Early stopped" if early_stopped else "Completed"
+    print(f"[train] {status}. Model at {out_path}")
     if val_metrics:
         print(f"[train]   Val loss final: {val_metrics['loss']:.4f}")
         print(f"[train]   Top-1 accuracy (val): {val_metrics['top1']:.3f}")

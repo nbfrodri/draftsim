@@ -76,6 +76,8 @@ def augment_state(
     No toca features binarios (board state: 0-3, legal: 4, pool: 10-12)
     ni el bloque escalar global (primeros SCALAR_DIMS valores).
 
+    Implementación vectorizada con NumPy (sin bucles Python sobre campeones).
+
     Args:
         state: Array de estado original (no se modifica in-place).
         rng: Generador aleatorio NumPy.
@@ -87,30 +89,31 @@ def augment_state(
     """
     state = state.copy()
 
-    for slot in range(CHAMPION_POOL_SIZE):
-        base = SCALAR_DIMS + slot * CHAMP_DIMS
+    # Reconstruir el bloque de campeones como matriz [CHAMPION_POOL_SIZE, CHAMP_DIMS]
+    champ_block = state[SCALAR_DIMS:].reshape(CHAMPION_POOL_SIZE, CHAMP_DIMS)
 
-        # Skip slots de padding (todos ceros — no hay campeón real)
-        if state[base + LEGAL_OFFSET] == 0 and state[base] == 0:
-            # Heurístico: si legal=0 y blueBan=0, puede ser padding
-            # Comprobar que todo el slot es cero
-            if np.all(state[base:base + CHAMP_DIMS] == 0):
-                continue
+    # Máscara de slots no-padding: al menos un feature != 0 en el slot
+    non_padding = ~np.all(champ_block == 0, axis=1)  # [CHAMPION_POOL_SIZE]
 
-        # Perturbar meta tiers [5..9]
-        for fi in range(5):
-            idx = base + _TIER_OFFSET + fi
-            state[idx] = float(np.clip(
-                state[idx] + rng.normal(0, tier_noise_std), 0.0, 1.0
-            ))
+    # Perturbar meta tiers [offsets 5..9] — clipeado a [0,1]
+    tier_indices = np.arange(_TIER_OFFSET, _TIER_OFFSET + 5)
+    tier_noise = rng.normal(0, tier_noise_std, (CHAMPION_POOL_SIZE, 5))
+    champ_block[:, tier_indices] = np.where(
+        non_padding[:, None],
+        np.clip(champ_block[:, tier_indices] + tier_noise, 0.0, 1.0),
+        champ_block[:, tier_indices],
+    )
 
-        # Perturbar sinergia, counter, tournamentWR [13..15]
-        for fi in range(3):
-            idx = base + _SYNERGY_OFFSET + fi
-            state[idx] = float(np.clip(
-                state[idx] + rng.normal(0, meta_noise_std), -2.0, 2.0
-            ))
+    # Perturbar sinergia/counter/WR [offsets 13..15] — clipeado a [-2,2]
+    meta_indices = np.array([_SYNERGY_OFFSET, _COUNTER_OFFSET, _TWR_OFFSET])
+    meta_noise = rng.normal(0, meta_noise_std, (CHAMPION_POOL_SIZE, 3))
+    champ_block[:, meta_indices] = np.where(
+        non_padding[:, None],
+        np.clip(champ_block[:, meta_indices] + meta_noise, -2.0, 2.0),
+        champ_block[:, meta_indices],
+    )
 
+    state[SCALAR_DIMS:] = champ_block.ravel()
     return state
 
 
@@ -140,6 +143,7 @@ class DraftDataset(Dataset):
         augment_tier_noise: float = 0.05,
         augment_meta_noise: float = 0.03,
         seed: int = 42,
+        max_records: Optional[int] = None,
     ):
         self.augment = augment
         self.augment_prob = augment_prob
@@ -161,6 +165,8 @@ class DraftDataset(Dataset):
 
         with open(path, encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
+                if max_records is not None and loaded >= max_records:
+                    break
                 line = line.strip()
                 if not line:
                     continue

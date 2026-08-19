@@ -11,8 +11,8 @@ valor opcional (predicción de win rate). Diseñado para ser:
 Formato de exportación (weights.json):
   {
     "version": 1,
-    "state_dim": 3227,
-    "num_actions": 200,
+    "state_dim": 3803,
+    "num_actions": 236,
     "hidden_dims": [512, 256, 128],
     "layers": [
       {"W": [[...], ...], "b": [...]},  // dense 0: state_dim → hidden[0]

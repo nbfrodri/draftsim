@@ -13,8 +13,8 @@
 //
 // Tamaño total del vector:
 //   STATE_DIM = SCALAR_DIMS + CHAMPION_POOL_SIZE * CHAMP_DIMS
-//             = 27           + 200               * 16
-//             = 3227
+//             = 27           + 236               * 16
+//             = 3803
 
 import {
   getMetaTier,
