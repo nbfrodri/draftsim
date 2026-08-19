@@ -16,6 +16,7 @@
     "fetch-rookie-names": "node scripts/fetch-rookie-names.mjs",
     "fetch-coaches": "node scripts/fetch-coaches.mjs",
     "calibrate": "tsx scripts/calibrate.ts",
+    "generate-dataset": "tsx scripts/generate-draft-dataset.ts",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build"
   },

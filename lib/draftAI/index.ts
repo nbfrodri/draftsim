@@ -65,6 +65,10 @@ import {
   POCKET_PICK_TOP_N,
 } from "./data";
 import type { DraftPersonality } from "./personalities";
+import {
+  chooseNeuralDraftActionWithRationale,
+  initNeuralDraftPolicy,
+} from "./neural";
 
 // ─── Public types ───────────────────────────────────────────────────────────
 
@@ -431,11 +435,10 @@ export function chooseAIAction(
   );
 }
 
-// Full decision with rationale. Computes scoring once, samples the chosen
-// champion, then re-scores that one with `explain=true` to capture the
-// labeled breakdown for UI surfacing. Scoring itself is deterministic;
-// all exploration randomness (selection jitter, softmax sampling, pocket
-// picks) draws from the optional injected RNG so seeded runs reproduce.
+// Full decision with rationale. Intenta primero la política neural si está
+// cargada; cae de vuelta a la heurística si el modelo no existe en disco.
+// La inicialización perezosa del modelo ocurre en la primera llamada con
+// cada lista de campeones; llamadas posteriores reutilizan el modelo en caché.
 export function chooseAIActionWithRationale(
   game: GameDraft,
   champions: Champion[],
@@ -446,6 +449,17 @@ export function chooseAIActionWithRationale(
   // 'balanced' preset → decisions identical to historical behavior.
   personality?: DraftPersonality,
 ): AIRationale | null {
+  // ── Ruta neural (primaria) ────────────────────────────────────────────────
+  // initNeuralDraftPolicy es idempotente y retorna false si el archivo de
+  // pesos no existe, en cuyo caso la IA cae directamente a la heurística sin
+  // overhead en llamadas posteriores (el resultado negativo se cachea).
+  initNeuralDraftPolicy(champions);
+  const neuralResult = chooseNeuralDraftActionWithRationale(
+    game, champions, fearlessLocked, seriesCtx, rng, personality,
+  );
+  if (neuralResult !== null) return neuralResult;
+  // ── Fallback: IA heurística ───────────────────────────────────────────────
+
   const action = currentAction(game);
   if (!action) return null;
 

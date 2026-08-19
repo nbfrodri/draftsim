@@ -9,3 +9,10 @@ src-tauri/gen
 tsconfig.tsbuildinfo
 .DS_Store
 *.log
+
+# Dataset de entrenamiento (generado — no committear)
+data/draft-dataset.jsonl
+
+# Checkpoints de entrenamiento (pesados, no committear)
+training/checkpoints/
+
