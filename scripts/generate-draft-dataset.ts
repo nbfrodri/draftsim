@@ -8,20 +8,22 @@
 //   npx tsx scripts/generate-draft-dataset.ts
 //
 // Variables de entorno:
-//   DATASET_GAMES=1000          Número de partidas a simular (default: 1000)
+//   DATASET_GAMES=500000        Número de partidas a simular (default: 1000)
 //   DATASET_OUTPUT=data/draft-dataset.jsonl  Ruta del archivo de salida
-//   DATASET_APPEND=false        Si "true", añade al archivo existente en vez de sobreescribir
+//   DATASET_APPEND=false        Si "true", añade al archivo existente
+//   DATASET_SEED=42             Semilla RNG para reproducibilidad
 
 import * as fs from "fs";
 import * as path from "path";
-import { createGame, POSITIONAL_LANES, assignLanesToPicks } from "../lib/draftEngine";
+import { createGame, assignLanesToPicks } from "../lib/draftEngine";
 import { currentAction, applyLock, applyTimeout } from "../lib/draftEngine";
 import { simulateMatch } from "../lib/matchSimulator";
 import { finalizeRoles } from "../lib/sim/finalizeRoles";
 import {
   chooseAIActionWithRationale,
+  getPersonality,
+  PERSONALITY_LIST,
   type SeriesAIContext,
-  type AIActionOptions,
 } from "../lib/draftAI";
 import {
   buildChampionIndex,
@@ -29,7 +31,6 @@ import {
 } from "../lib/draftAI/neural/stateEncoder";
 import {
   createDraftLogger,
-  mergeToJSONL,
   type DraftLogger,
 } from "../lib/draftAI/neural/logger";
 import type { Champion, Lane, AIDifficulty, Side } from "../lib/types";
@@ -40,15 +41,9 @@ import type { Archetype } from "../lib/championMeta";
 const DATASET_GAMES = parseInt(process.env.DATASET_GAMES ?? "1000", 10);
 const DATASET_OUTPUT = process.env.DATASET_OUTPUT ?? "data/draft-dataset.jsonl";
 const DATASET_APPEND = process.env.DATASET_APPEND === "true";
-const LOG_INTERVAL = 100;
+const LOG_INTERVAL = Math.max(100, Math.floor(DATASET_GAMES / 200));
 
-// Este script es el "profesor" de Behavior Cloning: SIEMPRE usa heurística.
-// La red neuronal aprende a imitar las decisiones heurísticas; si usara
-// neural para generar los datos de entrenamiento, el dataset estaría
-// contaminado con las propias predicciones del modelo (covariate shift).
-const FORCE_HEURISTIC_OPTS: AIActionOptions = { forceHeuristic: true };
-
-// ─── Fetch de campeones (igual que calibrate.ts) ─────────────────────────────
+// ─── Fetch de campeones ──────────────────────────────────────────────────────
 
 const CHAMPIONS_URL =
   "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-summary.json";
@@ -113,7 +108,7 @@ async function fetchChampions(): Promise<Champion[]> {
     }));
 }
 
-// ─── Generador de números pseudoaleatorios (LCG simple) ─────────────────────
+// ─── Generador de números pseudoaleatorios (LCG) ────────────────────────────
 
 function makeLCG(seed: number): () => number {
   let s = seed >>> 0;
@@ -123,21 +118,27 @@ function makeLCG(seed: number): () => number {
   };
 }
 
-// ─── Construir un SeriesAIContext mínimo para diversidad de datos ────────────
+// IDs de personalidades disponibles para variar los datos
+const PERSONALITY_IDS = PERSONALITY_LIST.map((p) => p.id);
 
-function makeMinimalSeriesCtx(
+// ─── Construir un SeriesAIContext variado ─────────────────────────────────────
+
+function makeSeriesCtx(
   difficulty: AIDifficulty,
   side: Side,
+  fearless: boolean,
+  totalGames: number,
+  gameIndex: number,
+  myWins: number,
+  oppWins: number,
   rng: () => number,
 ): SeriesAIContext {
-  const myWins = Math.floor(rng() * 3);
-  const oppWins = Math.floor(rng() * 3);
   const winsBehind = myWins - oppWins;
-  const fearless = rng() < 0.3;
+  const gamesToWin = Math.ceil(totalGames / 2);
   return {
     fearless,
-    gameIndex: Math.floor(rng() * 5),
-    totalGames: 5,
+    gameIndex,
+    totalGames,
     difficulty,
     myPriorPicks: new Set<number>(),
     oppPriorPicks: new Set<number>(),
@@ -150,8 +151,8 @@ function makeMinimalSeriesCtx(
     myWins,
     oppWins,
     winsBehind,
-    eliminationGame: oppWins === 2 && myWins < 3,
-    closeoutGame: myWins === 2 && oppWins < 3,
+    eliminationGame: totalGames > 1 && oppWins === gamesToWin - 1 && myWins < gamesToWin,
+    closeoutGame: totalGames > 1 && myWins === gamesToWin - 1 && oppWins < gamesToWin,
   };
 }
 
@@ -168,19 +169,36 @@ function simulateAndLogGame(
   const difficulties: AIDifficulty[] = ["easy", "normal", "hard"];
   const diff = difficulties[Math.floor(rng() * difficulties.length)];
 
+  // Variación de serie: Bo1, Bo3 o Bo5
+  const formatRoll = rng();
+  const totalGames = formatRoll < 0.4 ? 1 : formatRoll < 0.7 ? 3 : 5;
+  const gamesToWin = Math.ceil(totalGames / 2);
+
+  // Estado de la serie: simular un punto aleatorio durante la serie
+  const maxWins = gamesToWin - 1;
+  const blueWins = totalGames > 1 ? Math.floor(rng() * gamesToWin) : 0;
+  const redWins = totalGames > 1 ? Math.floor(rng() * gamesToWin) : 0;
+  const gameIndex = Math.min(blueWins + redWins, totalGames - 1);
+
+  const fearless = rng() < 0.25 && totalGames > 1;
+
+  // Personalidades (varían por lado para más diversidad de datos)
+  const bluePersonalityId = PERSONALITY_IDS[Math.floor(rng() * PERSONALITY_IDS.length)];
+  const redPersonalityId = PERSONALITY_IDS[Math.floor(rng() * PERSONALITY_IDS.length)];
+
+  const blueCtx = makeSeriesCtx(diff, "blue", fearless, totalGames, gameIndex, blueWins, redWins, rng);
+  const redCtx = makeSeriesCtx(diff, "red", fearless, totalGames, gameIndex, redWins, blueWins, rng);
+
   let game = createGame(gameId, "BlueTeam", "RedTeam");
   const fearlessLocked = new Set<number>();
-
-  // Construir contextos de serie para ambos lados
-  const blueCtx = makeMinimalSeriesCtx(diff, "blue", rng);
-  const redCtx = makeMinimalSeriesCtx(diff, "red", rng);
-
   const allIds = champions.map((c) => c.id);
 
   while (currentAction(game)) {
     const action = currentAction(game)!;
     const aiSide = action.side;
     const seriesCtx = aiSide === "blue" ? blueCtx : redCtx;
+    const personalityId = aiSide === "blue" ? bluePersonalityId : redPersonalityId;
+    const personality = getPersonality(personalityId);
 
     // Codificar estado ANTES de aplicar la acción
     const stateVec = encodeDraftState(
@@ -192,19 +210,17 @@ function simulateAndLogGame(
       seriesCtx,
     );
 
-    // La IA heurística elige la acción (SIEMPRE — es el profesor de BC)
+    // La IA heurística elige la acción
     const rationale = chooseAIActionWithRationale(
       game,
       champions,
       fearlessLocked,
       seriesCtx,
       rng,
-      undefined,
-      FORCE_HEURISTIC_OPTS,
+      personality,
     );
 
     if (!rationale) {
-      // Timeout: usar el primer campeón disponible
       game = applyTimeout(game, allIds, fearlessLocked);
       continue;
     }
@@ -213,16 +229,14 @@ function simulateAndLogGame(
     const slot = champIndex.idToSlot.get(chosenId);
 
     if (slot === undefined) {
-      // Campeón no en el índice (no debería ocurrir)
       game = applyLock(game, chosenId);
       fearlessLocked.add(chosenId);
       continue;
     }
 
-    // Registrar el turno
     logger.record(stateVec, slot, chosenId, action.kind, aiSide, {
       difficulty: diff,
-      personalityId: rationale.personalityId,
+      personalityId: rationale.personalityId ?? personalityId,
       gameIndex: seriesCtx.gameIndex,
       fearless: seriesCtx.fearless,
       actionIndex: game.actionIndex,
@@ -235,39 +249,22 @@ function simulateAndLogGame(
   // Finalizar roles para simulación
   let finalGame = game;
   try {
-    // finalizeRoles necesita un SeriesState para resolver roles — usar un stub mínimo
     const stubSeries = {
       bluePlayers: undefined,
       redPlayers: undefined,
     } as unknown as Parameters<typeof finalizeRoles>[2];
     finalGame = finalizeRoles(game, champions, stubSeries);
   } catch {
-    // Si falla la asignación de roles, usar el juego tal cual
     finalGame = game;
   }
 
-  // Simular resultado del partido
   const result = simulateMatch(finalGame, champions);
-  const winner = result.winner; // "blue" | "red" | "draw"
+  const winner = result.winner;
 
-  // Asignar outcome a todos los turnos del logger
-  // Desde la perspectiva de blue: blue=win, red=loss
-  // Para ambos lados mezclamos perspectiva en el side del record
-  const records = logger.getRecords();
-  // Necesitamos asignar outcome por-turno según el lado que actuó
-  const adjustedRecords = logger.getRecords();
-  // Reimplementar con outcome por-lado: reescribir outcome en los registros
-  // después de setOutcome inicial con una segunda pasada
-  // Usamos "win" si el lado que registró el turno ganó, "loss" si perdió
-  // Para eso necesitamos que el logger seteé el outcome en todos, luego
-  // ajustamos por side.
-  // Como la API del logger solo tiene setOutcome global, usaremos "blue_win" context:
-  // winner es "blue" → los turnos de blue son win, los de red son loss
   const outcomeForBlue: "win" | "loss" | "draw" =
     winner === "blue" ? "win" : winner === "red" ? "loss" : "draw";
 
-  logger.setOutcome(outcomeForBlue); // Primero setear para todos
-  // Luego ajustar turnos del lado rojo (invertir)
+  logger.setOutcome(outcomeForBlue);
   for (const rec of logger.getRecords()) {
     if (rec.side === "red") {
       rec.outcome = winner === "red" ? "win" : winner === "blue" ? "loss" : "draw";
@@ -283,7 +280,6 @@ async function main(): Promise<void> {
   const champions = await fetchChampions();
   console.log(`[dataset] ${champions.length} campeones cargados.`);
 
-  // Asegurar que existe el directorio de salida
   const outDir = path.dirname(DATASET_OUTPUT);
   if (outDir && !fs.existsSync(outDir)) {
     fs.mkdirSync(outDir, { recursive: true });
@@ -295,11 +291,13 @@ async function main(): Promise<void> {
   });
 
   console.log(
-    `[dataset] Generando ${DATASET_GAMES} partidas → ${DATASET_OUTPUT}`,
+    `[dataset] Generando ${DATASET_GAMES.toLocaleString()} partidas → ${DATASET_OUTPUT}`,
   );
+  console.log(`[dataset] Intervalo de log: cada ${LOG_INTERVAL} partidas`);
 
   let totalTurns = 0;
   const seed = parseInt(process.env.DATASET_SEED ?? String(Date.now()), 10);
+  const startTime = Date.now();
 
   for (let i = 0; i < DATASET_GAMES; i++) {
     const rng = makeLCG(seed + i * 17239);
@@ -310,9 +308,17 @@ async function main(): Promise<void> {
       totalTurns += logger.getRecords().length;
     }
 
-    if ((i + 1) % LOG_INTERVAL === 0) {
+    if ((i + 1) % LOG_INTERVAL === 0 || i === DATASET_GAMES - 1) {
+      const elapsed = (Date.now() - startTime) / 1000;
+      const pct = ((i + 1) / DATASET_GAMES * 100).toFixed(1);
+      const eta = elapsed / (i + 1) * (DATASET_GAMES - i - 1);
+      const etaStr = eta < 60
+        ? `${eta.toFixed(0)}s`
+        : `${(eta / 60).toFixed(1)}min`;
       console.log(
-        `[dataset] ${i + 1}/${DATASET_GAMES} partidas — ${totalTurns} turnos acumulados`,
+        `[dataset] ${(i + 1).toLocaleString()}/${DATASET_GAMES.toLocaleString()} ` +
+        `partidas (${pct}%) — ${totalTurns.toLocaleString()} turnos — ` +
+        `${elapsed.toFixed(0)}s transcurridos, ETA ${etaStr}`,
       );
     }
   }
@@ -321,8 +327,10 @@ async function main(): Promise<void> {
     writeStream.end((err?: Error | null) => (err ? rej(err) : res()));
   });
 
+  const totalSec = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(
-    `[dataset] ✓ Completado: ${DATASET_GAMES} partidas, ${totalTurns} turnos → ${DATASET_OUTPUT}`,
+    `[dataset] ✓ Completado: ${DATASET_GAMES.toLocaleString()} partidas, ` +
+    `${totalTurns.toLocaleString()} turnos → ${DATASET_OUTPUT} (${totalSec}s)`,
   );
   console.log(
     `[dataset] Ejecuta el entrenamiento Python con: cd training && python train_bc.py`,
