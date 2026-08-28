@@ -2,11 +2,13 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { PersistStorage, StorageValue } from "zustand/middleware";
 import {
   cancelPendingWrite,
+  createWebLazyStorage,
   enablePersistWrites,
   gatePersistWritesUntilReady,
   isPersistReady,
   onPersistReady,
   resetPersistGateForTests,
+  resolveWebStringStorage,
   subscribePersistReady,
 } from "./desktopStorage";
 
@@ -78,6 +80,16 @@ describe("persist write gate", () => {
 
   it("cancelPendingWrite is a safe no-op when nothing is pending", () => {
     expect(() => cancelPendingWrite("missing-key")).not.toThrow();
+  });
+
+  it("resolveWebStringStorage returns undefined without window", () => {
+    expect(resolveWebStringStorage()).toBeUndefined();
+    expect(resolveWebStringStorage({ getItem: () => null, setItem: () => {}, removeItem: () => {} })).toBeUndefined();
+  });
+
+  it("createWebLazyStorage getItem is safe when storage resolver returns undefined", () => {
+    const storage = createWebLazyStorage(() => undefined);
+    expect(storage.getItem("draftsim-store")).toBeNull();
   });
 
   it("tolerates undefined storage (SSR createJSONStorage miss)", async () => {

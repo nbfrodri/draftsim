@@ -176,6 +176,8 @@ interface PendingWrite {
    * ever runs. For plain string writes the thunk just returns the string.
    */
   serialize: () => string;
+  /** Where the serialized string lands (AppData file or localStorage). */
+  flush: (key: string, value: string) => void | Promise<void>;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -234,7 +236,11 @@ async function executeWrite(key: string, value: string): Promise<void> {
 /** Schedule a debounced write; cancels any pending write for the same key.
  *  `serialize` runs lazily when the write actually fires — not at schedule
  *  time — so superseded writes cost nothing. */
-function scheduleWrite(key: string, serialize: () => string): void {
+function scheduleWrite(
+  key: string,
+  serialize: () => string,
+  flush: (k: string, value: string) => void | Promise<void> = executeWrite,
+): void {
   const existing = pendingWrites.get(key);
   if (existing) clearTimeout(existing.timer);
 
@@ -247,12 +253,12 @@ function scheduleWrite(key: string, serialize: () => string): void {
       console.warn("[desktopStorage] serialization failed for key:", key, err);
       return;
     }
-    executeWrite(key, value).catch((err) => {
+    void Promise.resolve(flush(key, value)).catch((err) => {
       console.warn("[desktopStorage] debounced write failed:", key, err);
     });
   }, DEBOUNCE_MS);
 
-  pendingWrites.set(key, { serialize, timer });
+  pendingWrites.set(key, { serialize, flush, timer });
 }
 
 /**
@@ -270,7 +276,7 @@ async function flushPendingWrites(): Promise<void> {
     // then write. Errors are ignored — we're shutting down.
     try {
       const value = pending.serialize();
-      await executeWrite(key, value);
+      await Promise.resolve(pending.flush(key, value));
     } catch {
       // Ignore flush errors.
     }
@@ -418,6 +424,73 @@ export function createDesktopLazyStorage<S>(): PersistStorage<S> {
       return desktopStorage.removeItem(name);
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Lazy zustand PersistStorage (web / localStorage)
+// ---------------------------------------------------------------------------
+
+type StringStateStorage = {
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+  removeItem: (key: string) => void;
+};
+
+/** Browser-only localStorage accessor — never touches storage during SSR. */
+export function resolveWebStringStorage(
+  preferred?: StringStateStorage,
+): StringStateStorage | undefined {
+  if (typeof window === "undefined") return undefined;
+  return preferred ?? window.localStorage;
+}
+
+/**
+ * Web counterpart to createDesktopLazyStorage: receives the persisted state
+ * OBJECT from zustand-persist and defers JSON.stringify + localStorage write
+ * into the shared 500ms debounce. Uses the supplied storage (quotaSafeStorage
+ * on web) so QuotaExceededError fallback is unchanged.
+ */
+export function createWebLazyStorage<S>(
+  getStorage: () => StringStateStorage | undefined,
+): PersistStorage<S> {
+  return {
+    getItem(name: string): StorageValue<S> | null {
+      cancelPendingWrite(name);
+      const storage = getStorage();
+      if (!storage) return null;
+      const raw = storage.getItem(name);
+      if (raw == null) return null;
+      try {
+        return JSON.parse(raw) as StorageValue<S>;
+      } catch (err) {
+        console.warn("[desktopStorage] failed to parse persisted state:", name, err);
+        return null;
+      }
+    },
+    setItem(name: string, value: StorageValue<S>): void {
+      if (!persistWritesEnabled) return;
+      const storage = getStorage();
+      if (!storage) return;
+      scheduleWrite(
+        name,
+        () => JSON.stringify(value),
+        (_key, serialized) => {
+          storage.setItem(name, serialized);
+        },
+      );
+    },
+    removeItem(name: string): void {
+      cancelPendingWrite(name);
+      getStorage()?.removeItem(name);
+    },
+  };
+}
+
+// Wire web debounced flush on beforeunload (desktop already registers above).
+if (typeof window !== "undefined" && !isDesktop()) {
+  window.addEventListener("beforeunload", () => {
+    void flushPendingWrites();
+  });
 }
 
 // ---------------------------------------------------------------------------

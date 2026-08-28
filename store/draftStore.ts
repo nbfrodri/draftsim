@@ -1,8 +1,8 @@
 "use client";
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
-import { isDesktop, createDesktopLazyStorage, enablePersistWrites, gatePersistWritesUntilReady } from "@/lib/desktopStorage";
+import { persist } from "zustand/middleware";
+import { isDesktop, createDesktopLazyStorage, createWebLazyStorage, enablePersistWrites, gatePersistWritesUntilReady, resolveWebStringStorage } from "@/lib/desktopStorage";
 import {
   applyLock,
   applyTimeout,
@@ -107,8 +107,9 @@ import { finalizeRoles } from "@/lib/sim/finalizeRoles";
 import { encodeRealityShareCode, decodeRealityShareCode } from "@/lib/realityShare";
 import {
   compactEncodeTournamentForPersist,
-  decodeRecapHeavyFields,
-  type RecapCompact,
+  compactEncodeSeasonForPersist,
+  decodeCompactSeason,
+  decodeCompactTournament,
 } from "@/lib/recapCompression";
 import {
   applyTournamentUpdate as applySeasonTournamentUpdate,
@@ -135,6 +136,11 @@ import {
   overrideAgencyDemand as applyOverrideAgencyDemand,
   aiHonorFollowedAgency,
 } from "@/lib/season/franchiseAgency";
+import { clampBulkYearCount } from "@/lib/season/bulkYears";
+import {
+  collectSimResultUpdates,
+  type SimResultEntry,
+} from "@/lib/season/simResultsSummary";
 import { inactiveSnapshotsForArchivedYear } from "@/lib/season/playerLifecycle";
 import { ensureTeamIdentities } from "@/lib/season/teamGen";
 import {
@@ -674,6 +680,10 @@ interface DraftStore {
   // Results of the most recently simulated matchday (ephemeral — not
   // persisted; resets on reload). null until the first matchday is run.
   seasonMatchday: SeasonMatchdayResult | null;
+  /** Live feed of regional / international outcomes during bulk sims. */
+  simResultsFeed: SimResultEntry[];
+  /** Clear the simulation results feed from the dashboard. */
+  dismissSimResultsFeed: () => void;
   // ─── Saved seasons (manual save slots, like saved tournaments) ─────
   savedSeasons: SavedSeasonEntry[];
   // Snapshot the active season (upsert by season id). Returns false
@@ -719,6 +729,13 @@ interface DraftStore {
   startReality: (name: string, aging: boolean) => void;
   /** Roll the (complete) active reality season into the next year. */
   continueSeasonToNextYear: () => void;
+  /** Auto-simulate N full franchise years (splits, internationals, year roll). */
+  simulateRealityYears: (count: number) => void;
+  /** Request cancellation of an in-progress bulk-year simulation. */
+  cancelBulkYears: () => void;
+  /** Progress while simulateRealityYears runs (not persisted). */
+  bulkYearsProgress: { completed: number; total: number; year: number } | null;
+  bulkYearsCancelRequested: boolean;
   /** Switch the live season to another saved reality (snapshots the current). */
   switchReality: (id: string) => void;
   deleteReality: (id: string) => void;
@@ -866,34 +883,28 @@ function slimTournamentForArchive(
 // uses slimTournamentForArchive on web (no chart data at all).
 
 // Decode compact-encoded recaps in a tournament back to their full form.
-// Inverse of compactEncodeTournamentForPersist. Called in onRehydrateStorage
-// so all consumers (replay modal, charts, recap panels) see normal data.
-function decodeCompactTournament(tournament: TournamentState): TournamentState {
-  return {
-    ...tournament,
-    matches: tournament.matches.map((m) => {
-      if (!m.series) return m;
-      return {
-        ...m,
-        series: {
-          ...m.series,
-          games: m.series.games.map((g) => {
-            if (!g.recap) return g;
-            // Check for compact payload — may be absent (archived history
-            // recaps, or legacy v5 slim recaps which have no recapC).
-            const recap = g.recap as typeof g.recap & { recapC?: RecapCompact };
-            const compact = recap.recapC;
-            if (!compact) return g;
-            // Decode and strip the storage-only recapC sentinel field.
-            const full = decodeRecapHeavyFields(recap, compact);
-            const withoutC = { ...full } as typeof full & { recapC?: unknown };
-            delete withoutC.recapC;
-            return { ...g, recap: withoutC };
-          }),
-        },
-      };
-    }),
-  };
+// Inverse of compactEncodeTournamentForPersist. Implemented in recapCompression.
+// decodeCompactTournament is imported from @/lib/recapCompression.
+
+// Memoized compact encoding for franchise realities — each slot carries a full
+// SeasonState; without this, partialize re-encoded nothing and disk/json size
+// ballooned for long franchises (69+ archived years).
+let lastRealitiesInput: SavedReality[] | null = null;
+let lastRealitiesResult: SavedReality[] | null = null;
+
+function compactEncodeRealitiesForPersist(
+  realities: SavedReality[],
+): SavedReality[] {
+  if (realities === lastRealitiesInput && lastRealitiesResult !== null) {
+    return lastRealitiesResult;
+  }
+  const result = realities.map((r) => ({
+    ...r,
+    season: compactEncodeSeasonForPersist(r.season),
+  }));
+  lastRealitiesInput = realities;
+  lastRealitiesResult = result;
+  return result;
 }
 
 // Snapshot a completed tournament into the history list. No-op if the
@@ -1014,6 +1025,181 @@ function applyMetaSnapshotPatch(
   };
 }
 
+function autoResolveOffseasonShop(
+  season: SeasonState,
+  champions: readonly Champion[],
+): SeasonState {
+  let next = aiResolveUserOffseason(season, champions);
+  next = aiHonorFollowedAgency(next, champions);
+  next = aiDecideFollowedDemotes(next, champions);
+  const me = next.config.controlledTeamId;
+  const hire = bestCoachHire(next);
+  if (me && hire) next = { ...next, teams: swapCoaches(next.teams, me, hire) };
+  return next;
+}
+
+function autoResolveTransferWindow(
+  season: SeasonState,
+  champions: readonly Champion[],
+): SeasonState {
+  let next = aiResolveUserTransferWindow(season, champions);
+  next = aiHonorFollowedAgency(next, champions);
+  next = aiDecideFollowedDemotes(next, champions);
+  return advanceTransferWindow(next, champions);
+}
+
+function rollFranchiseToNextYearState(
+  season: SeasonState,
+  champions: readonly Champion[],
+  prevHistory: SeasonHistoryEntry[],
+): { season: SeasonState; history: SeasonHistoryEntry[] } {
+  const entry = buildSeasonHistoryEntry(season, Date.now());
+  const historyBase = [entry, ...prevHistory.filter((e) => e.id !== entry.id)].slice(
+    0,
+    seasonHistoryCap(),
+  );
+  const prePool = season.franchise!.inactivePool ?? [];
+  const next = startNextSeason(season, champions);
+  const inactivePlayers = next.franchise?.aging
+    ? inactiveSnapshotsForArchivedYear(
+        prePool,
+        next.franchise.inactivePool ?? [],
+        season.franchise!.year,
+      )
+    : undefined;
+  const archived =
+    inactivePlayers != null ? { ...entry, inactivePlayers } : entry;
+  const history = historyBase.map((e) => (e.id === archived.id ? archived : e));
+  return { season: next, history };
+}
+
+type StoreGet = () => DraftStore;
+type StoreSet = (
+  partial: Partial<DraftStore> | ((state: DraftStore) => Partial<DraftStore>),
+) => void;
+
+function freezeSeasonTournamentStage(t: TournamentState): TournamentState {
+  const stageDone = t.matches
+    .filter((m) => m.bracket === undefined)
+    .every((m) => m.winner != null);
+  if (
+    (t.format === "groups-playoffs" ||
+      t.format === "groups-playoffs-de" ||
+      t.format === "groups-playoffs-te") &&
+    !t.groupsPlayoffs?.playoffStarted &&
+    stageDone
+  ) {
+    return startGroupsPlayoffs(t);
+  }
+  if (
+    (t.format === "swiss-playoffs" ||
+      t.format === "swiss-playoffs-de" ||
+      t.format === "swiss-playoffs-te") &&
+    !t.swissPlayoffsStarted &&
+    stageDone
+  ) {
+    return startSwissPlayoffs(t);
+  }
+  if (
+    (t.format === "round-robin-playoffs" ||
+      t.format === "round-robin-playoffs-te" ||
+      t.format === "round-robin-playoffs-step") &&
+    !t.rrPlayoffsStarted &&
+    stageDone
+  ) {
+    return startRoundRobinPlayoffs(t);
+  }
+  return t;
+}
+
+function appendSimResults(
+  set: StoreSet,
+  season: SeasonState,
+  seen: Set<string>,
+): void {
+  const updates = collectSimResultUpdates(season, seen);
+  if (updates.length === 0) return;
+  set((s) => ({
+    simResultsFeed: [...s.simResultsFeed, ...updates],
+  }));
+}
+
+/** Drive one franchise year to completion; auto-resolves transfer windows. */
+async function runFranchiseSeasonSim(
+  get: StoreGet,
+  set: StoreSet,
+  runId: string,
+  shouldCancel: () => boolean,
+  seen: Set<string>,
+): Promise<boolean> {
+  let currentForms = get().playerForms;
+  const safetyCap = 5000;
+  let sinceCommit = 0;
+  const BATCH = 4;
+  for (let step = 0; step < safetyCap; step++) {
+    if (shouldCancel()) return false;
+    const cur = get().season;
+    if (!cur || cur.id !== runId) return false;
+    if (cur.status === "complete") return true;
+
+    const phase = cur.phases[cur.phaseIndex];
+    if (phase?.kind === "transfer" && phase.status === "in-progress") {
+      set({
+        season: autoResolveTransferWindow(cur, get().champions),
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      continue;
+    }
+
+    const champions = get().champions;
+    const t = nextPendingSeasonTournament(cur);
+    if (!t) return false;
+
+    const startable = t.matches.find(
+      (m) => !m.winner && m.blueTeamId != null && m.redTeamId != null,
+    );
+    if (!startable) {
+      const frozen = freezeSeasonTournamentStage(t);
+      if (frozen === t) return false;
+      set((s) => ({ ...seasonPatchFor(s, frozen) }));
+      continue;
+    }
+
+    let [after, nextForms] = await runAutoPlayMatch(
+      t,
+      startable.id,
+      champions,
+      currentForms,
+    );
+    currentForms = nextForms;
+    const evo = evolveMetaForTournament(after, champions);
+    if (evo.tournament !== after) {
+      setActiveMetaOverride(evo.snapshot?.metaOverride ?? null);
+      saveMetaOverride(evo.snapshot?.metaOverride ?? null);
+      after = evo.tournament;
+    }
+    sinceCommit++;
+    const livePhase = currentSeasonPhase(cur);
+    const progress = livePhase ? seasonPhaseProgress(cur, livePhase) : null;
+    if (sinceCommit >= BATCH) {
+      sinceCommit = 0;
+      set((s) => ({
+        ...seasonPatchFor(s, after),
+        playerForms: currentForms,
+        ...(progress ? { simProgress: progress } : {}),
+      }));
+      const live = get().season;
+      if (live) appendSimResults(set, live, seen);
+    } else {
+      set((s) => ({ ...seasonPatchFor(s, after) }));
+    }
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  const final = get().season;
+  if (final) appendSimResults(set, final, seen);
+  return final?.status === "complete";
+}
+
 // Backfill cosmetic identity (icon/color/personality) on seasons
 // persisted by builds that predate those fields on SeasonTeam — they
 // rendered as an invisible color swatch + the generic shield icon.
@@ -1131,8 +1317,12 @@ export const useDraftStore = create<DraftStore>()(
   activeRealityId: null,
   pendingReality: null,
   seasonMatchday: null,
+  simResultsFeed: [],
+  dismissSimResultsFeed: () => set({ simResultsFeed: [] }),
   simulating: null,
   simProgress: null,
+  bulkYearsProgress: null,
+  bulkYearsCancelRequested: false,
   playerForms: {},
   sideChoicePending: false,
   preTournamentMetaSnapshot: null,
@@ -1547,13 +1737,7 @@ export const useDraftStore = create<DraftStore>()(
   aiDecideOffseason: () => {
     const { season, champions } = get();
     if (!season?.franchise || season.status !== "complete") return;
-    let next = aiResolveUserOffseason(season, champions);
-    next = aiHonorFollowedAgency(next, champions);
-    next = aiDecideFollowedDemotes(next, champions);
-    const me = next.config.controlledTeamId;
-    const hire = bestCoachHire(next);
-    if (me && hire) next = { ...next, teams: swapCoaches(next.teams, me, hire) };
-    set({ season: next });
+    set({ season: autoResolveOffseasonShop(season, champions) });
   },
 
   honorAgencyDemand: (demandId) => {
@@ -1682,28 +1866,11 @@ export const useDraftStore = create<DraftStore>()(
     if (!season || !season.franchise || season.status !== "complete") return;
     const rid = season.franchise.id;
     const prevHistory = get().realities.find((r) => r.id === rid)?.history ?? [];
-    // Archive the finished year into THIS reality's Hall, then roll forward.
-    const entry = buildSeasonHistoryEntry(season, Date.now());
-    const historyBase = [entry, ...prevHistory.filter((e) => e.id !== entry.id)].slice(
-      0,
-      seasonHistoryCap(),
+    const { season: next, history } = rollFranchiseToNextYearState(
+      season,
+      champions,
+      prevHistory,
     );
-    const prePool = season.franchise.inactivePool ?? [];
-    const next = startNextSeason(season, champions);
-    // Hall badges for the year that ended: stamp the year-end advance tick
-    // onto this archive (ACY 1→2→3→FA) and include new demotees/cuts at 1y.
-    // Always set the field when aging is on (even []) so search won't fall
-    // back to the legacy "missing from roster = retired" heuristic.
-    const inactivePlayers = next.franchise?.aging
-      ? inactiveSnapshotsForArchivedYear(
-          prePool,
-          next.franchise.inactivePool ?? [],
-          season.franchise.year,
-        )
-      : undefined;
-    const archived =
-      inactivePlayers != null ? { ...entry, inactivePlayers } : entry;
-    const history = historyBase.map((e) => (e.id === archived.id ? archived : e));
     set((s) => ({
       season: next,
       realities: s.realities.map((r) =>
@@ -1712,6 +1879,101 @@ export const useDraftStore = create<DraftStore>()(
           : r,
       ),
     }));
+  },
+
+  cancelBulkYears: () => {
+    if (get().bulkYearsProgress) set({ bulkYearsCancelRequested: true });
+  },
+
+  simulateRealityYears: (count) => {
+    const { season, simulating, bulkYearsProgress } = get();
+    if (!season?.franchise || simulating || bulkYearsProgress) return;
+    const total = clampBulkYearCount(count);
+    const startYear = season.franchise.year;
+    set({
+      simulating: "all",
+      simProgress: null,
+      simResultsFeed: [],
+      bulkYearsProgress: { completed: 0, total, year: startYear },
+      bulkYearsCancelRequested: false,
+    });
+    void (async () => {
+      const seen = new Set<string>();
+      try {
+        await new Promise((r) => setTimeout(r, 0));
+        const runId = season.id;
+        const shouldCancel = () => get().bulkYearsCancelRequested;
+        let completed = 0;
+
+        while (completed < total) {
+          if (shouldCancel()) break;
+          const cur = get().season;
+          if (!cur?.franchise || cur.id !== runId) break;
+
+          if (cur.status !== "complete") {
+            const ok = await runFranchiseSeasonSim(
+              get,
+              set,
+              runId,
+              shouldCancel,
+              seen,
+            );
+            if (!ok || shouldCancel()) break;
+          }
+
+          const finished = get().season;
+          if (!finished?.franchise || finished.status !== "complete") break;
+          appendSimResults(set, finished, seen);
+
+          set({ season: autoResolveOffseasonShop(finished, get().champions) });
+          if (shouldCancel()) break;
+
+          const rid = finished.franchise.id;
+          const prevHistory =
+            get().realities.find((r) => r.id === rid)?.history ?? [];
+          const { season: next, history } = rollFranchiseToNextYearState(
+            get().season!,
+            get().champions,
+            prevHistory,
+          );
+          completed++;
+          set((s) => ({
+            season: next,
+            playerForms: {},
+            bulkYearsProgress: {
+              completed,
+              total,
+              year: next.franchise!.year,
+            },
+            realities: s.realities.map((r) =>
+              r.id === next.franchise!.id
+                ? { ...r, year: next.franchise!.year, season: next, history }
+                : r,
+            ),
+            ...(next.currentMeta
+              ? applyMetaSnapshotPatch(
+                  {
+                    metaOverride: next.currentMeta.metaOverride,
+                    metaSource: next.currentMeta.metaOverride ? "custom" : "default",
+                    metaEnabled: next.currentMeta.metaEnabled,
+                    synergyOverride: next.currentMeta.synergyOverride,
+                    counterOverride: next.currentMeta.counterOverride,
+                  },
+                  s,
+                )
+              : {}),
+          }));
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      } finally {
+        set({
+          simulating: null,
+          simProgress: null,
+          bulkYearsProgress: null,
+          bulkYearsCancelRequested: false,
+        });
+      }
+    })();
   },
 
   switchReality: (id) => {
@@ -1728,10 +1990,13 @@ export const useDraftStore = create<DraftStore>()(
     );
     const target = realities.find((r) => r.id === id);
     if (!target) return;
+    const decodedSeason = decodeCompactSeason(target.season);
     set({
-      realities,
+      realities: realities.map((r) =>
+        r.id === id ? { ...r, season: decodedSeason } : r,
+      ),
       activeRealityId: id,
-      season: target.season,
+      season: decodedSeason,
       seasonViewOpen: true,
     });
   },
@@ -1756,7 +2021,7 @@ export const useDraftStore = create<DraftStore>()(
       s.activeRealityId === id && s.season?.franchise?.id === id ? s.season : null;
     const r = s.realities.find((x) => x.id === id);
     if (!r) return null;
-    const season = live ?? r.season;
+    const season = decodeCompactSeason(live ?? r.season);
     const payload = {
       kind: "reality" as const,
       version: 1,
@@ -1852,8 +2117,14 @@ export const useDraftStore = create<DraftStore>()(
     const { season, simulating } = get();
     if (!season || simulating) return;
     if (season.status === "complete") return;
-    set({ simulating: "all", simProgress: null });
+    const trackResults = scope === "all";
+    set({
+      simulating: "all",
+      simProgress: null,
+      ...(trackResults ? { simResultsFeed: [] } : {}),
+    });
     void (async () => {
+      const seen = trackResults ? new Set<string>() : null;
       try {
         await new Promise((r) => setTimeout(r, 0));
         const runId = season.id;
@@ -1942,6 +2213,10 @@ export const useDraftStore = create<DraftStore>()(
               playerForms: currentForms,
               ...(progress ? { simProgress: progress } : {}),
             }));
+            if (seen) {
+              const live = get().season;
+              if (live) appendSimResults(set, live, seen);
+            }
           } else {
             set((s) => ({ ...seasonPatchFor(s, after) }));
           }
@@ -1968,6 +2243,10 @@ export const useDraftStore = create<DraftStore>()(
               }
             : {},
         );
+        if (seen) {
+          const final = get().season;
+          if (final) appendSimResults(set, final, seen);
+        }
       } finally {
         set({ simulating: null, simProgress: null });
       }
@@ -3873,11 +4152,9 @@ export const useDraftStore = create<DraftStore>()(
     // flush, so per-set() serialization cost is eliminated (critical for
     // bulk simulation which commits state many times per second).
     //
-    // Web: keep createJSONStorage + quotaSafeStorage. localStorage writes
-    // are synchronous anyway and the quota-exceeded fallback chain
-    // operates on serialized strings; web payloads are also much smaller
-    // (slim history, cap 5). Bulk-sim batching (≤1 set per match) keeps
-    // the per-set stringify acceptable there.
+    // Web: lazy + debounced JSON.stringify into quotaSafeStorage (same 500ms
+    // debounce as desktop). Bulk sim no longer blocks the main thread on every
+    // set() with a full-state stringify.
     //
     // Both paths gate writes until enablePersistWrites() so a mount-time
     // set() cannot overwrite disk/localStorage with empty initial state
@@ -3885,9 +4162,7 @@ export const useDraftStore = create<DraftStore>()(
     storage: gatePersistWritesUntilReady(
       isDesktop()
         ? createDesktopLazyStorage()
-        // createJSONStorage returns undefined when getStorage() throws
-        // (Node SSR). gatePersistWritesUntilReady falls back to a noop.
-        : createJSONStorage(() => quotaSafeStorage ?? localStorage),
+        : createWebLazyStorage(() => resolveWebStringStorage(quotaSafeStorage)),
     ),
     partialize: (state) => ({
       series: state.series,
@@ -3915,15 +4190,7 @@ export const useDraftStore = create<DraftStore>()(
       // (memoized by object identity, so unchanged stages cost nothing
       // per set()).
       season: state.season
-        ? {
-            ...state.season,
-            tournaments: Object.fromEntries(
-              Object.entries(state.season.tournaments).map(([id, t]) => [
-                id,
-                compactEncodeTournamentForPersist(t),
-              ]),
-            ),
-          }
+        ? compactEncodeSeasonForPersist(state.season)
         : null,
       seasonViewOpen: state.seasonViewOpen,
       preSeasonMetaSnapshot: state.preSeasonMetaSnapshot,
@@ -3931,9 +4198,9 @@ export const useDraftStore = create<DraftStore>()(
       savedSeasons: state.savedSeasons,
       // Season history — tiny résumé snapshots, persisted as-is.
       seasonHistory: state.seasonHistory,
-      // Franchise realities. ponytail: inactive seasons stored as-is (not
-      // compacted); fine for a handful of saves, revisit if they bloat.
-      realities: state.realities,
+      // Franchise realities — compact-encode each slot's season tournaments
+      // (the heavy part of a 69-year save). Memoized by realities reference.
+      realities: compactEncodeRealitiesForPersist(state.realities),
       activeRealityId: state.activeRealityId,
       // Persist player form so it survives reload (tournament-scoped;
       // resets when a new tournament is started).
@@ -4003,18 +4270,19 @@ export const useDraftStore = create<DraftStore>()(
       if (state?.tournament) {
         state.tournament = decodeCompactTournament(state.tournament);
       }
-      // Season tournaments are stored compact — decode them all so the
-      // dashboards and replays read normal data.
+      // Active season only — inactive franchise slots stay compact-encoded
+      // in memory until switchReality decodes the target (saves load time on
+      // 69-year saves where only one year is live).
       if (state?.season) {
-        state.season = ensureSeasonIdentities({
-          ...state.season,
-          tournaments: Object.fromEntries(
-            Object.entries(state.season.tournaments).map(([id, t]) => [
-              id,
-              decodeCompactTournament(t),
-            ]),
-          ),
-        });
+        const decoded = decodeCompactSeason(
+          ensureSeasonIdentities(state.season),
+        );
+        state.season = decoded;
+        if (state.activeRealityId && state.realities?.length) {
+          state.realities = state.realities.map((r) =>
+            r.id === state.activeRealityId ? { ...r, season: decoded } : r,
+          );
+        }
       }
       // Desktop: history entries were archived with compact encoding — decode
       // them so replay charts work from the history panel as well.
