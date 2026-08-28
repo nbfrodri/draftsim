@@ -1525,3 +1525,65 @@ export function computePlayerTitlesByEvent(
   }
   return out;
 }
+
+// ─── Distinct career teams (journeyers) ─────────────────────────────────────
+
+export interface PlayerDistinctTeamsEntry {
+  playerId: string;
+  playerName: string;
+  /** Distinct franchises played for (`leagueId:teamName`). */
+  distinctTeams: number;
+  leagueId: LeagueId | null;
+  teamName?: string;
+  lane?: Lane;
+}
+
+/** Count how many distinct franchises each player appeared on across archived
+ *  rosters. Sorted by most teams first (ties by name). */
+export function computePlayerDistinctTeams(
+  entries: SeasonHistoryEntry[],
+): PlayerDistinctTeamsEntry[] {
+  const careers = computePlayerCareers(entries);
+  const careerById = new Map(careers.map((c) => [c.playerId, c]));
+  const teamsByPlayer = new Map<string, Set<string>>();
+  const namesByPlayer = new Map<string, string>();
+  for (const e of entries) {
+    for (const phase of e.phaseRosters ?? []) {
+      for (const t of phase.teams) {
+        const tk = teamRecordKey({
+          name: t.teamName,
+          leagueId: t.leagueId,
+          color: "",
+          iconKey: "shield",
+        });
+        for (const p of t.players) {
+          if (!p.id) continue;
+          if (p.name) namesByPlayer.set(p.id, p.name);
+          let set = teamsByPlayer.get(p.id);
+          if (!set) {
+            set = new Set();
+            teamsByPlayer.set(p.id, set);
+          }
+          set.add(tk);
+        }
+      }
+    }
+  }
+  const out: PlayerDistinctTeamsEntry[] = [];
+  for (const [playerId, set] of teamsByPlayer) {
+    const c = careerById.get(playerId);
+    out.push({
+      playerId,
+      playerName: c?.playerName ?? namesByPlayer.get(playerId) ?? playerId,
+      distinctTeams: set.size,
+      leagueId: c?.leagueId ?? null,
+      ...(c?.teamName ? { teamName: c.teamName } : {}),
+      ...(c?.lane ? { lane: c.lane } : {}),
+    });
+  }
+  return out.sort(
+    (a, b) =>
+      b.distinctTeams - a.distinctTeams ||
+      a.playerName.localeCompare(b.playerName),
+  );
+}

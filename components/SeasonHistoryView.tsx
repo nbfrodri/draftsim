@@ -44,6 +44,7 @@ import {
   computeTitleStreaks,
   computePlayerCareers,
   computePlayerTitlesByEvent,
+  computePlayerDistinctTeams,
   computeRegionTitleLeaders,
   computeAllTimeRivalries,
   compareTeams,
@@ -57,6 +58,7 @@ import {
   type DynastyTier,
   type PlayerCareerLine,
   type RegionTitleLeader,
+  type PlayerDistinctTeamsEntry,
 } from "@/lib/season/historyRecords";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import { isDesktop, openBinaryFileNative } from "@/lib/desktopStorage";
@@ -82,6 +84,11 @@ import {
   teamProfile,
   coachProfile,
   playerCareerStatuses,
+  matchesTitleFilters,
+  teamMatchesTitleFilters,
+  playerMatchesTitleFilters,
+  passesMinGoldAdv,
+  type TitleFilters,
   type PlayerCareerWindow,
   type PlayerRegionTitles,
 } from "@/lib/season/historySearch";
@@ -348,7 +355,7 @@ const NavCoachName = memo(function NavCoachName({
 // starting and final tier tables side by side (per lane) plus the drift
 // between them.
 
-type HallTab = "timeline" | "records" | "dynasties" | "search";
+type HallTab = "timeline" | "records" | "dynasties" | "search" | "compare";
 type TimelineView = "seasons" | "overall";
 
 const HALL_TAB_LOADING: Record<HallTab, string> = {
@@ -356,6 +363,7 @@ const HALL_TAB_LOADING: Record<HallTab, string> = {
   records: "Loading records & dynasties…",
   dynasties: "Loading franchise timeline…",
   search: "Loading search…",
+  compare: "Loading compare…",
 };
 
 const INTL_ORDER = INTERNATIONAL_DISPLAY_ORDER;
@@ -2649,6 +2657,52 @@ function DynastyBadge({ tier }: { tier: DynastyTier }) {
   );
 }
 
+function ComparePanel({
+  entries,
+  onNavigate,
+  liveInactive,
+  liveRosterIds,
+}: {
+  entries: SeasonHistoryEntry[];
+  onNavigate?: NavFn;
+  liveInactive?: import("@/lib/season/playerLifecycle").InactivePlayerSnapshot[];
+  liveRosterIds?: ReadonlySet<string>;
+}) {
+  const teamIdentity = useMemo(() => buildTeamIdentity(entries), [entries]);
+  const records = useMemo(() => computeTeamRecords(entries), [entries]);
+  const careers = useMemo(() => computePlayerCareers(entries), [entries]);
+  const careerStatus = useMemo(
+    () =>
+      playerCareerStatuses(
+        entries,
+        liveInactive
+          ? {
+              liveInactive,
+              ...(liveRosterIds ? { liveRosterIds } : {}),
+            }
+          : undefined,
+      ),
+    [entries, liveInactive, liveRosterIds],
+  );
+
+  return (
+    <>
+      <div className="cv-section">
+        <TeamComparePanel entries={entries} records={records} onNavigate={onNavigate} />
+      </div>
+      <div className="cv-section">
+        <PlayerComparePanel
+          entries={entries}
+          careers={careers}
+          identity={teamIdentity}
+          careerStatus={careerStatus}
+          onNavigate={onNavigate}
+        />
+      </div>
+    </>
+  );
+}
+
 function RecordsPanel({
   entries,
   onNavigate,
@@ -2734,6 +2788,10 @@ function RecordsPanel({
       { label: "Intl Titles", rows: top((p) => p.intlTitles), val: (p: PlayerCareerLine) => `${p.intlTitles}` },
     ].filter((b) => b.rows.length > 0);
   }, [careers]);
+  const distinctTeamsBoard = useMemo(
+    () => computePlayerDistinctTeams(entries).filter((p) => p.distinctTeams >= 2),
+    [entries],
+  );
   // Career win-rate board — every player with recorded games, ordered by most
   // games WON (win rate breaks ties). Wins/games come from the champ-pool
   // tallies (the only per-game W/L the archive carries).
@@ -3214,20 +3272,6 @@ function RecordsPanel({
         )}
       </div>
 
-      <div className="cv-section">
-        <TeamComparePanel entries={entries} records={records} onNavigate={onNavigate} />
-      </div>
-
-      <div className="cv-section">
-        <PlayerComparePanel
-          entries={entries}
-          careers={careers}
-          identity={teamIdentity}
-          careerStatus={careerStatus}
-          onNavigate={onNavigate}
-        />
-      </div>
-
       {/* Title streaks & droughts across seasons */}
       <div className="cv-section">
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
@@ -3367,6 +3411,71 @@ function RecordsPanel({
           </div>
         )}
       </div>
+
+      {distinctTeamsBoard.length > 0 && (
+        <div className="cv-section">
+          <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+            Most Franchises Played For
+          </div>
+          <div className="border border-rift-line/40 bg-rift-bg/30">
+            <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_3rem] gap-x-2 px-3 py-1 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">
+              <span />
+              <span>Player</span>
+              <span className="text-right">Teams</span>
+            </div>
+            <div className="divide-y divide-rift-line/15 max-h-72 overflow-y-auto">
+              {distinctTeamsBoard.map((p: PlayerDistinctTeamsEntry, i) => {
+                const st = careerStatus.get(p.playerId);
+                const lane = p.lane ?? laneById.get(p.playerId);
+                return (
+                  <div
+                    key={p.playerId}
+                    className="grid grid-cols-[1.25rem_minmax(0,1fr)_3rem] gap-x-2 items-center px-3 py-1.5 text-[11px] cv-row"
+                  >
+                    <span className="text-right text-[9px] tabular-nums text-rift-muted/70">
+                      {i + 1}
+                    </span>
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      {lane && <LaneIcon lane={lane} size="xs" className="flex-shrink-0" />}
+                      {p.teamName && (
+                        <PlayerTeamIcon
+                          teamName={p.teamName}
+                          leagueId={p.leagueId}
+                          identity={teamIdentity}
+                          size={13}
+                          onNavigate={onNavigate}
+                        />
+                      )}
+                      <NavPlayerName
+                        name={p.playerName || "—"}
+                        playerId={p.playerId}
+                        onNavigate={onNavigate}
+                        className="truncate text-rift-mutedbright font-medium"
+                      />
+                      <CareerStatusBadge
+                        status={st?.status}
+                        academyYears={st?.academyYears}
+                        freeAgentYears={st?.freeAgentYears}
+                        inactiveYears={st?.inactiveYears}
+                      />
+                      {p.leagueId && (
+                        <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/60 flex-shrink-0">
+                          {p.leagueId}
+                        </span>
+                      )}
+                    </span>
+                    <span
+                      className={`text-right tabular-nums font-semibold ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}
+                    >
+                      {p.distinctTeams}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Career win rates — every player with recorded games, ordered by most
           games won (win rate breaks ties). Scrolls so the full list stays
@@ -5043,6 +5152,7 @@ const SORT_OPTIONS: Record<
     { key: "games", label: "Games" },
     { key: "gamesWon", label: "Games Won" },
     { key: "winRate", label: "Win Rate" },
+    { key: "goldAdv", label: "+Gold Avg" },
   ],
   teams: [
     { key: "name", label: "Name" },
@@ -5273,6 +5383,40 @@ function SearchPanel({
   const [regionFilter, setRegionFilter] = useState<LeagueId | null>(null); // teams
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "academy" | "free-agent" | "retired">("all"); // players
   const [sortKey, setSortKey] = useState("name"); // order-by within the result list
+  const [intlTitleFilter, setIntlTitleFilter] = useState(false);
+  const [splitTitleFilter, setSplitTitleFilter] = useState(false);
+  const [intlEventFilter, setIntlEventFilter] = useState<Set<InternationalId>>(
+    () => new Set(INTL_ORDER),
+  );
+  const [minGoldAdv, setMinGoldAdv] = useState("");
+
+  const titleFilters = useMemo((): TitleFilters => {
+    const kinds: TitleFilters["kinds"] = [];
+    if (intlTitleFilter) kinds.push("intl");
+    if (splitTitleFilter) kinds.push("split");
+    return {
+      kinds,
+      ...(intlTitleFilter
+        ? { intlEvents: INTL_ORDER.filter((e) => intlEventFilter.has(e)) }
+        : {}),
+    };
+  }, [intlTitleFilter, splitTitleFilter, intlEventFilter]);
+
+  const toggleIntlEvent = useCallback((event: InternationalId) => {
+    setIntlEventFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(event)) next.delete(event);
+      else next.add(event);
+      return next;
+    });
+  }, []);
+
+  const minGoldAdvNum = useMemo(() => {
+    const raw = minGoldAdv.trim();
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }, [minGoldAdv]);
 
   useEffect(() => {
     if (!initialNav) return;
@@ -5302,6 +5446,10 @@ function SearchPanel({
     for (const r of computeTeamRecords(entries)) m.set(r.key, r);
     return m;
   }, [entries]);
+  const playerCareersById = useMemo(
+    () => new Map(computePlayerCareers(entries).map((c) => [c.playerId, c])),
+    [entries],
+  );
 
   // Jump to another entity's profile (cross-links inside a profile). Switches
   // entity type + selection and clears the search query so the target is shown.
@@ -5329,6 +5477,12 @@ function SearchPanel({
             (!laneFilter || p.lane === laneFilter) &&
             (!regionFilter || p.leagueId === regionFilter) &&
             (statusFilter === "all" || p.careerStatus === statusFilter) &&
+            playerMatchesTitleFilters(p, titleFilters) &&
+            passesMinGoldAdv(
+              playerCareersById.get(p.id)?.goldDiffSum ?? 0,
+              playerCareersById.get(p.id)?.goldDiffGames ?? 0,
+              minGoldAdvNum,
+            ) &&
             (!q ||
               p.name.toLowerCase().includes(q) ||
               p.team?.name.toLowerCase().includes(q) ||
@@ -5360,11 +5514,20 @@ function SearchPanel({
             games: p.games,
             gamesWon: p.gamesWon,
             winRate: p.winRate ?? 0,
+            goldAdv: p.goldAdvAvg ?? -Infinity,
           },
         }));
     } else if (kind === "teams") {
       rows = teams
-        .filter((t) => (!regionFilter || t.leagueId === regionFilter) && (!q || t.name.toLowerCase().includes(q) || t.leagueId.toLowerCase().includes(q)))
+        .filter(
+          (t) =>
+            (!regionFilter || t.leagueId === regionFilter) &&
+            teamMatchesTitleFilters(
+              teamRecords.get(`${t.leagueId}:${t.name}`),
+              titleFilters,
+            ) &&
+            (!q || t.name.toLowerCase().includes(q) || t.leagueId.toLowerCase().includes(q)),
+        )
         .map((t) => {
           const key = `${t.leagueId}:${t.name}`;
           const rec = teamRecords.get(key);
@@ -5415,7 +5578,7 @@ function SearchPanel({
       );
     }
     return rows;
-  }, [kind, q, laneFilter, regionFilter, statusFilter, sortKey, players, teams, stars, coaches, teamRecords]);
+  }, [kind, q, laneFilter, regionFilter, statusFilter, sortKey, titleFilters, minGoldAdvNum, players, teams, stars, coaches, teamRecords, playerCareersById]);
 
   const sortLabel = SORT_OPTIONS[kind].find((o) => o.key === sortKey)?.label;
 
@@ -5563,6 +5726,75 @@ function SearchPanel({
             </button>
           ))}
         </div>
+        {/* Title filters (players & teams) */}
+        {(kind === "players" || kind === "teams") && (
+          <div className="mb-2 space-y-2">
+            <div className="text-[8px] uppercase tracking-[0.25em] text-rift-gold/50">
+              Title filters
+            </div>
+            <div className="flex flex-wrap gap-1">
+              <button
+                type="button"
+                onClick={() => setIntlTitleFilter((v) => !v)}
+                className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
+                  intlTitleFilter
+                    ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                    : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+                }`}
+              >
+                Intl titles
+              </button>
+              <button
+                type="button"
+                onClick={() => setSplitTitleFilter((v) => !v)}
+                className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
+                  splitTitleFilter
+                    ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                    : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+                }`}
+              >
+                Split titles
+              </button>
+            </div>
+            {intlTitleFilter && (
+              <div className="flex flex-wrap gap-1">
+                {INTL_ORDER.map((ev) => (
+                  <button
+                    key={ev}
+                    type="button"
+                    onClick={() => toggleIntlEvent(ev)}
+                    className={`px-1.5 py-0.5 border text-[8px] uppercase tracking-[0.12em] transition-all ${
+                      intlEventFilter.has(ev)
+                        ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                        : "border-rift-line/50 text-rift-muted/70 hover:border-rift-gold/40"
+                    }`}
+                  >
+                    {INTERNATIONAL_LABELS[ev]}
+                  </button>
+                ))}
+              </div>
+            )}
+            {kind === "players" && (
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="hall-min-gold-adv"
+                  className="text-[8px] uppercase tracking-[0.2em] text-rift-gold/50 flex-shrink-0"
+                >
+                  Min +gold avg
+                </label>
+                <input
+                  id="hall-min-gold-adv"
+                  type="number"
+                  inputMode="numeric"
+                  value={minGoldAdv}
+                  onChange={(e) => setMinGoldAdv(e.target.value)}
+                  placeholder="e.g. 200"
+                  className="w-full max-w-[6rem] px-2 py-1 border border-rift-line/60 bg-rift-bg/40 text-[10px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 focus:outline-none"
+                />
+              </div>
+            )}
+          </div>
+        )}
         <div className="space-y-1 lg:max-h-[60vh] lg:overflow-y-auto lg:pr-1">
           {results.length === 0 ? (
             <p className="text-[10px] italic text-rift-muted px-1">No matches.</p>
@@ -5970,6 +6202,7 @@ export default function SeasonHistoryView({
                 { id: "records", label: "Records & Dynasties" },
                 { id: "dynasties", label: "Franchise Timeline" },
                 { id: "search", label: "Search" },
+                { id: "compare", label: "Compare" },
               ] as const
             ).map(({ id, label }) => (
               <button
@@ -6013,6 +6246,13 @@ export default function SeasonHistoryView({
             entries={seasonHistory}
             initialNav={pendingSearchNav}
             onNavConsumed={() => setPendingSearchNav(null)}
+            liveInactive={liveSearchOpts?.liveInactive}
+            liveRosterIds={liveSearchOpts?.liveRosterIds}
+          />
+        ) : deferredTab === "compare" ? (
+          <ComparePanel
+            entries={seasonHistory}
+            onNavigate={hallNavigate}
             liveInactive={liveSearchOpts?.liveInactive}
             liveRosterIds={liveSearchOpts?.liveRosterIds}
           />

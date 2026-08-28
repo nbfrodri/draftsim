@@ -19,8 +19,10 @@ import {
 import {
   careerWinLoss,
   computePlayerCareers,
+  computePlayerTitlesByEvent,
   computeTeamRecords,
   type PlayerCareerLine,
+  type PlayerTitleTotals,
   type TeamRecord,
 } from "./historyRecords";
 import type { PlayerChampStat } from "./stats";
@@ -130,6 +132,10 @@ export interface PlayerHit {
   debutYear?: number; // franchise year they debuted as a rookie (badge); unset for founders
   // Career totals, so the search list can be ordered by accolades/stats.
   titles: number; // split + international titles
+  splitTitles: number;
+  intlByEvent: Partial<Record<InternationalId, number>>;
+  /** Career average gold diff per game; null when no rated games. */
+  goldAdvAvg: number | null;
   mvps: number;
   allPro: number;
   pentakills: number;
@@ -400,11 +406,24 @@ function playerMeta(entries: SeasonHistoryEntry[]): Map<string, PlayerMeta> {
   return out;
 }
 
+function titleTotalsToIntlByEvent(
+  t: PlayerTitleTotals | undefined,
+): Partial<Record<InternationalId, number>> {
+  if (!t) return {};
+  return {
+    "first-stand": t.firstStand,
+    msi: t.msi,
+    worlds: t.worlds,
+    "global-cup": t.globalCup,
+  };
+}
+
 function hitFromCareer(
   c: PlayerCareerLine,
   meta: Map<string, PlayerMeta>,
   statuses: Map<string, CareerStatusInfo>,
   identity: Map<string, SeasonHistoryTeamRef>,
+  titles?: PlayerTitleTotals,
 ): PlayerHit {
   const m = meta.get(c.playerId);
   const wl = careerWinLoss(c);
@@ -428,6 +447,10 @@ function hitFromCareer(
     ...(st.freeAgentYears != null ? { freeAgentYears: st.freeAgentYears } : {}),
     ...(m?.debutYear != null ? { debutYear: m.debutYear } : {}),
     titles: c.splitTitles + c.intlTitles,
+    splitTitles: titles?.splits ?? c.splitTitles,
+    intlByEvent: titleTotalsToIntlByEvent(titles),
+    goldAdvAvg:
+      c.goldDiffGames > 0 ? c.goldDiffSum / c.goldDiffGames : null,
     mvps: c.mvps,
     allPro: c.allPro,
     pentakills: c.pentakills,
@@ -488,9 +511,13 @@ export function listPlayers(
   const meta = playerMeta(entries);
   const statuses = playerCareerStatuses(entries, opts);
   const byId = new Map<string, PlayerHit>();
+  const titlesByEvent = computePlayerTitlesByEvent(entries);
 
   for (const c of computePlayerCareers(entries)) {
-    byId.set(c.playerId, hitFromCareer(c, meta, statuses, identity));
+    byId.set(
+      c.playerId,
+      hitFromCareer(c, meta, statuses, identity, titlesByEvent.get(c.playerId)),
+    );
   }
 
   // Include academy / FA / retired players who never got a playerCareers row
@@ -1553,4 +1580,73 @@ export function coachProfile(entries: SeasonHistoryEntry[], coachName: string): 
         splitTitles,
       }
     : null;
+}
+
+// ─── Search filters (players & teams) ────────────────────────────────────────
+
+export type TitleKindFilter = "intl" | "split";
+
+/** Title scope for Hall Search — kinds are ANDed when multiple are set. */
+export interface TitleFilters {
+  kinds: TitleKindFilter[];
+  /** Intl events that count; empty / omitted ⇒ all international events. */
+  intlEvents?: InternationalId[];
+}
+
+export const EMPTY_TITLE_FILTERS: TitleFilters = { kinds: [] };
+
+export function intlTitleCount(
+  byEvent: Partial<Record<InternationalId, number>>,
+  events?: InternationalId[],
+): number {
+  const evs = events?.length ? events : INTERNATIONAL_DISPLAY_ORDER;
+  return evs.reduce((n, e) => n + (byEvent[e] ?? 0), 0);
+}
+
+export function matchesTitleFilters(
+  splitTitles: number,
+  intlByEvent: Partial<Record<InternationalId, number>>,
+  filters: TitleFilters,
+): boolean {
+  if (filters.kinds.length === 0) return true;
+  let ok = true;
+  if (filters.kinds.includes("intl")) {
+    ok = ok && intlTitleCount(intlByEvent, filters.intlEvents) > 0;
+  }
+  if (filters.kinds.includes("split")) {
+    ok = ok && splitTitles > 0;
+  }
+  return ok;
+}
+
+export function teamMatchesTitleFilters(
+  rec: TeamRecord | undefined,
+  filters: TitleFilters,
+): boolean {
+  return matchesTitleFilters(
+    rec?.splitTitles ?? 0,
+    rec?.intlTitles ?? {},
+    filters,
+  );
+}
+
+export function playerMatchesTitleFilters(
+  p: Pick<PlayerHit, "splitTitles" | "intlByEvent">,
+  filters: TitleFilters,
+): boolean {
+  return matchesTitleFilters(p.splitTitles, p.intlByEvent, filters);
+}
+
+export function avgGoldDiff(sum: number, games: number): number | null {
+  return games > 0 ? sum / games : null;
+}
+
+export function passesMinGoldAdv(
+  sum: number,
+  games: number,
+  min: number | null | undefined,
+): boolean {
+  if (min == null || !Number.isFinite(min)) return true;
+  const avg = avgGoldDiff(sum, games);
+  return avg != null && avg >= min;
 }

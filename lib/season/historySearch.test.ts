@@ -12,6 +12,8 @@ import {
   playerCareerStatuses,
   playerCareerStatus,
   trimRetiredCareerTenures,
+  matchesTitleFilters,
+  passesMinGoldAdv,
 } from "./historySearch";
 import { computePlayerTitlesByEvent } from "./historyRecords";
 import { computeCoachRecords } from "./historySearch";
@@ -1211,5 +1213,43 @@ describe("teamProfile hall of fame", () => {
     expect(faker).toBeTruthy();
     expect(faker!.seasons).toBe(1); // only Year 1 on T1 (moved to GEN in Year 2)
     expect(faker!.stages).toBeGreaterThan(0);
+  });
+});
+
+describe("search title filters", () => {
+  it("requires intl and split titles when both kinds are set", () => {
+    expect(
+      matchesTitleFilters(2, { worlds: 1 }, { kinds: ["intl", "split"] }),
+    ).toBe(true);
+    expect(
+      matchesTitleFilters(0, { worlds: 1 }, { kinds: ["intl", "split"] }),
+    ).toBe(false);
+    expect(
+      matchesTitleFilters(2, {}, { kinds: ["intl", "split"] }),
+    ).toBe(false);
+  });
+
+  it("filters intl titles by selected events only", () => {
+    expect(
+      matchesTitleFilters(
+        0,
+        { msi: 1 },
+        { kinds: ["intl"], intlEvents: ["worlds"] },
+      ),
+    ).toBe(false);
+    expect(
+      matchesTitleFilters(
+        0,
+        { worlds: 1 },
+        { kinds: ["intl"], intlEvents: ["worlds"] },
+      ),
+    ).toBe(true);
+  });
+
+  it("passes min gold advantage threshold", () => {
+    expect(passesMinGoldAdv(1000, 10, 50)).toBe(true);
+    expect(passesMinGoldAdv(100, 10, 50)).toBe(false);
+    expect(passesMinGoldAdv(100, 0, 50)).toBe(false);
+    expect(passesMinGoldAdv(100, 10, null)).toBe(true);
   });
 });

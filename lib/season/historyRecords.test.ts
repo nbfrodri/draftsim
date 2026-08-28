@@ -15,6 +15,7 @@ import {
   comparePlayers,
   computePlayerHeadToHead,
   computePlayerCareers,
+  computePlayerDistinctTeams,
   resolveCanonicalFranchiseKey,
 } from "./historyRecords";
 import type { PlayerSeasonRecord } from "./stats";
@@ -947,5 +948,50 @@ describe("comparePlayers / computePlayerHeadToHead", () => {
     // Query Chovy first → he was on Gen.G (teamB), so wins flip to 0–2
     const h2h = computePlayerHeadToHead([s1], "p-chovy", "p-faker");
     expect(h2h).toMatchObject({ meetings: 2, aWins: 0, bWins: 2 });
+  });
+});
+
+describe("computePlayerDistinctTeams", () => {
+  it("counts distinct franchises per player across seasons", () => {
+    const roster = (
+      teamName: string,
+      playerId: string,
+      playerName: string,
+    ) => ({
+      teamId: teamName,
+      teamName,
+      leagueId: "LCK" as const,
+      players: [
+        { id: playerId, name: playerName, tier: "A" as const, lane: "middle" as const },
+      ],
+    });
+    const s1 = entry("s1", "Season 1", 1000, {
+      phaseRosters: [
+        {
+          phaseIndex: 0,
+          label: "Winter",
+          kind: "split" as const,
+          split: "winter" as const,
+          teams: [roster("T1", "p1", "P1"), roster("Gen.G", "p2", "P2")],
+        },
+      ],
+    });
+    const s2 = entry("s2", "Season 2", 2000, {
+      phaseRosters: [
+        {
+          phaseIndex: 0,
+          label: "Winter",
+          kind: "split" as const,
+          split: "winter" as const,
+          teams: [roster("HLE", "p1", "P1"), roster("T1", "p2", "P2")],
+        },
+      ],
+    });
+    const board = computePlayerDistinctTeams([s1, s2]);
+    const p1 = board.find((r) => r.playerId === "p1")!;
+    const p2 = board.find((r) => r.playerId === "p2")!;
+    expect(p1.distinctTeams).toBe(2);
+    expect(p2.distinctTeams).toBe(2);
+    expect(board[0].distinctTeams).toBe(2);
   });
 });
