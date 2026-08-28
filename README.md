@@ -2,16 +2,16 @@
 
 # ⚔️ DraftSim
 
-**A League of Legends draft + match simulator with a strategic AI drafter and a full event-driven match engine.**
+**A League of Legends draft + match simulator with strategic AI drafting, an event-driven match engine, tournament brackets, and a full franchise season mode.**
 
-Pick/ban against the AI (or watch AI vs AI), commit a team **game plan** in the War Room, then play the match out as a live timeline of events — KDA, gold, a win-probability curve — finishing with an MVP card, damage-share breakdown, and a per-game / per-tournament recap. Run a single series or build a 32-team tournament.
+Pick/ban against the AI (or watch AI vs AI), commit a team **game plan** in the War Room, then play the match out as a live timeline of events — KDA, gold, a win-probability curve — finishing with an MVP card, damage-share breakdown, and per-game / per-tournament recap. Run a single series, build a 32-team tournament, or simulate an entire competitive year across six regions with First Stand, MSI, Worlds, and optional franchise timelines that span decades.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss&logoColor=white)
 ![Zustand](https://img.shields.io/badge/Zustand-5-443E38)
-![GSAP](https://img.shields.io/badge/GSAP-3.12-88CE02?logo=greensock&logoColor=black)
+![Tauri](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=black)
 
 *Hobby / portfolio project. Unofficial fan-made — no affiliation with Riot Games.*
 
@@ -19,21 +19,37 @@ Pick/ban against the AI (or watch AI vs AI), commit a team **game plan** in the 
 
 ---
 
+## What is DraftSim?
+
+DraftSim is a **desktop-first** (Tauri) and **web-capable** (static Next.js export) simulator for League of Legends competitive play. At its core it is three things wired together:
+
+1. **Draft engine** — tournament pick/ban order, fearless series, AI drafter with ~30 weighted signals, rosters, and meta tier lists.
+2. **Match simulator** — event-driven games (~30 event types), War Room strategies, win-probability curves, and full post-match recaps.
+3. **Season & franchise layer** — six regional leagues (LCK, LPL, LEC, LCS, CBLOL, LCP), three splits per year, international events (First Stand, MSI, Worlds, Global Cup), transfer windows, offseason roster management, and multi-year **Realities** with career tracking.
+
+**Desktop vs web:** The recommended experience is the **Tauri desktop app** (`npm run desktop:dev` / `desktop:build`). It uses native file dialogs, a higher tournament-history cap, full replay persistence, and **SQLite** storage in AppData. The web build (`npm run dev`) runs the same UI from `localStorage` with clipboard-based import/export codes — great for quick sessions, but long franchise saves are better on desktop.
+
+---
+
 ## Contents
 
+- [What is DraftSim](#what-is-draftsim)
 - [At a glance](#-at-a-glance)
 - [Gallery](#-gallery)
 - [Quick start](#-quick-start)
+- [Modes & major screens](#-modes--major-screens)
+- [Core game systems](#-core-game-systems)
 - [Features](#-features)
-  - [Single series](#single-series) · [AI drafter](#ai-drafter) · [Strategies (War Room)](#strategies-war-room) · [Match simulator](#match-simulator) · [Post-match](#post-match)
-  - [Tournament mode](#tournament-mode) · [Meta tier list](#meta-tier-list) · [Player rosters](#player-rosters)
-  - [Persistence](#persistence) · [Sound](#sound) · [UX](#ux--accessibility)
-- [Tech stack](#-tech-stack)
+- [Tech stack & infrastructure](#-tech-stack--infrastructure)
 - [Architecture](#-architecture)
 - [Scripts](#-scripts)
 - [Data sources](#-data-sources)
+- [Data files, exports & backup](#-data-files-exports--backup)
 - [Tuning the AI](#-tuning-the-ai)
-- [Attribution](#-attribution--licensing)
+- [Desktop (Tauri)](#desktop-tauri)
+- [Development](#-development)
+- [Design docs](#-design-docs)
+- [Attribution & licensing](#-attribution--licensing)
 
 ---
 
@@ -51,6 +67,8 @@ awareness, **enemy-roster scouting**, and side-aware drafting.
 | 🗺️ **Team strategies** | A post-draft **War Room** of 16 game-plan levers (jungle, weakside, splitpush, objectives, tempo, risk…) that shape the match. Picking a plan that fits your draft is a win-prob tailwind; the AI auto-picks a **varied, context-aware** plan that adapts to the enemy draft/roster and the series scoreline. |
 | 🎲 **Real match sim** | ~30 event types with kill-driven lane gold, role-shaped KDA, item-build combat resolution, power-spike timing windows, late-game scaling payoffs, comeback mechanics, and a win-probability curve. |
 | 🏆 **Tournaments** | Six formats (single/double-elim, round-robin, Swiss, Swiss+playoffs, groups+playoffs), up to 32 teams, save/load, history, and a full post-tournament recap. |
+| 🌍 **Season mode** | Full competitive year: 6 leagues × 3 splits, First Stand / MSI / Worlds, shifting meta, transfer windows, All-Pro, power rankings, and a world champion. |
+| 📜 **Franchise / Realities** | Continuous timelines where teams and players carry across years — offseason transfers, aging, academy, free agency, Hall of Seasons, bulk sim, and portable exports. |
 | 📚 **Hand-curated data** | 172 champions · 300+ synergies · 250+ counters · 11 comp-identity profiles · per-lane meta tiers — all tagged from 2024–2026 patches. |
 | 👥 **Player rosters** | Optional 5-player rosters with skill tiers and champion pools that bias both the AI's draft and the match outcome. |
 
@@ -79,11 +97,20 @@ npm install
 npm run dev        # http://localhost:3000  (Turbopack)
 ```
 
-Production build:
+Production static build (used by Tauri packaging):
 
 ```bash
-npm run build && npm start
+npm run build      # emits to out/
 ```
+
+**Desktop (recommended for franchise play):**
+
+```bash
+npm run desktop:dev    # Next.js dev server + Tauri window
+npm run desktop:build  # static export + NSIS/MSI installer
+```
+
+See [Desktop (Tauri)](#desktop-tauri) for Rust prerequisites and installer paths.
 
 <details>
 <summary><b>Known build warning (harmless)</b></summary>
@@ -97,6 +124,86 @@ Meraki's `champions.json` exceeds Next's 2 MB data-cache limit. Cosmetic — `/`
 is statically prerendered with daily ISR, so Meraki is fetched at most once per
 server instance per day; it just isn't stored in the cross-request cache.
 </details>
+
+---
+
+## 🎮 Modes & major screens
+
+The main menu routes into distinct play modes. Each mode reuses the same draft → War Room → match → recap flow for individual series.
+
+| Mode | Entry | What you can do |
+|---|---|---|
+| **Single Series** | Menu → Single Series | Quick Bo1/Bo3/Bo5 between two teams. PvP, PvAI, or AI vs AI. Fearless, side-swap, timer, roster editor. |
+| **Tournament** | Menu → Tournament | Create a bracket (up to 32 teams, six formats). Sim remaining matches, per-match overrides, save/load (`TOUR1:` codes), post-tournament recap and replay viewer. |
+| **Season** | Menu → Season Mode | One competitive year across six leagues. Follow a team, play or sim splits and internationals, transfer windows, All-Pro, power rankings, season story. Save/load season slots. |
+| **Realities** | Menu → Realities | Franchise hub: create, resume, switch, delete, import/export timelines. Each reality is an independent multi-year save with its own Hall of Seasons. |
+| **Hall of Seasons** | Menu → Hall (or click any player/team/coach card) | All-time records, career boards, rivalries, dynasty tiers, search, XLSX export. Scoped to the active reality in franchise mode, or global for one-off seasons. |
+| **Meta Library** | Menu → Meta Tier Lists | Create, edit, randomize, import/export (`META1:`) tier lists. Apply presets before series/tournament/season. |
+| **Pairings Library** | Menu → Synergies & Counters | Custom synergy pairs and counter relationships used by AI and simulator. |
+
+**Season dashboard** (in-season): phase timeline, standings, match cards, transfer window panel, free agents, team browser, franchise panel, bulk-years control, live sim results feed, offseason view (agency demands, FA/academy shopping, coach hire).
+
+**Desktop vs web caveats:**
+
+| Feature | Desktop (Tauri) | Web |
+|---|---|---|
+| Persistence | SQLite `draftsim.db` in AppData | `localStorage` (~5 MB quota) |
+| Tournament save/load | Native `.draftsim.json` dialogs | `TOUR1:` clipboard codes |
+| Reality export | Native `.draftsim-reality.json` dialogs | File picker or `REAL1:` codes |
+| Meta export | Native file dialogs | `META1:` clipboard codes |
+| Tournament history cap | 200 entries, full replay data | 5 entries, slim recaps on persist |
+| Bulk franchise sim | Full flush on window close | Same logic, smaller storage headroom |
+
+---
+
+## 🏗 Core game systems
+
+High-level map of the complex systems. See [Design docs](#-design-docs) for deep dives.
+
+### Draft engine
+
+- 20-action tournament order (6 bans → 6 picks → 4 bans → 4 picks).
+- Bo1/Bo3/Bo5, Fearless Draft, auto side-swap, optional 30s timer.
+- Role assignment, flex-pick optimization, synergy/counter badges.
+- AI drafter: ~30 signals, difficulty tiers, lookahead, roster scouting, rationale UI.
+
+### Match simulator
+
+- Event-driven timeline (~30 types): ganks, objectives, teamfights, power spikes, ace, elder, backdoor, etc.
+- War Room strategies (16 levers) shape event frequency, objective tilt, and game length.
+- Combat resolution from item builds + archetypes; identity multipliers; comeback mechanics.
+- Post-match: win-prob sparkline, lane gold, MVP, damage share, scouting report.
+
+### Tournaments
+
+- Formats: single/double elim, round-robin, Swiss (+ playoffs), groups + playoffs.
+- Swiss pairing with Buchholz tiebreakers; seed byes at First Stand and MSI.
+- `Sim All` / `Sim Round` / `Sim Stage` with deferred loading overlay.
+- Tournament-aware AI meta from observed champion W/L.
+
+### Season mode
+
+- **Calendar:** Winter → First Stand → Spring → MSI → Summer → Worlds (+ quadrennial **Global Cup** in franchise years).
+- **Six leagues:** LCK, LPL, LEC, LCS, CBLOL, LCP — 10 teams each, round-robin splits.
+- **International seeding** from split results; configurable realism flags (meta drift, region tides, player development, coach effects).
+- **Transfer windows** after First Stand and MSI (interactive for your team); offseason pass after Worlds.
+- **Awards & stats:** All-Pro teams, split MVPs, power rankings, player leaders, season story narrative.
+
+### Franchise / Realities
+
+- A **reality** is a named, persistent timeline: same team identities, rosters, and player careers across many years.
+- **Year cycle:** play season → archive to Hall → offseason (transfers, aging, pool drift) → next year.
+- **Offseason shop:** free-agent board, academy recalls/releases, rookie signings, agency demands, coach upgrades, AI market resolution.
+- **Aging toggle** (per reality): careers evolve with performance-weighted tier changes, retirements, and rookies.
+- **Bulk simulation:** auto-advance N years (up to 50) with live results feed, optional per-year save/export, ETA display.
+- **Sharing:** `.draftsim-reality.json` files or `REAL1:` share codes; community gallery from `public/community-realities/manifest.json`.
+
+### Hall of Fame / Season History
+
+- Per-season archival résumés: champions, placements, All-Pro, player careers, transfer logs, meta snapshots.
+- Cross-season aggregation: career kills/MVPs/titles, dynasty tiers, rivalries, region strength, head-to-head matrices.
+- Player/team/coach profiles with deep links from anywhere in the live app.
+- XLSX export/import for spreadsheet analysis.
 
 ---
 
@@ -216,7 +323,7 @@ the same team adapts across a series:
 - **Per-match overrides** — change format/mode/fearless/AI difficulty before launching a match.
 - **Tournament-aware AI** — layers in a "live tournament meta" from observed champion W/L (Bayesian-shrunk so 1-game outliers don't dominate).
 - **Save / Load** the full active tournament (in-flight draft, meta snapshot, history) as a `TOUR1:` deflate-base64 code — paste it back to land exactly where you left off.
-- **History** — last 5 completed tournaments archived locally with slim recaps.
+- **History** — last 5 completed tournaments archived locally with slim recaps (200 on desktop).
 - **Post-tournament recap** — summary tiles, most-contested champion, best WR (≥3 games), presence + win-rate tables, meta-shift movers, champion lookup with per-team attribution, per-team champion pools, and a per-match replay viewer.
 
 </details>
@@ -250,11 +357,27 @@ Randomizable (with a slot-machine reveal animation) or hand-edited, and
 <details>
 <summary><b>Storage details</b></summary>
 
-- **Active series + tournament + history survive reload** via Zustand `persist` (`localStorage`). Sound prefs and per-game AI rationale history persist too.
-- **Quota-safe wrapper** — on hitting the ~5 MB ceiling it drops `tournamentHistory` and retries; on a second failure removes the key. The store stays usable in memory for the current tab.
-- **Slim archive on persist** — full replay payloads (`winProbTimeline`, `notableEvents`, `perPickKDA`) are stripped before the localStorage write but kept in memory for the active session. A tournament `Save` (TOUR1: code) preserves the full payload.
-- **Champions are not persisted** — re-fetched from CommunityDragon each load so icons and patch meta stay current.
-- The current meta is **snapshotted onto each tournament at creation** so a save/load restores the AI's view of the meta it was played on.
+**Web (`localStorage`):**
+
+- Active series + tournament + season + realities survive reload via Zustand `persist`.
+- **Quota-safe wrapper** — on hitting the ~5 MB ceiling it drops `tournamentHistory` and retries; on a second failure removes the key.
+- **Slim archive on persist** — full replay payloads are stripped before the localStorage write but kept in memory for the active session. A tournament `Save` (TOUR1: code) preserves the full payload.
+- **Lazy debounced writes** (500 ms) coalesce bulk-sim bursts.
+
+**Desktop (SQLite — current):**
+
+- Game state lives in `%APPDATA%\app.draftsim.desktop\draftsim.db` (see [Desktop SQLite storage](docs/desktop-sqlite-storage.md)).
+- Franchise data is **normalized**: one row per reality, separate rows per Hall-of-Seasons entry — so 69+ archived years no longer rewrite one giant JSON blob.
+- **Lazy history load** — only the active reality's Hall history is hydrated at startup; switching realities fetches the rest asynchronously.
+- **Automatic migration** from legacy `draftsim-store.json` on first launch (renamed to `.bak`, non-destructive).
+- Meta config mirrored in `meta_config` table (replaces `draftsim-meta-config.json`).
+
+**Both:**
+
+- Champions are not persisted — re-fetched from CommunityDragon each load.
+- Current meta is snapshotted onto each tournament/season at creation.
+
+Performance notes for long franchises: [`docs/performance-franchise-saves.md`](docs/performance-franchise-saves.md).
 
 </details>
 
@@ -273,74 +396,65 @@ Randomizable (with a slot-machine reveal animation) or hand-edited, and
 
 ---
 
-## 🛠 Tech stack
+## 🛠 Tech stack & infrastructure
 
 | Layer | Choice |
 |---|---|
-| Framework | **Next.js 16** (App Router + Turbopack, daily ISR for the champion roster) |
+| Framework | **Next.js 16** (App Router + Turbopack, `output: "export"` for Tauri) |
 | UI | **React 19** + **TypeScript 5.7** (strict) |
 | Styling | **Tailwind CSS 3.4** |
-| State | **Zustand 5** with `persist` middleware |
+| State | **Zustand 5** with `persist` middleware (v7 on desktop) |
+| Desktop | **Tauri 2** + `@tauri-apps/plugin-sql` (SQLite), `plugin-fs`, `plugin-dialog` |
 | Charts | **Recharts 3** (win-probability curve) |
 | Icons | **Tabler Icons React** |
 | Animation | **GSAP 3.12** |
-| Tooling | **tsx** (calibration script) · **Vitest** (unit tests) |
+| Export | **ExcelJS** (Hall XLSX export) |
+| Tooling | **tsx** (calibration) · **Vitest** (unit tests) · **esbuild** (bulk-sim worker) |
+
+**Build pipeline:**
+
+- `npm run dev` — Turbopack dev server + bundled `bulkSim.worker.js`.
+- `npm run build` — static export to `out/` (champions fetched at build time).
+- `npm run desktop:build` — `tauri build` packages `out/` into NSIS/MSI/portable `.exe`.
+
+**Persistence architecture:**
+
+| Platform | Backend | Location |
+|---|---|---|
+| Web | `localStorage` via lazy debounced JSON | Browser profile |
+| Desktop | SQLite (`draftsim.db`) | `%APPDATA%\app.draftsim.desktop\` |
+
+Zustand persist version **7** on desktop marks the SQLite backend. State shape is compatible with v6; JSON files migrate automatically on first launch.
 
 ---
 
 ## 🏗 Architecture
 
 The entire `lib/` core is **framework-free and unit-testable** — AI scoring,
-simulator, draft engine, series, and tournament logic have no React/DOM deps.
+simulator, draft engine, series, season, and tournament logic have no React/DOM deps.
 
 <details>
 <summary><b>Repository layout</b></summary>
 
 ```
 draftsim/
-├── app/
-│   ├── layout.tsx                fonts (Cinzel + Inter), metadata
-│   ├── page.tsx                  server component — fetches champions
-│   ├── error.tsx                 graceful boundary for data-fetch failures
-│   └── globals.css               theme, slot frames, keyframes
+├── app/                          Next.js App Router (static export)
+├── components/                   React UI (DraftApp, SeasonDashboard, RealitiesHub, …)
 ├── lib/
-│   ├── types.ts                  Side / Lane / Champion / GameDraft / SeriesState / GameRecap / Player
-│   ├── draftOrder.ts             20-action DRAFT_ORDER constant + phase labels
-│   ├── draftEngine.ts            applyLock / applyTimeout / role assignment / swap
-│   ├── series.ts                 series lifecycle + fearless pool + side-swap rule + star-rating bias
-│   ├── tournament.ts             tournament state, format generators, advancement, history, standings, TOUR1:
-│   ├── lanes.ts                  Lane labels + Meraki-to-Lane map
-│   ├── players.ts                roster utilities, star derivation, champ pools, enemy-scouting weights
-│   ├── sounds.ts                 SFX (CDragon URLs + WebAudio synthesis)
-│   ├── communityDragon.ts        parallel CDragon + Meraki fetch + pending-release injection
-│   ├── championMeta.ts           172+ champion metas, 340+ synergies, meta override, getEffectiveTier
-│   ├── championAbilities.ts      ability lockdown profiles
-│   ├── championBuilds.ts         archetype build paths + key-spike helper
-│   ├── matchSimulator.ts         event timeline + combat resolution + recap (winProbTimeline, perPickKDA)
-│   ├── metaRandomizer.ts         randomize-meta + localStorage helpers
-│   ├── draftAI/
-│   │   ├── index.ts              chooseAIAction(+WithRationale) + SeriesAIContext (my/opp rosters, WR shift)
-│   │   ├── scoring.ts            scorePick / scoreBan + counter / enabler tables
-│   │   ├── helpers.ts            stateless helpers (laneMatchup, identityTarget, …)
-│   │   ├── anticipation.ts       1-ply / 2-ply lookahead + enemy prediction
-│   │   ├── data.ts               250+ HARD_COUNTERS + IDENTITIES + sampling constants
-│   │   └── *.test.ts             vitest coverage (scoring, players, helpers)
-│   ├── sim/
-│   │   ├── descriptions.ts       event flavor + KDA helpers + damage-share weights
-│   │   ├── identities.ts         11 IDENTITY_PROFILES + identityMatchupEdge
-│   │   ├── identitiesTypes.ts    GameDuration + IdentityVsIdentity types
-│   │   ├── strategies.ts         16-lever game plans: fit, timeline modifiers, varied AI selection
-│   │   └── types.ts              EventType / MatchEvent / EventKDA / SimulationResult
-│   └── data/                     Meraki-derived abilities.json + items.json
-├── store/
-│   └── draftStore.ts             single Zustand store w/ persist (quota-safe, slim-archive, tournament actions)
-├── components/                   DraftApp, DraftView, StrategyView, TeamPanel, ChampionGrid,
-│                                 BetweenGamesView, SeriesCompleteView, RosterEditor, MetaEditor,
-│                                 TournamentDashboard, …
-├── scripts/
-│   ├── refresh-meraki-data.mjs   pulls latest Meraki ability + item data
-│   └── calibrate.ts              runs N drafts × M sims, reports TeamScore↔win-rate correlation
-└── package.json
+│   ├── draftAI/                  Heuristic AI drafter + scoring
+│   ├── sim/                      Match simulator events, strategies, identities
+│   ├── season/                   Season engine, franchise, transfers, history, bulk years
+│   ├── tournament.ts             Bracket formats, advancement, TOUR1: codes
+│   ├── matchSimulator.ts         Event timeline + combat + recaps
+│   ├── desktopStorage.ts         Tauri file adapter + web lazy storage
+│   ├── desktopSqlite.ts          SQLite schema, migration, read/write split
+│   └── recapCompression.ts       Compact tournament/recap encoding for saves
+├── store/draftStore.ts           Single Zustand store (series, tournament, season, realities)
+├── public/workers/bulkSim.worker.js   Off-main-thread bulk franchise sim
+├── scripts/                      Data fetchers, calibration, worker bundler
+├── src-tauri/                    Tauri v2 Rust shell
+├── training/                     Optional PyTorch draft-policy training (separate branch)
+└── docs/                         Design docs (see below)
 ```
 
 </details>
@@ -348,30 +462,26 @@ draftsim/
 <details>
 <summary><b>Data flow</b></summary>
 
-1. `app/page.tsx` (server component) fetches champions + lanes from CommunityDragon + Meraki at build / daily ISR. Pending-release champions missing from CDragon are injected from a local fallback table.
-2. `<DraftApp>` populates the Zustand store and routes by `series.status` (`null` / `drafting` / `strategy` / `between-games` / `complete`) — the **`strategy`** stage renders `<StrategyView>` (the War Room) between draft completion and the match.
-3. All state transitions go through the store; pure logic lives in `lib/draftEngine.ts` and `lib/series.ts`.
-4. AI decisions: `chooseAIActionWithRationale(game, champions, fearlessLocked, seriesCtx)` → samples from `scorePick` / `scoreBan` top-N. Lookahead and anticipation are gated by difficulty.
-5. Game plans: `confirmStrategies(...)` stores each side's `TeamStrategy` on the GameDraft (AI sides via the context-aware `chooseAIStrategy`); `strategyFit` + `strategyTimelineModifiers` feed the sim.
-6. Match sim: `simulateMatch(game, champions)` runs the event-timeline generator, with per-event side rolls weighted by comp diff, gold lead, momentum, objective state, lane priority, **power-spike timing, and the teams' strategies**.
-7. `buildGameRecap(game, champions, result)` extracts a compact MVP + biggest-swing summary persisted on the GameDraft; the series-complete view reads it for the narrative.
+1. `app/page.tsx` (server component) fetches champions + lanes from CommunityDragon + Meraki at build time. Pending-release champions missing from CDragon are injected from a local fallback table.
+2. `<DraftApp>` populates the Zustand store and routes by mode (single series, tournament, season, realities hub, Hall).
+3. All state transitions go through the store; pure logic lives in `lib/`.
+4. AI decisions: `chooseAIActionWithRationale(...)` → samples from `scorePick` / `scoreBan` top-N.
+5. Game plans: `confirmStrategies(...)` stores each side's `TeamStrategy`; fit + timeline modifiers feed the sim.
+6. Match sim: `simulateMatch(game, champions)` runs the event-timeline generator.
+7. Season/franchise: `lib/season/engine.ts` drives the year calendar; `lib/season/franchise.ts` rolls years forward; history archived to Hall.
 
 </details>
 
 <details>
 <summary><b>Key design decisions</b></summary>
 
-- **Pure-function core.** Everything in `lib/` is framework-free and testable with any runner.
-- **Single Zustand store with persist.** Series + sound prefs + tournament + history hydrate from localStorage; champions and ephemeral UI reset on reload.
-- **Score by team name, not by side.** `seriesScore()` aggregates wins via team name so side swaps don't split a team's wins.
-- **MVP follows the winner.** Player of the Game is selected only from the winning side — no fed loser steals it, and side swaps can't misattribute it.
-- **Auto side-swap rule.** After each game the loser plays blue ("loser picks side, always picks blue").
-- **Draft-order vs positional-order picks.** Picks are indexed by lock-in order during draft, then reordered into positional order (`[0]` top → `[4]` support) with `blueRoles` frozen on completion.
-- **Identity-driven scoring.** The AI rewards picks that complete a converging comp identity rather than optimizing a single scalar.
-- **Strategies are neutral-by-default.** Every game plan lever has a neutral value that contributes zero to fit and zero to the timeline, so a game with no plan set simulates bit-identically to the pre-strategy build. AI plans are *sampled* (not argmax) from fit + context weights, so teams vary game-to-game; the deterministic `recommendStrategy` drives only the human-side suggestion markers.
-- **Tournament formats append matches.** Most generators emit the full match list up front; Swiss appends rounds dynamically, and playoff brackets / grand-final resets append on trigger.
-- **Deferred sim work for UI feedback.** All `Sim *` actions paint a loading overlay synchronously, then defer the heavy AI-vs-AI loop via `setTimeout(0)`, wrapped in `try / finally`.
-- **Modal via React portal.** Escapes the header's `backdrop-filter` containing block so it can cover the viewport.
+- **Pure-function core.** Everything in `lib/` is framework-free and testable.
+- **Single Zustand store with persist.** Series + tournament + season + realities hydrate from storage; champions reset on reload.
+- **Score by team name, not by side.** Side swaps don't split a team's wins.
+- **MVP follows the winner.** Player of the Game is selected only from the winning side.
+- **Strategies are neutral-by-default.** No plan set = bit-identical to pre-strategy builds.
+- **Desktop SQLite normalization.** Franchise Hall history as per-row inserts — the main fix for 69+ year save lag (see performance doc).
+- **Deferred sim work for UI feedback.** All `Sim *` actions paint a loading overlay, then defer heavy loops via `setTimeout(0)`.
 
 </details>
 
@@ -382,12 +492,20 @@ draftsim/
 | Command | Description |
 |---|---|
 | `npm run dev` | Turbopack dev server at `http://localhost:3000` |
-| `npm run build` | Production build (static prerender) |
-| `npm start` | Serve the production build |
+| `npm run build` | Production static export to `out/` |
+| `npm start` | Serve the production build (web only) |
 | `npm run lint` | Next.js ESLint |
 | `npm test` | Vitest unit suite (`lib/**/*.test.ts`) |
+| `npm run test:watch` | Vitest in watch mode |
+| `npm run desktop:dev` | Tauri dev window + Next.js hot reload |
+| `npm run desktop:build` | Static export + Tauri installer bundle |
 | `npm run refresh-data` | Pull latest Meraki ability + item data into `lib/data/*.json` |
-| `npm run calibrate` | Run N drafts × M sims; report TeamScore.diff ↔ blue win-rate correlation + leave-one-out analysis. Tweak via `CALIB_DRAFTS=600 CALIB_SIMS_PER_DRAFT=40`. |
+| `npm run fetch-player-names` | Refresh real pro player handles from Leaguepedia (~68%+ coverage, run repeatedly to fill gaps) |
+| `npm run fetch-team-logos` | Download team logo assets |
+| `npm run fetch-rookie-names` | Fetch rookie name pool |
+| `npm run fetch-coaches` | Fetch coach name data |
+| `npm run calibrate` | Run N drafts × M sims; report TeamScore↔win-rate correlation. Tweak via `CALIB_DRAFTS=600 CALIB_SIMS_PER_DRAFT=40`. |
+| `npm run build:worker` | Bundle `public/workers/bulkSim.worker.js` (runs automatically before dev/build) |
 
 ---
 
@@ -400,9 +518,53 @@ draftsim/
 | [Meraki Analytics](https://cdn.merakianalytics.com/riot/lol/resources/latest/en-US/champions.json) | Per-champion lane positions |
 | [Meraki Analytics](https://cdn.merakianalytics.com/riot/lol/resources/latest/en-US/abilities.json) | Ability descriptions (CC parsing) |
 | [Meraki Analytics](https://cdn.merakianalytics.com/riot/lol/resources/latest/en-US/items.json) | Item stats for build-progression damage |
+| Leaguepedia (via `fetch-player-names`) | Accurate pro starter handles for season rosters |
 | Hand-curated | 172 champion metas, 340+ synergies, 250+ counters, 11 identity profiles |
 
 > Doom Bot variants (`Ruby_*`) are filtered at fetch time; pending-release champions missing from CDragon are injected from a local fallback table.
+
+---
+
+## 💾 Data files, exports & backup
+
+### Windows desktop paths
+
+All persistent data for the Tauri app lives under:
+
+```
+%APPDATA%\app.draftsim.desktop\
+```
+
+| File | Purpose |
+|---|---|
+| `draftsim.db` | **Primary store** — global state, realities, Hall history, meta config |
+| `draftsim-store.json.bak` | Legacy JSON store (created after SQLite migration) |
+| `draftsim-meta-config.json.bak` | Legacy meta config (after migration) |
+
+macOS: `~/Library/Application Support/app.draftsim.desktop/`  
+Linux: `~/.local/share/app.draftsim.desktop/`
+
+### Export formats
+
+| Extension / code | Contents |
+|---|---|
+| `.draftsim.json` | Full active tournament (in-flight draft, meta, history) |
+| `.draftsim-reality.json` | Franchise timeline: live season + Hall history + metadata |
+| `.draftsim-season.json` | Single season save slot |
+| `TOUR1:…` | Deflate-base64 tournament code (clipboard-friendly) |
+| `REAL1:…` | Deflate-base64 reality share code |
+| `META1:…` | Deflate-base64 meta tier list |
+
+### Delete reality
+
+From **Realities → Saved realities → Delete**: removes the reality from the store and SQLite. If it was the **active** reality, the live season is cleared and you return to the hub. This is permanent — export first if you want a backup.
+
+### Backup recommendations
+
+1. **Export realities** you care about as `.draftsim-reality.json` (Realities hub → Export).
+2. **Copy `draftsim.db`** while the app is closed for a full-fidelity backup (includes all realities, tournaments, meta).
+3. After SQLite migration, keep the `.bak` JSON files until you've verified your saves loaded correctly.
+4. For very long timelines (50+ years), prefer desktop over web — `localStorage` will hit quota limits.
 
 ---
 
@@ -423,8 +585,7 @@ It reports the Pearson correlation between draft-strength diff and simulated win
 rate, plus a leave-one-out analysis flagging components whose removal *improves*
 correlation (noise) vs load-bearing ones (don't touch).
 
-**More design docs:** [`docs/tournament-mode.md`](docs/tournament-mode.md) ·
-[`docs/players-feature.md`](docs/players-feature.md)
+> **Neural draft policy (optional):** A separate branch (`feat/neural-draft-policy`) adds a learned draft policy with ONNX/JSON weights (`public/models/draft-policy.json`) and a Python training pipeline under `training/`. It is not on `main` by default — the heuristic drafter above is the shipped experience.
 
 ---
 
@@ -464,25 +625,68 @@ The build produces (paths relative to the repo root; not committed — `src-taur
 | MSI installer | `src-tauri/target/release/bundle/msi/DraftSim_<version>_x64_en-US.msi` |
 | Portable executable (no install) | `src-tauri/target/release/app.exe` |
 
-### Where data lives
+### Where data lives (SQLite)
 
-Persistent state is stored as JSON files in the OS app-data directory for the identifier `app.draftsim.desktop`:
+Persistent state is stored in an embedded **SQLite** database:
 
 | Platform | Path |
 |---|---|
-| Windows | `%APPDATA%\app.draftsim.desktop\` |
-| macOS | `~/Library/Application Support/app.draftsim.desktop/` |
-| Linux | `~/.local/share/app.draftsim.desktop/` |
+| Windows | `%APPDATA%\app.draftsim.desktop\draftsim.db` |
+| macOS | `~/Library/Application Support/app.draftsim.desktop/draftsim.db` |
+| Linux | `~/.local/share/app.draftsim.desktop/draftsim.db` |
 
-The main store file is `draftsim-store.json`. Tournament history is kept in the same file — the desktop build raises the history cap from 5 to 200 entries and preserves full replay data (compact-encoded) instead of slimming it down.
+**First launch after updating** to a build with SQLite storage automatically migrates from the legacy `draftsim-store.json` (renamed to `.bak`). See [`docs/desktop-sqlite-storage.md`](docs/desktop-sqlite-storage.md) for schema, migration flow, and lazy-history behaviour.
+
+Desktop-specific advantages over web:
+
+- Tournament history cap raised from 5 → **200** entries with full replay data.
+- Native Save/Open dialogs for tournaments, realities, seasons, and meta.
+- Normalized franchise storage — Hall-of-Seasons rows written individually instead of one monolithic JSON rewrite.
+- `flushPendingSqliteWrites()` on window close and bulk-year boundaries.
 
 ### Export / Import (desktop)
 
-- **Tournament Save** — opens a native Save dialog; writes a `.draftsim.json` file you can share or back up.
-- **Tournament Import** — opens a native Open dialog; reads any `.draftsim.json` previously exported.
-- **Meta Export / Import** — same treatment in the Meta Editor.
+- **Tournament Save** — native Save dialog → `.draftsim.json`.
+- **Tournament Import** — native Open dialog.
+- **Reality Export/Import** — `.draftsim-reality.json` from the Realities hub.
+- **Season Save/Import** — `.draftsim-season.json` from the season dashboard / menu.
+- **Meta Export / Import** — native dialogs in the Meta Editor.
 
-Web builds continue using clipboard copy/paste for tournament codes and textarea input.
+Web builds use clipboard copy/paste for `TOUR1:` / `REAL1:` / `META1:` codes and textarea/file-input import.
+
+---
+
+## 🔧 Development
+
+```bash
+npm install
+npm run dev          # web dev server
+npm test             # Vitest unit tests
+npx tsc --noEmit     # typecheck
+npm run desktop:dev  # desktop with hot reload
+```
+
+**Roster data:** Run `npm run fetch-player-names` periodically to refresh pro player handles used in season creation. The script is throttled and accumulates across runs — re-run until coverage meets your needs.
+
+**Bulk sim worker:** `npm run build:worker` bundles `public/workers/bulkSim.worker.js` (auto-run before dev/build). Edit the source and rebuild if you change off-thread franchise simulation.
+
+**Calibration:** Use `npm run calibrate` after AI scoring changes to verify draft-strength still correlates with win rate.
+
+**Type safety:** Strict TypeScript throughout; season/franchise types in `lib/season/types.ts`, core game types in `lib/types.ts`.
+
+---
+
+## 📚 Design docs
+
+| Doc | Topic |
+|---|---|
+| [`docs/tournament-mode.md`](docs/tournament-mode.md) | Tournament formats, Swiss pairing, save codes |
+| [`docs/players-feature.md`](docs/players-feature.md) | Rosters, skill tiers, AI scouting |
+| [`docs/player-identity-and-franchise.md`](docs/player-identity-and-franchise.md) | Player IDs, careers, realities, aging, transfers |
+| [`docs/season-realism.md`](docs/season-realism.md) | Seed byes, meta drift, region tides, realism flags |
+| [`docs/reality-sharing.md`](docs/reality-sharing.md) | REAL1 codes, community gallery |
+| [`docs/desktop-sqlite-storage.md`](docs/desktop-sqlite-storage.md) | SQLite schema, migration, lazy history |
+| [`docs/performance-franchise-saves.md`](docs/performance-franchise-saves.md) | Save lag root causes and optimizations |
 
 ---
 
