@@ -91,6 +91,20 @@ describe("computeTeamRecords", () => {
     expect(gen.totalTitles).toBe(2);
   });
 
+  it("counts split finals reached per split and region", () => {
+    const s = entry("s1", "Season 1", 1000, {
+      splitPlacements: {
+        winter: { LCK: [team("T1"), team("GEN")] },
+        spring: { LEC: [team("G2", "LEC"), team("Rogue", "LEC")] },
+      },
+    });
+    const records = computeTeamRecords([s]);
+    const t1 = records.find((r) => r.key === "LCK:T1")!;
+    expect(t1.splitFinalsReached.winter?.LCK).toBe(1);
+    const g2 = records.find((r) => r.key === "LEC:G2")!;
+    expect(g2.splitFinalsReached.spring?.LEC).toBe(1);
+  });
+
   it("does NOT merge same-named teams from different leagues", () => {
     const s = entry("s1", "Season 1", 1000, {
       splitChampions: {

@@ -22,6 +22,11 @@ import {
   INTERNATIONAL_DISPLAY_ORDER,
   INTERNATIONAL_LABELS,
 } from "./types";
+import {
+  bumpSplitFinalsReached,
+  SPLIT_IDS,
+  type SplitFinalsReachedMap,
+} from "./placements";
 
 // ─── Dynasty model ──────────────────────────────────────────────────────────
 //
@@ -80,6 +85,8 @@ export interface TeamRecord {
   worldsTitles: number;
   /** Times this franchise reached the final (#1 or #2) per international. */
   intlFinalsReached: Partial<Record<InternationalId, number>>;
+  /** Domestic split finals reached per split × region. */
+  splitFinalsReached: SplitFinalsReachedMap;
   /** Splits + internationals combined. */
   totalTitles: number;
   /** Concentrated-dominance dynasty classification. */
@@ -280,6 +287,7 @@ export function computeTeamRecords(
         intlTotal: 0,
         worldsTitles: 0,
         intlFinalsReached: {},
+        splitFinalsReached: {},
         totalTitles: 0,
         dynasty: {
           tier: "none",
@@ -370,6 +378,33 @@ export function computeTeamRecords(
         if (!team) continue;
         const rec = recordOf(team);
         rec.intlFinalsReached[event] = (rec.intlFinalsReached[event] ?? 0) + 1;
+      }
+    }
+    // Split finals reached (#1 or #2) per split × region.
+    for (const split of SPLIT_IDS) {
+      const byLeague = e.splitPlacements?.[split];
+      if (byLeague) {
+        for (const leagueId of LEAGUE_IDS) {
+          const placements = byLeague[leagueId];
+          if (!placements?.length) continue;
+          for (let i = 0; i < Math.min(2, placements.length); i++) {
+            const team = placements[i];
+            if (!team) continue;
+            const rec = recordOf(team);
+            bumpSplitFinalsReached(rec.splitFinalsReached, split, leagueId);
+          }
+        }
+        continue;
+      }
+      const champs = e.splitChampions[split];
+      const runners = e.splitRunnersUp?.[split];
+      if (!champs && !runners) continue;
+      for (const leagueId of LEAGUE_IDS) {
+        for (const team of [champs?.[leagueId], runners?.[leagueId]]) {
+          if (!team) continue;
+          const rec = recordOf(team);
+          bumpSplitFinalsReached(rec.splitFinalsReached, split, leagueId);
+        }
       }
     }
   }

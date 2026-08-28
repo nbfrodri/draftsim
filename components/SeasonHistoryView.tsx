@@ -86,7 +86,7 @@ import {
   type PlayerRegionTitles,
 } from "@/lib/season/historySearch";
 import { careerTeamWinRates } from "@/lib/season/teamCard";
-import { intlOutcomeLabel, splitPlacementLabel } from "@/lib/season/placements";
+import { intlOutcomeLabel, splitPlacementLabel, splitFinalsReachedEntries, type SplitFinalsReachedMap } from "@/lib/season/placements";
 import {
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
@@ -3981,6 +3981,63 @@ function IntlTitleChips({ splitTitles, intl }: { splitTitles: number; intl: Part
   );
 }
 
+function SplitFinalsReachedChips({
+  splitFinalsReached,
+}: {
+  splitFinalsReached: SplitFinalsReachedMap;
+}) {
+  const entries = splitFinalsReachedEntries(splitFinalsReached);
+  if (entries.length === 0) return null;
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+        Split Finals Reached
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {entries.map(({ split, leagueId, count }) => (
+          <span
+            key={`${split}-${leagueId}`}
+            className="inline-flex items-center gap-1 border border-rift-line/40 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.15em] text-rift-blue/80"
+          >
+            <LeagueIcon league={leagueId} size={11} />
+            {SPLIT_LABELS[split]}
+            <span className="tabular-nums">×{count}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function IntlFinalsReachedChips({
+  intlFinalsReached,
+}: {
+  intlFinalsReached: Partial<Record<InternationalId, number>>;
+}) {
+  if (!INTERNATIONAL_DISPLAY_ORDER.some((ev) => (intlFinalsReached[ev] ?? 0) > 0)) return null;
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+        International Finals Reached
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {INTERNATIONAL_DISPLAY_ORDER.filter((ev) => (intlFinalsReached[ev] ?? 0) > 0).map(
+          (ev) => (
+            <span
+              key={ev}
+              className="inline-flex items-center gap-1 border border-rift-line/40 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.15em] text-rift-goldbright"
+            >
+              <LeagueIcon league={ev} size={11} />
+              {INTERNATIONAL_LABELS[ev]}
+              <span className="tabular-nums">×{intlFinalsReached[ev]}</span>
+            </span>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Career trophies grouped by the region they were won in. Players change
 // leagues, so a flat career total silently reads as "his newest league" — each
 // group keeps its titles behind the badge he actually lifted them for.
@@ -4301,27 +4358,8 @@ const PlayerProfileView = memo(function PlayerProfileView({
         </>
       )}
       <IntlTitleChips splitTitles={p.splitTitles} intl={p.intlTitles} />
-      {INTERNATIONAL_DISPLAY_ORDER.some((ev) => (p.intlFinalsReached[ev] ?? 0) > 0) && (
-        <div>
-          <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
-            International Finals Reached
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {INTERNATIONAL_DISPLAY_ORDER.filter((ev) => (p.intlFinalsReached[ev] ?? 0) > 0).map(
-              (ev) => (
-                <span
-                  key={ev}
-                  className="inline-flex items-center gap-1 border border-rift-line/40 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.15em] text-rift-goldbright"
-                >
-                  <LeagueIcon league={ev} size={11} />
-                  {INTERNATIONAL_LABELS[ev]}
-                  <span className="tabular-nums">×{p.intlFinalsReached[ev]}</span>
-                </span>
-              ),
-            )}
-          </div>
-        </div>
-      )}
+      <IntlFinalsReachedChips intlFinalsReached={p.intlFinalsReached} />
+      <SplitFinalsReachedChips splitFinalsReached={p.splitFinalsReached} />
       <RegionTitleGroups groups={p.titlesByRegion} onNavigate={onNavigate} />
       {c && c.champs.length > 0 && (
         <div>
@@ -4535,6 +4573,24 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
                     value={r.intlFinalsReached[ev] ?? 0}
                   />
                 ))}
+              </div>
+            </div>
+          )}
+          {splitFinalsReachedEntries(r.splitFinalsReached).length > 0 && (
+            <div>
+              <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+                Split Finals Reached
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {splitFinalsReachedEntries(r.splitFinalsReached).map(
+                  ({ split, leagueId, count }) => (
+                    <StatChip
+                      key={`${split}-${leagueId}`}
+                      label={`${leagueId} ${SPLIT_LABELS[split]}`}
+                      value={count}
+                    />
+                  ),
+                )}
               </div>
             </div>
           )}
@@ -4945,6 +5001,8 @@ const CoachProfileView = memo(function CoachProfileView({ entries, name, onNavig
         <StatChip label="Total titles" value={c.splitTitles + Object.values(c.intlTitles).reduce((s, n) => s + (n ?? 0), 0)} />
       </div>
       <IntlTitleChips splitTitles={c.splitTitles} intl={c.intlTitles} />
+      <IntlFinalsReachedChips intlFinalsReached={c.intlFinalsReached} />
+      <SplitFinalsReachedChips splitFinalsReached={c.splitFinalsReached} />
       <div>
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Coaching History</div>
         <div className="space-y-1.5">

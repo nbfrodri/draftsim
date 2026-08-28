@@ -1089,6 +1089,12 @@ describe("coachProfile", () => {
     expect(c.team?.name).toBe("GEN"); // latest team, for the header logo
     expect(c.team?.color).toBe("#0e0"); // enriched identity
   });
+
+  it("counts split and international finals reached while coaching", () => {
+    const c = coachProfile(entries(), "kkOma")!;
+    expect(c.intlFinalsReached.worlds).toBe(2);
+    expect(c.splitFinalsReached.winter?.LCK).toBe(2);
+  });
 });
 
 describe("retired S+ players keep their tier in the search", () => {
@@ -1179,6 +1185,12 @@ describe("computeCoachRecords", () => {
     expect(kk.total).toBe(4);
     expect(kk.leagueId).toBe("LCK");
     expect(kk.team?.name).toBe("GEN"); // most-recent team
+  });
+
+  it("counts split and international finals reached while coaching", () => {
+    const kk = computeCoachRecords(entries()).find((c) => c.name === "kkOma")!;
+    expect(kk.intlFinalsReached.worlds).toBe(2);
+    expect(kk.splitFinalsReached.winter?.LCK).toBe(2);
   });
 });
 

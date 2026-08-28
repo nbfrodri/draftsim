@@ -228,3 +228,62 @@ describe("intl finals reached aggregates", () => {
     expect(p1.intlFinalsReached.msi).toBe(1);
   });
 });
+
+describe("split finals reached aggregates", () => {
+  it("counts team split finals from placement arrays", () => {
+    const entries = [
+      entry({
+        splitPlacements: {
+          winter: { LCK: [teamRef("T1"), teamRef("Gen.G")] },
+          spring: { LCK: [teamRef("Gen.G"), teamRef("T1")] },
+        },
+      }),
+      entry({
+        id: "S2",
+        splitPlacements: {
+          summer: { LPL: [teamRef("BLG", "LPL"), teamRef("JDG", "LPL")] },
+        },
+      }),
+    ];
+    const t1 = computeTeamRecords(entries).find((r) => r.key === "LCK:T1")!;
+    expect(t1.splitFinalsReached.winter?.LCK).toBe(1);
+    expect(t1.splitFinalsReached.spring?.LCK).toBe(1);
+    const blg = computeTeamRecords(entries).find((r) => r.key === "LPL:BLG")!;
+    expect(blg.splitFinalsReached.summer?.LPL).toBe(1);
+  });
+
+  it("falls back to champions and runners-up on legacy archives", () => {
+    const e = entry({
+      splitChampions: { winter: { LCK: teamRef("T1") } },
+      splitRunnersUp: { winter: { LCK: teamRef("Gen.G") } },
+    });
+    const t1 = computeTeamRecords([e]).find((r) => r.key === "LCK:T1")!;
+    const gen = computeTeamRecords([e]).find((r) => r.key === "LCK:Gen.G")!;
+    expect(t1.splitFinalsReached.winter?.LCK).toBe(1);
+    expect(gen.splitFinalsReached.winter?.LCK).toBe(1);
+  });
+
+  it("credits player split finals only while rostered during the split", () => {
+    const e = entry({
+      splitPlacements: { winter: { LCK: [teamRef("T1"), teamRef("Gen.G")] } },
+      phaseRosters: [
+        {
+          phaseIndex: 0,
+          label: "Winter Split",
+          kind: "split",
+          split: "winter",
+          teams: [
+            {
+              teamId: "t1",
+              teamName: "T1",
+              leagueId: "LCK",
+              players: [{ id: "P1", name: "P1", lane: "top", tier: "A" }],
+            },
+          ],
+        },
+      ] as SeasonHistoryEntry["phaseRosters"],
+    });
+    const p1 = playerProfile([e], "P1")!;
+    expect(p1.splitFinalsReached.winter?.LCK).toBe(1);
+  });
+});

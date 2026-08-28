@@ -5,10 +5,18 @@ import type { SeasonHistoryEntry, SeasonHistoryTeamRef } from "./history";
 import { teamRecordKey } from "./historyRecords";
 import {
   INTERNATIONAL_DISPLAY_ORDER,
+  LEAGUE_IDS,
   type InternationalId,
   type LeagueId,
   type SplitId,
 } from "./types";
+
+export const SPLIT_IDS: readonly SplitId[] = ["winter", "spring", "summer"];
+
+/** Finals reached per split × region (e.g. LCK Winter: 2). */
+export type SplitFinalsReachedMap = Partial<
+  Record<SplitId, Partial<Record<LeagueId, number>>>
+>;
 
 export type IntlOutcomeKind =
   | "champion"
@@ -203,6 +211,37 @@ export function reachedIntlFinal(placement: number | null): boolean {
   return placement != null && placement <= 2;
 }
 
+/** True when a team reached the domestic split final (#1 or #2). */
+export function reachedSplitFinal(placement: number | null): boolean {
+  return placement != null && placement <= 2;
+}
+
+export function bumpSplitFinalsReached(
+  map: SplitFinalsReachedMap,
+  split: SplitId,
+  leagueId: LeagueId,
+): void {
+  const byLeague = map[split] ?? {};
+  byLeague[leagueId] = (byLeague[leagueId] ?? 0) + 1;
+  map[split] = byLeague;
+}
+
+/** Display order: region power ranking, then winter → spring → summer. */
+export function splitFinalsReachedEntries(
+  map: SplitFinalsReachedMap,
+): Array<{ split: SplitId; leagueId: LeagueId; count: number }> {
+  const out: Array<{ split: SplitId; leagueId: LeagueId; count: number }> = [];
+  for (const split of SPLIT_IDS) {
+    const byLeague = map[split];
+    if (!byLeague) continue;
+    for (const leagueId of LEAGUE_IDS) {
+      const count = byLeague[leagueId];
+      if (count != null && count > 0) out.push({ split, leagueId, count });
+    }
+  }
+  return out;
+}
+
 /** Count finals reached (#1 or #2) per international event for one franchise. */
 export function intlFinalsReachedForTeam(
   entries: SeasonHistoryEntry[],
@@ -217,6 +256,25 @@ export function intlFinalsReachedForTeam(
       const placement = teamIntlPlacement(e, team, event);
       if (!reachedIntlFinal(placement)) continue;
       out[event] = (out[event] ?? 0) + 1;
+    }
+  }
+  return out;
+}
+
+/** Count split finals reached per split × region for one franchise. */
+export function splitFinalsReachedForTeam(
+  entries: SeasonHistoryEntry[],
+  teamKey: string,
+): SplitFinalsReachedMap {
+  const out: SplitFinalsReachedMap = {};
+  const parsed = parseFranchiseKey(teamKey);
+  if (!parsed) return out;
+  const team = { name: parsed.name, leagueId: parsed.leagueId };
+  for (const e of entries) {
+    for (const split of SPLIT_IDS) {
+      const placement = teamSplitPlacement(e, team, split);
+      if (!reachedSplitFinal(placement)) continue;
+      bumpSplitFinalsReached(out, split, team.leagueId);
     }
   }
   return out;

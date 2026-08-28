@@ -25,10 +25,13 @@ import {
 } from "./historyRecords";
 import type { PlayerChampStat } from "./stats";
 import {
+  bumpSplitFinalsReached,
   reachedIntlFinal,
+  reachedSplitFinal,
   teamIntlOutcome,
   teamSplitPlacement,
   type IntlOutcome,
+  type SplitFinalsReachedMap,
 } from "./placements";
 import {
   ACADEMY_YEARS,
@@ -587,6 +590,10 @@ export interface CoachRecord {
   globalCup: number;
   intlTotal: number;
   total: number; // splits + internationals (raw count)
+  /** International finals reached while coaching (#1 or #2). */
+  intlFinalsReached: Partial<Record<InternationalId, number>>;
+  /** Domestic split finals reached while coaching, per split × region. */
+  splitFinalsReached: SplitFinalsReachedMap;
 }
 const COACH_INTL_FIELD: Record<
   InternationalId,
@@ -608,7 +615,7 @@ export function computeCoachRecords(entries: SeasonHistoryEntry[]): CoachRecord[
   const ensure = (name: string) => {
     let r = acc.get(name);
     if (!r) {
-      r = { name, team: null, leagueId: null, splitTitles: 0, firstStand: 0, msi: 0, worlds: 0, globalCup: 0, intlTotal: 0, total: 0 };
+      r = { name, team: null, leagueId: null, splitTitles: 0, firstStand: 0, msi: 0, worlds: 0, globalCup: 0, intlTotal: 0, total: 0, intlFinalsReached: {}, splitFinalsReached: {} };
       acc.set(name, r);
     }
     return r;
@@ -632,6 +639,35 @@ export function computeCoachRecords(entries: SeasonHistoryEntry[]): CoachRecord[
       const tally = teamSeasonTitles(e, { name, leagueId });
       r.splitTitles += tally.splits.length;
       for (const ev of tally.intl) r[COACH_INTL_FIELD[ev]] += 1;
+    }
+    for (const phase of e.phaseRosters ?? []) {
+      if (phase.kind === "split" && phase.split) {
+        for (const t of phase.teams) {
+          const coach = t.coach?.name;
+          if (!coach) continue;
+          const placement = teamSplitPlacement(
+            e,
+            { name: t.teamName, leagueId: t.leagueId },
+            phase.split,
+          );
+          if (!reachedSplitFinal(placement)) continue;
+          bumpSplitFinalsReached(ensure(coach).splitFinalsReached, phase.split, t.leagueId);
+        }
+      }
+      if (phase.kind === "international" && phase.event) {
+        for (const t of phase.teams) {
+          const coach = t.coach?.name;
+          if (!coach) continue;
+          const outcome = teamIntlOutcome(
+            e,
+            { name: t.teamName, leagueId: t.leagueId },
+            phase.event,
+          );
+          if (!reachedIntlFinal(outcome.placement)) continue;
+          const r = ensure(coach);
+          r.intlFinalsReached[phase.event] = (r.intlFinalsReached[phase.event] ?? 0) + 1;
+        }
+      }
     }
   }
   for (const r of acc.values()) {
@@ -881,6 +917,8 @@ export interface PlayerProfile {
   intlTitles: Partial<Record<InternationalId, number>>; // by event
   /** Finals reached (#1 or #2) while rostered, aggregated across teams. */
   intlFinalsReached: Partial<Record<InternationalId, number>>;
+  /** Split finals reached while rostered, per split × region. */
+  splitFinalsReached: SplitFinalsReachedMap;
   /** Same trophies, grouped by the region they were won in — most decorated
    *  region first. Empty when the player has never won anything. */
   titlesByRegion: PlayerRegionTitles[];
@@ -958,6 +996,7 @@ export function playerProfile(
   const tenures: PlayerTenure[] = [];
   const intlTitles: Partial<Record<InternationalId, number>> = {};
   const intlFinalsReached: Partial<Record<InternationalId, number>> = {};
+  const splitFinalsReached: SplitFinalsReachedMap = {};
   const byRegion = new Map<LeagueId, PlayerRegionTitles>();
   const creditRegion = (
     team: SeasonHistoryTeamRef,
@@ -1073,6 +1112,13 @@ export function playerProfile(
         reachedIntlFinal(intlOutcome?.placement ?? null)
       ) {
         intlFinalsReached[phase.event] = (intlFinalsReached[phase.event] ?? 0) + 1;
+      }
+      if (
+        phase.kind === "split" &&
+        phase.split &&
+        reachedSplitFinal(splitPlacement ?? null)
+      ) {
+        bumpSplitFinalsReached(splitFinalsReached, phase.split, me.t.leagueId);
       }
       if (windowKey) {
         windows.push({
@@ -1220,6 +1266,7 @@ export function playerProfile(
     splitTitles,
     intlTitles,
     intlFinalsReached,
+    splitFinalsReached,
     titlesByRegion: [...byRegion.values()].sort(
       (a, b) =>
         b.intlTotal + b.splitTotal - (a.intlTotal + a.splitTotal) ||
@@ -1445,6 +1492,8 @@ export interface CoachProfile {
   tenures: CoachTenure[]; // newest first
   splitTitles: number;
   intlTitles: Partial<Record<InternationalId, number>>; // by event
+  intlFinalsReached: Partial<Record<InternationalId, number>>;
+  splitFinalsReached: SplitFinalsReachedMap;
 }
 
 export function coachProfile(entries: SeasonHistoryEntry[], coachName: string): CoachProfile | null {
@@ -1452,6 +1501,8 @@ export function coachProfile(entries: SeasonHistoryEntry[], coachName: string): 
   const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
   const tenures: CoachTenure[] = [];
   const intlTitles: Partial<Record<InternationalId, number>> = {};
+  const intlFinalsReached: Partial<Record<InternationalId, number>> = {};
+  const splitFinalsReached: SplitFinalsReachedMap = {};
   let splitTitles = 0;
   for (const e of ordered) {
     const phases = [...(e.phaseRosters ?? [])].sort((a, b) => b.phaseIndex - a.phaseIndex);
@@ -1468,6 +1519,23 @@ export function coachProfile(entries: SeasonHistoryEntry[], coachName: string): 
       }
     }
     if (!found) continue;
+    for (const phase of [...(e.phaseRosters ?? [])].sort((a, b) => a.phaseIndex - b.phaseIndex)) {
+      const t = phase.teams.find((x) => x.coach?.name === coachName);
+      if (!t) continue;
+      const team = { name: t.teamName, leagueId: t.leagueId };
+      if (phase.kind === "split" && phase.split) {
+        const placement = teamSplitPlacement(e, team, phase.split);
+        if (reachedSplitFinal(placement)) {
+          bumpSplitFinalsReached(splitFinalsReached, phase.split, t.leagueId);
+        }
+      }
+      if (phase.kind === "international" && phase.event) {
+        const outcome = teamIntlOutcome(e, team, phase.event);
+        if (reachedIntlFinal(outcome.placement)) {
+          intlFinalsReached[phase.event] = (intlFinalsReached[phase.event] ?? 0) + 1;
+        }
+      }
+    }
     const seasonTitles = teamSeasonTitles(e, { name: found.ref.name, leagueId: found.ref.leagueId });
     splitTitles += seasonTitles.splits.length;
     for (const ev of seasonTitles.intl) intlTitles[ev] = (intlTitles[ev] ?? 0) + 1;
@@ -1480,6 +1548,8 @@ export function coachProfile(entries: SeasonHistoryEntry[], coachName: string): 
         ...(tenures[0].playstyle ? { playstyle: tenures[0].playstyle } : {}),
         tenures,
         intlTitles,
+        intlFinalsReached,
+        splitFinalsReached,
         splitTitles,
       }
     : null;
