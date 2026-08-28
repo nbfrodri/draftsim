@@ -38,6 +38,11 @@ export function resetSqliteStorageForTests(): void {
   loadedHistoryRealityIds.clear();
 }
 
+/** @internal test helper — inject a mock SqlExecutor instead of opening Tauri DB. */
+export function setDesktopDatabaseForTests(db: SqlExecutor | null): void {
+  dbPromise = db ? Promise.resolve(db) : null;
+}
+
 /** @internal test helper */
 export function markRealityHistoryLoaded(realityId: string): void {
   loadedHistoryRealityIds.add(realityId);
@@ -57,6 +62,7 @@ async function loadDatabase(): Promise<SqlExecutor> {
       const Database = (await import("@tauri-apps/plugin-sql")).default;
       const dbPath = await join(await appDataDir(), DESKTOP_DB_FILENAME);
       const db = await Database.load(`sqlite:${dbPath}`);
+      await db.execute("PRAGMA foreign_keys = ON");
       await db.execute(SCHEMA_SQL);
       return db as unknown as SqlExecutor;
     })();
@@ -179,10 +185,10 @@ export async function migrateJsonFilesToSqlite(storeKey: string): Promise<boolea
 }
 
 async function upsertGlobalState(
+  db: SqlExecutor,
   storeKey: string,
   global: Record<string, unknown>,
 ): Promise<void> {
-  const db = await loadDatabase();
   const now = Date.now();
   await db.execute(
     `INSERT INTO global_state (store_key, state_json, updated_at)
@@ -195,9 +201,9 @@ async function upsertGlobalState(
 }
 
 async function upsertRealityRow(
+  db: SqlExecutor,
   reality: Pick<SavedReality, "id" | "name" | "year" | "season">,
 ): Promise<void> {
-  const db = await loadDatabase();
   const now = Date.now();
   await db.execute(
     `INSERT INTO realities (id, name, year, season_json, updated_at)
@@ -209,6 +215,29 @@ async function upsertRealityRow(
        updated_at = excluded.updated_at`,
     [reality.id, reality.name, reality.year, JSON.stringify(reality.season), now],
   );
+}
+
+/** Immediate upsert of one reality row (+ optional history sync). */
+export async function upsertRealityInDb(
+  reality: Pick<SavedReality, "id" | "name" | "year" | "season"> & {
+    history?: SeasonHistoryEntry[];
+  },
+  options?: { syncHistory?: boolean },
+): Promise<void> {
+  const db = await loadDatabase();
+  await upsertRealityRow(db, reality);
+  if (options?.syncHistory && reality.history) {
+    await syncRealityHistory(db, reality.id, reality.history);
+    loadedHistoryRealityIds.add(reality.id);
+  }
+}
+
+/** Remove one reality and its Hall history from SQLite. */
+export async function deleteRealityFromDb(realityId: string): Promise<void> {
+  const db = await loadDatabase();
+  await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
+  await db.execute("DELETE FROM realities WHERE id = ?", [realityId]);
+  loadedHistoryRealityIds.delete(realityId);
 }
 
 /** Sync history rows: upsert each entry, then drop rows removed from state. */
@@ -239,12 +268,29 @@ export async function syncRealityHistory(
   );
 }
 
-async function replaceRealityHistory(
-  realityId: string,
-  history: SeasonHistoryEntry[],
+
+/** Drop realities (and their history) removed from persisted state. */
+export async function syncRemovedRealities(
+  db: SqlExecutor,
+  keepIds: string[],
 ): Promise<void> {
-  const db = await loadDatabase();
-  await syncRealityHistory(db, realityId, history);
+  const existing = await db.select<{ id: string }>("SELECT id FROM realities");
+  const keep = new Set(keepIds);
+
+  if (keepIds.length === 0) {
+    await db.execute("DELETE FROM reality_history");
+    await db.execute("DELETE FROM realities");
+    loadedHistoryRealityIds.clear();
+    return;
+  }
+
+  for (const row of existing) {
+    if (!keep.has(row.id)) {
+      await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [row.id]);
+      await db.execute("DELETE FROM realities WHERE id = ?", [row.id]);
+      loadedHistoryRealityIds.delete(row.id);
+    }
+  }
 }
 
 export async function savePersistedStateToDb(
@@ -252,11 +298,22 @@ export async function savePersistedStateToDb(
   state: PersistedStoreState,
   options?: { forceAllHistory?: boolean },
 ): Promise<void> {
+  const db = await loadDatabase();
+  await savePersistedStateToDbExecutor(db, storeKey, state, options);
+}
+
+/** @internal testable — full reconcile: global + realities + history sync + stale deletes. */
+export async function savePersistedStateToDbExecutor(
+  db: SqlExecutor,
+  storeKey: string,
+  state: PersistedStoreState,
+  options?: { forceAllHistory?: boolean },
+): Promise<void> {
   const { global, realities, activeRealityId } = splitPersistedState(state);
-  await upsertGlobalState(storeKey, global);
+  await upsertGlobalState(db, storeKey, global);
 
   for (const r of realities) {
-    await upsertRealityRow({
+    await upsertRealityRow(db, {
       id: r.id,
       name: r.name,
       year: r.year,
@@ -267,25 +324,29 @@ export async function savePersistedStateToDb(
       loadedHistoryRealityIds.has(r.id) ||
       r.id === activeRealityId;
     if (historyLoaded) {
-      await replaceRealityHistory(r.id, r.history as SeasonHistoryEntry[]);
+      await syncRealityHistory(db, r.id, r.history as SeasonHistoryEntry[]);
       loadedHistoryRealityIds.add(r.id);
     }
   }
 
-  const db = await loadDatabase();
-  const existing = await db.select<{ id: string }>("SELECT id FROM realities");
-  const keep = new Set(realities.map((r) => r.id));
-  for (const row of existing) {
-    if (!keep.has(row.id)) {
-      await db.execute("DELETE FROM realities WHERE id = ?", [row.id]);
-    }
-  }
+  await syncRemovedRealities(
+    db,
+    realities.map((r) => r.id),
+  );
 }
 
 export async function loadPersistedStateFromDb(
   storeKey: string,
 ): Promise<PersistedStoreState | null> {
   const db = await loadDatabase();
+  return loadPersistedStateFromDbExecutor(db, storeKey);
+}
+
+/** @internal testable — load global blob + reality rows (+ active history). */
+export async function loadPersistedStateFromDbExecutor(
+  db: SqlExecutor,
+  storeKey: string,
+): Promise<PersistedStoreState | null> {
   const globalRows = await db.select<{ state_json: string }>(
     "SELECT state_json FROM global_state WHERE store_key = ?",
     [storeKey],

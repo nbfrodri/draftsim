@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { isDesktop, createWebLazyStorage, enablePersistWrites, flushPendingPersistWrites, gatePersistWritesUntilReady, resolveWebStringStorage } from "@/lib/desktopStorage";
 import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
-import { loadRealityHistoryFromDb, markRealityHistoryLoaded } from "@/lib/desktopSqlite";
+import { loadRealityHistoryFromDb, markRealityHistoryLoaded, deleteRealityFromDb, upsertRealityInDb } from "@/lib/desktopSqlite";
 import {
   applyLock,
   applyTimeout,
@@ -1918,6 +1918,19 @@ export const useDraftStore = create<DraftStore>()(
         { id, name: seeded.franchise!.name, year: 1, season: seeded, history: [] },
       ],
     }));
+    if (isDesktop()) {
+      markRealityHistoryLoaded(id);
+      void upsertRealityInDb(
+        {
+          id,
+          name: seeded.franchise!.name,
+          year: 1,
+          season: seeded,
+          history: [],
+        },
+        { syncHistory: true },
+      ).catch((err) => console.warn("[draftsim] create reality DB sync failed:", err));
+    }
   },
 
   continueSeasonToNextYear: () => {
@@ -2065,6 +2078,18 @@ export const useDraftStore = create<DraftStore>()(
     );
     const target = realities.find((r) => r.id === id);
     if (!target) return;
+
+    if (isDesktop() && s.activeRealityId && s.activeRealityId !== id) {
+      const outgoing = realities.find((r) => r.id === s.activeRealityId);
+      if (outgoing) {
+        void upsertRealityInDb(outgoing, {
+          syncHistory: outgoing.history.length > 0,
+        }).catch((err) =>
+          console.warn("[draftsim] switchReality outgoing DB sync failed:", err),
+        );
+      }
+    }
+
     const decodedSeason = decodeCompactSeason(target.season);
     set({
       realities: realities.map((r) =>
@@ -2099,6 +2124,16 @@ export const useDraftStore = create<DraftStore>()(
           : {}),
       };
     });
+    if (isDesktop()) {
+      void (async () => {
+        try {
+          await deleteRealityFromDb(id);
+          await flushPendingPersistWrites();
+        } catch (err) {
+          console.warn("[draftsim] deleteReality DB sync failed:", err);
+        }
+      })();
+    }
   },
 
   exportReality: (id) => {
@@ -2192,7 +2227,12 @@ export const useDraftStore = create<DraftStore>()(
     set((st) => ({
       realities: [slot, ...st.realities.filter((x) => x.id !== id)],
     }));
-    if (isDesktop()) markRealityHistoryLoaded(id);
+    if (isDesktop()) {
+      markRealityHistoryLoaded(id);
+      void upsertRealityInDb(slot, { syncHistory: true }).catch((err) =>
+        console.warn("[draftsim] importReality DB sync failed:", err),
+      );
+    }
     return { ok: true, id };
   },
 
