@@ -9,13 +9,19 @@ import {
   isPersistReady,
   onPersistReady,
   resetPersistGateForTests,
+  resetAppClosePhaseForTests,
   resolveWebStringStorage,
+  signalAppClosing,
+  signalAppCloseError,
+  getAppClosePhase,
+  subscribeAppClosePhase,
   subscribePersistReady,
 } from "./desktopStorage";
 
 describe("persist write gate", () => {
   beforeEach(() => {
     resetPersistGateForTests();
+    resetAppClosePhaseForTests();
   });
 
   it("drops setItem until enablePersistWrites", () => {
@@ -117,5 +123,28 @@ describe("persist write gate", () => {
     await expect(
       Promise.resolve(gated.removeItem("draftsim-store")),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("app close lifecycle", () => {
+  beforeEach(() => {
+    resetAppClosePhaseForTests();
+  });
+
+  it("signals saving and error phases to subscribers", () => {
+    const spy = vi.fn();
+    const unsub = subscribeAppClosePhase(spy);
+    expect(getAppClosePhase()).toBe("idle");
+    expect(spy).not.toHaveBeenCalled();
+
+    signalAppClosing();
+    expect(getAppClosePhase()).toBe("saving");
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    signalAppCloseError();
+    expect(getAppClosePhase()).toBe("error");
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    unsub();
   });
 });
