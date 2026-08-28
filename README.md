@@ -38,7 +38,7 @@ DraftSim is a **desktop-first** (Tauri) and **web-capable** (static Next.js expo
 - [Gallery](#-gallery)
 - [Quick start](#-quick-start)
 - [Modes & major screens](#-modes--major-screens)
-- [Core game systems](#-core-game-systems)
+- [Core game systems](#-core-game-systems) · [full reference](docs/systems.md)
 - [Features](#-features)
 - [Tech stack & infrastructure](#-tech-stack--infrastructure)
 - [Architecture](#-architecture)
@@ -158,52 +158,95 @@ The main menu routes into distinct play modes. Each mode reuses the same draft �
 
 ## 🏗 Core game systems
 
-High-level map of the complex systems. See [Design docs](#-design-docs) for deep dives.
+Technical-but-readable map of how DraftSim models competitive LoL. For exhaustive detail — scoring tables, transfer formulas, calendar wiring, abstraction boundaries — see **[`docs/systems.md`](docs/systems.md)**.
 
-### Draft engine
+### Design philosophy & realism goals
 
-- 20-action tournament order (6 bans → 6 picks → 4 bans → 4 picks).
-- Bo1/Bo3/Bo5, Fearless Draft, auto side-swap, optional 30s timer.
-- Role assignment, flex-pick optimization, synergy/counter badges.
-- AI drafter: ~30 signals, difficulty tiers, lookahead, roster scouting, rationale UI.
+DraftSim is a **simulation sandbox**: make draft, macro, roster strength, and calendar structure matter like pro LoL, without cloning a patch-specific client.
+
+| Principle | In practice |
+|---|---|
+| Opt-in realism | Season flags (`playerTransfers`, `formDrift`, …) default **off** — classic behaviour and saves stay unchanged. |
+| Neutral levers | No War Room plan, no chemistry roll, meta disabled → bit-identical to pre-feature builds. |
+| One sim choke point | Roster stars, per-lane skill, form, clutch, coach motivation, and variance presets merge in `starRatingBias()` before the event timeline runs. |
+| Real names, abstract rules | Pro teams/players from APIs + bundled snapshots; no salary caps, visas, or scrim schedules. |
+
+**Mirrors real esports:** six regional leagues, split-fed internationals (First Stand / MSI / Worlds), play-ins, Swiss and groups, fearless series, transfer windows, academy → FA pipelines, career IDs in a Hall, meta that drifts like patches.
+
+**Abstracted:** click-level mechanics, exact item actives, org economics, and geo latency.
+
+### AI heuristic drafter
+
+The shipped AI (`lib/draftAI/`) scores every legal pick/ban with **~30 labelled components** and samples from the top-N (temperature + difficulty control exploration).
+
+| Layer | What it does |
+|---|---|
+| **Scoring** | Meta tier, synergies, damage balance, lane counters (250+ hard matchups), comp identity completion, cross-game adaptation, roster comfort/denial. |
+| **Anticipation** | 1-ply (Normal) / 2-ply (Hard) lookahead; predicts enemy picks for ban targeting. |
+| **Series context** | Elimination/closeout games, fearless prior picks, opponent prior identities, live tournament champion W/L. |
+| **Side rules** | Blue favours flex + S+ meta; Red hunts counter edge; R5 refuses hard lane counters. |
+| **Personality** | Per-team weight vectors (`meta-slave`, `comfort-first`, `counter-picker`, `cheese`, …) + coach rating → difficulty. |
+
+Rationale UI surfaces the chosen champion's score breakdown and top-3 alternatives. Tuning knobs: `lib/draftAI/data.ts`, `scoring.ts`; validate with `npm run calibrate`.
+
+> **Neural policy (optional):** branch `feat/neural-draft-policy` adds learned weights (`public/models/draft-policy.json`) + Python `training/` — not on `main` by default; heuristic drafter above is the shipped experience.
 
 ### Match simulator
 
-- Event-driven timeline (~30 types): ganks, objectives, teamfights, power spikes, ace, elder, backdoor, etc.
-- War Room strategies (16 levers) shape event frequency, objective tilt, and game length.
-- Combat resolution from item builds + archetypes; identity multipliers; comeback mechanics.
-- Post-match: win-prob sparkline, lane gold, MVP, damage share, scouting report.
+`lib/matchSimulator.ts` + `lib/sim/timeline/` — **~30 event types** (ganks, objectives, teamfights, power spikes, ace, elder, backdoor…).
 
-### Tournaments
+- **Kill-driven lane gold** and role-shaped KDA; win-probability sparkline from event rolls.
+- **Combat** from item-build damage/EHP, archetypes, meta tier; **power-spike windows** from `championBuilds.ts`.
+- **War Room** (16 levers, `lib/sim/strategies.ts`) — plan fit ±~10pp tailwind; biases which events fire and game length.
+- **Identity multipliers** (`lib/sim/identities.ts`) — Wombo vs no-disengage, Dive vs unprotected carry, etc.
+- **Bias stack** — team star, per-lane roster micro, pool fit, player chemistry, strategies → no double-counting.
 
-- Formats: single/double elim, round-robin, Swiss (+ playoffs), groups + playoffs.
-- Swiss pairing with Buchholz tiebreakers; seed byes at First Stand and MSI.
-- `Sim All` / `Sim Round` / `Sim Stage` with deferred loading overlay.
-- Tournament-aware AI meta from observed champion W/L.
+### Decision-making: franchise, transfers, agency
 
-### Season mode
+Season logic (`lib/season/`) wraps the tournament engine — every split and international **is** a `TournamentState`.
 
-- **Calendar:** Winter → First Stand → Spring → MSI → Summer → Worlds (+ quadrennial **Global Cup** in franchise years).
-- **Six leagues:** LCK, LPL, LEC, LCS, CBLOL, LCP — 10 teams each, round-robin splits.
-- **International seeding** from split results; configurable realism flags (meta drift, region tides, player development, coach effects).
-- **Transfer windows** after First Stand and MSI (interactive for your team); offseason pass after Worlds.
-- **Awards & stats:** All-Pro teams, split MVPs, power rankings, player leaders, season story narrative.
+| System | Module | Summary |
+|---|---|---|
+| **Calendar** | `engine.ts` | Winter → First Stand → Spring → MSI → Summer → Worlds (+ quadrennial Global Cup). Six leagues × 10 teams. |
+| **Transfers** | `transfers.ts` | Auto windows after First Stand / MSI + heavy offseason. Value = tier + split grades + **pool fit under current meta**. Cross-region capped for S/S+. |
+| **Agency** | `playerAgency.ts` | A+ players demand better orgs / call-ups; user can override; AI honors when gap is large. |
+| **FA / academy** | `faMarket.ts`, `playerLifecycle.ts` | Starter → academy (2–4y) → FA (4y) → retired; vacancy fills, graduate caps, AI market passes. |
+| **Franchise year** | `franchise.ts` | Reality = persistent teams + careers; offseason aging, pool/chemistry drift, coach moves, bulk sim N years. |
+| **Realism flags** | `types.ts` `SeasonConfig` | Form drift, player dev, meta adaptability, clutch, region tides, patch/live meta, variance preset — all opt-in. |
 
-### Franchise / Realities
+User-controlled team: interactive transfer window + offseason shop (FA sign, academy recall/release, agency demands, coach hire).
 
-- A **reality** is a named, persistent timeline: same team identities, rosters, and player careers across many years.
-- **Year cycle:** play season → archive to Hall → offseason (transfers, aging, pool drift) → next year.
-- **Offseason shop:** free-agent board, academy recalls/releases, rookie signings, agency demands, coach upgrades, AI market resolution.
-- **Aging toggle** (per reality): careers evolve with performance-weighted tier changes, retirements, and rookies.
-- **Bulk simulation:** auto-advance N years (up to 50) with live results feed, optional per-year save/export, ETA display.
-- **Sharing:** `.draftsim-reality.json` files or `REAL1:` share codes; community gallery from `public/community-realities/manifest.json`.
+### LoL competitive structure in the app
 
-### Hall of Fame / Season History
+| Real | DraftSim |
+|---|---|
+| LCK / LPL / LEC / LCS / CBLOL / LCP | `LeagueId` — 10 teams, configurable split format (RR, groups, Swiss + playoffs). |
+| First Stand (winter leaders) | Top 2 per league → 12-team event; #1 seeds bye, #2s play-in. |
+| MSI (spring leaders) | Top 3 per league; region #1 pre-qualified into DE bracket; optional play-in trim. |
+| Worlds (summer leaders) | Top 4 per league; 6-team play-in → groups (4×5) or Swiss main. |
+| Global Cup | Quadrennial franchise years; top 32 global ranking. |
+| Fearless draft | Series + season config. |
+| Swiss + Buchholz | Tournament + MSI/Worlds stages. |
 
-- Per-season archival résumés: champions, placements, All-Pro, player careers, transfer logs, meta snapshots.
-- Cross-season aggregation: career kills/MVPs/titles, dynasty tiers, rivalries, region strength, head-to-head matrices.
-- Player/team/coach profiles with deep links from anywhere in the live app.
-- XLSX export/import for spreadsheet analysis.
+Qualification counts and split feeds are fixed in `lib/season/types.ts` (`QUALIFIER_COUNTS`, `QUALIFYING_SPLIT`).
+
+### Competitive realism — data & Hall
+
+- **Real teams/logos** — LoL Esports API + `realTeamNames.json`; `npm run fetch-team-logos`.
+- **Real player handles** — Leaguepedia fetch (`fetch-player-names`, ~68%+ coverage, re-run to fill gaps); lane-bucketed rookie pool (`fetch-rookie-names`).
+- **Stable `Player.id`** — careers survive transfers and decades; Hall aggregates kills/MVPs/titles by id.
+- **Placements** — split + international finish labels (champion, finalist, play-ins-exit, …) from archived résumés.
+- **Hall of Seasons** — dynasty tiers, rivalries, region strength, H2H matrices, XLSX export.
+- **Persistence** — desktop SQLite normalizes realities + per-row Hall history ([`docs/desktop-sqlite-storage.md`](docs/desktop-sqlite-storage.md)); long franchises see [`docs/performance-franchise-saves.md`](docs/performance-franchise-saves.md).
+
+### Meta systems
+
+Hand-curated baseline: **172** champs, **340+** synergies, **250+** counters, **11** identity profiles (`lib/championMeta.ts`).
+
+- **Meta editor** + `META1:` codes; master toggle disables tier influence.
+- **Randomizer** (`lib/metaRandomizer.ts`) — realistic per-role tier distributions; synergy/counter pair generation.
+- **Season drift** — `patchShift` between phases, `liveMeta` within events; `initialMeta` vs `currentMeta` in archives.
+- **Player chemistry** (`lib/chemistry.ts`) — stored teammate pair values, separate from champion synergies; drifts in franchise mode.
 
 ---
 
@@ -680,6 +723,7 @@ npm run desktop:dev  # desktop with hot reload
 
 | Doc | Topic |
 |---|---|
+| [`docs/systems.md`](docs/systems.md) | **In-depth systems reference** — AI scoring, sim, season, realism |
 | [`docs/tournament-mode.md`](docs/tournament-mode.md) | Tournament formats, Swiss pairing, save codes |
 | [`docs/players-feature.md`](docs/players-feature.md) | Rosters, skill tiers, AI scouting |
 | [`docs/player-identity-and-franchise.md`](docs/player-identity-and-franchise.md) | Player IDs, careers, realities, aging, transfers |
