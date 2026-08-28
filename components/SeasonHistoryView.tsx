@@ -94,7 +94,14 @@ import {
   type PlayerRegionTitles,
 } from "@/lib/season/historySearch";
 import { careerTeamWinRates } from "@/lib/season/teamCard";
-import { intlOutcomeLabel, splitPlacementLabel, splitFinalsReachedEntries, type SplitFinalsReachedMap } from "@/lib/season/placements";
+import {
+  intlOutcomeLabel,
+  splitPlacementLabel,
+  splitFinalsReachedEntries,
+  totalIntlFinalsReached,
+  totalSplitFinalsReached,
+  type SplitFinalsReachedMap,
+} from "@/lib/season/placements";
 import {
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
@@ -4098,11 +4105,15 @@ function SplitFinalsReachedChips({
   splitFinalsReached: SplitFinalsReachedMap;
 }) {
   const entries = splitFinalsReachedEntries(splitFinalsReached);
+  const total = totalSplitFinalsReached(splitFinalsReached);
   if (entries.length === 0) return null;
   return (
     <div>
       <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
         Split Finals Reached
+        <span className="ml-2 text-rift-goldbright tabular-nums normal-case tracking-normal">
+          Total: {total}
+        </span>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {entries.map(({ split, leagueId, count }) => (
@@ -4125,11 +4136,15 @@ function IntlFinalsReachedChips({
 }: {
   intlFinalsReached: Partial<Record<InternationalId, number>>;
 }) {
+  const total = totalIntlFinalsReached(intlFinalsReached);
   if (!INTERNATIONAL_DISPLAY_ORDER.some((ev) => (intlFinalsReached[ev] ?? 0) > 0)) return null;
   return (
     <div>
       <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
         International Finals Reached
+        <span className="ml-2 text-rift-goldbright tabular-nums normal-case tracking-normal">
+          Total: {total}
+        </span>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {INTERNATIONAL_DISPLAY_ORDER.filter((ev) => (intlFinalsReached[ev] ?? 0) > 0).map(
@@ -4673,6 +4688,9 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
             <div>
               <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
                 International Finals Reached
+                <span className="ml-2 text-rift-goldbright tabular-nums normal-case tracking-normal">
+                  Total: {totalIntlFinalsReached(r.intlFinalsReached)}
+                </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                 {INTERNATIONAL_DISPLAY_ORDER.filter(
@@ -4691,6 +4709,9 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
             <div>
               <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
                 Split Finals Reached
+                <span className="ml-2 text-rift-goldbright tabular-nums normal-case tracking-normal">
+                  Total: {totalSplitFinalsReached(r.splitFinalsReached)}
+                </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                 {splitFinalsReachedEntries(r.splitFinalsReached).map(

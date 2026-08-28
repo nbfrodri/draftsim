@@ -242,6 +242,18 @@ export function splitFinalsReachedEntries(
   return out;
 }
 
+/** Sum all split finals reached across splits and regions. */
+export function totalSplitFinalsReached(map: SplitFinalsReachedMap): number {
+  return splitFinalsReachedEntries(map).reduce((sum, { count }) => sum + count, 0);
+}
+
+/** Sum all international finals reached across events. */
+export function totalIntlFinalsReached(
+  map: Partial<Record<InternationalId, number>>,
+): number {
+  return INTERNATIONAL_DISPLAY_ORDER.reduce((sum, ev) => sum + (map[ev] ?? 0), 0);
+}
+
 /** Count finals reached (#1 or #2) per international event for one franchise. */
 export function intlFinalsReachedForTeam(
   entries: SeasonHistoryEntry[],

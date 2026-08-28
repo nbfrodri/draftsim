@@ -7,6 +7,8 @@ import {
   teamIntlPlacement,
   teamParticipatedIntl,
   teamSplitPlacement,
+  totalIntlFinalsReached,
+  totalSplitFinalsReached,
 } from "./placements";
 import { computeTeamRecords } from "./historyRecords";
 import { playerProfile } from "./historySearch";
@@ -158,6 +160,31 @@ describe("teamIntlOutcome", () => {
     expect(teamIntlOutcome(e, { name: "HLE", leagueId: "LCK" }, "worlds").kind).toBe(
       "playoffs-exit",
     );
+  });
+});
+
+describe("finals reached totals", () => {
+  it("sums split finals across splits and regions", () => {
+    expect(
+      totalSplitFinalsReached({
+        winter: { LCK: 2, LPL: 1 },
+        spring: { LEC: 1 },
+        summer: { LCK: 3 },
+      }),
+    ).toBe(7);
+    expect(totalSplitFinalsReached({})).toBe(0);
+  });
+
+  it("sums international finals across events", () => {
+    expect(
+      totalIntlFinalsReached({
+        worlds: 3,
+        msi: 2,
+        "first-stand": 1,
+        "global-cup": 0,
+      }),
+    ).toBe(6);
+    expect(totalIntlFinalsReached({})).toBe(0);
   });
 });
 
