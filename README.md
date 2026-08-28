@@ -654,6 +654,14 @@ npm run desktop:dev
 
 Starts the Next.js dev server on `:3000` and opens the Tauri window pointing at it.
 
+**Dev console — IPC warning (benign):** You may see:
+
+```text
+IPC custom protocol failed, Tauri will now use the postMessage interface instead TypeError: Failed to fetch
+```
+
+This is expected in dev. Tauri first tries its fast `http://ipc.localhost` channel; when the UI is loaded from the Next.js dev server (`http://localhost:3000`) instead of bundled assets, that fetch can fail and Tauri automatically falls back to `postMessage`. SQLite, native dialogs, and franchise persistence still work. Ignore the message if the app loads normally. Production builds (`desktop:build`) serve static files from `out/` and typically do not show this. If the app is actually stuck (splash never clears, `invoke()` hangs, SQLite errors), on Windows try deleting `%LOCALAPPDATA%\app.draftsim.desktop\EBWebView` and relaunching — a corrupted WebView2 cache can break both IPC paths.
+
 ### Production build
 
 ```bash
