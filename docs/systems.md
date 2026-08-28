@@ -1,5 +1,7 @@
 # Core game systems — technical reference
 
+🇪🇸 **[Versión en español](systems.es.md)**
+
 Deep documentation for DraftSim's AI, season/franchise layer, competitive structure, and realism model. For feature-level UX notes see the [README](../README.md); for subsystem design docs see [Design docs](../README.md#-design-docs).
 
 **Code map:** `lib/draftAI/` · `lib/matchSimulator.ts` · `lib/sim/` · `lib/season/` · `lib/championMeta.ts` · `lib/metaRandomizer.ts` · `lib/chemistry.ts`
@@ -343,6 +345,7 @@ Separate from champion synergies: `lib/chemistry.ts` rolls stored pair values on
 
 | Doc | Topic |
 |---|---|
+| [`systems.es.md`](systems.es.md) | Spanish translation of this reference |
 | [`players-feature.md`](players-feature.md) | Rosters, tiers, pool fit validation |
 | [`player-identity-and-franchise.md`](player-identity-and-franchise.md) | IDs, careers, realities hub |
 | [`season-realism.md`](season-realism.md) | Seed byes, realism flags detail |

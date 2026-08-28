@@ -17,6 +17,8 @@ Pick/ban against the AI (or watch AI vs AI), commit a team **game plan** in the 
 
 </div>
 
+🇪🇸 **[Versión en español](README.es.md)**
+
 ---
 
 ## What is DraftSim?
@@ -723,7 +725,7 @@ npm run desktop:dev  # desktop with hot reload
 
 | Doc | Topic |
 |---|---|
-| [`docs/systems.md`](docs/systems.md) | **In-depth systems reference** — AI scoring, sim, season, realism |
+| [`docs/systems.md`](docs/systems.md) · [`docs/systems.es.md`](docs/systems.es.md) | **In-depth systems reference** — AI scoring, sim, season, realism (EN / ES) |
 | [`docs/tournament-mode.md`](docs/tournament-mode.md) | Tournament formats, Swiss pairing, save codes |
 | [`docs/players-feature.md`](docs/players-feature.md) | Rosters, skill tiers, AI scouting |
 | [`docs/player-identity-and-franchise.md`](docs/player-identity-and-franchise.md) | Player IDs, careers, realities, aging, transfers |
