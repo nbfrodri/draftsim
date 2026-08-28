@@ -290,48 +290,58 @@ async function flushPendingWrites(): Promise<void> {
   }
 }
 
-// Register flush on beforeunload (browser/Tauri webview fires this on close).
+/** Best-effort flush when the page is going away (can't await in sync handlers). */
+function schedulePersistFlushOnExit(): void {
+  void flushPendingPersistWrites();
+}
+
+/** Web-only exit flush (localStorage debounce — no SQLite on web). */
+function scheduleWebPersistFlushOnExit(): void {
+  void flushPendingWrites();
+}
+
+/** Register Tauri close handler: veto close, flush SQLite + files, then destroy. */
+async function registerTauriCloseFlushHandler(): Promise<void> {
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  const { hasPendingSqliteWrites } = await import("./desktopSqliteStorage");
+  const appWindow = getCurrentWindow();
+  await appWindow.onCloseRequested(async (event) => {
+    if (pendingWrites.size === 0 && !hasPendingSqliteWrites()) return;
+    event.preventDefault();
+    try {
+      await flushPendingPersistWrites();
+    } catch {
+      // Ignore — we're shutting down regardless.
+    } finally {
+      // destroy() force-closes WITHOUT re-emitting onCloseRequested
+      // (unlike close()), so this can't loop.
+      await appWindow.destroy();
+    }
+  });
+}
+
+// Register flush on page exit. Tauri's native ✕ does NOT reliably fire
+// beforeunload, so desktop also hooks onCloseRequested (see below).
 if (typeof window !== "undefined") {
-  window.addEventListener("beforeunload", () => {
-    // Fire-and-forget; we can't await in beforeunload handlers.
-    void flushPendingWrites();
+  const onExit = isDesktop()
+    ? schedulePersistFlushOnExit
+    : scheduleWebPersistFlushOnExit;
+
+  window.addEventListener("beforeunload", onExit);
+  // pagehide is more reliable than beforeunload on mobile / bfcache navigations.
+  window.addEventListener("pagehide", onExit);
+  // Tab switch / minimize / app background — backup so debounced writes land.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") onExit();
   });
 
-  // Tauri's native window close (clicking the ✕) does NOT reliably fire
-  // `beforeunload`, and even when it does the async file write can't finish
-  // before the webview is torn down. That means a debounced write still in
-  // flight — e.g. a season just archived to the Hall of Seasons — is lost,
-  // so the Hall looks empty on the next launch. Register Tauri's real
-  // `onCloseRequested` event: veto the close, await the flush to disk, then
-  // destroy the window for good. Dynamic import keeps this SSG-safe and out
-  // of plain (non-Tauri) browsers.
   if (isDesktop()) {
-    void (async () => {
-      try {
-        const { getCurrentWindow } = await import("@tauri-apps/api/window");
-        const appWindow = getCurrentWindow();
-        await appWindow.onCloseRequested(async (event) => {
-          const { flushPendingSqliteWrites, hasPendingSqliteWrites } =
-            await import("./desktopSqliteStorage");
-          if (pendingWrites.size === 0 && !hasPendingSqliteWrites()) return;
-          event.preventDefault();
-          try {
-            await flushPendingPersistWrites();
-          } catch {
-            // Ignore — we're shutting down regardless.
-          } finally {
-            // destroy() force-closes WITHOUT re-emitting onCloseRequested
-            // (unlike close()), so this can't loop.
-            await appWindow.destroy();
-          }
-        });
-      } catch (err) {
-        console.warn(
-          "[desktopStorage] could not register Tauri close handler:",
-          err,
-        );
-      }
-    })();
+    void registerTauriCloseFlushHandler().catch((err) => {
+      console.warn(
+        "[desktopStorage] could not register Tauri close handler:",
+        err,
+      );
+    });
   }
 }
 
@@ -492,13 +502,6 @@ export function createWebLazyStorage<S>(
       getStorage()?.removeItem(name);
     },
   };
-}
-
-// Wire web debounced flush on beforeunload (desktop already registers above).
-if (typeof window !== "undefined" && !isDesktop()) {
-  window.addEventListener("beforeunload", () => {
-    void flushPendingWrites();
-  });
 }
 
 // ---------------------------------------------------------------------------

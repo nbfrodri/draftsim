@@ -28,6 +28,14 @@ async function flushSqliteWrite<S>(name: string, value: StorageValue<S>): Promis
   await saveStorageValueToSqlite(name, value);
 }
 
+/** Cancel a debounced SQLite write for `name` without flushing it. */
+export function cancelPendingSqliteWrite(name: string): void {
+  const pending = pendingSqliteWrites.get(name);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingSqliteWrites.delete(name);
+}
+
 function scheduleSqliteWrite<S>(name: string, value: StorageValue<S>): void {
   const existing = pendingSqliteWrites.get(name);
   if (existing) clearTimeout(existing.timer);
@@ -77,6 +85,7 @@ export function createDesktopSqliteStorage<S>(): PersistStorage<S> {
   return {
     async getItem(name: string): Promise<StorageValue<S> | null> {
       cancelPendingWrite(name);
+      cancelPendingSqliteWrite(name);
       if (!isDesktop()) return null;
 
       await migrateWebStorageToDesktop(name);
@@ -95,7 +104,7 @@ export function createDesktopSqliteStorage<S>(): PersistStorage<S> {
 
     async removeItem(name: string): Promise<void> {
       cancelPendingWrite(name);
-      resetSqliteWriteQueueForTests();
+      cancelPendingSqliteWrite(name);
       if (!isDesktop()) return;
       try {
         await clearDesktopStoreFromDb(name);
