@@ -1641,6 +1641,13 @@ export function avgGoldDiff(sum: number, games: number): number | null {
   return games > 0 ? sum / games : null;
 }
 
+/** Display career average gold diff@15 (rounded, signed prefix). */
+export function formatGoldAdvAvg(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const v = Math.round(n);
+  return `${v >= 0 ? "+" : ""}${v}`;
+}
+
 export function passesMinGoldAdv(
   sum: number,
   games: number,

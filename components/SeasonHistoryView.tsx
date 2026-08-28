@@ -88,6 +88,7 @@ import {
   teamMatchesTitleFilters,
   playerMatchesTitleFilters,
   passesMinGoldAdv,
+  formatGoldAdvAvg,
   type TitleFilters,
   type PlayerCareerWindow,
   type PlayerRegionTitles,
@@ -2146,11 +2147,8 @@ function PlayerComparePanel({
     n == null ? "—" : `${Math.round(n * 100)}%`;
   const fmtAvg = (sum: number, games: number) =>
     games > 0 ? (sum / games).toFixed(2) : "—";
-  const fmtGd = (sum: number, games: number) => {
-    if (games <= 0) return "—";
-    const v = Math.round(sum / games);
-    return v > 0 ? `+${v}` : `${v}`;
-  };
+  const fmtGd = (sum: number, games: number) =>
+    games <= 0 ? "—" : formatGoldAdvAvg(sum / games);
 
   const statRow = (label: string, a: string | number, b: string | number) => {
     const na = typeof a === "number" ? a : Number(a);
@@ -4034,8 +4032,12 @@ const kdaOf = (k: number, d: number, a: number) => (k + a === 0 && d === 0 ? "�
 const winPct = (rate: number | null) => (rate == null ? "—" : `${Math.round(rate * 100)}%`);
 const goldDiff = (sum: number, n: number) => {
   if (n <= 0) return { text: "—", tone: "text-rift-muted/60" };
-  const v = Math.round(sum / n);
-  return { text: `${v >= 0 ? "+" : ""}${v}`, tone: v > 50 ? "text-emerald-400" : v < -50 ? "text-rift-redbright" : "text-rift-mutedbright" };
+  const avg = sum / n;
+  const v = Math.round(avg);
+  return {
+    text: formatGoldAdvAvg(avg),
+    tone: v > 50 ? "text-emerald-400" : v < -50 ? "text-rift-redbright" : "text-rift-mutedbright",
+  };
 };
 
 function RosterChips({
@@ -5355,7 +5357,9 @@ const SearchResultRow = memo(function SearchResultRow({
             ? (r.sortVals[sortKey] ?? 0).toFixed(1)
             : sortKey === "winRate"
               ? `${Math.round((r.sortVals[sortKey] ?? 0) * 100)}%`
-              : (r.sortVals[sortKey] ?? 0)}
+              : sortKey === "goldAdv"
+                ? formatGoldAdvAvg(r.sortVals[sortKey])
+                : (r.sortVals[sortKey] ?? 0)}
         </span>
       )}
     </button>
