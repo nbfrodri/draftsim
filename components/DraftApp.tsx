@@ -32,8 +32,12 @@ import {
   openFileNative,
   isPersistReady,
   subscribePersistReady,
+  getAppClosePhase,
+  subscribeAppClosePhase,
 } from "@/lib/desktopStorage";
 import { hydrateMetaConfigFromDesktopFile } from "@/lib/metaRandomizer";
+import AppStartupLoading from "./AppStartupLoading";
+import AppClosingScreen from "./AppClosingScreen";
 
 interface Props {
   champions: Champion[];
@@ -86,6 +90,11 @@ export default function DraftApp({ champions }: Props) {
     subscribePersistReady,
     isPersistReady,
     () => false,
+  );
+  const closePhase = useSyncExternalStore(
+    subscribeAppClosePhase,
+    getAppClosePhase,
+    () => "idle" as const,
   );
 
   useEffect(() => {
@@ -149,11 +158,8 @@ export default function DraftApp({ champions }: Props) {
     setEntryView("menu");
   }, []);
 
-  // Pre-hydration splash — matches the app's dark backdrop (body is
-  // already bg #010a13 via globals.css) so it reads as a brief blank
-  // frame rather than a flash of the wrong screen.
   if (!persistReady) {
-    return <div aria-hidden="true" className="min-h-screen bg-rift-bg" />;
+    return <AppStartupLoading />;
   }
 
   const routed = (() => {
@@ -232,13 +238,16 @@ export default function DraftApp({ champions }: Props) {
   // the provider has to sit above all of them. The Hall nests its own
   // archive-backed provider on top.
   return (
-    <LivePlayerCardProvider onOpenProfile={openHallPlayer}>
-      <LiveTeamCardProvider onOpenProfile={openHallTeam}>
-        <LiveCoachCardProvider onOpenProfile={openHallCoach}>
-          {routed}
-        </LiveCoachCardProvider>
-      </LiveTeamCardProvider>
-    </LivePlayerCardProvider>
+    <>
+      <LivePlayerCardProvider onOpenProfile={openHallPlayer}>
+        <LiveTeamCardProvider onOpenProfile={openHallTeam}>
+          <LiveCoachCardProvider onOpenProfile={openHallCoach}>
+            {routed}
+          </LiveCoachCardProvider>
+        </LiveTeamCardProvider>
+      </LivePlayerCardProvider>
+      {closePhase !== "idle" && <AppClosingScreen phase={closePhase} />}
+    </>
   );
 }
 

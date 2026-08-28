@@ -59,6 +59,19 @@ export function enablePersistWrites(): void {
   }
 }
 
+/**
+ * Unlock the persist gate when hydrate never settles (hung I/O, etc.). Same
+ * end state as a failed rehydration — app becomes usable instead of blocking
+ * forever on the startup screen.
+ */
+export function forcePersistReady(): void {
+  if (persistReady) return;
+  console.warn(
+    "[draftsim] persist gate forced open after timeout — hydrate may still be in flight",
+  );
+  enablePersistWrites();
+}
+
 /** True after enablePersistWrites — UI should wait for this before empty states. */
 export function isPersistReady(): boolean {
   return persistReady;
@@ -92,6 +105,77 @@ export function resetPersistGateForTests(): void {
   persistWritesEnabled = false;
   persistReady = false;
   persistReadyListeners.clear();
+}
+
+// ---------------------------------------------------------------------------
+// App close lifecycle — React overlay while flush runs on window close
+// ---------------------------------------------------------------------------
+
+export type AppClosePhase = "idle" | "saving" | "error";
+
+let appClosePhase: AppClosePhase = "idle";
+const appCloseListeners = new Set<() => void>();
+
+function setAppClosePhase(phase: AppClosePhase): void {
+  if (appClosePhase === phase) return;
+  appClosePhase = phase;
+  for (const cb of appCloseListeners) cb();
+}
+
+/** Called from the Tauri close handler before blocking on flush I/O. */
+export function signalAppClosing(): void {
+  setAppClosePhase("saving");
+}
+
+/** Flush failed or timed out — UI shows a brief error before destroy. */
+export function signalAppCloseError(): void {
+  setAppClosePhase("error");
+}
+
+export function getAppClosePhase(): AppClosePhase {
+  return appClosePhase;
+}
+
+/** Subscribe for useSyncExternalStore — never fires synchronously. */
+export function subscribeAppClosePhase(onStoreChange: () => void): () => void {
+  appCloseListeners.add(onStoreChange);
+  return () => {
+    appCloseListeners.delete(onStoreChange);
+  };
+}
+
+/** @internal — test helper to reset close phase between cases. */
+export function resetAppClosePhaseForTests(): void {
+  appClosePhase = "idle";
+  appCloseListeners.clear();
+}
+
+const CLOSE_FLUSH_TIMEOUT_MS = 10_000;
+const CLOSE_ERROR_DISPLAY_MS = 1_500;
+
+/** Let React paint the closing overlay before blocking on disk I/O. */
+function waitForClosingOverlayPaint(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
+async function flushPendingWritesOnClose(): Promise<"ok" | "failed"> {
+  try {
+    await Promise.race([
+      flushPendingPersistWrites(),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("close flush timeout")), CLOSE_FLUSH_TIMEOUT_MS);
+      }),
+    ]);
+    return "ok";
+  } catch (err) {
+    console.warn("[desktopStorage] close flush failed:", err);
+    return "failed";
+  }
 }
 
 /** SSR / no-localStorage fallback — getItem resolves empty, writes no-op. */
@@ -308,14 +392,21 @@ async function registerTauriCloseFlushHandler(): Promise<void> {
   await appWindow.onCloseRequested(async (event) => {
     if (pendingWrites.size === 0 && !hasPendingSqliteWrites()) return;
     event.preventDefault();
+    signalAppClosing();
+    await waitForClosingOverlayPaint();
+    const flushResult = await flushPendingWritesOnClose();
+    if (flushResult === "failed") {
+      signalAppCloseError();
+      await new Promise((resolve) => {
+        setTimeout(resolve, CLOSE_ERROR_DISPLAY_MS);
+      });
+    }
     try {
-      await flushPendingPersistWrites();
-    } catch {
-      // Ignore — we're shutting down regardless.
-    } finally {
       // destroy() force-closes WITHOUT re-emitting onCloseRequested
       // (unlike close()), so this can't loop.
       await appWindow.destroy();
+    } catch {
+      // Window may already be gone.
     }
   });
 }

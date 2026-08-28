@@ -4,6 +4,7 @@ import {
   cancelPendingWrite,
   createWebLazyStorage,
   enablePersistWrites,
+  forcePersistReady,
   gatePersistWritesUntilReady,
   isPersistReady,
   onPersistReady,
@@ -59,6 +60,17 @@ describe("persist write gate", () => {
     expect(spy2).toHaveBeenCalledTimes(1);
 
     unsub();
+  });
+
+  it("forcePersistReady unlocks gate when hydrate stalls", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(isPersistReady()).toBe(false);
+    forcePersistReady();
+    expect(isPersistReady()).toBe(true);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    // Idempotent when already ready.
+    forcePersistReady();
   });
 
   it("subscribePersistReady does not fire synchronously when already ready", () => {
