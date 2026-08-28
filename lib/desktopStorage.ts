@@ -267,6 +267,13 @@ function scheduleWrite(
  * before the window closes, but it at least cancels the timer so we don't
  * write to a half-closed app.
  */
+/** Flush all debounced persist writes immediately (e.g. after a year boundary). */
+export async function flushPendingPersistWrites(): Promise<void> {
+  const { flushPendingSqliteWrites } = await import("./desktopSqliteStorage");
+  await flushPendingSqliteWrites();
+  await flushPendingWrites();
+}
+
 async function flushPendingWrites(): Promise<void> {
   const entries = [...pendingWrites.entries()];
   for (const [key, pending] of entries) {
@@ -304,11 +311,12 @@ if (typeof window !== "undefined") {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const appWindow = getCurrentWindow();
         await appWindow.onCloseRequested(async (event) => {
-          if (pendingWrites.size === 0) return; // nothing pending — let it close
-          // Hold the close until everything is safely on disk.
+          const { flushPendingSqliteWrites, hasPendingSqliteWrites } =
+            await import("./desktopSqliteStorage");
+          if (pendingWrites.size === 0 && !hasPendingSqliteWrites()) return;
           event.preventDefault();
           try {
-            await flushPendingWrites();
+            await flushPendingPersistWrites();
           } catch {
             // Ignore — we're shutting down regardless.
           } finally {
@@ -537,6 +545,53 @@ export async function migrateWebStorageToDesktop(key: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // Native file dialogs — re-exported for use by UI components
 // ---------------------------------------------------------------------------
+
+/**
+ * Open a native Save dialog and return the chosen path (no write).
+ * Returns { ok: true, path } on success, { ok: false, error } on failure/cancel.
+ */
+export async function pickSavePathNative(opts: {
+  defaultPath?: string;
+  filters?: Array<{ name: string; extensions: string[] }>;
+}): Promise<{ ok: boolean; path?: string; error?: string }> {
+  if (!isDesktop()) {
+    return { ok: false, error: "Not running in desktop mode" };
+  }
+  try {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const filePath = await save({
+      defaultPath: opts.defaultPath,
+      filters: opts.filters,
+    });
+    if (filePath == null) {
+      return { ok: false, error: "cancelled" };
+    }
+    return { ok: true, path: filePath };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+}
+
+/**
+ * Write text to an absolute filesystem path (desktop only, no dialog).
+ */
+export async function writeTextFileAtPathNative(
+  path: string,
+  content: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isDesktop()) {
+    return { ok: false, error: "Not running in desktop mode" };
+  }
+  try {
+    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+    await writeTextFile(path, content);
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+}
 
 /**
  * Open a native Save dialog and write `content` to the chosen file.

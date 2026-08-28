@@ -25,6 +25,7 @@ import {
   type Synergy,
 } from "./championMeta";
 import { desktopStorage, isDesktop } from "./desktopStorage";
+import { hydrateMetaConfigFromSqlite, syncMetaConfigToSqlite } from "./desktopSqlite";
 import { shuffle as shuffleWith, type RNG } from "./rng";
 import type { Champion, Lane } from "./types";
 
@@ -682,21 +683,19 @@ function syncMetaConfigToDesktopFile(): void {
     for (const key of META_CONFIG_KEYS) {
       payload[key] = localStorage.getItem(key);
     }
-    // Debounced write — coalesces bursts (e.g. randomize writes 4 keys).
-    void desktopStorage.setItem(META_CONFIG_FILE_KEY, JSON.stringify(payload));
+    void syncMetaConfigToSqlite(payload);
   } catch {
     // Mirroring is best-effort; localStorage remains the live source.
   }
 }
 
 /**
- * Seed localStorage from the desktop config file. Must run BEFORE
- * hydrateMetaFromStorage so the synchronous load*() functions above pick
- * up the file-backed values. A key stored as null means "explicitly unset"
- * and removes any stale localStorage value.
+ * Seed localStorage from SQLite (desktop) or the legacy AppData JSON mirror.
+ * Must run BEFORE hydrateMetaFromStorage.
  */
 export async function hydrateMetaConfigFromDesktopFile(): Promise<void> {
   if (!isDesktop()) return;
+  await hydrateMetaConfigFromSqlite();
   try {
     const raw = await desktopStorage.getItem(META_CONFIG_FILE_KEY);
     if (!raw) return;

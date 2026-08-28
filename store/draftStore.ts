@@ -2,7 +2,9 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { isDesktop, createDesktopLazyStorage, createWebLazyStorage, enablePersistWrites, gatePersistWritesUntilReady, resolveWebStringStorage } from "@/lib/desktopStorage";
+import { isDesktop, createWebLazyStorage, enablePersistWrites, flushPendingPersistWrites, gatePersistWritesUntilReady, resolveWebStringStorage } from "@/lib/desktopStorage";
+import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
+import { loadRealityHistoryFromDb, markRealityHistoryLoaded } from "@/lib/desktopSqlite";
 import {
   applyLock,
   applyTimeout,
@@ -106,6 +108,10 @@ import { runAutoPlayMatch } from "@/lib/sim/bulkSimClient";
 import { finalizeRoles } from "@/lib/sim/finalizeRoles";
 import { encodeRealityShareCode, decodeRealityShareCode } from "@/lib/realityShare";
 import {
+  type RealityExportTarget,
+  writeRealityExportToTarget,
+} from "@/lib/realityExport";
+import {
   compactEncodeTournamentForPersist,
   compactEncodeSeasonForPersist,
   decodeCompactSeason,
@@ -136,9 +142,10 @@ import {
   overrideAgencyDemand as applyOverrideAgencyDemand,
   aiHonorFollowedAgency,
 } from "@/lib/season/franchiseAgency";
-import { clampBulkYearCount } from "@/lib/season/bulkYears";
+import { bulkSimRealityMatches, clampBulkYearCount } from "@/lib/season/bulkYears";
 import {
   collectSimResultUpdates,
+  compressSimResultsFeed,
   type SimResultEntry,
 } from "@/lib/season/simResultsSummary";
 import { inactiveSnapshotsForArchivedYear } from "@/lib/season/playerLifecycle";
@@ -570,6 +577,8 @@ interface DraftStore {
   // sim runs ("23/56 matches"). Intentionally NOT persisted (partialize
   // whitelist) and only two numbers, so the per-update set() is cheap.
   simProgress: { done: number; total: number } | null;
+  /** Epoch ms when the current bulk sim run started (not persisted). */
+  simStartedAt: number | null;
   // Open a history entry for review — sets it as the active tournament.
   // The dashboard renders it in its already-complete state.
   loadFromHistory: (tournamentId: string) => void;
@@ -730,11 +739,22 @@ interface DraftStore {
   /** Roll the (complete) active reality season into the next year. */
   continueSeasonToNextYear: () => void;
   /** Auto-simulate N full franchise years (splits, internationals, year roll). */
-  simulateRealityYears: (count: number) => void;
+  simulateRealityYears: (
+    count: number,
+    options?: {
+      saveAfterEachYear?: boolean;
+      exportTarget?: RealityExportTarget;
+    },
+  ) => void;
   /** Request cancellation of an in-progress bulk-year simulation. */
   cancelBulkYears: () => void;
   /** Progress while simulateRealityYears runs (not persisted). */
-  bulkYearsProgress: { completed: number; total: number; year: number } | null;
+  bulkYearsProgress: {
+    completed: number;
+    total: number;
+    year: number;
+    startedAt: number;
+  } | null;
   bulkYearsCancelRequested: boolean;
   /** Switch the live season to another saved reality (snapshots the current). */
   switchReality: (id: string) => void;
@@ -1112,6 +1132,42 @@ function freezeSeasonTournamentStage(t: TournamentState): TournamentState {
   return t;
 }
 
+const SIM_RESULTS_FLUSH_MS = 200;
+let pendingSimResultUpdates: SimResultEntry[] = [];
+let simResultsFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function resetSimResultsBatch(): void {
+  pendingSimResultUpdates = [];
+  if (simResultsFlushTimer != null) {
+    clearTimeout(simResultsFlushTimer);
+    simResultsFlushTimer = null;
+  }
+}
+
+function flushSimResultsFeed(set: StoreSet): void {
+  if (simResultsFlushTimer != null) {
+    clearTimeout(simResultsFlushTimer);
+    simResultsFlushTimer = null;
+  }
+  if (pendingSimResultUpdates.length === 0) return;
+  const batch = pendingSimResultUpdates;
+  pendingSimResultUpdates = [];
+  set((s) => ({
+    simResultsFeed: compressSimResultsFeed([
+      ...s.simResultsFeed,
+      ...batch,
+    ]),
+  }));
+}
+
+function scheduleSimResultsFlush(set: StoreSet): void {
+  if (simResultsFlushTimer != null) return;
+  simResultsFlushTimer = setTimeout(() => {
+    simResultsFlushTimer = null;
+    flushSimResultsFeed(set);
+  }, SIM_RESULTS_FLUSH_MS);
+}
+
 function appendSimResults(
   set: StoreSet,
   season: SeasonState,
@@ -1119,16 +1175,15 @@ function appendSimResults(
 ): void {
   const updates = collectSimResultUpdates(season, seen);
   if (updates.length === 0) return;
-  set((s) => ({
-    simResultsFeed: [...s.simResultsFeed, ...updates],
-  }));
+  pendingSimResultUpdates.push(...updates);
+  scheduleSimResultsFlush(set);
 }
 
 /** Drive one franchise year to completion; auto-resolves transfer windows. */
 async function runFranchiseSeasonSim(
   get: StoreGet,
   set: StoreSet,
-  runId: string,
+  realityId: string,
   shouldCancel: () => boolean,
   seen: Set<string>,
 ): Promise<boolean> {
@@ -1139,7 +1194,7 @@ async function runFranchiseSeasonSim(
   for (let step = 0; step < safetyCap; step++) {
     if (shouldCancel()) return false;
     const cur = get().season;
-    if (!cur || cur.id !== runId) return false;
+    if (!bulkSimRealityMatches(cur, realityId)) return false;
     if (cur.status === "complete") return true;
 
     const phase = cur.phases[cur.phaseIndex];
@@ -1318,9 +1373,13 @@ export const useDraftStore = create<DraftStore>()(
   pendingReality: null,
   seasonMatchday: null,
   simResultsFeed: [],
-  dismissSimResultsFeed: () => set({ simResultsFeed: [] }),
+  dismissSimResultsFeed: () => {
+    resetSimResultsBatch();
+    set({ simResultsFeed: [] });
+  },
   simulating: null,
   simProgress: null,
+  simStartedAt: null,
   bulkYearsProgress: null,
   bulkYearsCancelRequested: false,
   playerForms: {},
@@ -1885,36 +1944,41 @@ export const useDraftStore = create<DraftStore>()(
     if (get().bulkYearsProgress) set({ bulkYearsCancelRequested: true });
   },
 
-  simulateRealityYears: (count) => {
+  simulateRealityYears: (count, options) => {
     const { season, simulating, bulkYearsProgress } = get();
     if (!season?.franchise || simulating || bulkYearsProgress) return;
     const total = clampBulkYearCount(count);
+    const saveAfterEachYear = options?.saveAfterEachYear ?? false;
+    const exportTarget = options?.exportTarget;
+    const realityId = season.franchise.id;
     const startYear = season.franchise.year;
+    const startedAt = Date.now();
+    resetSimResultsBatch();
     set({
       simulating: "all",
       simProgress: null,
+      simStartedAt: startedAt,
       simResultsFeed: [],
-      bulkYearsProgress: { completed: 0, total, year: startYear },
+      bulkYearsProgress: { completed: 0, total, year: startYear, startedAt },
       bulkYearsCancelRequested: false,
     });
     void (async () => {
       const seen = new Set<string>();
       try {
         await new Promise((r) => setTimeout(r, 0));
-        const runId = season.id;
         const shouldCancel = () => get().bulkYearsCancelRequested;
         let completed = 0;
 
         while (completed < total) {
           if (shouldCancel()) break;
           const cur = get().season;
-          if (!cur?.franchise || cur.id !== runId) break;
+          if (!bulkSimRealityMatches(cur, realityId)) break;
 
           if (cur.status !== "complete") {
             const ok = await runFranchiseSeasonSim(
               get,
               set,
-              runId,
+              realityId,
               shouldCancel,
               seen,
             );
@@ -1944,6 +2008,7 @@ export const useDraftStore = create<DraftStore>()(
               completed,
               total,
               year: next.franchise!.year,
+              startedAt: s.bulkYearsProgress?.startedAt ?? startedAt,
             },
             realities: s.realities.map((r) =>
               r.id === next.franchise!.id
@@ -1963,12 +2028,27 @@ export const useDraftStore = create<DraftStore>()(
                 )
               : {}),
           }));
+
+          if (saveAfterEachYear) {
+            await flushPendingPersistWrites();
+          }
+
+          if (exportTarget) {
+            const json = get().exportReality(realityId);
+            if (json) {
+              await writeRealityExportToTarget(exportTarget, json);
+            }
+          }
+
           await new Promise((r) => setTimeout(r, 0));
         }
       } finally {
+        flushSimResultsFeed(set);
+        await flushPendingPersistWrites();
         set({
           simulating: null,
           simProgress: null,
+          simStartedAt: null,
           bulkYearsProgress: null,
           bulkYearsCancelRequested: false,
         });
@@ -1978,11 +2058,6 @@ export const useDraftStore = create<DraftStore>()(
 
   switchReality: (id) => {
     const s = get();
-    // Snapshot the live franchise season back into its slot FIRST (history
-    // already lives in the slot — don't touch the global seasonHistory), then
-    // read the target from the UPDATED list. Reading it before the snapshot
-    // meant resuming the active reality restored its stale slot and lost the
-    // year's mid-season progress.
     const realities = s.realities.map((r) =>
       r.id === s.activeRealityId && s.season?.franchise
         ? { ...r, year: s.season.franchise.year, season: s.season }
@@ -1999,6 +2074,19 @@ export const useDraftStore = create<DraftStore>()(
       season: decodedSeason,
       seasonViewOpen: true,
     });
+    if (isDesktop() && target.history.length === 0) {
+      void loadRealityHistoryFromDb(id).then((history) => {
+        if (history.length === 0) return;
+        set((state) => {
+          if (state.activeRealityId !== id) return state;
+          return {
+            realities: state.realities.map((r) =>
+              r.id === id ? { ...r, history } : r,
+            ),
+          };
+        });
+      });
+    }
   },
 
   deleteReality: (id) => {
@@ -2104,6 +2192,7 @@ export const useDraftStore = create<DraftStore>()(
     set((st) => ({
       realities: [slot, ...st.realities.filter((x) => x.id !== id)],
     }));
+    if (isDesktop()) markRealityHistoryLoaded(id);
     return { ok: true, id };
   },
 
@@ -2118,9 +2207,11 @@ export const useDraftStore = create<DraftStore>()(
     if (!season || simulating) return;
     if (season.status === "complete") return;
     const trackResults = scope === "all";
+    if (trackResults) resetSimResultsBatch();
     set({
       simulating: "all",
       simProgress: null,
+      simStartedAt: Date.now(),
       ...(trackResults ? { simResultsFeed: [] } : {}),
     });
     void (async () => {
@@ -2248,7 +2339,8 @@ export const useDraftStore = create<DraftStore>()(
           if (final) appendSimResults(set, final, seen);
         }
       } finally {
-        set({ simulating: null, simProgress: null });
+        flushSimResultsFeed(set);
+        set({ simulating: null, simProgress: null, simStartedAt: null });
       }
     })();
   },
@@ -2256,7 +2348,7 @@ export const useDraftStore = create<DraftStore>()(
   simSeasonMatchday: (tournamentId) => {
     const { season, simulating } = get();
     if (!season || simulating || season.status === "complete") return;
-    set({ simulating: "all", simProgress: null });
+    set({ simulating: "all", simProgress: null, simStartedAt: Date.now() });
     void (async () => {
       try {
         await new Promise((r) => setTimeout(r, 0));
@@ -2436,7 +2528,7 @@ export const useDraftStore = create<DraftStore>()(
             : {},
         );
       } finally {
-        set({ simulating: null, simProgress: null });
+        set({ simulating: null, simProgress: null, simStartedAt: null });
       }
     })();
   },
@@ -3853,7 +3945,11 @@ export const useDraftStore = create<DraftStore>()(
     const { tournament, simulating } = get();
     if (!tournament || simulating) return;
     if (matchIds.length === 0) return;
-    set({ simulating: "all", simProgress: { done: 0, total: matchIds.length } });
+    set({
+      simulating: "all",
+      simProgress: { done: 0, total: matchIds.length },
+      simStartedAt: Date.now(),
+    });
     // Async chunked loop: one MATCH at a time, yielding to the event loop
     // between matches so the UI thread breathes (overlay spinner animates,
     // progress text updates, OS doesn't flag the window as frozen). State
@@ -3923,7 +4019,7 @@ export const useDraftStore = create<DraftStore>()(
             : {}),
         }));
       } finally {
-        set({ simulating: null, simProgress: null });
+        set({ simulating: null, simProgress: null, simStartedAt: null });
       }
     })();
   },
@@ -3938,6 +4034,7 @@ export const useDraftStore = create<DraftStore>()(
         done: tournament.matches.filter((m) => m.winner).length,
         total: tournament.matches.length,
       },
+      simStartedAt: Date.now(),
     });
     // Async chunked loop: one MATCH at a time, yielding to the event loop
     // between matches so the UI never freezes. Commits are batched (at
@@ -4077,7 +4174,7 @@ export const useDraftStore = create<DraftStore>()(
           };
         });
       } finally {
-        set({ simulating: null, simProgress: null });
+        set({ simulating: null, simProgress: null, simStartedAt: null });
       }
     })();
   },
@@ -4146,7 +4243,8 @@ export const useDraftStore = create<DraftStore>()(
     // v6: compact-encode active tournament recaps (recapC field) instead
     // of deleting heavy fields — replay charts survive reloads. Archived
     // tournamentHistory keeps the v5 slim treatment (no chart data).
-    version: 6,
+    // v7: desktop uses SQLite (per-reality rows + lazy history); web unchanged.
+    version: 7,
     // Desktop: file-backed LAZY storage — setItem receives the persisted
     // state OBJECT and defers JSON.stringify into the 500ms debounced
     // flush, so per-set() serialization cost is eliminated (critical for
@@ -4161,7 +4259,7 @@ export const useDraftStore = create<DraftStore>()(
     // while async rehydration is still in flight.
     storage: gatePersistWritesUntilReady(
       isDesktop()
-        ? createDesktopLazyStorage()
+        ? createDesktopSqliteStorage()
         : createWebLazyStorage(() => resolveWebStringStorage(quotaSafeStorage)),
     ),
     partialize: (state) => ({
@@ -4291,7 +4389,7 @@ export const useDraftStore = create<DraftStore>()(
           decodeCompactTournament(t),
         );
       }
-      // localStorage → AppData migration runs inside createDesktopLazyStorage
+      // JSON → SQLite migration runs inside createDesktopSqliteStorage
       // getItem (before the first read), not here — doing it after rehydrate
       // would leave memory empty while a later set() could overwrite the
       // just-migrated file.
