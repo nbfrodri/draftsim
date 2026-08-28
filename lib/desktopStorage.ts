@@ -150,6 +150,56 @@ export function resetAppClosePhaseForTests(): void {
   appCloseListeners.clear();
 }
 
+// ---------------------------------------------------------------------------
+// Desktop DB operations — React overlay while delete / VACUUM runs
+// ---------------------------------------------------------------------------
+
+export type DesktopOperationPhase =
+  | "idle"
+  | "deleting-reality"
+  | "compacting-database";
+
+let desktopOperationPhase: DesktopOperationPhase = "idle";
+const desktopOperationListeners = new Set<() => void>();
+
+function setDesktopOperationPhase(phase: DesktopOperationPhase): void {
+  if (desktopOperationPhase === phase) return;
+  desktopOperationPhase = phase;
+  for (const cb of desktopOperationListeners) cb();
+}
+
+/** Called before async reality delete + flush on desktop. */
+export function signalDeletingReality(): void {
+  setDesktopOperationPhase("deleting-reality");
+}
+
+/** Called before SQLite VACUUM on desktop. */
+export function signalCompactingDatabase(): void {
+  setDesktopOperationPhase("compacting-database");
+}
+
+export function clearDesktopOperation(): void {
+  setDesktopOperationPhase("idle");
+}
+
+export function getDesktopOperationPhase(): DesktopOperationPhase {
+  return desktopOperationPhase;
+}
+
+/** Subscribe for useSyncExternalStore — never fires synchronously. */
+export function subscribeDesktopOperationPhase(onStoreChange: () => void): () => void {
+  desktopOperationListeners.add(onStoreChange);
+  return () => {
+    desktopOperationListeners.delete(onStoreChange);
+  };
+}
+
+/** @internal — test helper to reset operation phase between cases. */
+export function resetDesktopOperationPhaseForTests(): void {
+  desktopOperationPhase = "idle";
+  desktopOperationListeners.clear();
+}
+
 const CLOSE_FLUSH_TIMEOUT_MS = 10_000;
 const CLOSE_ERROR_DISPLAY_MS = 1_500;
 

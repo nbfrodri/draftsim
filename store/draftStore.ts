@@ -2,9 +2,9 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { isDesktop, createWebLazyStorage, enablePersistWrites, flushPendingPersistWrites, gatePersistWritesUntilReady, resolveWebStringStorage } from "@/lib/desktopStorage";
+import { isDesktop, createWebLazyStorage, enablePersistWrites, flushPendingPersistWrites, gatePersistWritesUntilReady, resolveWebStringStorage, signalDeletingReality, clearDesktopOperation } from "@/lib/desktopStorage";
 import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
-import { loadRealityHistoryFromDb, markRealityHistoryLoaded, deleteRealityFromDb, upsertRealityInDb } from "@/lib/desktopSqlite";
+import { loadRealityHistoryFromDb, markRealityHistoryLoaded, deleteRealityFromDb, upsertRealityInDb, shouldSuggestCompactAfterDelete } from "@/lib/desktopSqlite";
 import {
   applyLock,
   applyTimeout,
@@ -759,7 +759,7 @@ interface DraftStore {
   bulkYearsCancelRequested: boolean;
   /** Switch the live season to another saved reality (snapshots the current). */
   switchReality: (id: string) => void;
-  deleteReality: (id: string) => void;
+  deleteReality: (id: string) => Promise<{ suggestCompact: boolean } | void>;
   /** Serialize a reality (its timeline + its own season history) to a JSON
    *  string for download. Tournaments are compact-encoded. Null if unknown. */
   exportReality: (id: string) => string | null;
@@ -2261,7 +2261,11 @@ export const useDraftStore = create<DraftStore>()(
     }
   },
 
-  deleteReality: (id) => {
+  deleteReality: async (id) => {
+    const snapshot = get().realities.find((r) => r.id === id);
+    const suggestCompact =
+      isDesktop() && snapshot != null && shouldSuggestCompactAfterDelete(snapshot);
+
     set((s) => {
       const wasActive = s.activeRealityId === id;
       return {
@@ -2271,16 +2275,20 @@ export const useDraftStore = create<DraftStore>()(
           : {}),
       };
     });
-    if (isDesktop()) {
-      void (async () => {
-        try {
-          await deleteRealityFromDb(id);
-          await flushPendingPersistWrites();
-        } catch (err) {
-          console.warn("[draftsim] deleteReality DB sync failed:", err);
-        }
-      })();
+
+    if (!isDesktop()) return;
+
+    signalDeletingReality();
+    try {
+      await deleteRealityFromDb(id);
+      await flushPendingPersistWrites();
+    } catch (err) {
+      console.warn("[draftsim] deleteReality DB sync failed:", err);
+    } finally {
+      clearDesktopOperation();
     }
+
+    return { suggestCompact };
   },
 
   exportReality: (id) => {

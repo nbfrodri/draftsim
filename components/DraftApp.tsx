@@ -34,10 +34,13 @@ import {
   subscribePersistReady,
   getAppClosePhase,
   subscribeAppClosePhase,
+  getDesktopOperationPhase,
+  subscribeDesktopOperationPhase,
 } from "@/lib/desktopStorage";
 import { hydrateMetaConfigFromDesktopFile } from "@/lib/metaRandomizer";
 import AppStartupLoading from "./AppStartupLoading";
 import AppClosingScreen from "./AppClosingScreen";
+import AppDesktopOperationOverlay from "./AppDesktopOperationOverlay";
 
 interface Props {
   champions: Champion[];
@@ -94,6 +97,11 @@ export default function DraftApp({ champions }: Props) {
   const closePhase = useSyncExternalStore(
     subscribeAppClosePhase,
     getAppClosePhase,
+    () => "idle" as const,
+  );
+  const desktopOperationPhase = useSyncExternalStore(
+    subscribeDesktopOperationPhase,
+    getDesktopOperationPhase,
     () => "idle" as const,
   );
 
@@ -247,6 +255,9 @@ export default function DraftApp({ champions }: Props) {
         </LiveTeamCardProvider>
       </LivePlayerCardProvider>
       {closePhase !== "idle" && <AppClosingScreen phase={closePhase} />}
+      {desktopOperationPhase !== "idle" && (
+        <AppDesktopOperationOverlay phase={desktopOperationPhase} />
+      )}
     </>
   );
 }

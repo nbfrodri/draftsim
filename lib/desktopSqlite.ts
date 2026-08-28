@@ -20,7 +20,12 @@ import {
   splitPersistedState,
   type PersistedStoreState,
 } from "./desktopSqliteSchema";
-import { isDesktop, desktopStorage } from "./desktopStorage";
+import {
+  clearDesktopOperation,
+  isDesktop,
+  desktopStorage,
+  signalCompactingDatabase,
+} from "./desktopStorage";
 
 export type SqlExecutor = {
   execute: (query: string, bindValues?: unknown[]) => Promise<{ rowsAffected: number }>;
@@ -238,6 +243,45 @@ export async function deleteRealityFromDb(realityId: string): Promise<void> {
   await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
   await db.execute("DELETE FROM realities WHERE id = ?", [realityId]);
   loadedHistoryRealityIds.delete(realityId);
+}
+
+/** History entry count above which a delete may leave reclaimable free pages. */
+export const COMPACT_SUGGEST_HISTORY_THRESHOLD = 10;
+
+/** Serialized season_json size (bytes) that triggers a compact prompt after delete. */
+export const COMPACT_SUGGEST_SEASON_BYTES = 1_000_000;
+
+export type RealityFootprint = {
+  history?: unknown[];
+  season?: unknown;
+};
+
+/** True when deleting this reality likely left significant free space in the DB file. */
+export function shouldSuggestCompactAfterDelete(reality: RealityFootprint): boolean {
+  const historyCount = reality.history?.length ?? 0;
+  if (historyCount > COMPACT_SUGGEST_HISTORY_THRESHOLD) return true;
+  try {
+    const seasonBytes = JSON.stringify(reality.season ?? {}).length;
+    if (seasonBytes > COMPACT_SUGGEST_SEASON_BYTES) return true;
+  } catch {
+    // non-serializable season — skip size check
+  }
+  return false;
+}
+
+/**
+ * Reclaim disk space after large deletes (SQLite does not shrink the file
+ * automatically). Desktop only — runs PRAGMA vacuum on the app database.
+ */
+export async function compactDesktopDatabase(): Promise<void> {
+  if (!isDesktop()) return;
+  signalCompactingDatabase();
+  try {
+    const db = await loadDatabase();
+    await db.execute("VACUUM");
+  } finally {
+    clearDesktopOperation();
+  }
 }
 
 /** Sync history rows: upsert each entry, then drop rows removed from state. */

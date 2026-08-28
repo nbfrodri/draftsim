@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import { isDesktop, saveFileNative, openFileNative } from "@/lib/desktopStorage";
+import { compactDesktopDatabase } from "@/lib/desktopSqlite";
 import { REALITY_CODE_PREFIX } from "@/lib/realityShare";
+import Modal from "./Modal";
 
 interface CommunityEntry {
   id: string;
@@ -44,6 +46,8 @@ export default function RealitiesHub({ onChoose }: Props) {
   const [name, setName] = useState("");
   const [aging, setAging] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [compactPromptOpen, setCompactPromptOpen] = useState(false);
+  const [compacting, setCompacting] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [shareCodeInput, setShareCodeInput] = useState("");
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -153,6 +157,32 @@ export default function RealitiesHub({ onChoose }: Props) {
     } catch {
       flash("err", "Could not read file");
     }
+  };
+
+  const handleDelete = async (id: string) => {
+    setConfirmDelete(null);
+    const result = await deleteReality(id);
+    if (result?.suggestCompact) {
+      setCompactPromptOpen(true);
+    }
+  };
+
+  const handleCompactDatabase = async () => {
+    if (!isDesktop() || compacting) return;
+    setCompacting(true);
+    try {
+      await compactDesktopDatabase();
+      flash("ok", "Database compacted");
+    } catch {
+      flash("err", "Compact failed");
+    } finally {
+      setCompacting(false);
+    }
+  };
+
+  const handleCompactAfterDelete = async () => {
+    setCompactPromptOpen(false);
+    await handleCompactDatabase();
   };
 
   return (
@@ -314,7 +344,7 @@ export default function RealitiesHub({ onChoose }: Props) {
         </div>
 
         {/* Saved realities */}
-        <div className="flex items-center gap-3 mb-2">
+        <div className="flex items-center gap-3 mb-2 flex-wrap">
           <span className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/55">
             Saved realities {realities.length > 0 ? `(${realities.length})` : ""}
           </span>
@@ -327,6 +357,17 @@ export default function RealitiesHub({ onChoose }: Props) {
               {msg.text}
             </span>
           )}
+          {isDesktop() && (
+            <button
+              type="button"
+              onClick={() => void handleCompactDatabase()}
+              disabled={compacting}
+              title="Reclaim disk space after deleting large realities (runs SQLite VACUUM)"
+              className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright hover:text-rift-goldbright transition-colors disabled:opacity-50"
+            >
+              Compact database
+            </button>
+          )}
           <button
             type="button"
             onClick={handleImport}
@@ -336,6 +377,12 @@ export default function RealitiesHub({ onChoose }: Props) {
             Import (.json)
           </button>
         </div>
+        {isDesktop() && (
+          <p className="text-[9px] text-rift-muted/55 mb-2 leading-relaxed">
+            After deleting a large reality, use <span className="text-rift-gold/70">Compact database</span> to
+            shrink the on-disk save file and free space.
+          </p>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -392,10 +439,7 @@ export default function RealitiesHub({ onChoose }: Props) {
                   {confirmDelete === r.id ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        deleteReality(r.id);
-                        setConfirmDelete(null);
-                      }}
+                      onClick={() => void handleDelete(r.id)}
                       className="px-2 py-1 border border-rift-red/60 text-rift-redbright text-[9px] uppercase tracking-[0.2em]"
                     >
                       Confirm
@@ -415,6 +459,16 @@ export default function RealitiesHub({ onChoose }: Props) {
           </div>
         )}
       </div>
+
+      <Modal
+        open={compactPromptOpen}
+        title="Reality deleted"
+        message="Compact the database now to reclaim disk space freed by this delete?"
+        confirmLabel="Compact now"
+        cancelLabel="Not now"
+        onConfirm={() => void handleCompactAfterDelete()}
+        onCancel={() => setCompactPromptOpen(false)}
+      />
     </div>
   );
 }

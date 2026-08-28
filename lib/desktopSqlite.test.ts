@@ -6,6 +6,8 @@ vi.mock("./desktopStorage", () => ({
   desktopStorage: {
     getItem: vi.fn(),
   },
+  signalCompactingDatabase: vi.fn(),
+  clearDesktopOperation: vi.fn(),
 }));
 
 import {
@@ -15,8 +17,13 @@ import {
   setDesktopDatabaseForTests,
   syncRemovedRealities,
   syncRealityHistory,
+  compactDesktopDatabase,
+  shouldSuggestCompactAfterDelete,
+  COMPACT_SUGGEST_HISTORY_THRESHOLD,
+  COMPACT_SUGGEST_SEASON_BYTES,
   type SqlExecutor,
 } from "./desktopSqlite";
+import { signalCompactingDatabase, clearDesktopOperation } from "./desktopStorage";
 import { UPSERT_REALITY_HISTORY_SQL } from "./desktopSqliteSchema";
 
 const STORE_KEY = "draftsim-store";
@@ -482,5 +489,55 @@ describe("savePersistedStateToDb reality CRUD", () => {
     expect(season.franchise?.year).toBe(3);
     expect(season.status).toBe("complete");
     expect(realities.get("r1")?.year).toBe(3);
+  });
+});
+
+describe("shouldSuggestCompactAfterDelete", () => {
+  it("suggests compact when history exceeds threshold", () => {
+    const history = Array.from({ length: COMPACT_SUGGEST_HISTORY_THRESHOLD + 1 }, (_, i) => ({
+      id: `h${i}`,
+    }));
+    expect(shouldSuggestCompactAfterDelete({ history, season: {} })).toBe(true);
+  });
+
+  it("suggests compact when season JSON exceeds size threshold", () => {
+    const bigSeason = { blob: "x".repeat(COMPACT_SUGGEST_SEASON_BYTES + 1) };
+    expect(shouldSuggestCompactAfterDelete({ history: [], season: bigSeason })).toBe(true);
+  });
+
+  it("does not suggest compact for small realities", () => {
+    expect(shouldSuggestCompactAfterDelete({ history: [], season: { year: 1 } })).toBe(false);
+  });
+});
+
+describe("compactDesktopDatabase", () => {
+  beforeEach(() => {
+    resetSqliteStorageForTests();
+    vi.mocked(signalCompactingDatabase).mockClear();
+    vi.mocked(clearDesktopOperation).mockClear();
+  });
+
+  afterEach(() => {
+    resetSqliteStorageForTests();
+  });
+
+  it("runs VACUUM and toggles the operation overlay", async () => {
+    const queries: string[] = [];
+    const db: SqlExecutor = {
+      async execute(query) {
+        queries.push(query);
+        return { rowsAffected: 0 };
+      },
+      async select() {
+        return [];
+      },
+    };
+    setDesktopDatabaseForTests(db);
+
+    await compactDesktopDatabase();
+
+    expect(queries).toContain("VACUUM");
+    expect(signalCompactingDatabase).toHaveBeenCalledOnce();
+    expect(clearDesktopOperation).toHaveBeenCalledOnce();
   });
 });
