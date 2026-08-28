@@ -84,6 +84,7 @@ import {
   startGroupsPlayoffs,
   startRoundRobinPlayoffs,
   startSwissPlayoffs,
+  isSwissStageComplete,
   teamStarRating,
   tournamentSeriesContext,
   type CreateTournamentParams,
@@ -841,6 +842,13 @@ interface DraftStore {
   // both behave correctly). Used by per-round / per-matchday / group-
   // stage Sim buttons.
   simulateMatches: (matchIds: string[]) => void;
+  // Auto-play every remaining Swiss-stage match (dynamic round generation
+  // included). Stops when the Swiss stage is complete — does not start
+  // playoffs for swiss-playoffs formats.
+  simulateSwissStage: () => void;
+  // Complete the Swiss stage and freeze standings into the playoff bracket
+  // for swiss-playoffs / swiss-playoffs-de / swiss-playoffs-te formats.
+  simulateSwissToPlayoffs: () => void;
   // Spectator mode: auto-play every remaining match end-to-end. Forces
   // every match into AI vs AI for the duration of the run so drafts and
   // game outcomes resolve without user input. Updates tournament state
@@ -1116,7 +1124,7 @@ function freezeSeasonTournamentStage(t: TournamentState): TournamentState {
       t.format === "swiss-playoffs-de" ||
       t.format === "swiss-playoffs-te") &&
     !t.swissPlayoffsStarted &&
-    stageDone
+    isSwissStageComplete(t)
   ) {
     return startSwissPlayoffs(t);
   }
@@ -1130,6 +1138,145 @@ function freezeSeasonTournamentStage(t: TournamentState): TournamentState {
     return startRoundRobinPlayoffs(t);
   }
   return t;
+}
+
+function isSwissFormat(t: TournamentState): boolean {
+  return (
+    t.format === "swiss" ||
+    t.format === "swiss-playoffs" ||
+    t.format === "swiss-playoffs-de" ||
+    t.format === "swiss-playoffs-te"
+  );
+}
+
+function isSwissPlayoffsFormat(t: TournamentState): boolean {
+  return (
+    t.format === "swiss-playoffs" ||
+    t.format === "swiss-playoffs-de" ||
+    t.format === "swiss-playoffs-te"
+  );
+}
+
+async function runSwissStageSimulation(
+  get: StoreGet,
+  set: StoreSet,
+  toPlayoffs: boolean,
+): Promise<void> {
+  const { tournament: cur, champions, playerForms, simulating } = get();
+  if (!cur || simulating || !isSwissFormat(cur)) return;
+  if (toPlayoffs && (!isSwissPlayoffsFormat(cur) || cur.swissPlayoffsStarted)) {
+    return;
+  }
+  if (isSwissStageComplete(cur)) {
+    if (toPlayoffs) {
+      const updated = startSwissPlayoffs(cur);
+      if (updated !== cur) {
+        set((state) => ({
+          tournament: updated,
+          ...seasonPatchFor(state, updated),
+        }));
+      }
+    }
+    return;
+  }
+
+  set({
+    simulating: "all",
+    simProgress: {
+      done: cur.matches.filter(
+        (m) => m.bracket === undefined && m.winner != null,
+      ).length,
+      total: cur.matches.filter((m) => m.bracket === undefined).length,
+    },
+    simStartedAt: Date.now(),
+  });
+
+  try {
+    await new Promise((r) => setTimeout(r, 0));
+    const runId = cur.id;
+    let working = cur;
+    let currentForms = playerForms;
+    let metaChangedOverall = false;
+    const BATCH = 4;
+    let sinceCommit = 0;
+    const safetyCap = 200;
+
+    for (let safety = 0; safety < safetyCap; safety++) {
+      if (get().tournament?.id !== runId) return;
+
+      const swissStartable = working.matches.find(
+        (m) =>
+          m.bracket === undefined &&
+          !m.winner &&
+          m.blueTeamId != null &&
+          m.redTeamId != null,
+      );
+
+      if (!swissStartable) {
+        if (isSwissStageComplete(working)) {
+          if (toPlayoffs && isSwissPlayoffsFormat(working)) {
+            working = startSwissPlayoffs(working);
+          }
+          break;
+        }
+        break;
+      }
+
+      const [next, nextForms] = await runAutoPlayMatch(
+        working,
+        swissStartable.id,
+        champions,
+        currentForms,
+      );
+      working = next;
+      currentForms = nextForms;
+      const evo = evolveMetaForTournament(working, champions);
+      if (evo.tournament !== working) {
+        setActiveMetaOverride(evo.snapshot?.metaOverride ?? null);
+        saveMetaOverride(evo.snapshot?.metaOverride ?? null);
+        working = evo.tournament;
+        metaChangedOverall = true;
+      }
+      sinceCommit++;
+      if (sinceCommit >= BATCH) {
+        sinceCommit = 0;
+        if (get().tournament?.id !== runId) return;
+        const swissMatches = working.matches.filter(
+          (m) => m.bracket === undefined,
+        );
+        set((state) => ({
+          tournament: working,
+          ...seasonPatchFor(state, working),
+          playerForms: currentForms,
+          simProgress: {
+            done: swissMatches.filter((m) => m.winner).length,
+            total: swissMatches.length,
+          },
+        }));
+      }
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    if (get().tournament?.id !== runId) return;
+    set((state) => ({
+      tournament: working,
+      ...seasonPatchFor(state, working),
+      tournamentHistory: archiveCompletedTournament(
+        working,
+        state.tournamentHistory,
+      ),
+      playerForms: currentForms,
+      ...(metaChangedOverall &&
+      working.metaSnapshot?.metaOverride !== cur.metaSnapshot?.metaOverride
+        ? {
+            metaOverride: working.metaSnapshot?.metaOverride ?? null,
+            metaVersion: state.metaVersion + 1,
+          }
+        : {}),
+    }));
+  } finally {
+    set({ simulating: null, simProgress: null, simStartedAt: null });
+  }
 }
 
 const SIM_RESULTS_FLUSH_MS = 200;
@@ -2303,7 +2450,7 @@ export const useDraftStore = create<DraftStore>()(
                 t.format === "swiss-playoffs-de" ||
                 t.format === "swiss-playoffs-te") &&
               !t.swissPlayoffsStarted &&
-              stageDone
+              isSwissStageComplete(t)
             ) {
               frozen = startSwissPlayoffs(t);
             } else if (
@@ -2399,37 +2546,7 @@ export const useDraftStore = create<DraftStore>()(
         // Freeze a completed regular stage into its playoff bracket, so a
         // single matchday click transparently crosses the regular→playoff
         // boundary.
-        const freezeStage = (t: TournamentState): TournamentState => {
-          const stageDone = t.matches
-            .filter((m) => m.bracket === undefined)
-            .every((m) => m.winner != null);
-          if (!stageDone) return t;
-          if (
-            (t.format === "groups-playoffs" ||
-              t.format === "groups-playoffs-de" ||
-              t.format === "groups-playoffs-te") &&
-            !t.groupsPlayoffs?.playoffStarted
-          ) {
-            return startGroupsPlayoffs(t);
-          }
-          if (
-            (t.format === "swiss-playoffs" ||
-              t.format === "swiss-playoffs-de" ||
-              t.format === "swiss-playoffs-te") &&
-            !t.swissPlayoffsStarted
-          ) {
-            return startSwissPlayoffs(t);
-          }
-          if (
-            (t.format === "round-robin-playoffs" ||
-              t.format === "round-robin-playoffs-te" ||
-              t.format === "round-robin-playoffs-step") &&
-            !t.rrPlayoffsStarted
-          ) {
-            return startRoundRobinPlayoffs(t);
-          }
-          return t;
-        };
+        const freezeStage = freezeSeasonTournamentStage;
         // The current matchday = every ready match at the lowest unplayed
         // round (one RR/Swiss round, one group matchday, or one bracket
         // round).
@@ -4064,6 +4181,14 @@ export const useDraftStore = create<DraftStore>()(
     })();
   },
 
+  simulateSwissStage: () => {
+    void runSwissStageSimulation(get, set, false);
+  },
+
+  simulateSwissToPlayoffs: () => {
+    void runSwissStageSimulation(get, set, true);
+  },
+
   simulateAllRemaining: () => {
     const { tournament, simulating } = get();
     if (!tournament || simulating) return;
@@ -4128,9 +4253,7 @@ export const useDraftStore = create<DraftStore>()(
                 working.format === "swiss-playoffs-de" ||
                 working.format === "swiss-playoffs-te") &&
               !working.swissPlayoffsStarted &&
-              working.matches
-                .filter((m) => m.bracket === undefined)
-                .every((m) => m.winner != null)
+              isSwissStageComplete(working)
             ) {
               working = startSwissPlayoffs(working);
               continue;

@@ -234,12 +234,28 @@ export function LosersRoundColumn({
   onStartMatch: (matchId: string) => void;
   onViewMatch?: (matchId: string) => void;
 }) {
+  const simulateMatches = useDraftStore((s) => s.simulateMatches);
+  const pendingIds = matches
+    .filter((m) => !m.winner && m.blueTeamId && m.redTeamId)
+    .map((m) => m.id);
   const roundLabel =
     round === totalRounds ? "Losers Final" : `Losers Round ${round}`;
   return (
     <div className="flex-1 min-w-[220px] md:min-w-[240px] flex flex-col">
-      <div className="text-[9px] md:text-[10px] uppercase tracking-[0.4em] text-rift-redbright/55 text-center mb-3">
-        {roundLabel}
+      <div className="flex items-center justify-center gap-1.5 mb-3">
+        <span className="text-[9px] md:text-[10px] uppercase tracking-[0.4em] text-rift-redbright/55">
+          {roundLabel}
+        </span>
+        {pendingIds.length > 0 && (
+          <button
+            type="button"
+            onClick={() => simulateMatches(pendingIds)}
+            className="px-1.5 py-px border border-rift-gold/50 text-rift-gold hover:bg-rift-gold/10 hover:text-rift-goldbright text-[8px] uppercase tracking-[0.2em] transition-all"
+            title="Auto-play every ready match in this round"
+          >
+            Sim Round
+          </button>
+        )}
       </div>
       <div className="flex-1 flex flex-col gap-3 md:gap-4 justify-around">
         {matches.map((m) => (

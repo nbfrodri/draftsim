@@ -15,6 +15,7 @@ import {
   generateSingleElimBracket,
   generateStepladderBracket,
   generateSwissBracket,
+  isSwissStageComplete,
   recordMatchWinner,
   startRoundRobinPlayoffs,
   startSwissPlayoffs,
@@ -1106,6 +1107,41 @@ describe("swiss threshold mode", () => {
       if (m.redTeamId) bracketTeams.add(m.redTeamId);
     }
     expect(bracketTeams.size).toBe(qualifiedCount);
+  });
+});
+
+describe("isSwissStageComplete", () => {
+  it("is false while Swiss rounds remain", () => {
+    const t = createTournament(
+      baseTournamentParams("swiss-playoffs-de", 8, {
+        swissTotalRoundsOverride: 3,
+      }),
+    );
+    expect(isSwissStageComplete(t)).toBe(false);
+  });
+
+  it("is true after the Swiss stage finishes", () => {
+    let t = createTournament(
+      baseTournamentParams("swiss-playoffs-de", 8, {
+        swissTotalRoundsOverride: 3,
+      }),
+    );
+    for (let i = 0; i < 50; i++) {
+      const next = t.matches.find(
+        (m) =>
+          m.bracket === undefined &&
+          !m.winner &&
+          m.blueTeamId != null &&
+          m.redTeamId != null,
+      );
+      if (!next) break;
+      t = recordMatchWinner(t, next.id, {
+        teamId: next.blueTeamId!,
+        blueWins: 2,
+        redWins: 0,
+      });
+    }
+    expect(isSwissStageComplete(t)).toBe(true);
   });
 });
 

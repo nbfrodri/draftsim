@@ -3110,6 +3110,20 @@ function buildPlayoffMatches(
   return matches;
 }
 
+/** True when every Swiss-stage match is resolved and no further Swiss
+ *  rounds will be generated (round cap reached, or threshold mode with
+ *  all teams qualified/eliminated). */
+export function isSwissStageComplete(tournament: TournamentState): boolean {
+  const swissMatches = tournament.matches.filter((m) => m.bracket === undefined);
+  if (swissMatches.length === 0) return true;
+  if (!swissMatches.every((m) => m.winner != null)) return false;
+  const winTarget = tournament.swissWinTarget ?? null;
+  if (winTarget != null) return true;
+  const total = tournament.swissTotalRounds ?? 0;
+  const maxRound = swissMatches.reduce((acc, m) => Math.max(acc, m.round), 0);
+  return maxRound >= total;
+}
+
 // Swiss + playoffs: when the Swiss stage completes, promote the top-N
 // teams (by Swiss standings) into a single-elim or double-elim playoff
 // bracket. The playoff matches are appended with bracket fields so they

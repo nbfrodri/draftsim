@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import {
   computeGroupStandings,
+  isSwissStageComplete,
   playoffBracketKindFor,
 } from "@/lib/tournament";
 import type { TournamentMatch, TournamentState } from "@/lib/tournament";
@@ -511,7 +512,10 @@ export function SwissView({
   onStartMatch: (matchId: string) => void;
   onViewMatch: (matchId: string) => void;
 }) {
-  const simulateMatches = useDraftStore((s) => s.simulateMatches);
+  const simulateSwissStage = useDraftStore((s) => s.simulateSwissStage);
+  const simulateSwissToPlayoffs = useDraftStore(
+    (s) => s.simulateSwissToPlayoffs,
+  );
   const generatePlayoffBracket = useDraftStore(
     (s) => s.generatePlayoffBracket,
   );
@@ -570,12 +574,7 @@ export function SwissView({
   // Threshold mode (modern Worlds Swiss): symmetric X wins qualify / X
   // losses out (X fixed by field size).
   const winTarget = tournament.swissWinTarget ?? null;
-  const swissStageComplete =
-    swissMatches.length > 0 &&
-    swissMatches.every((m) => m.winner != null) &&
-    // In threshold mode the engine has already added any next round by the
-    // time every match is resolved, so all-resolved means the stage is over.
-    (winTarget != null || swissRounds.length >= total);
+  const swissStageComplete = isSwissStageComplete(tournament);
   const allSwissPendingIds = swissMatches
     .filter((m) => !m.winner && m.blueTeamId && m.redTeamId)
     .map((m) => m.id);
@@ -611,10 +610,20 @@ export function SwissView({
                 ? `Round ${Math.min(swissRounds.length, currentRoundIdx + 1)} · ${winTarget}W qualify / ${winTarget}L out`
                 : `Round ${Math.min(swissRounds.length, currentRoundIdx + 1)} of ${total}`}
             </span>
-            {allSwissPendingIds.length > 0 && (
+            {isSwissPlayoffs && !playoffStarted && !swissStageComplete && (
               <button
                 type="button"
-                onClick={() => simulateMatches(allSwissPendingIds)}
+                onClick={() => simulateSwissToPlayoffs()}
+                className="px-2.5 py-1 border border-rift-gold/60 text-rift-goldbright hover:bg-rift-gold/10 text-[9px] uppercase tracking-[0.3em] transition-all"
+                title="Auto-play every remaining Swiss round, then create the playoff bracket"
+              >
+                Sim Swiss → Playoffs
+              </button>
+            )}
+            {!isSwissPlayoffs && allSwissPendingIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => simulateSwissStage()}
                 className="px-2.5 py-1 border border-rift-gold/60 text-rift-goldbright hover:bg-rift-gold/10 text-[9px] uppercase tracking-[0.3em] transition-all"
                 title="Auto-play every remaining match in the Swiss stage"
               >
