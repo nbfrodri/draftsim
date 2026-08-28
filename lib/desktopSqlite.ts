@@ -14,6 +14,7 @@ import {
   JSON_MIGRATION_FLAG,
   META_CONFIG_KEY,
   SCHEMA_SQL,
+  UPSERT_REALITY_HISTORY_SQL,
   mergePersistedState,
   parseMetaConfigJson,
   splitPersistedState,
@@ -210,20 +211,40 @@ async function upsertRealityRow(
   );
 }
 
+/** Sync history rows: upsert each entry, then drop rows removed from state. */
+export async function syncRealityHistory(
+  db: SqlExecutor,
+  realityId: string,
+  history: SeasonHistoryEntry[],
+): Promise<void> {
+  for (let i = 0; i < history.length; i++) {
+    const entry = history[i]!;
+    await db.execute(UPSERT_REALITY_HISTORY_SQL, [
+      realityId,
+      entry.id,
+      JSON.stringify(entry),
+      i,
+    ]);
+  }
+
+  if (history.length === 0) {
+    await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
+    return;
+  }
+
+  const placeholders = history.map(() => "?").join(", ");
+  await db.execute(
+    `DELETE FROM reality_history WHERE reality_id = ? AND entry_id NOT IN (${placeholders})`,
+    [realityId, ...history.map((e) => e.id)],
+  );
+}
+
 async function replaceRealityHistory(
   realityId: string,
   history: SeasonHistoryEntry[],
 ): Promise<void> {
   const db = await loadDatabase();
-  await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
-  for (let i = 0; i < history.length; i++) {
-    const entry = history[i]!;
-    await db.execute(
-      `INSERT INTO reality_history (reality_id, entry_id, entry_json, sort_order)
-       VALUES (?, ?, ?, ?)`,
-      [realityId, entry.id, JSON.stringify(entry), i],
-    );
-  }
+  await syncRealityHistory(db, realityId, history);
 }
 
 export async function savePersistedStateToDb(

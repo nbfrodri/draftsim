@@ -3,6 +3,7 @@ import {
   mergePersistedState,
   parseMetaConfigJson,
   splitPersistedState,
+  UPSERT_REALITY_HISTORY_SQL,
 } from "./desktopSqliteSchema";
 
 describe("desktopSqliteSchema", () => {
@@ -59,5 +60,11 @@ describe("desktopSqliteSchema", () => {
       JSON.stringify({ a: "x", b: null, c: 1 }),
     );
     expect(parsed).toEqual({ a: "x", b: null });
+  });
+
+  it("UPSERT_REALITY_HISTORY_SQL targets reality_id + entry_id conflict", () => {
+    expect(UPSERT_REALITY_HISTORY_SQL).toContain("ON CONFLICT(reality_id, entry_id)");
+    expect(UPSERT_REALITY_HISTORY_SQL).toContain("entry_json = excluded.entry_json");
+    expect(UPSERT_REALITY_HISTORY_SQL).toContain("sort_order = excluded.sort_order");
   });
 });

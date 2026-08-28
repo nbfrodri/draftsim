@@ -43,6 +43,14 @@ CREATE TABLE IF NOT EXISTS meta_config (
 );
 `;
 
+/** Upsert one Hall history row (idempotent on zustand re-persist). */
+export const UPSERT_REALITY_HISTORY_SQL = `
+INSERT INTO reality_history (reality_id, entry_id, entry_json, sort_order)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(reality_id, entry_id) DO UPDATE SET
+  entry_json = excluded.entry_json,
+  sort_order = excluded.sort_order`;
+
 export type PersistedStoreState = Record<string, unknown> & {
   realities?: Array<{
     id: string;
