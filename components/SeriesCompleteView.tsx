@@ -10,6 +10,7 @@ import LaneIcon from "./LaneIcon";
 import PlayerNameLink from "./player/PlayerNameLink";
 import TeamName from "./TeamName";
 import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
+import { gameKillTotals } from "@/lib/recapStats";
 
 interface Props {
   champions: Champion[];
@@ -340,7 +341,12 @@ function describeGameRecap(
   game: GameDraft,
   byId: Map<number, Champion>,
   recap: GameRecap | undefined,
-): { headline: string; mvp: MvpBits | null; swingLine: string | null } {
+): {
+  headline: string;
+  killLine: string | null;
+  mvp: MvpBits | null;
+  swingLine: string | null;
+} {
   // Winner team name (broadcast-style).
   const winnerName =
     game.winner === "blue"
@@ -351,6 +357,7 @@ function describeGameRecap(
   if (!recap || !game.winner) {
     return {
       headline: `${winnerName} took Game ${game.gameNumber}`,
+      killLine: null,
       mvp: null,
       swingLine: null,
     };
@@ -359,6 +366,10 @@ function describeGameRecap(
   const headline = `${winnerName} closed Game ${game.gameNumber} ${paceLabel(
     recap.durationMinutes,
   )}`;
+  const kills = gameKillTotals(recap);
+  const killLine = kills
+    ? `${game.blueTeam} ${kills.blue} — ${kills.red} ${game.redTeam} kills`
+    : null;
   // MVP: champion + lane icons rendered by the caller, plus name/KDA text.
   const mvpChamp = recap.mvp ? byId.get(recap.mvp.championId) : null;
   const mvp: MvpBits | null =
@@ -383,7 +394,7 @@ function describeGameRecap(
     const minute = Math.floor(recap.biggestSwing.minute);
     swingLine = `Decisive moment at ${minute}': ${phrase}`;
   }
-  return { headline, mvp, swingLine };
+  return { headline, killLine, mvp, swingLine };
 }
 
 function SeriesNarrative({
@@ -400,7 +411,7 @@ function SeriesNarrative({
       </div>
       <div className="space-y-3">
         {series.map((g, idx) => {
-          const { headline, mvp, swingLine } = describeGameRecap(
+          const { headline, killLine, mvp, swingLine } = describeGameRecap(
             g,
             byId,
             g.recap,
@@ -423,6 +434,12 @@ function SeriesNarrative({
                 <div className={`text-xs md:text-sm font-display tracking-[0.1em] truncate ${winnerCls}`}>
                   {headline}
                 </div>
+                {killLine && (
+                  <div className="text-[11px] md:text-xs text-rift-mutedbright tabular-nums truncate">
+                    <span className="text-rift-gold/60 shrink-0">KILLS ·</span>{" "}
+                    {killLine}
+                  </div>
+                )}
                 {mvp && (
                   <div className="text-[11px] md:text-xs text-rift-mutedbright flex items-center gap-1.5 min-w-0">
                     <span className="text-rift-gold/60 shrink-0">MVP ·</span>
@@ -485,6 +502,7 @@ function GameCard({
   const winnerSide = game.winner;
   const winnerLabel =
     winnerSide === "blue" ? blueTeam : winnerSide === "red" ? redTeam : "—";
+  const killTotals = game.recap ? gameKillTotals(game.recap) : null;
 
   return (
     <div className="relative border border-rift-gold/25 bg-rift-panel/40 p-3 md:p-4">
@@ -498,7 +516,12 @@ function GameCard({
           </span>
         </div>
         {winnerSide && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {killTotals && (
+              <span className="text-[9px] uppercase tracking-[0.25em] text-rift-mutedbright tabular-nums">
+                {killTotals.blue}—{killTotals.red} kills
+              </span>
+            )}
             <span className="text-[9px] uppercase tracking-[0.3em] text-rift-muted">
               Winner
             </span>

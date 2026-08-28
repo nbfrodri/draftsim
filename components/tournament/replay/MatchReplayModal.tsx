@@ -16,6 +16,7 @@ import WinProbChart from "@/components/charts/WinProbChart";
 import GoldLeadChart from "@/components/charts/GoldLeadChart";
 import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
 import PlayerNameLink from "@/components/player/PlayerNameLink";
+import { gameKillTotals } from "@/lib/recapStats";
 
 function resolveReplayTeam(
   tournament: TournamentState,
@@ -440,6 +441,7 @@ export function MatchReplayModal({
             {games.map((g, i) => {
               const isActive = i === activeGameIdx;
               const winnerSide = g.winner;
+              const kills = g.recap ? gameKillTotals(g.recap) : null;
               return (
                 <button
                   key={g.id}
@@ -452,6 +454,11 @@ export function MatchReplayModal({
                   }`}
                 >
                   Game {i + 1}
+                  {kills && (
+                    <span className="ml-1.5 tabular-nums text-rift-mutedbright/80 normal-case tracking-normal">
+                      {kills.blue}–{kills.red}
+                    </span>
+                  )}
                   {winnerSide && (
                     <span
                       className={`ml-1.5 ${
@@ -609,6 +616,7 @@ function ReplayGamePanel({
   const winnerName =
     winnerSide === "blue" ? blueTeamName : winnerSide === "red" ? redTeamName : "";
   const recap = game.recap;
+  const killTotals = recap ? gameKillTotals(recap) : null;
   const mvp = recap?.mvp;
   const mvpChampion = mvp ? byId.get(mvp.championId) ?? null : null;
   return (
@@ -639,6 +647,11 @@ function ReplayGamePanel({
             {recap?.durationMinutes != null && (
               <span className="text-rift-mutedbright/60">
                 · {Math.round(recap.durationMinutes)} min
+              </span>
+            )}
+            {killTotals && (
+              <span className="text-rift-mutedbright/60 tabular-nums">
+                · {killTotals.blue}–{killTotals.red} kills
               </span>
             )}
           </div>

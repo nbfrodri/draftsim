@@ -50,6 +50,8 @@ import TeamBrowserPanel from "./TeamBrowserPanel";
 import FreeAgentsPanel from "./FreeAgentsPanel";
 import FranchisePanel from "./FranchisePanel";
 import OffseasonView from "./OffseasonView";
+import BulkYearsControl from "./season/BulkYearsControl";
+import SimResultsFeedPanel from "./season/SimResultsFeedPanel";
 import {
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
@@ -103,6 +105,8 @@ export default function SeasonDashboard() {
   const season = useDraftStore((s) => s.season)!;
   const champions = useDraftStore((s) => s.champions);
   const simulating = useDraftStore((s) => s.simulating);
+  const simResultsFeed = useDraftStore((s) => s.simResultsFeed);
+  const dismissSimResultsFeed = useDraftStore((s) => s.dismissSimResultsFeed);
   const openSeasonTournament = useDraftStore((s) => s.openSeasonTournament);
   const simSeason = useDraftStore((s) => s.simSeason);
   const simSeasonMatchday = useDraftStore((s) => s.simSeasonMatchday);
@@ -298,6 +302,17 @@ export default function SeasonDashboard() {
             view (stats + biggest transfer window + finalize) once it's done. */}
         <FranchisePanel />
         <OffseasonView />
+        <BulkYearsControl />
+
+        {!simulating && simResultsFeed.length > 0 && (
+          <div id="sim-results-panel" className="mb-6 cv-auto scroll-mt-4">
+            <SimResultsFeedPanel
+              entries={simResultsFeed}
+              title="Simulation Results"
+              onDismiss={dismissSimResultsFeed}
+            />
+          </div>
+        )}
 
         {/* Champion banner */}
         {season.status === "complete" && championTeam && (

@@ -167,6 +167,11 @@ export interface GameRecap {
     blue: Array<{ k: number; d: number; a: number }>;
     red: Array<{ k: number; d: number; a: number }>;
   };
+  // Team kill totals at game end (sum of per-pick K). Lightweight recap
+  // field for series/tournament scoreboards; optional / legacy-safe —
+  // UI derives from perPickKDA when absent.
+  blueKills?: number;
+  redKills?: number;
   // Per-pick roster handles, 5 per side indexed by positional lane like
   // perPickKDA. Filled when the rosters are known at sim time; lets the
   // scoreboard / replay / MVP card show who played each pick without

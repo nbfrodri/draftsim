@@ -2714,6 +2714,9 @@ export function buildGameRecap(
       result.winner,
     ) ?? undefined;
 
+  const blueKills = perPickKDA.blue.reduce((sum, row) => sum + row.k, 0);
+  const redKills = perPickKDA.red.reduce((sum, row) => sum + row.k, 0);
+
   return {
     durationMinutes: result.timeline.durationMinutes,
     mvp,
@@ -2723,6 +2726,8 @@ export function buildGameRecap(
     goldLeadTimeline,
     notableEvents,
     perPickKDA,
+    blueKills,
+    redKills,
     ratings,
     ...(hasNames ? { perPickNames } : {}),
     ...(hasIds ? { perPickIds } : {}),

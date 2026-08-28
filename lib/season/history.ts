@@ -175,6 +175,17 @@ export interface SeasonHistoryEntry {
   splitRunnersUp?: Partial<
     Record<SplitId, Partial<Record<LeagueId, SeasonHistoryTeamRef>>>
   >;
+  /** Full split placement order per league (best first). Optional — only on
+   *  seasons archived after the placement expansion. */
+  splitPlacements?: Partial<
+    Record<SplitId, Partial<Record<LeagueId, SeasonHistoryTeamRef[]>>>
+  >;
+  /** Full international placement order per event (best first; play-in exits
+   *  trail the main bracket). Optional — as above. */
+  intlPlacements?: Partial<Record<InternationalId, SeasonHistoryTeamRef[]>>;
+  /** Main-bracket field size per international (excludes play-in-only exits).
+   *  Optional — archived when tournament state is present on the season. */
+  intlMainBracketSizes?: Partial<Record<InternationalId, number>>;
   /** Champion tier table the season STARTED on. null = the default
    *  tiers; undefined = unknown (season pre-dates initialMeta). */
   initialMetaOverride?: MetaOverride | null;
@@ -327,6 +338,23 @@ function teamRef(
   };
 }
 
+/** Main-event field sizes from completed international phases (excludes play-in). */
+function intlMainBracketSizesFromSeason(
+  season: SeasonState,
+): Partial<Record<InternationalId, number>> {
+  const out: Partial<Record<InternationalId, number>> = {};
+  if (!season.phases?.length || !season.tournaments) return out;
+  for (const phase of season.phases) {
+    if (phase.kind !== "international" || !phase.event) continue;
+    const main = phase.tournamentIds
+      .map((id) => season.tournaments[id])
+      .find((t) => t?.status === "complete" && !t.name.includes("Play-In"));
+    if (!main?.teams.length) continue;
+    out[phase.event] = main.teams.length;
+  }
+  return out;
+}
+
 /** Build the archive résumé for a season. `archivedAt` is injected so
  *  the function stays pure (the store stamps the clock). */
 export function buildSeasonHistoryEntry(
@@ -346,14 +374,20 @@ export function buildSeasonHistoryEntry(
   }
   const splitChampions: SeasonHistoryEntry["splitChampions"] = {};
   const splitRunnersUp: NonNullable<SeasonHistoryEntry["splitRunnersUp"]> = {};
+  const splitPlacements: NonNullable<SeasonHistoryEntry["splitPlacements"]> = {};
   for (const [split, byLeague] of Object.entries(season.splitResults) as Array<
     [SplitId, Partial<Record<LeagueId, string[]>>]
   >) {
     const out: Partial<Record<LeagueId, SeasonHistoryTeamRef>> = {};
     const ru: Partial<Record<LeagueId, SeasonHistoryTeamRef>> = {};
+    const full: Partial<Record<LeagueId, SeasonHistoryTeamRef[]>> = {};
     for (const [league, placements] of Object.entries(byLeague) as Array<
       [LeagueId, string[]]
     >) {
+      const refs = (placements ?? [])
+        .map((id) => teamRef(season, id))
+        .filter((r): r is SeasonHistoryTeamRef => r != null);
+      if (refs.length > 0) full[league] = refs;
       const ref = teamRef(season, placements?.[0]);
       if (ref) out[league] = ref;
       const r2 = teamRef(season, placements?.[1]);
@@ -361,6 +395,16 @@ export function buildSeasonHistoryEntry(
     }
     if (Object.keys(out).length > 0) splitChampions[split] = out;
     if (Object.keys(ru).length > 0) splitRunnersUp[split] = ru;
+    if (Object.keys(full).length > 0) splitPlacements[split] = full;
+  }
+  const intlPlacements: NonNullable<SeasonHistoryEntry["intlPlacements"]> = {};
+  for (const [event, placements] of Object.entries(season.intlResults) as Array<
+    [InternationalId, string[]]
+  >) {
+    const refs = (placements ?? [])
+      .map((id) => teamRef(season, id))
+      .filter((r): r is SeasonHistoryTeamRef => r != null);
+    if (refs.length > 0) intlPlacements[event] = refs;
   }
   // Performance-derived stats need the season's tournaments. They're
   // always present on a real season, but stay defensive for sparse /
@@ -614,6 +658,7 @@ export function buildSeasonHistoryEntry(
   // headline, so empty/sparse archives serialize unchanged).
   const story = buildSeasonStory(season);
   const hasStory = Object.keys(story).length > 0;
+  const intlMainBracketSizes = intlMainBracketSizesFromSeason(season);
   return {
     id: season.id,
     archivedAt,
@@ -625,6 +670,11 @@ export function buildSeasonHistoryEntry(
     splitChampions,
     ...(Object.keys(intlRunnersUp).length > 0 ? { intlRunnersUp } : {}),
     ...(Object.keys(splitRunnersUp).length > 0 ? { splitRunnersUp } : {}),
+    ...(Object.keys(splitPlacements).length > 0 ? { splitPlacements } : {}),
+    ...(Object.keys(intlPlacements).length > 0 ? { intlPlacements } : {}),
+    ...(Object.keys(intlMainBracketSizes).length > 0
+      ? { intlMainBracketSizes }
+      : {}),
     ...(hasStory ? { story } : {}),
     ...(Object.keys(leagueBestTeams).length > 0 ? { leagueBestTeams } : {}),
     ...(awardTally.length > 0 ? { awardTally } : {}),

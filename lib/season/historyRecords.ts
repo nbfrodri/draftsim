@@ -78,6 +78,8 @@ export interface TeamRecord {
   intlTitles: Partial<Record<InternationalId, number>>;
   intlTotal: number;
   worldsTitles: number;
+  /** Times this franchise reached the final (#1 or #2) per international. */
+  intlFinalsReached: Partial<Record<InternationalId, number>>;
   /** Splits + internationals combined. */
   totalTitles: number;
   /** Concentrated-dominance dynasty classification. */
@@ -277,6 +279,7 @@ export function computeTeamRecords(
         intlTitles: {},
         intlTotal: 0,
         worldsTitles: 0,
+        intlFinalsReached: {},
         totalTitles: 0,
         dynasty: {
           tier: "none",
@@ -341,6 +344,33 @@ export function computeTeamRecords(
             ? "global-cup"
             : "intl",
       );
+    }
+    // Finals reached (#1 or #2) — separate from titles won.
+    for (const event of INTERNATIONAL_DISPLAY_ORDER) {
+      const placements = e.intlPlacements?.[event];
+      if (placements?.length) {
+        for (let i = 0; i < Math.min(2, placements.length); i++) {
+          const team = placements[i];
+          if (!team) continue;
+          const rec = recordOf(team);
+          rec.intlFinalsReached[event] = (rec.intlFinalsReached[event] ?? 0) + 1;
+        }
+        continue;
+      }
+      // Legacy archives: champions + runners-up only.
+      const champ =
+        event === "worlds"
+          ? (e.intlChampions.worlds ?? e.champion ?? undefined)
+          : e.intlChampions[event];
+      const runner =
+        event === "worlds"
+          ? (e.intlRunnersUp?.worlds ?? e.runnerUp ?? undefined)
+          : e.intlRunnersUp?.[event];
+      for (const team of [champ, runner]) {
+        if (!team) continue;
+        const rec = recordOf(team);
+        rec.intlFinalsReached[event] = (rec.intlFinalsReached[event] ?? 0) + 1;
+      }
     }
   }
 

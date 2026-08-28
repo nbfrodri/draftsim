@@ -33,6 +33,7 @@ import type { Side } from "./types";
 // Type-only imports — erased at compile time, so no runtime cycle with
 // lib/tournament.ts is possible.
 import type { TournamentMatch, TournamentState } from "./tournament";
+import type { SeasonState } from "./season/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -295,6 +296,94 @@ export function compactEncodeTournamentForPersist(
   };
   lastTournamentInput = tournament;
   lastTournamentResult = result;
+  return result;
+}
+
+// ── Tournament / season decode (rehydration) ─────────────────────────────────
+
+/** Decode compact-encoded recaps in one tournament back to full form. */
+export function decodeCompactTournament(tournament: TournamentState): TournamentState {
+  return {
+    ...tournament,
+    matches: tournament.matches.map((m) => {
+      if (!m.series) return m;
+      return {
+        ...m,
+        series: {
+          ...m.series,
+          games: m.series.games.map((g) => {
+            if (!g.recap) return g;
+            const recap = g.recap as typeof g.recap & { recapC?: RecapCompact };
+            const compact = recap.recapC;
+            if (!compact) return g;
+            const full = decodeRecapHeavyFields(recap, compact);
+            const withoutC = { ...full } as typeof full & { recapC?: unknown };
+            delete withoutC.recapC;
+            return { ...g, recap: withoutC };
+          }),
+        },
+      };
+    }),
+  };
+}
+
+/** True when any game recap still carries a persisted recapC payload. */
+export function tournamentHasCompactRecaps(tournament: TournamentState): boolean {
+  for (const m of tournament.matches) {
+    if (!m.series) continue;
+    for (const g of m.series.games) {
+      const recap = g.recap as (typeof g.recap & { recapC?: RecapCompact }) | undefined;
+      if (recap?.recapC) return true;
+    }
+  }
+  return false;
+}
+
+export function seasonHasCompactRecaps(season: SeasonState): boolean {
+  for (const t of Object.values(season.tournaments)) {
+    if (tournamentHasCompactRecaps(t)) return true;
+  }
+  return false;
+}
+
+/** Decode every stage tournament in a season (no-op when already decoded). */
+export function decodeCompactSeason(season: SeasonState): SeasonState {
+  if (!seasonHasCompactRecaps(season)) return season;
+  return {
+    ...season,
+    tournaments: Object.fromEntries(
+      Object.entries(season.tournaments).map(([id, t]) => [
+        id,
+        decodeCompactTournament(t),
+      ]),
+    ),
+  };
+}
+
+// ── Season persist encoding (memoized) ───────────────────────────────────────
+
+let lastSeasonInput: SeasonState | null = null;
+let lastSeasonResult: SeasonState | null = null;
+
+/**
+ * Compact-encode every tournament in a season for persistence. Memoized by
+ * season reference — unchanged seasons cost nothing across set() bursts.
+ */
+export function compactEncodeSeasonForPersist(season: SeasonState): SeasonState {
+  if (season === lastSeasonInput && lastSeasonResult !== null) {
+    return lastSeasonResult;
+  }
+  const result: SeasonState = {
+    ...season,
+    tournaments: Object.fromEntries(
+      Object.entries(season.tournaments).map(([id, t]) => [
+        id,
+        compactEncodeTournamentForPersist(t),
+      ]),
+    ),
+  };
+  lastSeasonInput = season;
+  lastSeasonResult = result;
   return result;
 }
 

@@ -57,6 +57,8 @@ describe("buildSeasonHistoryEntry", () => {
     expect(entry.intlRunnersUp?.msi?.name).toBe("T2");
     expect(entry.splitRunnersUp?.winter?.LCK?.name).toBe("T2"); // ["t1","t2"]
     expect(entry.splitRunnersUp?.winter?.LEC).toBeUndefined(); // only one team
+    expect(entry.splitPlacements?.winter?.LCK?.map((t) => t.name)).toEqual(["T1", "T2"]);
+    expect(entry.intlPlacements?.worlds?.map((t) => t.name)).toEqual(["T1", "T2", "T3"]);
   });
 
   it("captures the starting and final tier tables", () => {

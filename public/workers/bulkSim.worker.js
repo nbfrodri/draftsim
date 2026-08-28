@@ -36407,6 +36407,8 @@
       { durationMinutes: result.timeline.durationMinutes, laneGoldDiff, perPickKDA },
       result.winner
     ) ?? void 0;
+    const blueKills = perPickKDA.blue.reduce((sum, row) => sum + row.k, 0);
+    const redKills = perPickKDA.red.reduce((sum, row) => sum + row.k, 0);
     return {
       durationMinutes: result.timeline.durationMinutes,
       mvp,
@@ -36416,6 +36418,8 @@
       goldLeadTimeline,
       notableEvents,
       perPickKDA,
+      blueKills,
+      redKills,
       ratings,
       ...hasNames ? { perPickNames } : {},
       ...hasIds ? { perPickIds } : {},

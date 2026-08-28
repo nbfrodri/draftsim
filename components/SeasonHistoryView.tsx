@@ -86,6 +86,7 @@ import {
   type PlayerRegionTitles,
 } from "@/lib/season/historySearch";
 import { careerTeamWinRates } from "@/lib/season/teamCard";
+import { intlOutcomeLabel, splitPlacementLabel } from "@/lib/season/placements";
 import {
   INTERNATIONAL_LABELS,
   LEAGUE_IDS,
@@ -4073,13 +4074,35 @@ function CareerWindowChips({ windows }: { windows: PlayerCareerWindow[] }) {
                 : w.status === "free-agent"
                   ? "Free agent"
                   : "Retired") +
-            (w.title ? " · champion" : "")
+            (w.title ? " · champion" : "") +
+            (w.splitPlacement != null
+              ? ` · ${splitPlacementLabel(w.splitPlacement)}`
+              : "") +
+            (w.intlOutcome ? ` · ${intlOutcomeLabel(w.intlOutcome)}` : "")
           }
         >
           {w.kind !== "offseason" && w.team && w.status === "active" && (
             <NavTeamLogo team={w.team} size={10} nested />
           )}
           {w.label}
+          {w.splitPlacement != null && (
+            <span className="tabular-nums text-rift-muted/70">
+              {splitPlacementLabel(w.splitPlacement)}
+            </span>
+          )}
+          {w.intlOutcome && (
+            <span
+              className={
+                w.intlOutcome.kind === "champion" || w.intlOutcome.kind === "finalist"
+                  ? "text-rift-goldbright"
+                  : w.intlOutcome.kind === "did-not-qualify"
+                    ? "text-rift-muted/45"
+                    : "text-rift-muted/65"
+              }
+            >
+              {intlOutcomeLabel(w.intlOutcome)}
+            </span>
+          )}
           {w.title && <span className="text-rift-goldbright">🏆</span>}
         </span>
       ))}
@@ -4278,6 +4301,27 @@ const PlayerProfileView = memo(function PlayerProfileView({
         </>
       )}
       <IntlTitleChips splitTitles={p.splitTitles} intl={p.intlTitles} />
+      {INTERNATIONAL_DISPLAY_ORDER.some((ev) => (p.intlFinalsReached[ev] ?? 0) > 0) && (
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+            International Finals Reached
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {INTERNATIONAL_DISPLAY_ORDER.filter((ev) => (p.intlFinalsReached[ev] ?? 0) > 0).map(
+              (ev) => (
+                <span
+                  key={ev}
+                  className="inline-flex items-center gap-1 border border-rift-line/40 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.15em] text-rift-goldbright"
+                >
+                  <LeagueIcon league={ev} size={11} />
+                  {INTERNATIONAL_LABELS[ev]}
+                  <span className="tabular-nums">×{p.intlFinalsReached[ev]}</span>
+                </span>
+              ),
+            )}
+          </div>
+        </div>
+      )}
       <RegionTitleGroups groups={p.titlesByRegion} onNavigate={onNavigate} />
       {c && c.champs.length > 0 && (
         <div>
@@ -4476,6 +4520,24 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
             <StatChip label="Total titles" value={r.totalTitles} />
             <StatChip label="Dynasty" value={r.dynasty.tier === "none" ? "—" : r.dynasty.tier} />
           </div>
+          {INTERNATIONAL_DISPLAY_ORDER.some((ev) => (r.intlFinalsReached[ev] ?? 0) > 0) && (
+            <div>
+              <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+                International Finals Reached
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {INTERNATIONAL_DISPLAY_ORDER.filter(
+                  (ev) => (r.intlFinalsReached[ev] ?? 0) > 0,
+                ).map((ev) => (
+                  <StatChip
+                    key={ev}
+                    label={INTERNATIONAL_LABELS[ev]}
+                    value={r.intlFinalsReached[ev] ?? 0}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
       {/* Hall of Fame — players who spent the most of their careers here. */}
@@ -4524,10 +4586,42 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
                   {INTERNATIONAL_LABELS[e]}
                 </span>
               ))}
-              {s.splitTitles.map((sp) => (
-                <span key={sp} className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/70">🏅 {SPLIT_LABELS[sp]}</span>
-              ))}
-              {!s.worlds && s.intlTitles.length === 0 && s.splitTitles.length === 0 && (
+              {(["winter", "spring", "summer"] as SplitId[])
+                .filter((sp) => s.splitPlacements[sp] != null)
+                .map((sp) => (
+                  <span
+                    key={sp}
+                    className={`text-[8px] uppercase tracking-[0.15em] ${
+                      s.splitTitles.includes(sp) ? "text-rift-blue/70" : "text-rift-muted/60"
+                    }`}
+                  >
+                    {s.splitTitles.includes(sp) ? "🏅 " : ""}
+                    {SPLIT_LABELS[sp]} {splitPlacementLabel(s.splitPlacements[sp]!)}
+                  </span>
+                ))}
+              {INTERNATIONAL_DISPLAY_ORDER.filter((ev) => s.intlOutcomes[ev]).map((ev) => {
+                const outcome = s.intlOutcomes[ev]!;
+                if (outcome.kind === "champion" && s.intlTitles.includes(ev)) return null;
+                return (
+                  <span
+                    key={`io-${ev}`}
+                    className={`text-[8px] uppercase tracking-[0.15em] ${
+                      outcome.kind === "finalist"
+                        ? "text-rift-mutedbright"
+                        : outcome.kind === "did-not-qualify"
+                          ? "text-rift-muted/40"
+                          : "text-rift-muted/55"
+                    }`}
+                  >
+                    {INTERNATIONAL_LABELS[ev]} · {intlOutcomeLabel(outcome)}
+                  </span>
+                );
+              })}
+              {!s.worlds &&
+                s.intlTitles.length === 0 &&
+                s.splitTitles.length === 0 &&
+                Object.keys(s.splitPlacements).length === 0 &&
+                Object.values(s.intlOutcomes).every((o) => o?.kind === "did-not-qualify") && (
                 <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/40">no titles</span>
               )}
             </div>

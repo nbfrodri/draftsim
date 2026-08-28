@@ -14,6 +14,7 @@ import {
   type InternationalId,
   type LeagueId,
   type SplitId,
+  INTERNATIONAL_DISPLAY_ORDER,
 } from "./types";
 import {
   careerWinLoss,
@@ -23,6 +24,12 @@ import {
   type TeamRecord,
 } from "./historyRecords";
 import type { PlayerChampStat } from "./stats";
+import {
+  reachedIntlFinal,
+  teamIntlOutcome,
+  teamSplitPlacement,
+  type IntlOutcome,
+} from "./placements";
 import {
   ACADEMY_YEARS,
   TOTAL_INACTIVE_BEFORE_RETIRE,
@@ -790,6 +797,10 @@ export interface PlayerCareerWindow {
   /** Trophy lifted in THIS window. Main roster only — academy and FA never
    *  inherit their org's title. */
   title?: SplitId | InternationalId;
+  /** 1-based domestic split finish while active on a main roster. */
+  splitPlacement?: number;
+  /** International result for the player's club this window. */
+  intlOutcome?: IntlOutcome;
 }
 
 export interface PlayerTenure {
@@ -868,6 +879,8 @@ export interface PlayerProfile {
   yearsLeftToRetire?: number;
   splitTitles: number;
   intlTitles: Partial<Record<InternationalId, number>>; // by event
+  /** Finals reached (#1 or #2) while rostered, aggregated across teams. */
+  intlFinalsReached: Partial<Record<InternationalId, number>>;
   /** Same trophies, grouped by the region they were won in — most decorated
    *  region first. Empty when the player has never won anything. */
   titlesByRegion: PlayerRegionTitles[];
@@ -944,6 +957,7 @@ export function playerProfile(
   const ordered = [...completedEntries(entries)].sort((a, b) => b.archivedAt - a.archivedAt);
   const tenures: PlayerTenure[] = [];
   const intlTitles: Partial<Record<InternationalId, number>> = {};
+  const intlFinalsReached: Partial<Record<InternationalId, number>> = {};
   const byRegion = new Map<LeagueId, PlayerRegionTitles>();
   const creditRegion = (
     team: SeasonHistoryTeamRef,
@@ -1004,17 +1018,24 @@ export function playerProfile(
         // archive) means we genuinely don't know, so emit no row.
         const stamp = phase.inactive?.find((p) => p.playerId === playerId);
         if (stamp && windowKey) {
+          const org =
+            stamp.teamId != null
+              ? teamRefFromInactive(identity, entries, {
+                  lastTeamId: stamp.teamId,
+                  ...(stamp.teamName ? { lastTeamName: stamp.teamName } : {}),
+                })
+              : null;
+          const intlOutcome =
+            phase.kind === "international" && phase.event && org
+              ? teamIntlOutcome(e, org, phase.event)
+              : undefined;
           windows.push({
             key: windowKey,
             label: careerWindowLabel(windowKey),
             kind: phase.kind,
             status: stamp.status,
-            team: stamp.teamId
-              ? teamRefFromInactive(identity, entries, {
-                  lastTeamId: stamp.teamId,
-                  ...(stamp.teamName ? { lastTeamName: stamp.teamName } : {}),
-                })
-              : null,
+            team: org,
+            ...(intlOutcome ? { intlOutcome } : {}),
           });
         }
         continue;
@@ -1038,6 +1059,21 @@ export function playerProfile(
         wonHere = phase.event;
         creditRegion(ref, yearOf(e), { event: phase.event });
       }
+      const splitPlacement =
+        phase.kind === "split" && phase.split
+          ? teamSplitPlacement(e, { name: me.t.teamName, leagueId: me.t.leagueId }, phase.split)
+          : undefined;
+      const intlOutcome =
+        phase.kind === "international" && phase.event
+          ? teamIntlOutcome(e, { name: me.t.teamName, leagueId: me.t.leagueId }, phase.event)
+          : undefined;
+      if (
+        phase.kind === "international" &&
+        phase.event &&
+        reachedIntlFinal(intlOutcome?.placement ?? null)
+      ) {
+        intlFinalsReached[phase.event] = (intlFinalsReached[phase.event] ?? 0) + 1;
+      }
       if (windowKey) {
         windows.push({
           key: windowKey,
@@ -1048,6 +1084,8 @@ export function playerProfile(
           lane: me.lane,
           tier: me.tier,
           ...(wonHere ? { title: wonHere } : {}),
+          ...(splitPlacement != null ? { splitPlacement } : {}),
+          ...(intlOutcome ? { intlOutcome } : {}),
         });
       }
     }
@@ -1181,6 +1219,7 @@ export function playerProfile(
     ...(yearsLeftToRetire != null ? { yearsLeftToRetire } : {}),
     splitTitles,
     intlTitles,
+    intlFinalsReached,
     titlesByRegion: [...byRegion.values()].sort(
       (a, b) =>
         b.intlTotal + b.splitTotal - (a.intlTotal + a.splitTotal) ||
@@ -1235,6 +1274,10 @@ export interface TeamSeasonLine {
   worlds: "champion" | "finalist" | null;
   intlTitles: InternationalId[];
   splitTitles: SplitId[];
+  /** 1-based split finishes this season. */
+  splitPlacements: Partial<Record<SplitId, number>>;
+  /** International results this season. */
+  intlOutcomes: Partial<Record<InternationalId, IntlOutcome>>;
   stages: TeamStageRoster[]; // every stage the team played, in play order
   /** Academy players parked with this org at year-end (flat list). */
   academy?: TeamAcademySnapshot[];
@@ -1270,6 +1313,22 @@ export function teamProfile(entries: SeasonHistoryEntry[], key: string): TeamPro
   for (const e of ordered) {
     const intlTitles = (Object.keys(e.intlChampions) as InternationalId[]).filter((ev) => teamWonIntl(e, ev, name));
     const splitTitles = (Object.keys(e.splitChampions) as SplitId[]).filter((s) => teamWonSplit(e, s, team));
+    const splitPlacements: Partial<Record<SplitId, number>> = {};
+    for (const split of ["winter", "spring", "summer"] as SplitId[]) {
+      const p = teamSplitPlacement(e, team, split);
+      if (p != null) splitPlacements[split] = p;
+    }
+    const intlOutcomes: Partial<Record<InternationalId, IntlOutcome>> = {};
+    for (const event of INTERNATIONAL_DISPLAY_ORDER) {
+      const hasEvent =
+        (e.intlPlacements?.[event]?.length ?? 0) > 0 ||
+        e.intlChampions[event] != null ||
+        e.phaseRosters?.some(
+          (p) => p.kind === "international" && p.event === event,
+        );
+      if (!hasEvent) continue;
+      intlOutcomes[event] = teamIntlOutcome(e, team, event);
+    }
     const worlds: TeamSeasonLine["worlds"] =
       e.champion?.name === name && e.champion?.leagueId === leagueId
         ? "champion"
@@ -1334,7 +1393,14 @@ export function teamProfile(entries: SeasonHistoryEntry[], key: string): TeamPro
         inactiveYears: p.inactiveYears,
         academyYears: yearsInAcademy("academy", p.inactiveYears),
       }));
-    if (worlds || intlTitles.length || splitTitles.length || stages.length) {
+    if (
+      worlds ||
+      intlTitles.length ||
+      splitTitles.length ||
+      stages.length ||
+      Object.keys(splitPlacements).length > 0 ||
+      Object.keys(intlOutcomes).length > 0
+    ) {
       seasons.push({
         season: yearOf(e),
         seasonId: e.id,
@@ -1342,6 +1408,8 @@ export function teamProfile(entries: SeasonHistoryEntry[], key: string): TeamPro
         worlds,
         intlTitles,
         splitTitles,
+        splitPlacements,
+        intlOutcomes,
         stages,
         ...(academy.length > 0 ? { academy } : {}),
       });

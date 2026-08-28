@@ -1,0 +1,731 @@
+"use client";
+
+import {
+  IconChevronDown,
+  IconChevronRight,
+  IconFlower,
+  IconSnowflake,
+  IconSun,
+  IconTrophy,
+} from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState, memo, type ReactNode } from "react";
+
+import LeagueIcon from "../LeagueIcon";
+import TeamNameLink from "../team/TeamNameLink";
+import {
+  countSummarizedYears,
+  simResultYears,
+  SIM_RESULTS_FULL_DETAIL_YEARS,
+  type SimFollowedTeamSummary,
+  type SimIntlResultEntry,
+  type SimResultEntry,
+  type SimResultTeamRef,
+  type SimSplitResultEntry,
+  type SimYearResultEntry,
+} from "@/lib/season/simResultsSummary";
+import {
+  INTERNATIONAL_LABELS,
+  LEAGUE_IDS,
+  SPLIT_LABELS,
+  type InternationalId,
+  type LeagueId,
+  type SplitId,
+} from "@/lib/season/types";
+
+const SPLIT_ICONS: Record<
+  SplitId,
+  typeof IconSnowflake
+> = {
+  winter: IconSnowflake,
+  spring: IconFlower,
+  summer: IconSun,
+};
+
+export default function SimResultsFeedPanel({
+  entries,
+  compact: compactDefault = false,
+  autoScroll: autoScrollDefault = false,
+  title = "Simulation Results",
+  loading = false,
+  bulkProgress,
+  onDismiss,
+}: {
+  entries: SimResultEntry[];
+  compact?: boolean;
+  autoScroll?: boolean;
+  title?: string;
+  loading?: boolean;
+  bulkProgress?: { year: number; completed: number; total: number };
+  onDismiss?: () => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const compactDuringSim = compactDefault || loading;
+  const [expandedMode, setExpandedMode] = useState(!compactDuringSim);
+  const [autoScroll, setAutoScroll] = useState(autoScrollDefault);
+  const years = useMemo(() => simResultYears(entries), [entries]);
+  const latestYear = years[years.length - 1];
+  const summarizedYearCount = useMemo(
+    () => countSummarizedYears(entries),
+    [entries],
+  );
+  const expandedYearCount = loading ? 2 : 1;
+  const [collapsedYears, setCollapsedYears] = useState<Set<number>>(
+    () => new Set(),
+  );
+
+  const prevLatestYearRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (latestYear == null) return;
+    if (prevLatestYearRef.current === latestYear) return;
+    prevLatestYearRef.current = latestYear;
+    const expanded = new Set(years.slice(-expandedYearCount));
+    setCollapsedYears(() => {
+      const next = new Set<number>();
+      for (const y of years) {
+        if (!expanded.has(y)) next.add(y);
+      }
+      return next;
+    });
+  }, [expandedYearCount, latestYear, years]);
+
+  useEffect(() => {
+    if (!compactDuringSim) return;
+    setExpandedMode(false);
+  }, [compactDuringSim]);
+
+  useEffect(() => {
+    if (!autoScroll || !scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [autoScroll, entries.length]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<number, SimResultEntry[]>();
+    for (const entry of entries) {
+      const list = map.get(entry.year) ?? [];
+      list.push(entry);
+      map.set(entry.year, list);
+    }
+    return [...map.entries()].sort(([a], [b]) => a - b);
+  }, [entries]);
+
+  const toggleYear = (year: number) => {
+    setCollapsedYears((prev) => {
+      const next = new Set(prev);
+      if (next.has(year)) next.delete(year);
+      else next.add(year);
+      return next;
+    });
+  };
+
+  const dense = !expandedMode;
+
+  return (
+    <div
+      className={`border-2 border-rift-gold/40 bg-rift-gold/[0.04] flex flex-col min-h-0 ${
+        loading && entries.length === 0 ? "border-rift-gold/55" : ""
+      } ${dense ? "text-[9px]" : "text-[10px]"}`}
+    >
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-rift-gold/30 flex-shrink-0 bg-rift-panel/80">
+        <div className="min-w-0">
+          <div className="text-[9px] uppercase tracking-[0.3em] text-rift-goldbright font-display">
+            {title}
+          </div>
+          {bulkProgress && (
+            <div className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/60 tabular-nums mt-0.5">
+              Year {bulkProgress.year} · {bulkProgress.completed}/
+              {bulkProgress.total} complete
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+          <span className="text-[8px] text-rift-muted/60 tabular-nums">
+            {entries.length} update{entries.length === 1 ? "" : "s"}
+            {years.length > 0 && (
+              <span className="text-rift-muted/45">
+                {" "}
+                · {years.length} yr{years.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => setExpandedMode((v) => !v)}
+            aria-pressed={expandedMode}
+            className="px-1.5 py-0.5 border border-rift-line/50 text-[7px] uppercase tracking-[0.15em] text-rift-mutedbright/70 hover:border-rift-gold/40 hover:text-rift-goldbright transition-colors"
+          >
+            {expandedMode ? "Compact" : "Expand"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setAutoScroll((v) => !v)}
+            aria-pressed={autoScroll}
+            className={`px-1.5 py-0.5 border text-[7px] uppercase tracking-[0.15em] transition-colors ${
+              autoScroll
+                ? "border-rift-gold/50 text-rift-goldbright bg-rift-gold/10"
+                : "border-rift-line/50 text-rift-mutedbright/70 hover:border-rift-gold/40"
+            }`}
+          >
+            Auto-scroll
+          </button>
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="text-[8px] uppercase tracking-[0.2em] text-rift-mutedbright/60 hover:text-rift-goldbright transition-colors"
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div
+        ref={scrollRef}
+        className="overflow-y-auto overscroll-contain px-2 py-2 min-h-[8rem] max-h-[min(60vh,28rem)]"
+      >
+        {entries.length === 0 ? (
+          <EmptyFeed loading={loading} />
+        ) : (
+          <div className="space-y-3">
+            {summarizedYearCount > 0 && (
+              <p className="px-2 py-1 text-[8px] uppercase tracking-[0.18em] text-rift-muted/55 border border-rift-line/30 bg-rift-bg/30">
+                Showing last {SIM_RESULTS_FULL_DETAIL_YEARS} years in detail ·{" "}
+                {summarizedYearCount} earlier yr
+                {summarizedYearCount === 1 ? "" : "s"} summarized
+              </p>
+            )}
+            {grouped.map(([year, yearEntries], groupIdx) => (
+              <YearSection
+                key={year}
+                year={year}
+                yearEntries={yearEntries}
+                groupIdx={groupIdx}
+                collapsed={collapsedYears.has(year)}
+                isLatest={year === latestYear}
+                loading={loading}
+                dense={dense}
+                onToggle={() => toggleYear(year)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const YearSection = memo(function YearSection({
+  year,
+  yearEntries,
+  groupIdx,
+  collapsed,
+  isLatest,
+  loading,
+  dense,
+  onToggle,
+}: {
+  year: number;
+  yearEntries: SimResultEntry[];
+  groupIdx: number;
+  collapsed: boolean;
+  isLatest: boolean;
+  loading: boolean;
+  dense: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <section className="relative cv-auto">
+      {groupIdx > 0 && (
+        <div
+          className="absolute -top-1.5 left-0 right-0 h-px bg-gradient-to-r from-transparent via-rift-gold/25 to-transparent"
+          aria-hidden
+        />
+      )}
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`w-full flex items-center gap-2 px-2 py-1.5 mb-1 border border-rift-gold/35 bg-rift-panel/95 text-left transition-colors hover:bg-rift-gold/[0.06] ${
+          isLatest ? "border-rift-gold/50" : ""
+        }`}
+      >
+        {collapsed ? (
+          <IconChevronRight
+            size={12}
+            stroke={1.8}
+            className="text-rift-gold/70 flex-shrink-0"
+            aria-hidden
+          />
+        ) : (
+          <IconChevronDown
+            size={12}
+            stroke={1.8}
+            className="text-rift-gold/70 flex-shrink-0"
+            aria-hidden
+          />
+        )}
+        <span className="font-display text-[10px] tracking-[0.2em] uppercase text-rift-goldbright tabular-nums">
+          Year {year}
+        </span>
+        <span className="text-[8px] text-rift-muted/55 tabular-nums">
+          {yearEntries.length} event
+          {yearEntries.length === 1 ? "" : "s"}
+        </span>
+        {isLatest && loading && (
+          <span className="ml-auto flex items-center gap-1 text-[7px] uppercase tracking-[0.15em] text-rift-gold/60">
+            <span className="w-1.5 h-1.5 rounded-full bg-rift-gold/70 animate-pulse" />
+            Live
+          </span>
+        )}
+      </button>
+      {!collapsed && (
+        <div className="space-y-1.5 pl-0.5">
+          {yearEntries.map((entry, i) => (
+            <SimResultCard
+              key={`${simResultCardKey(entry)}-${i}`}
+              entry={entry}
+              dense={dense}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+});
+
+function EmptyFeed({ loading }: { loading: boolean }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+      <div
+        className={`w-8 h-8 mb-3 rounded-full border-2 border-rift-gold/30 ${
+          loading ? "border-t-rift-goldbright animate-spin" : "border-rift-gold/20"
+        }`}
+      />
+      <p className="text-[9px] uppercase tracking-[0.25em] text-rift-mutedbright/70">
+        {loading ? "Waiting for first result…" : "No results yet"}
+      </p>
+      {loading && (
+        <p className="mt-1.5 text-[8px] text-rift-muted/50 max-w-[14rem] leading-relaxed">
+          Split and international outcomes will appear here as each phase completes.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function simResultCardKey(entry: SimResultEntry): string {
+  switch (entry.kind) {
+    case "split":
+      return `split-${entry.seasonId}-${entry.split}`;
+    case "intl":
+      return `intl-${entry.seasonId}-${entry.event}`;
+    case "year":
+      return `year-${entry.seasonId}`;
+  }
+}
+
+const SimResultCard = memo(function SimResultCard({
+  entry,
+  dense,
+}: {
+  entry: SimResultEntry;
+  dense: boolean;
+}) {
+  switch (entry.kind) {
+    case "split":
+      return <SplitCard entry={entry} dense={dense} />;
+    case "intl":
+      return <IntlCard entry={entry} dense={dense} />;
+    case "year":
+      return <YearCard entry={entry} dense={dense} />;
+  }
+});
+
+function SimTeamName({
+  team,
+  className = "",
+  logoSize = 11,
+}: {
+  team: SimResultTeamRef;
+  className?: string;
+  logoSize?: number;
+}) {
+  return (
+    <TeamNameLink
+      teamId={team.id}
+      name={team.name}
+      leagueId={team.leagueId}
+      iconKey={team.iconKey}
+      logoUrl={team.logoUrl}
+      color={team.color}
+      logoSize={logoSize}
+      renderAs="span"
+      hint={{
+        name: team.name,
+        leagueId: team.leagueId,
+        iconKey: team.iconKey,
+        logoUrl: team.logoUrl,
+        color: team.color,
+      }}
+      className={`min-w-0 truncate inline-flex items-center gap-1 ${className}`}
+    />
+  );
+}
+
+function EntryHeader({
+  year,
+  label,
+  icon,
+}: {
+  year: number;
+  label: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2 mb-1.5 min-w-0">
+      <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 tabular-nums flex-shrink-0">
+        Y{year}
+      </span>
+      <span className="text-rift-gold/40 flex-shrink-0" aria-hidden>
+        ·
+      </span>
+      {icon}
+      <span className="text-[8px] uppercase tracking-[0.25em] text-rift-gold/75 truncate">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function SplitIcon({ split, size = 13 }: { split: SplitId; size?: number }) {
+  const Icon = SPLIT_ICONS[split];
+  return (
+    <Icon
+      size={size}
+      stroke={1.6}
+      className="text-rift-gold/65 flex-shrink-0"
+      aria-hidden
+    />
+  );
+}
+
+function PlacementRow({
+  rank,
+  team,
+  logoSize,
+  highlight = false,
+}: {
+  rank: number;
+  team: SimResultTeamRef;
+  logoSize: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-1 min-w-0 ${
+        highlight ? "text-rift-goldbright" : "text-rift-mutedbright/85"
+      }`}
+    >
+      <span className="w-3.5 flex-shrink-0 tabular-nums text-[8px] text-rift-muted/55">
+        {rank}.
+      </span>
+      <SimTeamName
+        team={team}
+        logoSize={logoSize}
+        className={highlight ? "text-rift-goldbright font-display tracking-wide" : ""}
+      />
+      {rank === 1 && (
+        <IconTrophy size={10} stroke={1.6} className="text-rift-gold/70 flex-shrink-0" aria-hidden />
+      )}
+    </div>
+  );
+}
+
+const SplitCard = memo(function SplitCard({
+  entry,
+  dense,
+}: {
+  entry: SimSplitResultEntry;
+  dense: boolean;
+}) {
+  const logoSize = dense ? 10 : 11;
+  const topN = dense ? 2 : 4;
+
+  return (
+    <div className="border border-rift-line/35 bg-rift-bg/40 px-2.5 py-2">
+      <EntryHeader
+        year={entry.year}
+        label={entry.label}
+        icon={<SplitIcon split={entry.split} />}
+      />
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-2">
+        {entry.leagues.map(({ leagueId, placements }) => (
+          <div key={leagueId} className="min-w-0">
+            <div className="flex items-center gap-1 text-[8px] uppercase tracking-[0.2em] text-rift-muted/60 mb-0.5">
+              <LeagueIcon league={leagueId} size={11} />
+              {leagueId}
+            </div>
+            <div className="space-y-0.5">
+              {placements.slice(0, topN).map((team, i) => (
+                <PlacementRow
+                  key={team.id}
+                  rank={i + 1}
+                  team={team}
+                  logoSize={logoSize}
+                  highlight={i === 0}
+                />
+              ))}
+              {placements.length > topN && (
+                <div className="text-[7px] text-rift-muted/45 pl-3.5">
+                  +{placements.length - topN} more
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+const IntlCard = memo(function IntlCard({
+  entry,
+  dense,
+}: {
+  entry: SimIntlResultEntry;
+  dense: boolean;
+}) {
+  const logoSize = dense ? 10 : 11;
+  const visible = dense ? entry.placements.slice(0, 4) : entry.placements;
+  const showAll = !dense || entry.placements.length <= 4;
+
+  return (
+    <div className="border border-rift-line/35 bg-rift-bg/40 px-2.5 py-2">
+      <EntryHeader
+        year={entry.year}
+        label={entry.label}
+        icon={<LeagueIcon league={entry.event} size={14} />}
+      />
+      <ol className="space-y-0.5">
+        {visible.map((p) => (
+          <li
+            key={p.id}
+            className={`flex items-center gap-1.5 min-w-0 ${
+              p.rank === 1
+                ? "text-rift-goldbright"
+                : p.rank <= 3
+                  ? "text-rift-mutedbright"
+                  : "text-rift-mutedbright/75"
+            }`}
+          >
+            <span className="w-4 flex-shrink-0 tabular-nums text-rift-muted/60">
+              {p.rank}.
+            </span>
+            <LeagueIcon league={p.leagueId} size={11} />
+            <SimTeamName
+              team={p}
+              logoSize={logoSize}
+              className={p.rank === 1 ? "text-rift-goldbright" : ""}
+            />
+            {p.rank === 1 && (
+              <IconTrophy size={10} stroke={1.6} className="text-rift-gold/70 flex-shrink-0" aria-hidden />
+            )}
+          </li>
+        ))}
+        {!showAll && entry.placements.length > visible.length && (
+          <li className="text-[8px] text-rift-muted/50 pl-5">
+            +{entry.placements.length - visible.length} more (
+            {entry.placements.length} total)
+          </li>
+        )}
+      </ol>
+    </div>
+  );
+});
+
+function SplitWinnersGrid({
+  splits,
+  dense,
+  logoSize,
+}: {
+  splits: SimSplitResultEntry[];
+  dense: boolean;
+  logoSize: number;
+}) {
+  if (splits.length === 0) return null;
+
+  return (
+    <div className="mb-2">
+      <div className="text-[7px] uppercase tracking-[0.2em] text-rift-muted/50 mb-1">
+        Split winners
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[16rem] border-collapse text-[8px]">
+          <thead>
+            <tr className="text-rift-muted/55 uppercase tracking-[0.15em]">
+              <th className="text-left py-0.5 pr-2 font-normal">League</th>
+              {splits.map((s) => (
+                <th key={s.split} className="text-left py-0.5 px-1 font-normal">
+                  <span className="inline-flex items-center gap-0.5">
+                    <SplitIcon split={s.split} size={10} />
+                    {!dense && (
+                      <span className="hidden sm:inline">{SPLIT_LABELS[s.split].replace(" Split", "")}</span>
+                    )}
+                  </span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {LEAGUE_IDS.map((leagueId) => (
+              <tr key={leagueId} className="border-t border-rift-line/20">
+                <td className="py-0.5 pr-2 text-rift-muted/60">
+                  <span className="inline-flex items-center gap-1">
+                    <LeagueIcon league={leagueId} size={10} />
+                    {leagueId}
+                  </span>
+                </td>
+                {splits.map((splitEntry) => {
+                  const league = splitEntry.leagues.find((l) => l.leagueId === leagueId);
+                  const champ = league?.placements[0];
+                  return (
+                    <td key={splitEntry.split} className="py-0.5 px-1 min-w-0 max-w-[5.5rem]">
+                      {champ ? (
+                        <SimTeamName
+                          team={champ}
+                          logoSize={logoSize}
+                          className="text-rift-goldbright/90"
+                        />
+                      ) : (
+                        <span className="text-rift-muted/40">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function FollowedTeamSummary({
+  summary,
+  logoSize,
+}: {
+  summary: SimFollowedTeamSummary;
+  logoSize: number;
+}) {
+  const splitKeys = (Object.keys(summary.splits) as SplitId[]).sort();
+  const intlKeys = (Object.keys(summary.intls) as InternationalId[]).sort();
+
+  return (
+    <div className="mt-2 pt-2 border-t border-rift-gold/20">
+      <div className="text-[7px] uppercase tracking-[0.2em] text-rift-muted/50 mb-1">
+        Your team
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+        <SimTeamName
+          team={summary.team}
+          logoSize={logoSize}
+          className="text-rift-goldbright font-display tracking-wide"
+        />
+        <LeagueIcon league={summary.team.leagueId} size={11} />
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[8px] text-rift-mutedbright/80">
+        {splitKeys.map((split) => (
+          <span key={split} className="inline-flex items-center gap-1">
+            <SplitIcon split={split} size={10} />
+            {SPLIT_LABELS[split].replace(" Split", "")}:{" "}
+            <span className="tabular-nums text-rift-gold/80">
+              #{summary.splits[split]}
+            </span>
+          </span>
+        ))}
+        {intlKeys.map((event) => (
+          <span key={event} className="inline-flex items-center gap-1">
+            <LeagueIcon league={event} size={10} />
+            {INTERNATIONAL_LABELS[event]}:{" "}
+            <span className="tabular-nums text-rift-gold/80">
+              #{summary.intls[event]}
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const YearCard = memo(function YearCard({
+  entry,
+  dense,
+}: {
+  entry: SimYearResultEntry;
+  dense: boolean;
+}) {
+  const logoSize = dense ? 10 : 11;
+
+  return (
+    <div className="border-2 border-rift-gold/45 bg-rift-gold/[0.08] px-2.5 py-2">
+      <EntryHeader
+        year={entry.year}
+        label="Season Complete"
+        icon={
+          <IconTrophy size={14} stroke={1.6} className="text-rift-goldbright flex-shrink-0" aria-hidden />
+        }
+      />
+
+      {entry.worldsChampion && (
+        <div className="flex flex-wrap items-center gap-1.5 text-[9px] text-rift-goldbright mb-2 min-w-0">
+          <LeagueIcon league="worlds" size={13} />
+          <span className="flex-shrink-0 uppercase tracking-[0.15em] text-[8px]">
+            Worlds
+          </span>
+          <SimTeamName
+            team={entry.worldsChampion}
+            logoSize={logoSize}
+            className="text-rift-goldbright"
+          />
+          <span className="text-rift-muted/60 flex-shrink-0 inline-flex items-center gap-0.5">
+            (<LeagueIcon league={entry.worldsChampion.leagueId} size={10} />
+            {entry.worldsChampion.leagueId})
+          </span>
+        </div>
+      )}
+
+      <SplitWinnersGrid splits={entry.splits} dense={dense} logoSize={logoSize} />
+
+      {entry.intls.length > 0 && (
+        <div className="mb-1">
+          <div className="text-[7px] uppercase tracking-[0.2em] text-rift-muted/50 mb-1">
+            International champions
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {entry.intls.map((intl) => (
+              <span
+                key={intl.event}
+                className="inline-flex items-center gap-1 min-w-0 text-[8px]"
+              >
+                <LeagueIcon league={intl.event} size={11} />
+                <span className="text-rift-muted/60 flex-shrink-0">
+                  {intl.label}:
+                </span>
+                {intl.placements[0] ? (
+                  <SimTeamName team={intl.placements[0]} logoSize={logoSize} />
+                ) : (
+                  "—"
+                )}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {entry.followedTeam && (
+        <FollowedTeamSummary summary={entry.followedTeam} logoSize={logoSize} />
+      )}
+    </div>
+  );
+});
