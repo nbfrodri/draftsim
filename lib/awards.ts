@@ -5,7 +5,7 @@
 // TournamentTeam.players has no name field, so display names are
 // synthesized as "<TeamName> <Lane>" (e.g. "Dragons Top").
 
-import type { Lane, Side } from "./types";
+import type { Lane } from "./types";
 import type { TournamentState, TournamentTeam } from "./tournament";
 import { tournamentChampion } from "./tournament";
 import type { PlayerFormMap } from "./playerForm";
@@ -77,16 +77,42 @@ const LANE_LABEL: Record<Lane, string> = {
   support: "Support",
 };
 
+interface WeightedRating {
+  rating: number;
+  weight: number;
+}
+
 interface PlayerStats {
   teamId: string;
   lane: Lane;
   teamName: string;
   playerName?: string;
   playerId?: string;
-  ratings: number[];
+  ratings: WeightedRating[];
   /** Max single-game rating recorded (with match context). */
   peakRating: number;
   peakContext: string; // e.g. "Game 3 vs Wolves"
+}
+
+/** Round-importance multipliers for decisive-match weighting (Option D). */
+const ROUND_WEIGHT_FINAL = 2.0;
+const ROUND_WEIGHT_SEMIFINAL = 1.3;
+const ROUND_WEIGHT_DEFAULT = 1.0;
+/** Lighter round weights for season-long tournament MVP. */
+const ROUND_WEIGHT_FINAL_LIGHT = 1.3;
+const ROUND_WEIGHT_SEMIFINAL_LIGHT = 1.15;
+
+type RoundWeightTier = "full" | "light" | "none";
+
+interface CollectPlayerStatsOptions {
+  /** Only accumulate ratings for this team. */
+  teamIdFilter?: string;
+  /** Only walk matches that pass this predicate. */
+  matchFilter?: (match: TournamentState["matches"][number]) => boolean;
+  /** How strongly later rounds count toward weighted averages. */
+  weightTier?: RoundWeightTier;
+  /** Later games in a series count slightly more (finals BO3/BO5). */
+  seriesGameProgression?: boolean;
 }
 
 /** Minimum rated games required for MVP / All-Pro eligibility. */
@@ -98,6 +124,56 @@ const MIN_AVG_CONSISTENT = 6;
 
 // ─── Rating extraction ────────────────────────────────────────────────────────
 
+function maxCompletedRound(tournament: TournamentState): number {
+  let max = 0;
+  for (const match of tournament.matches) {
+    if (match.isBye || !match.winner) continue;
+    if (match.round > max) max = match.round;
+  }
+  return max;
+}
+
+function roundImportanceWeight(
+  matchRound: number,
+  maxRound: number,
+  tier: RoundWeightTier,
+): number {
+  if (tier === "none" || maxRound <= 0) return 1;
+  const isFinal = matchRound >= maxRound;
+  const isSemifinal = matchRound >= maxRound - 1;
+  if (tier === "full") {
+    if (isFinal) return ROUND_WEIGHT_FINAL;
+    if (isSemifinal) return ROUND_WEIGHT_SEMIFINAL;
+    return ROUND_WEIGHT_DEFAULT;
+  }
+  // light — tournament MVP only
+  if (isFinal) return ROUND_WEIGHT_FINAL_LIGHT;
+  if (isSemifinal) return ROUND_WEIGHT_SEMIFINAL_LIGHT;
+  return ROUND_WEIGHT_DEFAULT;
+}
+
+/** Later games in a deciding series count slightly more (game 5 > game 1). */
+function seriesGameWeight(gameNumber: number, gamesInSeries: number): number {
+  if (gamesInSeries <= 1) return 1;
+  return 1 + (gameNumber - 1) * 0.12;
+}
+
+function unweightedAvg(entries: WeightedRating[]): number {
+  if (entries.length === 0) return 0;
+  return entries.reduce((s, e) => s + e.rating, 0) / entries.length;
+}
+
+function weightedAvg(entries: WeightedRating[]): number {
+  if (entries.length === 0) return 0;
+  let sum = 0;
+  let weight = 0;
+  for (const e of entries) {
+    sum += e.rating * e.weight;
+    weight += e.weight;
+  }
+  return weight > 0 ? sum / weight : 0;
+}
+
 /**
  * Walk every completed, non-bye match in the tournament and accumulate
  * per-player rating arrays.  For each game recap:
@@ -108,7 +184,15 @@ const MIN_AVG_CONSISTENT = 6;
  */
 function collectPlayerStats(
   tournament: TournamentState,
+  options: CollectPlayerStatsOptions = {},
 ): Map<string, PlayerStats> {
+  const {
+    teamIdFilter,
+    matchFilter,
+    weightTier = "none",
+    seriesGameProgression = false,
+  } = options;
+  const maxRound = weightTier === "none" ? 0 : maxCompletedRound(tournament);
   // key = `${teamId}:${lane}`
   const map = new Map<string, PlayerStats>();
 
@@ -130,12 +214,17 @@ function collectPlayerStats(
     // Skip byes and unresolved matches.
     if (match.isBye || !match.winner || !match.series) continue;
     if (!match.blueTeamId || !match.redTeamId) continue;
+    if (matchFilter && !matchFilter(match)) continue;
 
     const blueTeam = tournament.teams.find((t) => t.id === match.blueTeamId);
     const redTeam = tournament.teams.find((t) => t.id === match.redTeamId);
     if (!blueTeam || !redTeam) continue;
 
     const { series } = match;
+    const completedGames = series.games.filter(
+      (g) => g.status === "complete" && g.winner != null,
+    );
+    const roundWeight = roundImportanceWeight(match.round, maxRound, weightTier);
 
     for (const game of series.games) {
       if (game.status !== "complete" || game.winner == null) continue;
@@ -149,45 +238,55 @@ function collectPlayerStats(
       }
       if (!gameRatings) continue;
 
+      const gameWeight =
+        roundWeight *
+        (seriesGameProgression
+          ? seriesGameWeight(game.gameNumber, completedGames.length)
+          : 1);
+
       // Accumulate per-lane ratings for blue side.
-      for (const lane of LANES) {
-        const laneIdx = LANE_INDEX[lane];
-        const blueRating = gameRatings.blue[laneIdx];
-        if (typeof blueRating !== "number" || !Number.isFinite(blueRating)) continue;
-        const ids = recap.perPickIds?.blue;
-        const names = recap.perPickNames?.blue;
-        const stats = ensurePlayer(
-          blueTeam.id,
-          lane,
-          blueTeam.name,
-          names?.[laneIdx] ?? blueTeam.players?.[laneIdx]?.name,
-          ids?.[laneIdx] ?? blueTeam.players?.[laneIdx]?.id,
-        );
-        stats.ratings.push(blueRating);
-        if (blueRating > stats.peakRating) {
-          stats.peakRating = blueRating;
-          stats.peakContext = `Game ${game.gameNumber} vs ${redTeam.name}`;
+      if (!teamIdFilter || teamIdFilter === blueTeam.id) {
+        for (const lane of LANES) {
+          const laneIdx = LANE_INDEX[lane];
+          const blueRating = gameRatings.blue[laneIdx];
+          if (typeof blueRating !== "number" || !Number.isFinite(blueRating)) continue;
+          const ids = recap.perPickIds?.blue;
+          const names = recap.perPickNames?.blue;
+          const stats = ensurePlayer(
+            blueTeam.id,
+            lane,
+            blueTeam.name,
+            names?.[laneIdx] ?? blueTeam.players?.[laneIdx]?.name,
+            ids?.[laneIdx] ?? blueTeam.players?.[laneIdx]?.id,
+          );
+          stats.ratings.push({ rating: blueRating, weight: gameWeight });
+          if (blueRating > stats.peakRating) {
+            stats.peakRating = blueRating;
+            stats.peakContext = `Game ${game.gameNumber} vs ${redTeam.name}`;
+          }
         }
       }
 
       // Accumulate per-lane ratings for red side.
-      for (const lane of LANES) {
-        const laneIdx = LANE_INDEX[lane];
-        const redRating = gameRatings.red[laneIdx];
-        if (typeof redRating !== "number" || !Number.isFinite(redRating)) continue;
-        const ids = recap.perPickIds?.red;
-        const names = recap.perPickNames?.red;
-        const stats = ensurePlayer(
-          redTeam.id,
-          lane,
-          redTeam.name,
-          names?.[laneIdx] ?? redTeam.players?.[laneIdx]?.name,
-          ids?.[laneIdx] ?? redTeam.players?.[laneIdx]?.id,
-        );
-        stats.ratings.push(redRating);
-        if (redRating > stats.peakRating) {
-          stats.peakRating = redRating;
-          stats.peakContext = `Game ${game.gameNumber} vs ${blueTeam.name}`;
+      if (!teamIdFilter || teamIdFilter === redTeam.id) {
+        for (const lane of LANES) {
+          const laneIdx = LANE_INDEX[lane];
+          const redRating = gameRatings.red[laneIdx];
+          if (typeof redRating !== "number" || !Number.isFinite(redRating)) continue;
+          const ids = recap.perPickIds?.red;
+          const names = recap.perPickNames?.red;
+          const stats = ensurePlayer(
+            redTeam.id,
+            lane,
+            redTeam.name,
+            names?.[laneIdx] ?? redTeam.players?.[laneIdx]?.name,
+            ids?.[laneIdx] ?? redTeam.players?.[laneIdx]?.id,
+          );
+          stats.ratings.push({ rating: redRating, weight: gameWeight });
+          if (redRating > stats.peakRating) {
+            stats.peakRating = redRating;
+            stats.peakContext = `Game ${game.gameNumber} vs ${blueTeam.name}`;
+          }
         }
       }
     }
@@ -223,7 +322,7 @@ function makePlayerAward(stats: PlayerStats): PlayerAward {
     teamName: stats.teamName,
     ...(stats.playerName ? { playerName: stats.playerName } : {}),
     ...(stats.playerId ? { playerId: stats.playerId } : {}),
-    avgRating: round1(avg(stats.ratings)),
+    avgRating: round1(unweightedAvg(stats.ratings)),
     gamesPlayed: stats.ratings.length,
   };
 }
@@ -245,19 +344,88 @@ function teamTotalGamesPlayed(
   return count;
 }
 
-// ─── MVP scoring formula ──────────────────────────────────────────────────────
+// ─── MVP scoring ──────────────────────────────────────────────────────────────
 //
-// Score = avgRating × log2(1 + gamesPlayed)
-//
-// Why log2(1 + N):
-//   • A player with 3 games rated 8.4 avg scores:  8.4 × log2(4) = 8.4 × 2.0 = 16.8
-//   • A finalist with 12 games rated 8.1 avg scores: 8.1 × log2(13) ≈ 8.1 × 3.70 = 30.0
-// The logarithm rewards depth while avoiding runaway scaling: doubling games
-// only adds one extra multiplier unit.  The threshold of 3 rated games
-// prevents noise from 1-2 game cameos dominating.
+// Tournament MVP: roleRelativeScore × log2(1 + gamesPlayed), where
+// roleRelativeScore = weightedAvg − laneMeanInPool. Finals / intl MVP use
+// role-relative score only (no depth multiplier). Tie-breakers: absolute
+// avgRating, then games played.
 
-function mvpScore(avgRating: number, gamesPlayed: number): number {
-  return avgRating * Math.log2(1 + gamesPlayed);
+interface PickMvpOptions {
+  /** Tournament MVP: multiply role-relative score by log2(1 + games). */
+  depthWeight?: boolean;
+  /** Flat bonus added to role-relative score per lane (intl MVP tuning). */
+  laneBias?: Partial<Record<Lane, number>>;
+  /** Lane means from this pool; defaults to `pool` (same players). */
+  laneMeansPool?: PlayerStats[];
+}
+
+/** Nudge intl MVP away from jungle/mid KDA farming; lift support/top/bot. */
+const INTL_MVP_LANE_BIAS: Partial<Record<Lane, number>> = {
+  top: 0.03,
+  jungle: 0.08,
+  middle: 0.04,
+  bottom: -0.08,
+  support: 0.02,
+};
+
+/** Tournament MVP: even out top/jg/mid/bot (~20-25% each); support ~8-12%. */
+const TOURNAMENT_MVP_LANE_BIAS: Partial<Record<Lane, number>> = {
+  top: -0.06,
+  jungle: 0.08,
+  middle: 0.04,
+  bottom: -0.14,
+  support: 0.0,
+};
+
+/** Finals MVP: counter mid/bot dominance in decisive series. */
+const FINALS_MVP_LANE_BIAS: Partial<Record<Lane, number>> = {
+  top: 0.04,
+  jungle: 0.08,
+  middle: -0.12,
+  bottom: -0.08,
+  support: -0.02,
+};
+
+/**
+ * Pick MVP by role-relative performance: weighted avg minus the lane mean in
+ * the same pool. Tie-breakers: higher absolute avgRating, then more games.
+ */
+function pickMvpByRoleRelativeScore(
+  pool: PlayerStats[],
+  options: PickMvpOptions = {},
+): PlayerStats | null {
+  if (pool.length === 0) return null;
+
+  const meanPool = options.laneMeansPool ?? pool;
+  const laneMeans = new Map<Lane, number>();
+  for (const lane of LANES) {
+    const laneAvgs = meanPool
+      .filter((s) => s.lane === lane)
+      .map((s) => weightedAvg(s.ratings));
+    if (laneAvgs.length > 0) laneMeans.set(lane, avg(laneAvgs));
+  }
+
+  const selectionScore = (s: PlayerStats): number => {
+    const rel =
+      weightedAvg(s.ratings) -
+      (laneMeans.get(s.lane) ?? 0) +
+      (options.laneBias?.[s.lane] ?? 0);
+    if (options.depthWeight) {
+      return rel * Math.log2(1 + s.ratings.length);
+    }
+    return rel;
+  };
+
+  return pool.reduce((best, s) => {
+    const sScore = selectionScore(s);
+    const bScore = selectionScore(best);
+    if (sScore !== bScore) return sScore > bScore ? s : best;
+    const sAvg = unweightedAvg(s.ratings);
+    const bAvg = unweightedAvg(best.ratings);
+    if (sAvg !== bAvg) return sAvg > bAvg ? s : best;
+    return s.ratings.length > best.ratings.length ? s : best;
+  });
 }
 
 // ─── Main export ───────────────────────────────────────────────────────────────
@@ -274,7 +442,7 @@ export function computeTournamentAwards(
   tournament: TournamentState,
   playerForms?: PlayerFormMap,
 ): TournamentAwards {
-  const statsMap = collectPlayerStats(tournament);
+  const statsMap = collectPlayerStats(tournament, { weightTier: "light" });
 
   if (statsMap.size === 0) {
     return { mvp: null, allPro: [], awards: [] };
@@ -311,15 +479,11 @@ export function computeTournamentAwards(
 
   // ─── MVP ────────────────────────────────────────────────────────────────
   const eligible = allStats.filter((s) => s.ratings.length >= MIN_RATED_GAMES_MVP);
-  let mvp: PlayerAward | null = null;
-  if (eligible.length > 0) {
-    const best = eligible.reduce((best, s) => {
-      const score = mvpScore(avg(s.ratings), s.ratings.length);
-      const bestScore = mvpScore(avg(best.ratings), best.ratings.length);
-      return score > bestScore ? s : best;
-    });
-    mvp = makePlayerAward(best);
-  }
+  const bestMvp = pickMvpByRoleRelativeScore(eligible, {
+    depthWeight: true,
+    laneBias: TOURNAMENT_MVP_LANE_BIAS,
+  });
+  const mvp: PlayerAward | null = bestMvp ? makePlayerAward(bestMvp) : null;
 
   // ─── All-Pro team ────────────────────────────────────────────────────────
   const allPro: AllProPlayer[] = [];
@@ -327,7 +491,7 @@ export function computeTournamentAwards(
     const lanePlayers = eligible.filter((s) => s.lane === lane);
     if (lanePlayers.length === 0) continue;
     const best = lanePlayers.reduce((b, s) =>
-      avg(s.ratings) > avg(b.ratings) ? s : b,
+      unweightedAvg(s.ratings) > unweightedAvg(b.ratings) ? s : b,
     );
     allPro.push({ ...makePlayerAward(best), lane });
   }
@@ -355,17 +519,21 @@ export function computeTournamentAwards(
   const consistencyPool = allStats.filter(
     (s) =>
       s.ratings.length >= MIN_RATED_GAMES_CONSISTENT &&
-      avg(s.ratings) >= MIN_AVG_CONSISTENT,
+      unweightedAvg(s.ratings) >= MIN_AVG_CONSISTENT,
   );
   if (consistencyPool.length > 0) {
     const best = consistencyPool.reduce((b, s) =>
-      stddev(s.ratings) < stddev(b.ratings) ? s : b,
+      stddev(s.ratings.map((e) => e.rating)) <
+      stddev(b.ratings.map((e) => e.rating))
+        ? s
+        : b,
     );
-    const sd = round1(stddev(best.ratings));
+    const ratingValues = best.ratings.map((e) => e.rating);
+    const sd = round1(stddev(ratingValues));
     awards.push({
       kind: "consistent",
       title: "Most Consistent",
-      context: `σ ${sd.toFixed(1)} over ${best.ratings.length} games (avg ${round1(avg(best.ratings)).toFixed(1)})`,
+      context: `σ ${sd.toFixed(1)} over ${best.ratings.length} games (avg ${round1(unweightedAvg(best.ratings)).toFixed(1)})`,
       player: makePlayerAward(best),
     });
   }
@@ -375,12 +543,12 @@ export function computeTournamentAwards(
     const losingSidePool = eligible.filter((s) => s.teamId !== championTeamId);
     if (losingSidePool.length > 0) {
       const best = losingSidePool.reduce((b, s) =>
-        avg(s.ratings) > avg(b.ratings) ? s : b,
+        unweightedAvg(s.ratings) > unweightedAvg(b.ratings) ? s : b,
       );
       awards.push({
         kind: "carry_losing",
         title: "Carry of the Losing Side",
-        context: `${round1(avg(best.ratings)).toFixed(1)} avg over ${best.ratings.length} games`,
+        context: `${round1(unweightedAvg(best.ratings)).toFixed(1)} avg over ${best.ratings.length} games`,
         player: makePlayerAward(best),
       });
     }
@@ -403,7 +571,7 @@ export function computeTournamentAwards(
       awards.push({
         kind: "hottest_streak",
         title: "Hottest Streak",
-        context: `Form ${bestForm.toFixed(2)} (avg ${round1(avg(bestStats.ratings)).toFixed(1)} over ${bestStats.ratings.length} games)`,
+        context: `Form ${bestForm.toFixed(2)} (avg ${round1(unweightedAvg(bestStats.ratings)).toFixed(1)} over ${bestStats.ratings.length} games)`,
         player: makePlayerAward(bestStats),
       });
     }
@@ -438,17 +606,22 @@ export function computeChampionTeamTournamentMvp(
 ): PlayerAward | null {
   const champTeam = tournamentChampion(tournament);
   if (!champTeam) return null;
-  const statsMap = collectPlayerStats(tournament);
-  const champStats = [...statsMap.values()].filter(
-    (s) =>
-      s.teamId === champTeam.id &&
-      s.ratings.length >= MIN_RATED_GAMES_MVP,
+  const allStatsMap = collectPlayerStats(tournament, { weightTier: "full" });
+  const champStatsMap = collectPlayerStats(tournament, {
+    teamIdFilter: champTeam.id,
+    weightTier: "full",
+  });
+  const allEligible = [...allStatsMap.values()].filter(
+    (s) => s.ratings.length >= MIN_RATED_GAMES_MVP,
   );
-  if (champStats.length === 0) return null;
-  const best = champStats.reduce((b, s) =>
-    avg(s.ratings) > avg(b.ratings) ? s : b,
+  const champStats = [...champStatsMap.values()].filter(
+    (s) => s.ratings.length >= MIN_RATED_GAMES_MVP,
   );
-  return makePlayerAward(best);
+  const best = pickMvpByRoleRelativeScore(champStats, {
+    laneMeansPool: allEligible,
+    laneBias: INTL_MVP_LANE_BIAS,
+  });
+  return best ? makePlayerAward(best) : null;
 }
 
 export function computeFinalsMvp(
@@ -465,66 +638,22 @@ export function computeFinalsMvp(
   if (wonSeries.length === 0) return null;
   const final = wonSeries.reduce((a, b) => (b.round > a.round ? b : a));
   if (!final.series) return null;
-  const champ = tournament.teams.find((t) => t.id === champId);
-  if (!champ) return null;
 
-  // Accumulate the champion side's per-lane ratings across the final's games.
-  const acc = new Map<
-    string,
-    { lane: Lane; name?: string; id?: string; ratings: number[] }
-  >();
-  for (const game of final.series.games) {
-    if (game.status !== "complete" || game.winner == null) continue;
-    const recap = game.recap;
-    if (!recap) continue;
-    let ratings = recap.ratings ?? null;
-    if (!ratings && recap.perPickKDA) ratings = computeGameRatings(recap, game.winner);
-    if (!ratings) continue;
-    // Sides swap between games (loser-blue); resolve the champion's side by name.
-    const side: Side =
-      game.blueTeam === champ.name
-        ? "blue"
-        : game.redTeam === champ.name
-          ? "red"
-          : final.blueTeamId === champId
-            ? "blue"
-            : "red";
-    const sideRatings = side === "blue" ? ratings.blue : ratings.red;
-    const ids = recap.perPickIds?.[side];
-    const names = recap.perPickNames?.[side];
-    for (let li = 0; li < LANES.length; li++) {
-      const r = sideRatings[li];
-      if (typeof r !== "number" || !Number.isFinite(r)) continue;
-      const lane = LANES[li];
-      const key = ids?.[li] ?? `${champId}:${lane}`;
-      let e = acc.get(key);
-      if (!e) {
-        e = {
-          lane,
-          name: names?.[li] ?? champ.players?.[li]?.name,
-          id: ids?.[li] ?? champ.players?.[li]?.id,
-          ratings: [],
-        };
-        acc.set(key, e);
-      }
-      e.ratings.push(r);
-    }
-  }
-  if (acc.size === 0) return null;
+  const allStatsMap = collectPlayerStats(tournament, { weightTier: "full" });
+  const laneMeansPool = [...allStatsMap.values()].filter(
+    (s) => s.ratings.length >= 1,
+  );
 
-  let best: { lane: Lane; name?: string; id?: string; ratings: number[] } | null = null;
-  for (const e of acc.values()) {
-    if (!best || avg(e.ratings) > avg(best.ratings)) best = e;
-  }
-  if (!best) return null;
-  return {
-    teamId: champId,
-    lane: best.lane,
-    displayName: `${champ.name} ${LANE_LABEL[best.lane]}`,
-    teamName: champ.name,
-    ...(best.name ? { playerName: best.name } : {}),
-    ...(best.id ? { playerId: best.id } : {}),
-    avgRating: round1(avg(best.ratings)),
-    gamesPlayed: best.ratings.length,
-  };
+  const statsMap = collectPlayerStats(tournament, {
+    teamIdFilter: champId,
+    matchFilter: (m) => m.id === final.id,
+    weightTier: "full",
+    seriesGameProgression: true,
+  });
+  const finalStats = [...statsMap.values()].filter((s) => s.ratings.length >= 1);
+  const best = pickMvpByRoleRelativeScore(finalStats, {
+    laneMeansPool: laneMeansPool.length > 0 ? laneMeansPool : finalStats,
+    laneBias: FINALS_MVP_LANE_BIAS,
+  });
+  return best ? makePlayerAward(best) : null;
 }

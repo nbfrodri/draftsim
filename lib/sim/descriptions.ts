@@ -1163,7 +1163,7 @@ const KILL_WEIGHTS: Record<Lane, number> = {
   top: 0.19,
   jungle: 0.22,
   middle: 0.24,
-  bottom: 0.26,
+  bottom: 0.20,
   support: 0.05,
 };
 
@@ -1171,7 +1171,7 @@ const DEATH_WEIGHTS: Record<Lane, number> = {
   top: 0.18,
   jungle: 0.13,
   middle: 0.18,
-  bottom: 0.27,
+  bottom: 0.29,
   support: 0.24,
 };
 
@@ -1180,7 +1180,7 @@ const ASSIST_WEIGHTS: Record<Lane, number> = {
   jungle: 0.24,
   middle: 0.20,
   bottom: 0.13,
-  support: 0.30,
+  support: 0.32,
 };
 
 export function makeKDA(): EventKDA {

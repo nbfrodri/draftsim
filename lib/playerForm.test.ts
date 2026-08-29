@@ -128,7 +128,7 @@ describe("computeGameRatings", () => {
     });
     const ratings = computeGameRatings(recap, "blue")!;
     for (const r of [...ratings.blue, ...ratings.red]) {
-      expect(r).toBeGreaterThanOrEqual(5);
+      expect(r).toBeGreaterThanOrEqual(4.8);
       expect(r).toBeLessThanOrEqual(6.5);
     }
     // Winners skew above losers on otherwise identical lines.
@@ -197,12 +197,11 @@ describe("computeGameRatings", () => {
     // winner-side bonus held fixed per side, blue top out-rates red top.
     const withGold = rate({ top: 1500 });
     expect(withGold.blue[0]).toBeGreaterThan(withGold.red[0]);
-    // Pure gold component for the SAME role: top +1500 vs top 0 ≈ +0.75 (top
-    // goldWeight 1.0). Compared within the role so per-role criteria don't skew
-    // the isolation.
+    // Pure gold component for the SAME role: top +1500 vs top 0 (goldWeight 1.08).
     const noGold = rate({});
-    expect(withGold.blue[0] - noGold.blue[0]).toBeGreaterThanOrEqual(0.6);
-    expect(withGold.blue[0] - noGold.blue[0]).toBeLessThanOrEqual(0.9);
+    const goldDelta = withGold.blue[0] - noGold.blue[0];
+    expect(goldDelta).toBeGreaterThanOrEqual(0.6);
+    expect(goldDelta).toBeLessThanOrEqual(0.95);
   });
 });
 
