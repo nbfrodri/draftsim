@@ -5,6 +5,14 @@ export const STORE_KEY = "draftsim-store";
 export const META_CONFIG_KEY = "draftsim-meta-config";
 export const JSON_MIGRATION_FLAG = "json_migrated_v1";
 
+/**
+ * Zustand persist version stored in the SQLite-backed storage.
+ * Must stay in sync with `version` in draftStore's persist options.
+ * Returning the correct version prevents Zustand from re-triggering
+ * migration (6→7) on every startup due to the stale hardcoded "6".
+ */
+export const PERSIST_VERSION = 7;
+
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_meta (
   key TEXT PRIMARY KEY NOT NULL,

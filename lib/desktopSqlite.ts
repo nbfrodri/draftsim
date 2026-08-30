@@ -13,6 +13,7 @@ import {
   DESKTOP_DB_FILENAME,
   JSON_MIGRATION_FLAG,
   META_CONFIG_KEY,
+  PERSIST_VERSION,
   SCHEMA_SQL,
   UPSERT_REALITY_HISTORY_SQL,
   mergePersistedState,
@@ -20,6 +21,8 @@ import {
   splitPersistedState,
   type PersistedStoreState,
 } from "./desktopSqliteSchema";
+
+export { PERSIST_VERSION } from "./desktopSqliteSchema";
 import {
   clearDesktopOperation,
   isDesktop,
@@ -67,6 +70,11 @@ async function loadDatabase(): Promise<SqlExecutor> {
       const Database = (await import("@tauri-apps/plugin-sql")).default;
       const dbPath = await join(await appDataDir(), DESKTOP_DB_FILENAME);
       const db = await Database.load(`sqlite:${dbPath}`);
+      // Ensure WAL mode is active (tauri-plugin-sql/SQLx may already set this,
+      // but being explicit prevents surprises if the plugin default changes).
+      // WAL + synchronous=NORMAL gives good durability without blocking reads.
+      await db.execute("PRAGMA journal_mode = WAL");
+      await db.execute("PRAGMA synchronous = NORMAL");
       await db.execute("PRAGMA foreign_keys = ON");
       await db.execute(SCHEMA_SQL);
       return db as unknown as SqlExecutor;
@@ -270,6 +278,29 @@ export function shouldSuggestCompactAfterDelete(reality: RealityFootprint): bool
 }
 
 /**
+ * Checkpoint the WAL file into the main DB file on close / flush.
+ *
+ * tauri-plugin-sql / SQLx enables WAL mode by default.  In WAL mode,
+ * committed data lives in the -wal sidecar until a checkpoint copies it
+ * to the main .db file.  SQLite automatically replays the WAL on the next
+ * open, so there is no *correctness* risk — but running a FULL checkpoint
+ * before the process exits ensures the main DB file is self-contained and
+ * reduces recovery work on the next startup.
+ *
+ * Called from desktopStorage.flushPendingWritesOnClose() after all pending
+ * writes have been flushed.
+ */
+export async function checkpointDesktopDatabase(): Promise<void> {
+  if (!isDesktop()) return;
+  try {
+    const db = await loadDatabase();
+    await db.execute("PRAGMA wal_checkpoint(FULL)");
+  } catch {
+    // Best-effort — do not block close on checkpoint failure.
+  }
+}
+
+/**
  * Reclaim disk space after large deletes (SQLite does not shrink the file
  * automatically). Desktop only — runs PRAGMA vacuum on the app database.
  */
@@ -354,6 +385,33 @@ export async function savePersistedStateToDbExecutor(
   options?: { forceAllHistory?: boolean },
 ): Promise<void> {
   const { global, realities, activeRealityId } = splitPersistedState(state);
+
+  // ── Empty-state wipe guard ─────────────────────────────────────────────────
+  // If the in-memory realities list is empty but the DB already has rows, this
+  // write almost certainly originates from a failed/incomplete hydration (e.g.
+  // SQLite WAL recovery kept the DB briefly locked on reboot so getItem()
+  // returned null, leaving the store in its initial empty state).  Writing that
+  // empty state would call syncRemovedRealities(db, []) and DELETE all rows.
+  //
+  // Individual reality deletions are handled by deleteRealityFromDb(), which
+  // removes the row *before* the background persist flush fires, so by the time
+  // this path runs after a legitimate "delete last reality" action the DB is
+  // already empty and the guard correctly lets the write through.
+  if (realities.length === 0) {
+    const existingRows = await db.select<{ id: string }>(
+      "SELECT id FROM realities",
+    );
+    if (existingRows.length > 0) {
+      console.warn(
+        `[desktopSqlite] SAFETY: aborting empty-state persist — DB has ${existingRows.length} ` +
+          "existing realities but in-memory state is empty. " +
+          "This is likely a failed-hydration overwrite, not a user deletion.",
+      );
+      return;
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
   await upsertGlobalState(db, storeKey, global);
 
   for (const r of realities) {
@@ -537,7 +595,11 @@ export async function loadStorageValueFromSqlite<S>(
 ): Promise<StorageValue<S> | null> {
   const state = await loadPersistedStateFromDb(storeKey);
   if (!state) return null;
-  return { state: state as S, version: 6 };
+  // Return the actual current persist version so Zustand does NOT re-trigger
+  // migration (6→7) on every single startup.  Previously this was hardcoded to
+  // 6, which caused Zustand to see a version mismatch and call setItem() before
+  // onRehydrateStorage fired — a blocked-but-noisy extra code path.
+  return { state: state as S, version: PERSIST_VERSION };
 }
 
 export async function saveStorageValueToSqlite<S>(

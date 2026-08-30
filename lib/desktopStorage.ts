@@ -216,7 +216,14 @@ function waitForClosingOverlayPaint(): Promise<void> {
 async function flushPendingWritesOnClose(): Promise<"ok" | "failed"> {
   try {
     await Promise.race([
-      flushPendingPersistWrites(),
+      (async () => {
+        await flushPendingPersistWrites();
+        // After all pending SQLite writes complete, checkpoint the WAL so the
+        // main .db file is fully up-to-date before the process exits.  This is
+        // a no-op on non-desktop builds and best-effort on failure.
+        const { checkpointDesktopDatabase } = await import("./desktopSqlite");
+        await checkpointDesktopDatabase();
+      })(),
       new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error("close flush timeout")), CLOSE_FLUSH_TIMEOUT_MS);
       }),

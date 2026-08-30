@@ -11,6 +11,7 @@ vi.mock("./desktopStorage", () => ({
 }));
 
 import {
+  deleteRealityFromDb,
   loadPersistedStateFromDb,
   resetSqliteStorageForTests,
   savePersistedStateToDb,
@@ -371,7 +372,12 @@ describe("savePersistedStateToDb reality CRUD", () => {
     resetSqliteStorageForTests();
   });
 
-  it("delete reality → reload → gone", async () => {
+  it("delete reality → reload → gone (via deleteRealityFromDb + persist flush)", async () => {
+    // Simulates the real deleteReality() flow:
+    //   1. deleteRealityFromDb() removes the row directly.
+    //   2. The background Zustand persist flush fires with realities: [].
+    // Because the DB is already empty when the flush runs, the wipe guard
+    // lets it through (DB count = 0).
     const { db, realities } = createMockPersistDb();
     setDesktopDatabaseForTests(db);
 
@@ -386,6 +392,12 @@ describe("savePersistedStateToDb reality CRUD", () => {
     );
     expect(realities.size).toBe(1);
 
+    // Step 1: direct DB removal (deleteRealityFromDb is called by deleteReality action)
+    await deleteRealityFromDb("r1");
+    expect(realities.size).toBe(0);
+
+    // Step 2: Zustand persist flush with empty in-memory realities.
+    // Guard should pass because DB is already empty.
     await savePersistedStateToDb(
       STORE_KEY,
       {
@@ -400,6 +412,73 @@ describe("savePersistedStateToDb reality CRUD", () => {
     const reloaded = await loadPersistedStateFromDb(STORE_KEY);
     expect(reloaded?.realities).toEqual([]);
     expect(reloaded?.activeRealityId).toBeNull();
+  });
+
+  it("wipe guard: empty-state persist does NOT delete existing realities", async () => {
+    // Reproduces the post-reboot failure: getItem() returned null (DB briefly
+    // locked during WAL recovery) → store initialised with empty state →
+    // enablePersistWrites() fired → setChampions useEffect triggered setItem()
+    // with realities:[] → savePersistedStateToDb called while DB has data.
+    // The guard must abort and leave the existing rows untouched.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { db, realities } = createMockPersistDb();
+    setDesktopDatabaseForTests(db);
+
+    // Seed the DB with two realities (simulates a prior healthy session).
+    await savePersistedStateToDb(
+      STORE_KEY,
+      {
+        soundEnabled: true,
+        activeRealityId: "r1",
+        realities: [makeReality("r1", "LCK"), makeReality("r2", "LEC")],
+      },
+      { forceAllHistory: true },
+    );
+    expect(realities.size).toBe(2);
+
+    // Now simulate the failed-hydration write: realities: [] with DB non-empty.
+    await savePersistedStateToDb(
+      STORE_KEY,
+      {
+        soundEnabled: true,
+        activeRealityId: null,
+        realities: [],
+      },
+      { forceAllHistory: true },
+    );
+
+    // Guard must have fired — both realities must still be in the DB.
+    expect(realities.size).toBe(2);
+    expect(realities.has("r1")).toBe(true);
+    expect(realities.has("r2")).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("SAFETY"));
+
+    warnSpy.mockRestore();
+  });
+
+  it("wipe guard: empty-state persist IS allowed when DB is already empty", async () => {
+    // After the user deletes all realities, the DB should be empty already
+    // (deleteRealityFromDb handled each individual removal). An empty-state
+    // persist flush should succeed and not be blocked by the guard.
+    const { db, realities } = createMockPersistDb();
+    setDesktopDatabaseForTests(db);
+
+    // DB is empty from the start — no realities ever written.
+    await savePersistedStateToDb(
+      STORE_KEY,
+      {
+        soundEnabled: true,
+        activeRealityId: null,
+        realities: [],
+      },
+      { forceAllHistory: true },
+    );
+
+    // Should succeed (global_state written, no wipe attempted).
+    expect(realities.size).toBe(0);
+    const reloaded = await loadPersistedStateFromDb(STORE_KEY);
+    expect(reloaded?.realities).toEqual([]);
   });
 
   it("2 realities → delete 1 → reload → 1 remains", async () => {

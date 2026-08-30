@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { isDesktop, createWebLazyStorage, enablePersistWrites, flushPendingPersistWrites, gatePersistWritesUntilReady, resolveWebStringStorage, signalDeletingReality, clearDesktopOperation } from "@/lib/desktopStorage";
 import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
-import { loadRealityHistoryFromDb, markRealityHistoryLoaded, deleteRealityFromDb, upsertRealityInDb, shouldSuggestCompactAfterDelete } from "@/lib/desktopSqlite";
+import { loadRealityHistoryFromDb, markRealityHistoryLoaded, deleteRealityFromDb, upsertRealityInDb, shouldSuggestCompactAfterDelete, PERSIST_VERSION } from "@/lib/desktopSqlite";
 import {
   applyLock,
   applyTimeout,
@@ -4415,7 +4415,7 @@ export const useDraftStore = create<DraftStore>()(
     // of deleting heavy fields — replay charts survive reloads. Archived
     // tournamentHistory keeps the v5 slim treatment (no chart data).
     // v7: desktop uses SQLite (per-reality rows + lazy history); web unchanged.
-    version: 7,
+    version: PERSIST_VERSION,
     // Desktop: file-backed LAZY storage — setItem receives the persisted
     // state OBJECT and defers JSON.stringify into the 500ms debounced
     // flush, so per-set() serialization cost is eliminated (critical for
