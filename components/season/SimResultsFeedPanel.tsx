@@ -3,15 +3,13 @@
 import {
   IconChevronDown,
   IconChevronRight,
-  IconFlower,
-  IconSnowflake,
-  IconSun,
   IconTrophy,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState, memo, type ReactNode } from "react";
 
 import LaneIcon from "../LaneIcon";
 import LeagueIcon from "../LeagueIcon";
+import SplitIcon from "./SplitIcon";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
 import TierChip from "./TierChip";
@@ -139,15 +137,6 @@ function useGroupedFeedEntries(
     return grouped;
   }, [entries, showRosterMoves]);
 }
-
-const SPLIT_ICONS: Record<
-  SplitId,
-  typeof IconSnowflake
-> = {
-  winter: IconSnowflake,
-  spring: IconFlower,
-  summer: IconSun,
-};
 
 function SimResultsFeedPanel({
   entries,
@@ -551,18 +540,6 @@ function EntryHeader({
         {label}
       </span>
     </div>
-  );
-}
-
-function SplitIcon({ split, size = 13 }: { split: SplitId; size?: number }) {
-  const Icon = SPLIT_ICONS[split];
-  return (
-    <Icon
-      size={size}
-      stroke={1.6}
-      className="text-rift-gold/65 flex-shrink-0"
-      aria-hidden
-    />
   );
 }
 

@@ -113,6 +113,8 @@ import {
   INTERNATIONAL_DISPLAY_ORDER,
 } from "@/lib/season/types";
 import LeagueIcon from "./LeagueIcon";
+import SplitIcon from "./season/SplitIcon";
+import TeamSeasonResultsHistory from "./team/TeamSeasonResultsHistory";
 import LaneIcon from "./LaneIcon";
 import Modal from "./Modal";
 import SeasonStoryCard from "./SeasonStoryCard";
@@ -376,6 +378,11 @@ const HALL_TAB_LOADING: Record<HallTab, string> = {
 
 const INTL_ORDER = INTERNATIONAL_DISPLAY_ORDER;
 const SPLIT_ORDER: readonly SplitId[] = ["winter", "spring", "summer"];
+const SPLIT_SHORT_LABELS: Record<SplitId, string> = {
+  winter: "Winter",
+  spring: "Spring",
+  summer: "Summer",
+};
 const LANES: readonly { lane: Lane; label: string }[] = [
   { lane: "top", label: "Top" },
   { lane: "jungle", label: "Jungle" },
@@ -4122,7 +4129,8 @@ function SplitFinalsReachedChips({
             className="inline-flex items-center gap-1 border border-rift-line/40 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.15em] text-rift-blue/80"
           >
             <LeagueIcon league={leagueId} size={11} />
-            {SPLIT_LABELS[split]}
+            <SplitIcon split={split} size={11} className="text-rift-blue/70 flex-shrink-0" />
+            <span className="hidden sm:inline">{SPLIT_LABELS[split].replace(" Split", "")}</span>
             <span className="tabular-nums">×{count}</span>
           </span>
         ))}
@@ -4306,7 +4314,10 @@ function TitleTallyInline({ titles }: { titles: { splits: SplitId[]; intl: Inter
         </span>
       ))}
       {titles.splits.map((s) => (
-        <span key={s} className="text-rift-blue/80">{SPLIT_LABELS[s]}</span>
+        <span key={s} className="inline-flex items-center gap-0.5 text-rift-blue/80">
+          <SplitIcon split={s} size={10} className="text-rift-blue/70 flex-shrink-0" />
+          {SPLIT_SHORT_LABELS[s]}
+        </span>
       ))}
     </span>
   );
@@ -4759,63 +4770,7 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
         </div>
       )}
 
-      {/* Results history — a trophy line per season across all years */}
-      <div>
-        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Results History</div>
-        <div className="space-y-1">
-          {t.seasons.map((s, i) => (
-            <div key={i} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border border-rift-line/25 bg-rift-bg/15 px-2.5 py-1 text-[10px]">
-              <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-16 flex-shrink-0">{s.season}</span>
-              {s.worlds === "champion" && <span className="text-[8px] uppercase tracking-[0.15em] text-rift-goldbright">🏆 World Champion</span>}
-              {s.worlds === "finalist" && <span className="text-[8px] uppercase tracking-[0.15em] text-rift-mutedbright">Worlds Finalist</span>}
-              {s.intlTitles.map((e) => (
-                <span key={e} className="inline-flex items-center gap-1 text-[8px] uppercase tracking-[0.15em] text-rift-gold/80">
-                  <LeagueIcon league={e} size={11} />
-                  {INTERNATIONAL_LABELS[e]}
-                </span>
-              ))}
-              {(["winter", "spring", "summer"] as SplitId[])
-                .filter((sp) => s.splitPlacements[sp] != null)
-                .map((sp) => (
-                  <span
-                    key={sp}
-                    className={`text-[8px] uppercase tracking-[0.15em] ${
-                      s.splitTitles.includes(sp) ? "text-rift-blue/70" : "text-rift-muted/60"
-                    }`}
-                  >
-                    {s.splitTitles.includes(sp) ? "🏅 " : ""}
-                    {SPLIT_LABELS[sp]} {splitPlacementLabel(s.splitPlacements[sp]!)}
-                  </span>
-                ))}
-              {INTERNATIONAL_DISPLAY_ORDER.filter((ev) => s.intlOutcomes[ev]).map((ev) => {
-                const outcome = s.intlOutcomes[ev]!;
-                if (outcome.kind === "champion" && s.intlTitles.includes(ev)) return null;
-                return (
-                  <span
-                    key={`io-${ev}`}
-                    className={`text-[8px] uppercase tracking-[0.15em] ${
-                      outcome.kind === "finalist"
-                        ? "text-rift-mutedbright"
-                        : outcome.kind === "did-not-qualify"
-                          ? "text-rift-muted/40"
-                          : "text-rift-muted/55"
-                    }`}
-                  >
-                    {INTERNATIONAL_LABELS[ev]} · {intlOutcomeLabel(outcome)}
-                  </span>
-                );
-              })}
-              {!s.worlds &&
-                s.intlTitles.length === 0 &&
-                s.splitTitles.length === 0 &&
-                Object.keys(s.splitPlacements).length === 0 &&
-                Object.values(s.intlOutcomes).every((o) => o?.kind === "did-not-qualify") && (
-                <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/40">no titles</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+      <TeamSeasonResultsHistory seasons={t.seasons} />
 
       {/* Stage / year rosters — year scrubber + stage timeline + 5-lane lineup */}
       {seasonsWithStages.length > 0 && selectedSeason && selectedStage && (
