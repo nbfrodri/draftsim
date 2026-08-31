@@ -1,12 +1,25 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import { isDesktop, saveFileNative, openFileNative } from "@/lib/desktopStorage";
-import { compactDesktopDatabase } from "@/lib/desktopSqlite";
+import { compactDesktopDatabase, type DesktopDbFootprint } from "@/lib/desktopSqlite";
 import { REALITY_CODE_PREFIX } from "@/lib/realityShare";
 import Modal from "./Modal";
+
+function formatMb(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatCompactFootprint(fp: DesktopDbFootprint): string {
+  return (
+    `Database compacted — season ${formatMb(fp.seasonBytes)} · ` +
+    `history ${formatMb(fp.historyBytes)} · ` +
+    `global ${formatMb(fp.globalBytes)} · ` +
+    `file ${formatMb(fp.fileBytes)}`
+  );
+}
 
 interface CommunityEntry {
   id: string;
@@ -23,17 +36,155 @@ interface CommunityManifest {
   entries: CommunityEntry[];
 }
 
-// Realities hub — the entry screen for franchise mode. A reality is a
-// continuous, persistent timeline: the SAME teams + players carry from one
-// season to the next (with an offseason transfer window + optional aging
-// between years). Create a new reality, or resume / delete a saved one.
+/** Slim list row — never holds season/history payloads in the hub render path. */
+type RealityListItem = {
+  id: string;
+  name: string;
+  year: number;
+  complete: boolean;
+};
+
+type RealityListSource = ReadonlyArray<{
+  id: string;
+  name: string;
+  year: number;
+  season?: { status?: string } | null;
+}>;
+
+function buildRealityList(realities: RealityListSource): RealityListItem[] {
+  return realities.map((r) => ({
+    id: r.id,
+    name: r.name,
+    year: r.year,
+    complete: r.season?.status === "complete",
+  }));
+}
+
+function realityListEqual(a: RealityListItem[], b: RealityListItem[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id ||
+      x.name !== y.name ||
+      x.year !== y.year ||
+      x.complete !== y.complete
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// useSyncExternalStore requires a stable getSnapshot result. Cache by the
+// realities array identity, and reuse the previous list object when the
+// visible fields are unchanged (avoids infinite re-render loops).
+let realityListCacheInput: RealityListSource | null = null;
+let realityListCacheOutput: RealityListItem[] = [];
+
+function selectRealityListCached(realities: RealityListSource): RealityListItem[] {
+  if (realities === realityListCacheInput) return realityListCacheOutput;
+  const next = buildRealityList(realities);
+  if (realityListEqual(realityListCacheOutput, next)) {
+    realityListCacheInput = realities;
+    return realityListCacheOutput;
+  }
+  realityListCacheInput = realities;
+  realityListCacheOutput = next;
+  return next;
+}
 
 interface Props {
   onChoose: (view: "season-setup" | "menu") => void;
 }
 
+const RealityRow = memo(function RealityRow({
+  item,
+  active,
+  confirmDelete,
+  busy,
+  onOpen,
+  onExport,
+  onShare,
+  onAskDelete,
+  onConfirmDelete,
+}: {
+  item: RealityListItem;
+  active: boolean;
+  confirmDelete: boolean;
+  busy: boolean;
+  onOpen: (id: string) => void;
+  onExport: (id: string) => void;
+  onShare: (id: string) => void;
+  onAskDelete: (id: string) => void;
+  onConfirmDelete: (id: string) => void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2 px-3 py-2 border ${
+        active ? "border-rift-blue/50 bg-rift-blue/[0.06]" : "border-rift-line/40 bg-rift-bg/30"
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-[12px] text-rift-mutedbright truncate">{item.name}</div>
+        <div className="text-[9px] uppercase tracking-[0.2em] text-rift-muted/55">
+          Year {item.year} · {item.complete ? "offseason ready" : "in progress"}
+          {active ? " · active" : ""}
+        </div>
+      </div>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onOpen(item.id)}
+        className="px-3 py-1 border border-rift-gold/60 bg-rift-gold/10 text-rift-goldbright text-[9px] uppercase tracking-[0.2em] hover:bg-rift-gold/20 transition-all disabled:opacity-50"
+      >
+        {active ? "Resume" : "Open"}
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onExport(item.id)}
+        title="Export this reality (timeline + its season history) to a file"
+        className="px-2 py-1 border border-rift-line text-rift-mutedbright text-[9px] uppercase tracking-[0.2em] hover:border-rift-gold/50 hover:text-rift-goldbright transition-all disabled:opacity-50"
+      >
+        Export
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onShare(item.id)}
+        title="Copy a REAL1: share code to clipboard"
+        className="px-2 py-1 border border-rift-line text-rift-mutedbright text-[9px] uppercase tracking-[0.2em] hover:border-rift-gold/50 hover:text-rift-goldbright transition-all disabled:opacity-50"
+      >
+        REAL1
+      </button>
+      {confirmDelete ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onConfirmDelete(item.id)}
+          className="px-2 py-1 border border-rift-red/60 text-rift-redbright text-[9px] uppercase tracking-[0.2em] disabled:opacity-50"
+        >
+          Confirm
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onAskDelete(item.id)}
+          className="px-2 py-1 border border-rift-line text-rift-muted text-[9px] uppercase tracking-[0.2em] hover:border-rift-red/50 hover:text-rift-redbright transition-all disabled:opacity-50"
+        >
+          Delete
+        </button>
+      )}
+    </div>
+  );
+});
+
 export default function RealitiesHub({ onChoose }: Props) {
-  const realities = useDraftStore((s) => s.realities);
+  const realityList = useDraftStore((s) => selectRealityListCached(s.realities));
   const activeRealityId = useDraftStore((s) => s.activeRealityId);
   const beginNewReality = useDraftStore((s) => s.beginNewReality);
   const switchReality = useDraftStore((s) => s.switchReality);
@@ -48,6 +199,7 @@ export default function RealitiesHub({ onChoose }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [compactPromptOpen, setCompactPromptOpen] = useState(false);
   const [compacting, setCompacting] = useState(false);
+  const [rowBusy, setRowBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [shareCodeInput, setShareCodeInput] = useState("");
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -63,48 +215,62 @@ export default function RealitiesHub({ onChoose }: Props) {
       .catch(() => {});
   }, []);
 
-  const flash = (kind: "ok" | "err", text: string) => {
+  const flash = useCallback((kind: "ok" | "err", text: string) => {
     setMsg({ kind, text });
     setTimeout(() => setMsg(null), 4000);
-  };
+  }, []);
 
   const create = () => {
     beginNewReality(name || "My Reality", aging);
-    onChoose("season-setup"); // configure the first season; startSeason promotes it
+    onChoose("season-setup");
   };
 
-  // Export one reality (its whole timeline + its own season history) to JSON —
-  // native Save on desktop, browser download on web.
-  const handleExport = async (id: string) => {
-    const json = exportReality(id);
-    if (!json) {
-      flash("err", "Export failed");
-      return;
-    }
-    const r = realities.find((x) => x.id === id);
-    const safe = (r?.name ?? "reality").replace(/[/\\:*?"<>|]/g, "_").trim() || "reality";
-    const filename = `${safe}.draftsim-reality.json`;
-    if (isDesktop()) {
-      const res = await saveFileNative({
-        defaultPath: filename,
-        filters: [{ name: "DraftSim Reality", extensions: ["json"] }],
-        content: json,
-      });
-      if (res.ok) flash("ok", "Reality exported");
-      else if (res.error !== "cancelled") flash("err", res.error ? `Export failed: ${res.error}` : "Export failed");
-      return;
-    }
-    const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-    flash("ok", "Reality exported");
-  };
+  const handleExport = useCallback(
+    async (id: string) => {
+      if (rowBusy) return;
+      setRowBusy(true);
+      try {
+        // Yield so the button disable paints before heavy stringify.
+        await new Promise<void>((r) => requestAnimationFrame(() => r()));
+        const json = exportReality(id);
+        if (!json) {
+          flash("err", "Export failed");
+          return;
+        }
+        const item = realityList.find((x) => x.id === id);
+        const safe =
+          (item?.name ?? "reality").replace(/[/\\:*?"<>|]/g, "_").trim() ||
+          "reality";
+        const filename = `${safe}.draftsim-reality.json`;
+        if (isDesktop()) {
+          const res = await saveFileNative({
+            defaultPath: filename,
+            filters: [{ name: "DraftSim Reality", extensions: ["json"] }],
+            content: json,
+          });
+          if (res.ok) flash("ok", "Reality exported");
+          else if (res.error !== "cancelled")
+            flash("err", res.error ? `Export failed: ${res.error}` : "Export failed");
+          return;
+        }
+        const url = URL.createObjectURL(
+          new Blob([json], { type: "application/json" }),
+        );
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        flash("ok", "Reality exported");
+      } finally {
+        setRowBusy(false);
+      }
+    },
+    [exportReality, flash, realityList, rowBusy],
+  );
 
-  const applyImport = (text: string) => {
-    const res = importReality(text);
+  const applyImport = async (text: string) => {
+    const res = await importReality(text);
     if (res.ok) flash("ok", "Reality imported");
     else flash("err", res.error ?? "Import failed");
   };
@@ -119,19 +285,28 @@ export default function RealitiesHub({ onChoose }: Props) {
     } else flash("err", res.error ?? "Import failed");
   };
 
-  const copyShareCode = async (id: string) => {
-    const code = await exportRealityShareCode(id);
-    if (!code) {
-      flash("err", "Could not build share code");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(code);
-      flash("ok", "REAL1 code copied");
-    } catch {
-      flash("err", "Copy failed — select code manually");
-    }
-  };
+  const copyShareCode = useCallback(
+    async (id: string) => {
+      if (rowBusy) return;
+      setRowBusy(true);
+      try {
+        const code = await exportRealityShareCode(id);
+        if (!code) {
+          flash("err", "Could not build share code");
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(code);
+          flash("ok", "REAL1 code copied");
+        } catch {
+          flash("err", "Copy failed — select code manually");
+        }
+      } finally {
+        setRowBusy(false);
+      }
+    },
+    [exportRealityShareCode, flash, rowBusy],
+  );
 
   const handleImport = async () => {
     if (isDesktop()) {
@@ -142,7 +317,7 @@ export default function RealitiesHub({ onChoose }: Props) {
         if (res.error && res.error !== "cancelled") flash("err", res.error);
         return;
       }
-      applyImport(res.content);
+      await applyImport(res.content);
       return;
     }
     fileInputRef.current?.click();
@@ -150,29 +325,48 @@ export default function RealitiesHub({ onChoose }: Props) {
 
   const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-importing the same file
+    e.target.value = "";
     if (!file) return;
     try {
-      applyImport(await file.text());
+      await applyImport(await file.text());
     } catch {
       flash("err", "Could not read file");
     }
   };
 
-  const handleDelete = async (id: string) => {
-    setConfirmDelete(null);
-    const result = await deleteReality(id);
-    if (result?.suggestCompact) {
-      setCompactPromptOpen(true);
-    }
-  };
+  const handleOpen = useCallback(
+    async (id: string) => {
+      if (rowBusy) return;
+      setRowBusy(true);
+      try {
+        await switchReality(id);
+      } finally {
+        setRowBusy(false);
+      }
+    },
+    [rowBusy, switchReality],
+  );
+
+  const handleDelete = useCallback(
+    async (id: string) => {
+      setConfirmDelete(null);
+      const result = await deleteReality(id);
+      if (result?.suggestCompact) {
+        setCompactPromptOpen(true);
+      }
+    },
+    [deleteReality],
+  );
 
   const handleCompactDatabase = async () => {
     if (!isDesktop() || compacting) return;
     setCompacting(true);
     try {
-      await compactDesktopDatabase();
-      flash("ok", "Database compacted");
+      const footprint = await compactDesktopDatabase();
+      flash(
+        "ok",
+        footprint ? formatCompactFootprint(footprint) : "Database compacted",
+      );
     } catch {
       flash("err", "Compact failed");
     } finally {
@@ -206,7 +400,6 @@ export default function RealitiesHub({ onChoose }: Props) {
           and the next season begins. Records and careers accumulate forever.
         </p>
 
-        {/* Create a new reality */}
         <div className="border border-rift-gold/30 bg-rift-gold/[0.03] mb-6">
           <div className="px-3 py-1.5 border-b border-rift-gold/25 text-[10px] uppercase tracking-[0.3em] text-rift-goldbright">
             New Reality
@@ -235,7 +428,9 @@ export default function RealitiesHub({ onChoose }: Props) {
             >
               <span
                 className={`w-3.5 h-3.5 border flex items-center justify-center text-[9px] ${
-                  aging ? "border-rift-gold/70 bg-rift-gold/15 text-rift-goldbright" : "border-rift-line text-transparent"
+                  aging
+                    ? "border-rift-gold/70 bg-rift-gold/15 text-rift-goldbright"
+                    : "border-rift-line text-transparent"
                 }`}
               >
                 ✓
@@ -244,12 +439,12 @@ export default function RealitiesHub({ onChoose }: Props) {
             </button>
             <p className="text-[9px] text-rift-muted/55">
               Next you&apos;ll configure the first season (leagues, formats, real names).
-              See <span className="text-rift-gold/70">docs/reality-sharing.md</span> for REAL1 share codes.
+              See <span className="text-rift-gold/70">docs/reality-sharing.md</span> for REAL1
+              share codes.
             </p>
           </div>
         </div>
 
-        {/* Share code import */}
         <div className="border border-rift-line/40 bg-rift-bg/20 mb-6 p-3">
           <div className="text-[10px] uppercase tracking-[0.3em] text-rift-gold/70 mb-2">
             Import share code
@@ -271,7 +466,6 @@ export default function RealitiesHub({ onChoose }: Props) {
           </div>
         </div>
 
-        {/* Community gallery */}
         <div className="mb-6">
           <button
             type="button"
@@ -331,7 +525,7 @@ export default function RealitiesHub({ onChoose }: Props) {
                           Import
                         </button>
                       ) : (
-                        <span className="text-[8px] text-rift-muted/45 uppercase tracking-[0.15em">
+                        <span className="text-[8px] text-rift-muted/45 uppercase tracking-[0.15em]">
                           Paste REAL1 code
                         </span>
                       )}
@@ -343,10 +537,9 @@ export default function RealitiesHub({ onChoose }: Props) {
           )}
         </div>
 
-        {/* Saved realities */}
         <div className="flex items-center gap-3 mb-2 flex-wrap">
           <span className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/55">
-            Saved realities {realities.length > 0 ? `(${realities.length})` : ""}
+            Saved realities {realityList.length > 0 ? `(${realityList.length})` : ""}
           </span>
           {msg && (
             <span
@@ -370,7 +563,7 @@ export default function RealitiesHub({ onChoose }: Props) {
           )}
           <button
             type="button"
-            onClick={handleImport}
+            onClick={() => void handleImport()}
             title="Import a reality exported from DraftSim (its timeline + that reality's season history)"
             className="ml-auto text-[9px] uppercase tracking-[0.3em] text-rift-gold/80 hover:text-rift-goldbright transition-colors"
           >
@@ -379,8 +572,10 @@ export default function RealitiesHub({ onChoose }: Props) {
         </div>
         {isDesktop() && (
           <p className="text-[9px] text-rift-muted/55 mb-2 leading-relaxed">
-            After deleting a large reality, use <span className="text-rift-gold/70">Compact database</span> to
-            shrink the on-disk save file and free space.
+            After deleting a large reality, use{" "}
+            <span className="text-rift-gold/70">Compact database</span> to shrink the
+            on-disk save file and free space. Imported realities are stored
+            compact-encoded in the database (same compression as the JSON export).
           </p>
         )}
         <input
@@ -388,74 +583,28 @@ export default function RealitiesHub({ onChoose }: Props) {
           type="file"
           accept=".json,application/json"
           className="hidden"
-          onChange={onFilePicked}
+          onChange={(e) => void onFilePicked(e)}
         />
-        {realities.length === 0 ? (
+        {realityList.length === 0 ? (
           <div className="text-[11px] italic text-rift-muted/60">
             No realities yet — create one above.
           </div>
         ) : (
           <div className="space-y-1.5">
-            {realities.map((r) => {
-              const active = r.id === activeRealityId;
-              const complete = r.season?.status === "complete";
-              return (
-                <div
-                  key={r.id}
-                  className={`flex items-center gap-2 px-3 py-2 border ${
-                    active ? "border-rift-blue/50 bg-rift-blue/[0.06]" : "border-rift-line/40 bg-rift-bg/30"
-                  }`}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[12px] text-rift-mutedbright truncate">{r.name}</div>
-                    <div className="text-[9px] uppercase tracking-[0.2em] text-rift-muted/55">
-                      Year {r.year} · {complete ? "offseason ready" : "in progress"}
-                      {active ? " · active" : ""}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => switchReality(r.id)}
-                    className="px-3 py-1 border border-rift-gold/60 bg-rift-gold/10 text-rift-goldbright text-[9px] uppercase tracking-[0.2em] hover:bg-rift-gold/20 transition-all"
-                  >
-                    {active ? "Resume" : "Open"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExport(r.id)}
-                    title="Export this reality (timeline + its season history) to a file"
-                    className="px-2 py-1 border border-rift-line text-rift-mutedbright text-[9px] uppercase tracking-[0.2em] hover:border-rift-gold/50 hover:text-rift-goldbright transition-all"
-                  >
-                    Export
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void copyShareCode(r.id)}
-                    title="Copy a REAL1: share code to clipboard"
-                    className="px-2 py-1 border border-rift-line text-rift-mutedbright text-[9px] uppercase tracking-[0.2em] hover:border-rift-gold/50 hover:text-rift-goldbright transition-all"
-                  >
-                    REAL1
-                  </button>
-                  {confirmDelete === r.id ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(r.id)}
-                      className="px-2 py-1 border border-rift-red/60 text-rift-redbright text-[9px] uppercase tracking-[0.2em]"
-                    >
-                      Confirm
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDelete(r.id)}
-                      className="px-2 py-1 border border-rift-line text-rift-muted text-[9px] uppercase tracking-[0.2em] hover:border-rift-red/50 hover:text-rift-redbright transition-all"
-                    >
-                      Delete
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+            {realityList.map((item) => (
+              <RealityRow
+                key={item.id}
+                item={item}
+                active={item.id === activeRealityId}
+                confirmDelete={confirmDelete === item.id}
+                busy={rowBusy}
+                onOpen={handleOpen}
+                onExport={handleExport}
+                onShare={copyShareCode}
+                onAskDelete={setConfirmDelete}
+                onConfirmDelete={(id) => void handleDelete(id)}
+              />
+            ))}
           </div>
         )}
       </div>

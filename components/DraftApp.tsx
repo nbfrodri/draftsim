@@ -267,7 +267,7 @@ export default function DraftApp({ champions }: Props) {
 function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
   const season = useDraftStore((s) => s.season);
   const openSeason = useDraftStore((s) => s.openSeason);
-  const realities = useDraftStore((s) => s.realities);
+  const realitiesCount = useDraftStore((s) => s.realities.length);
   const importTournament = useDraftStore((s) => s.importTournament);
   const tournamentHistory = useDraftStore((s) => s.tournamentHistory);
   const loadFromHistory = useDraftStore((s) => s.loadFromHistory);
@@ -513,7 +513,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
           className="w-full mt-3 md:mt-4 group relative border-2 border-rift-gold/40 bg-rift-gold/[0.04] hover:border-rift-goldbright/70 hover:bg-rift-gold/10 transition-all p-5 md:p-6 text-left"
         >
           <div className="text-[9px] uppercase tracking-[0.4em] text-rift-gold/80 mb-2">
-            {realities.length > 0 ? `${realities.length} saved` : "New"}
+            {realitiesCount > 0 ? `${realitiesCount} saved` : "New"}
           </div>
           <div className="font-display text-2xl md:text-3xl tracking-wider text-rift-goldbright mb-2">
             Realities

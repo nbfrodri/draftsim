@@ -242,7 +242,7 @@ export default function SeasonDashboard() {
       {/* Exit — top-left */}
       <button
         type="button"
-        onClick={exitSeasonView}
+        onClick={() => void exitSeasonView()}
         className="fixed top-3 left-3 md:top-4 md:left-4 inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em] z-30"
       >
         <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5">

@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { isDesktop, createWebLazyStorage, enablePersistWrites, flushPendingPersistWrites, gatePersistWritesUntilReady, resolveWebStringStorage, signalDeletingReality, clearDesktopOperation } from "@/lib/desktopStorage";
+import { isDesktop, createWebLazyStorage, enablePersistWrites, flushPendingPersistWrites, gatePersistWritesUntilReady, resolveWebStringStorage, signalDeletingReality, signalImportingReality, signalOpeningReality, signalLeavingSeason, clearDesktopOperation, waitForDesktopOverlayPaint } from "@/lib/desktopStorage";
 import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
 import { loadRealityHistoryFromDb, markRealityHistoryLoaded, deleteRealityFromDb, upsertRealityInDb, shouldSuggestCompactAfterDelete, PERSIST_VERSION } from "@/lib/desktopSqlite";
 import {
@@ -114,6 +114,7 @@ import {
 } from "@/lib/realityExport";
 import {
   compactEncodeTournamentForPersist,
+  slimTournamentForArchive,
   compactEncodeSeasonForPersist,
   decodeCompactSeason,
   decodeCompactTournament,
@@ -629,7 +630,7 @@ interface DraftStore {
   // Re-open the season dashboard from the menu (applies season meta).
   openSeason: () => void;
   // Back to the main menu; season stays active (restores user meta).
-  exitSeasonView: () => void;
+  exitSeasonView: () => Promise<void>;
   // Permanently delete the season (restores user meta).
   abandonSeason: () => void;
   // Load one of the season's tournaments as the active tournament so
@@ -759,7 +760,7 @@ interface DraftStore {
   } | null;
   bulkYearsCancelRequested: boolean;
   /** Switch the live season to another saved reality (snapshots the current). */
-  switchReality: (id: string) => void;
+  switchReality: (id: string) => Promise<void>;
   deleteReality: (id: string) => Promise<{ suggestCompact: boolean } | void>;
   /** Serialize a reality (its timeline + its own season history) to a JSON
    *  string for download. Tournaments are compact-encoded. Null if unknown. */
@@ -767,7 +768,7 @@ interface DraftStore {
   /** Export a reality as a REAL1: share code (compact import string). */
   exportRealityShareCode: (id: string) => Promise<string | null>;
   /** Restore a reality from an exported JSON string (upsert by id). */
-  importReality: (json: string) => { ok: boolean; error?: string; id?: string };
+  importReality: (json: string) => Promise<{ ok: boolean; error?: string; id?: string }>;
   /** Import from a REAL1: code or raw JSON export. */
   importRealityShareCode: (code: string) => Promise<{ ok: boolean; error?: string; id?: string }>;
   /** Merge entries parsed from an imported .xlsx (upsert by id, newest
@@ -871,49 +872,11 @@ function allChampionIds(champs: Champion[]): number[] {
   return champs.map((c) => c.id);
 }
 
-// Strip heavy per-game fields from a tournament snapshot before
-// archiving so localStorage stays under the 5MB quota. The bulky
-// data (event timelines, notable-event arrays, per-pick KDA) lives on
-// game.recap; we keep the lightweight summary fields (mvp, biggest
-// swing, duration, lane gold diff) so the post-tournament recap and
-// per-game replay still work — just without the win-prob chart and
-// damage bars on history-loaded tournaments. The user can re-run
-// tournaments fresh to get the full replay; history is for browsing.
-function slimTournamentForArchive(
-  tournament: TournamentState,
-): TournamentState {
-  return {
-    ...tournament,
-    matches: tournament.matches.map((m) => {
-      if (!m.series) return m;
-      return {
-        ...m,
-        series: {
-          ...m.series,
-          games: m.series.games.map((g) => {
-            if (!g.recap) return g;
-            const slim = { ...g.recap };
-            delete slim.winProbTimeline;
-            delete slim.goldLeadTimeline;
-            delete slim.notableEvents;
-            delete slim.perPickKDA;
-            return { ...g, recap: slim };
-          }),
-        },
-      };
-    }),
-  };
-}
-
 // Compact encoding for the active tournament's recaps (v6 persistence
-// format) now lives in lib/recapCompression.ts — memoized by object
+// format) lives in lib/recapCompression.ts — memoized by object
 // identity so partialize (which runs on EVERY set) only pays encoding
-// cost for recaps/matches that actually changed. Archived history still
-// uses slimTournamentForArchive on web (no chart data at all).
-
-// Decode compact-encoded recaps in a tournament back to their full form.
-// Inverse of compactEncodeTournamentForPersist. Implemented in recapCompression.
-// decodeCompactTournament is imported from @/lib/recapCompression.
+// cost for recaps/matches that actually changed. Archived history on
+// web still uses slimTournamentForArchive (no chart data at all).
 
 // Memoized compact encoding for franchise realities — each slot carries a full
 // SeasonState; without this, partialize re-encoded nothing and disk/json size
@@ -1836,31 +1799,58 @@ export const useDraftStore = create<DraftStore>()(
     );
   },
 
-  exitSeasonView: () => {
-    // Back to the menu. The season survives; the user's own meta comes
-    // back so standalone drafts aren't played on the season's tiers.
-    set((s) => ({
-      seasonViewOpen: false,
-      tournament: null,
-      series: null,
-      selectedChampionId: null,
-      secondsLeft: null,
-      // Autosave: keep the active reality's slot in sync with the live season
-      // so resuming from the Realities hub never loses the year's progress
-      // (the slot is what switchReality restores and RealitiesHub displays).
-      ...(s.activeRealityId && s.season?.franchise?.id === s.activeRealityId
-        ? {
-            realities: s.realities.map((r) =>
-              r.id === s.activeRealityId
-                ? { ...r, year: s.season!.franchise!.year, season: s.season! }
-                : r,
-            ),
-          }
-        : {}),
-      ...(s.preSeasonMetaSnapshot
-        ? applyMetaSnapshotPatch(s.preSeasonMetaSnapshot, s)
-        : {}),
-    }));
+  exitSeasonView: async () => {
+    // Snapshot the live season into the reality slot. On desktop, upsert ONLY
+    // that reality row (compact encode happens inside seasonJsonForDb) so leave
+    // isn't blocked on rewriting every franchise + history in the DB.
+    signalLeavingSeason();
+    await waitForDesktopOverlayPaint();
+    try {
+      const before = get();
+      const activeId =
+        before.activeRealityId &&
+        before.season?.franchise?.id === before.activeRealityId
+          ? before.activeRealityId
+          : null;
+
+      set((s) => ({
+        seasonViewOpen: false,
+        tournament: null,
+        series: null,
+        selectedChampionId: null,
+        secondsLeft: null,
+        ...(activeId && s.season
+          ? {
+              realities: s.realities.map((r) =>
+                r.id === activeId
+                  ? { ...r, year: s.season!.franchise!.year, season: s.season! }
+                  : r,
+              ),
+            }
+          : {}),
+        ...(s.preSeasonMetaSnapshot
+          ? applyMetaSnapshotPatch(s.preSeasonMetaSnapshot, s)
+          : {}),
+      }));
+
+      if (isDesktop() && activeId) {
+        const slot = get().realities.find((r) => r.id === activeId);
+        if (slot) {
+          await upsertRealityInDb({
+            id: slot.id,
+            name: slot.name,
+            year: slot.year,
+            season: slot.season,
+          });
+        }
+        // Global persist can finish in the background — reality season is already on disk.
+        void flushPendingPersistWrites().catch((err) =>
+          console.warn("[draftsim] exitSeasonView background flush failed:", err),
+        );
+      }
+    } finally {
+      clearDesktopOperation();
+    }
   },
 
   abandonSeason: () => {
@@ -2221,48 +2211,55 @@ export const useDraftStore = create<DraftStore>()(
     })();
   },
 
-  switchReality: (id) => {
-    const s = get();
-    const realities = s.realities.map((r) =>
-      r.id === s.activeRealityId && s.season?.franchise
-        ? { ...r, year: s.season.franchise.year, season: s.season }
-        : r,
-    );
-    const target = realities.find((r) => r.id === id);
-    if (!target) return;
+  switchReality: async (id) => {
+    signalOpeningReality();
+    await waitForDesktopOverlayPaint();
+    try {
+      const s = get();
+      const realities = s.realities.map((r) =>
+        r.id === s.activeRealityId && s.season?.franchise
+          ? { ...r, year: s.season.franchise.year, season: s.season }
+          : r,
+      );
+      const target = realities.find((r) => r.id === id);
+      if (!target) return;
 
-    if (isDesktop() && s.activeRealityId && s.activeRealityId !== id) {
-      const outgoing = realities.find((r) => r.id === s.activeRealityId);
-      if (outgoing) {
-        void upsertRealityInDb(outgoing, {
-          syncHistory: outgoing.history.length > 0,
-        }).catch((err) =>
-          console.warn("[draftsim] switchReality outgoing DB sync failed:", err),
-        );
+      if (isDesktop() && s.activeRealityId && s.activeRealityId !== id) {
+        const outgoing = realities.find((r) => r.id === s.activeRealityId);
+        if (outgoing) {
+          void upsertRealityInDb(outgoing, {
+            syncHistory: outgoing.history.length > 0,
+          }).catch((err) =>
+            console.warn("[draftsim] switchReality outgoing DB sync failed:", err),
+          );
+        }
       }
-    }
 
-    const decodedSeason = decodeCompactSeason(target.season);
-    set({
-      realities: realities.map((r) =>
-        r.id === id ? { ...r, season: decodedSeason } : r,
-      ),
-      activeRealityId: id,
-      season: decodedSeason,
-      seasonViewOpen: true,
-    });
-    if (isDesktop() && target.history.length === 0) {
-      void loadRealityHistoryFromDb(id).then((history) => {
-        if (history.length === 0) return;
-        set((state) => {
-          if (state.activeRealityId !== id) return state;
-          return {
-            realities: state.realities.map((r) =>
-              r.id === id ? { ...r, history } : r,
-            ),
-          };
-        });
+      // Decode off the paint path — large franchises pay for compact→full here.
+      const decodedSeason = decodeCompactSeason(target.season);
+      set({
+        realities: realities.map((r) =>
+          r.id === id ? { ...r, season: decodedSeason } : r,
+        ),
+        activeRealityId: id,
+        season: decodedSeason,
+        seasonViewOpen: true,
       });
+      if (isDesktop() && target.history.length === 0) {
+        void loadRealityHistoryFromDb(id).then((history) => {
+          if (history.length === 0) return;
+          set((state) => {
+            if (state.activeRealityId !== id) return state;
+            return {
+              realities: state.realities.map((r) =>
+                r.id === id ? { ...r, history } : r,
+              ),
+            };
+          });
+        });
+      }
+    } finally {
+      clearDesktopOperation();
     }
   },
 
@@ -2339,61 +2336,78 @@ export const useDraftStore = create<DraftStore>()(
     }
   },
 
-  importReality: (json) => {
-    let parsed: unknown;
+  importReality: async (json) => {
+    const desktop = isDesktop();
+    // Overlay covers parse + (on desktop) JSON→SQLite. Close is blocked while
+    // the phase is active so a mid-import quit can't drop the write.
+    signalImportingReality();
+    await waitForDesktopOverlayPaint();
     try {
-      parsed = JSON.parse(json);
-    } catch {
-      return { ok: false, error: "Not a valid file (bad JSON)." };
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(json);
+      } catch {
+        return { ok: false, error: "Not a valid file (bad JSON)." };
+      }
+      const p = parsed as { kind?: string; reality?: Partial<SavedReality> } | null;
+      const r = p?.reality;
+      const rs = r?.season as Partial<SeasonState> | undefined;
+      if (
+        !p ||
+        p.kind !== "reality" ||
+        !r ||
+        typeof r.id !== "string" ||
+        typeof r.name !== "string" ||
+        !rs ||
+        rs.tournaments == null ||
+        typeof rs.tournaments !== "object"
+      ) {
+        return { ok: false, error: "Not a DraftSim reality export." };
+      }
+      const id = r.id;
+      // Decode the compact tournaments back to full form, mirroring loadSavedSeason.
+      const decoded = ensureSeasonIdentities({
+        ...(rs as SeasonState),
+        tournaments: Object.fromEntries(
+          Object.entries((rs as SeasonState).tournaments).map(([tid, t]) => [
+            tid,
+            decodeCompactTournament(t),
+          ]),
+        ),
+      });
+      // Keep the franchise id pinned to the slot id (switchReality / archive
+      // routing key off season.franchise.id).
+      const season: SeasonState = decoded.franchise
+        ? { ...decoded, franchise: { ...decoded.franchise, id, name: r.name } }
+        : decoded;
+      const slot: SavedReality = {
+        id,
+        name: r.name,
+        year: typeof r.year === "number" ? r.year : (season.franchise?.year ?? 1),
+        season,
+        history: Array.isArray(r.history) ? (r.history as SeasonHistoryEntry[]) : [],
+      };
+      set((st) => ({
+        realities: [slot, ...st.realities.filter((x) => x.id !== id)],
+      }));
+      if (desktop) {
+        markRealityHistoryLoaded(id);
+        try {
+          await upsertRealityInDb(slot, { syncHistory: true });
+          await flushPendingPersistWrites();
+        } catch (err) {
+          console.warn("[draftsim] importReality DB sync failed:", err);
+          return {
+            ok: false,
+            error:
+              "Reality loaded in memory but failed to save to the database. Keep the app open and try again.",
+          };
+        }
+      }
+      return { ok: true, id };
+    } finally {
+      clearDesktopOperation();
     }
-    const p = parsed as { kind?: string; reality?: Partial<SavedReality> } | null;
-    const r = p?.reality;
-    const rs = r?.season as Partial<SeasonState> | undefined;
-    if (
-      !p ||
-      p.kind !== "reality" ||
-      !r ||
-      typeof r.id !== "string" ||
-      typeof r.name !== "string" ||
-      !rs ||
-      rs.tournaments == null ||
-      typeof rs.tournaments !== "object"
-    ) {
-      return { ok: false, error: "Not a DraftSim reality export." };
-    }
-    const id = r.id;
-    // Decode the compact tournaments back to full form, mirroring loadSavedSeason.
-    const decoded = ensureSeasonIdentities({
-      ...(rs as SeasonState),
-      tournaments: Object.fromEntries(
-        Object.entries((rs as SeasonState).tournaments).map(([tid, t]) => [
-          tid,
-          decodeCompactTournament(t),
-        ]),
-      ),
-    });
-    // Keep the franchise id pinned to the slot id (switchReality / archive
-    // routing key off season.franchise.id).
-    const season: SeasonState = decoded.franchise
-      ? { ...decoded, franchise: { ...decoded.franchise, id, name: r.name } }
-      : decoded;
-    const slot: SavedReality = {
-      id,
-      name: r.name,
-      year: typeof r.year === "number" ? r.year : (season.franchise?.year ?? 1),
-      season,
-      history: Array.isArray(r.history) ? (r.history as SeasonHistoryEntry[]) : [],
-    };
-    set((st) => ({
-      realities: [slot, ...st.realities.filter((x) => x.id !== id)],
-    }));
-    if (isDesktop()) {
-      markRealityHistoryLoaded(id);
-      void upsertRealityInDb(slot, { syncHistory: true }).catch((err) =>
-        console.warn("[draftsim] importReality DB sync failed:", err),
-      );
-    }
-    return { ok: true, id };
   },
 
   importRealityShareCode: async (code) => {
