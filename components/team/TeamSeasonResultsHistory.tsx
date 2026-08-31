@@ -4,6 +4,7 @@ import { IconTrophy } from "@tabler/icons-react";
 import { memo, type ReactNode } from "react";
 
 import LeagueIcon from "@/components/LeagueIcon";
+import GoToSeasonButton from "@/components/hall/GoToSeasonButton";
 import SplitIcon from "@/components/season/SplitIcon";
 import {
   intlOutcomeLabel,
@@ -100,7 +101,13 @@ function ResultChip({
   );
 }
 
-const TeamSeasonRow = memo(function TeamSeasonRow({ season }: { season: TeamSeasonLine }) {
+const TeamSeasonRow = memo(function TeamSeasonRow({
+  season,
+  onGoToSeason,
+}: {
+  season: TeamSeasonLine;
+  onGoToSeason?: (seasonId: string) => void;
+}) {
   const chips: ReactNode[] = [];
 
   for (const phase of PHASE_ORDER) {
@@ -174,12 +181,20 @@ const TeamSeasonRow = memo(function TeamSeasonRow({ season }: { season: TeamSeas
 
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border border-rift-line/25 bg-rift-bg/15 px-2.5 py-1.5">
-      <span
-        className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-14 flex-shrink-0 tabular-nums"
-        title={season.season}
-      >
-        {season.season.replace(/^Year\s+/i, "Y")}
-      </span>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <span
+          className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 tabular-nums whitespace-nowrap"
+          title={season.season}
+        >
+          {season.season.replace(/^Year\s+/i, "Y")}
+        </span>
+        <GoToSeasonButton
+          seasonId={season.seasonId}
+          seasonLabel={season.season}
+          onGoToSeason={onGoToSeason}
+          title={`View ${season.season} in stage rosters`}
+        />
+      </div>
       <div className="flex flex-wrap items-center gap-1 min-w-0 flex-1">
         {empty ? (
           <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/40">
@@ -195,8 +210,10 @@ const TeamSeasonRow = memo(function TeamSeasonRow({ season }: { season: TeamSeas
 
 export default function TeamSeasonResultsHistory({
   seasons,
+  onGoToSeason,
 }: {
   seasons: TeamSeasonLine[];
+  onGoToSeason?: (seasonId: string) => void;
 }) {
   if (seasons.length === 0) return null;
 
@@ -207,7 +224,11 @@ export default function TeamSeasonResultsHistory({
       </div>
       <div className="space-y-1">
         {seasons.map((s) => (
-          <TeamSeasonRow key={`${s.seasonId}-${s.archivedAt}`} season={s} />
+          <TeamSeasonRow
+            key={`${s.seasonId}-${s.archivedAt}`}
+            season={s}
+            onGoToSeason={onGoToSeason}
+          />
         ))}
       </div>
     </div>

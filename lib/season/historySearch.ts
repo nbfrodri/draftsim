@@ -1505,6 +1505,8 @@ export function teamProfile(entries: SeasonHistoryEntry[], key: string): TeamPro
 
 export interface CoachTenure {
   season: string;
+  /** Archived season entry id — for timeline navigation. */
+  seasonId: string;
   archivedAt: number;
   team: SeasonHistoryTeamRef;
   rating: number;
@@ -1566,7 +1568,15 @@ export function coachProfile(entries: SeasonHistoryEntry[], coachName: string): 
     const seasonTitles = teamSeasonTitles(e, { name: found.ref.name, leagueId: found.ref.leagueId });
     splitTitles += seasonTitles.splits.length;
     for (const ev of seasonTitles.intl) intlTitles[ev] = (intlTitles[ev] ?? 0) + 1;
-    tenures.push({ season: yearOf(e), archivedAt: e.archivedAt, team: found.ref, rating: found.rating, ...(found.playstyle ? { playstyle: found.playstyle } : {}), titles: seasonTitles });
+    tenures.push({
+      season: yearOf(e),
+      seasonId: e.id,
+      archivedAt: e.archivedAt,
+      team: found.ref,
+      rating: found.rating,
+      ...(found.playstyle ? { playstyle: found.playstyle } : {}),
+      titles: seasonTitles,
+    });
   }
   return tenures.length > 0
     ? {

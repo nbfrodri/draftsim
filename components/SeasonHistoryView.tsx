@@ -115,6 +115,7 @@ import {
 import LeagueIcon from "./LeagueIcon";
 import SplitIcon from "./season/SplitIcon";
 import TeamSeasonResultsHistory from "./team/TeamSeasonResultsHistory";
+import GoToSeasonButton from "./hall/GoToSeasonButton";
 import LaneIcon from "./LaneIcon";
 import Modal from "./Modal";
 import SeasonStoryCard from "./SeasonStoryCard";
@@ -211,6 +212,7 @@ function CareerStatusBadge({
 }
 
 type NavFn = (kind: "players" | "teams" | "coaches", id: string) => void;
+type GoToSeasonFn = (seasonId: string) => void;
 const teamRefKey = (t: SeasonHistoryTeamRef) => `${t.leagueId}:${t.name}`;
 
 const navBtnCls =
@@ -4389,11 +4391,13 @@ const PlayerProfileView = memo(function PlayerProfileView({
   entries,
   id,
   onNavigate,
+  onGoToSeason,
   liveOpts,
 }: {
   entries: SeasonHistoryEntry[];
   id: string;
   onNavigate: NavFn;
+  onGoToSeason?: GoToSeasonFn;
   liveOpts?: {
     liveInactive: import("@/lib/season/playerLifecycle").InactivePlayerSnapshot[];
     liveRosterIds?: ReadonlySet<string>;
@@ -4553,7 +4557,16 @@ const PlayerProfileView = memo(function PlayerProfileView({
             <SeasonScope.Provider key={t.seasonId || i} value={t.seasonId}>
             <div className="border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5 text-[10px]">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-16 flex-shrink-0">{t.season}</span>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 tabular-nums whitespace-nowrap">
+                    {t.season}
+                  </span>
+                  <GoToSeasonButton
+                    seasonId={t.seasonId}
+                    seasonLabel={t.season}
+                    onGoToSeason={onGoToSeason}
+                  />
+                </div>
                 {/* One row per completed season: roster stints, academy affiliate,
                     FA / retired. End-of-season inactivePlayers snapshot drives
                     academy/FA/retired badges (archives only). */}
@@ -4624,7 +4637,17 @@ const PlayerProfileView = memo(function PlayerProfileView({
   );
 });
 
-const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavigate }: { entries: SeasonHistoryEntry[]; teamKey: string; onNavigate: NavFn }) {
+const TeamProfileView = memo(function TeamProfileView({
+  entries,
+  teamKey,
+  onNavigate,
+  onGoToSeason,
+}: {
+  entries: SeasonHistoryEntry[];
+  teamKey: string;
+  onNavigate: NavFn;
+  onGoToSeason?: GoToSeasonFn;
+}) {
   const champions = useDraftStore((s) => s.champions);
   const champById = useMemo(
     () => new Map(champions.map((ch) => [ch.id, ch])),
@@ -4641,6 +4664,22 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
   );
   const [seasonIdx, setSeasonIdx] = useState(0);
   const [stageIdx, setStageIdx] = useState(0);
+  const stageRostersRef = useRef<HTMLDivElement>(null);
+  const goToTeamSeason = useCallback(
+    (seasonId: string) => {
+      const idx = seasonsWithStages.findIndex((s) => s.seasonId === seasonId);
+      if (idx >= 0) {
+        setSeasonIdx(idx);
+        setStageIdx(0);
+        requestAnimationFrame(() => {
+          stageRostersRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        });
+        return;
+      }
+      onGoToSeason?.(seasonId);
+    },
+    [seasonsWithStages, onGoToSeason],
+  );
   useEffect(() => {
     setSeasonIdx(0);
     setStageIdx(0);
@@ -4770,12 +4809,12 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
         </div>
       )}
 
-      <TeamSeasonResultsHistory seasons={t.seasons} />
+      <TeamSeasonResultsHistory seasons={t.seasons} onGoToSeason={goToTeamSeason} />
 
       {/* Stage / year rosters — year scrubber + stage timeline + 5-lane lineup */}
       {seasonsWithStages.length > 0 && selectedSeason && selectedStage && (
         <SeasonScope.Provider value={asOfSeasonId}>
-        <div>
+        <div ref={stageRostersRef}>
           <div className="flex items-baseline justify-between gap-3 mb-2 min-w-0">
             <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 flex-shrink-0">
               Stage Rosters
@@ -4815,29 +4854,36 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
                       return (
                         <div key={`${s.season}-${s.archivedAt}`} className="relative flex items-center">
                           {pos > 0 && <div aria-hidden className="w-4 sm:w-6 h-px bg-rift-gold/25" />}
-                          <button
-                            type="button"
-                            onClick={() => setSeasonIdx(i)}
-                            className={`relative z-[1] flex flex-col items-center gap-1 px-1.5 transition-colors ${
-                              active ? "text-rift-goldbright" : "text-rift-muted/55 hover:text-rift-mutedbright"
-                            }`}
-                            title={s.season}
-                          >
-                            <span
-                              className={`block h-2 w-2 rotate-45 border transition-all ${
-                                active
-                                  ? "border-rift-gold bg-rift-gold shadow-[0_0_8px_rgba(200,170,110,0.35)]"
-                                  : "border-rift-line/70 bg-rift-bg"
+                          <div className="relative z-[1] flex flex-col items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setSeasonIdx(i)}
+                              className={`flex flex-col items-center gap-1 px-1.5 transition-colors ${
+                                active ? "text-rift-goldbright" : "text-rift-muted/55 hover:text-rift-mutedbright"
                               }`}
-                            />
-                            <span
-                              className={`text-[9px] uppercase tracking-[0.2em] tabular-nums whitespace-nowrap ${
-                                active ? "font-display text-[10px] tracking-wide" : ""
-                              }`}
+                              title={s.season}
                             >
-                              {s.season.replace(/^Year\s+/i, "")}
-                            </span>
-                          </button>
+                              <span
+                                className={`block h-2 w-2 rotate-45 border transition-all ${
+                                  active
+                                    ? "border-rift-gold bg-rift-gold shadow-[0_0_8px_rgba(200,170,110,0.35)]"
+                                    : "border-rift-line/70 bg-rift-bg"
+                                }`}
+                              />
+                              <span
+                                className={`text-[9px] uppercase tracking-[0.2em] tabular-nums whitespace-nowrap ${
+                                  active ? "font-display text-[10px] tracking-wide" : ""
+                                }`}
+                              >
+                                {s.season.replace(/^Year\s+/i, "")}
+                              </span>
+                            </button>
+                            <GoToSeasonButton
+                              seasonId={s.seasonId}
+                              seasonLabel={s.season}
+                              onGoToSeason={onGoToSeason}
+                            />
+                          </div>
                         </div>
                       );
                     })}
@@ -5040,12 +5086,18 @@ const TeamProfileView = memo(function TeamProfileView({ entries, teamKey, onNavi
   );
 });
 
-const CoachProfileView = memo(function CoachProfileView({ entries, name, onNavigate }: { entries: SeasonHistoryEntry[]; name: string; onNavigate: NavFn }) {
+const CoachProfileView = memo(function CoachProfileView({
+  entries,
+  name,
+  onNavigate,
+  onGoToSeason,
+}: {
+  entries: SeasonHistoryEntry[];
+  name: string;
+  onNavigate: NavFn;
+  onGoToSeason?: GoToSeasonFn;
+}) {
   const c = useMemo(() => coachProfile(entries, name), [entries, name]);
-  const seasonIdByName = useMemo(
-    () => new Map(entries.map((e) => [e.name, e.id])),
-    [entries],
-  );
   if (!c) return <p className="text-[11px] italic text-rift-muted">No data.</p>;
   return (
     <div className="space-y-4">
@@ -5094,11 +5146,20 @@ const CoachProfileView = memo(function CoachProfileView({ entries, name, onNavig
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Coaching History</div>
         <div className="space-y-1.5">
           {c.tenures.map((t, i) => (
-            <SeasonScope.Provider key={i} value={seasonIdByName.get(t.season)}>
+            <SeasonScope.Provider key={i} value={t.seasonId}>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5 text-[10px] min-w-0">
-              <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 w-16 flex-shrink-0">{t.season}</span>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 tabular-nums whitespace-nowrap">
+                  {t.season}
+                </span>
+                <GoToSeasonButton
+                  seasonId={t.seasonId}
+                  seasonLabel={t.season}
+                  onGoToSeason={onGoToSeason}
+                />
+              </div>
               <button type="button" onClick={() => onNavigate("teams", teamRefKey(t.team))} className="min-w-0 max-w-full overflow-hidden hover:opacity-75 transition-opacity" title={`View ${t.team.name}`}>
-                <TeamRef team={t.team} size={13} nested seasonId={seasonIdByName.get(t.season)} />
+                <TeamRef team={t.team} size={13} nested seasonId={t.seasonId} />
               </button>
               <span className="text-rift-gold/80 tabular-nums text-[9px] flex-shrink-0">★{t.rating.toFixed(1)}</span>
               {t.playstyle && <span className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/70 flex-shrink-0">{t.playstyle}</span>}
@@ -5346,12 +5407,14 @@ function SearchPanel({
   entries,
   initialNav,
   onNavConsumed,
+  onGoToSeason,
   liveInactive,
   liveRosterIds,
 }: {
   entries: SeasonHistoryEntry[];
   initialNav?: { kind: "players" | "teams" | "coaches"; id: string } | null;
   onNavConsumed?: () => void;
+  onGoToSeason?: GoToSeasonFn;
   /** Live franchise pool — current Search status only (not year-history). */
   liveInactive?: import("@/lib/season/playerLifecycle").InactivePlayerSnapshot[];
   liveRosterIds?: ReadonlySet<string>;
@@ -5801,12 +5864,23 @@ function SearchPanel({
             entries={entries}
             id={selected}
             onNavigate={navigate}
+            onGoToSeason={onGoToSeason}
             liveOpts={liveOpts}
           />
         ) : kind === "teams" ? (
-          <TeamProfileView entries={entries} teamKey={selected} onNavigate={navigate} />
+          <TeamProfileView
+            entries={entries}
+            teamKey={selected}
+            onNavigate={navigate}
+            onGoToSeason={onGoToSeason}
+          />
         ) : (
-          <CoachProfileView entries={entries} name={selected} onNavigate={navigate} />
+          <CoachProfileView
+            entries={entries}
+            name={selected}
+            onNavigate={navigate}
+            onGoToSeason={onGoToSeason}
+          />
         )}
       </div>
     </div>
@@ -5915,6 +5989,14 @@ export default function SeasonHistoryView({
   const selectSeason = useCallback((id: string) => {
     startSeasonTransition(() => setSelectedId(id));
   }, []);
+  const goToSeasonInTimeline = useCallback(
+    (seasonId: string) => {
+      selectTab("timeline");
+      selectTimelineView("seasons");
+      selectSeason(seasonId);
+    },
+    [selectTab, selectTimelineView, selectSeason],
+  );
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"all" | "one" | null>(null);
   const [importing, setImporting] = useState(false);
@@ -6226,6 +6308,7 @@ export default function SeasonHistoryView({
             entries={seasonHistory}
             initialNav={pendingSearchNav}
             onNavConsumed={() => setPendingSearchNav(null)}
+            onGoToSeason={goToSeasonInTimeline}
             liveInactive={liveSearchOpts?.liveInactive}
             liveRosterIds={liveSearchOpts?.liveRosterIds}
           />
