@@ -228,7 +228,7 @@ export function resetDesktopOperationPhaseForTests(): void {
   desktopOperationListeners.clear();
 }
 
-const CLOSE_FLUSH_TIMEOUT_MS = 10_000;
+const CLOSE_COMPACT_TIMEOUT_MS = 120_000;
 const CLOSE_ERROR_DISPLAY_MS = 1_500;
 
 /** Let React paint the closing overlay before blocking on disk I/O. */
@@ -247,18 +247,22 @@ async function flushPendingWritesOnClose(): Promise<"ok" | "failed"> {
       (async () => {
         await flushPendingPersistWrites();
         // After all pending SQLite writes complete, checkpoint the WAL so the
-        // main .db file is fully up-to-date before the process exits.  This is
-        // a no-op on non-desktop builds and best-effort on failure.
-        const { checkpointDesktopDatabase } = await import("./desktopSqlite");
+        // main .db file is fully up-to-date before compact / process exit.
+        const { checkpointDesktopDatabase, compactDesktopDatabaseOnClose } =
+          await import("./desktopSqlite");
         await checkpointDesktopDatabase();
+        await compactDesktopDatabaseOnClose();
       })(),
       new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("close flush timeout")), CLOSE_FLUSH_TIMEOUT_MS);
+        setTimeout(
+          () => reject(new Error("close save/compact timeout")),
+          CLOSE_COMPACT_TIMEOUT_MS,
+        );
       }),
     ]);
     return "ok";
   } catch (err) {
-    console.warn("[desktopStorage] close flush failed:", err);
+    console.warn("[desktopStorage] close save/compact failed:", err);
     return "failed";
   }
 }
@@ -472,7 +476,6 @@ function scheduleWebPersistFlushOnExit(): void {
 /** Register Tauri close handler: veto close, flush SQLite + files, then destroy. */
 async function registerTauriCloseFlushHandler(): Promise<void> {
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  const { hasPendingSqliteWrites } = await import("./desktopSqliteStorage");
   const appWindow = getCurrentWindow();
   await appWindow.onCloseRequested(async (event) => {
     // Never quit mid-import/delete/compact — JSON→DB write can take seconds
@@ -481,7 +484,6 @@ async function registerTauriCloseFlushHandler(): Promise<void> {
       event.preventDefault();
       return;
     }
-    if (pendingWrites.size === 0 && !hasPendingSqliteWrites()) return;
     event.preventDefault();
     signalAppClosing();
     await waitForClosingOverlayPaint();

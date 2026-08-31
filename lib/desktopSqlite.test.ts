@@ -20,6 +20,8 @@ import {
   syncRealityHistory,
   compactDesktopDatabase,
   measureDesktopDbFootprint,
+  formatDesktopDbBytes,
+  formatCompactResultMessage,
   recompactAllRealitySeasonsInDb,
   shouldSuggestCompactAfterDelete,
   COMPACT_SUGGEST_HISTORY_THRESHOLD,
@@ -611,28 +613,63 @@ describe("compactDesktopDatabase", () => {
 
   it("runs VACUUM and toggles the operation overlay", async () => {
     const queries: string[] = [];
+    let pageCount = 8;
     const db: SqlExecutor = {
       async execute(query) {
         queries.push(query);
+        if (query === "VACUUM") pageCount = 4;
         return { rowsAffected: 0 };
       },
-      async select() {
+      async select(query) {
+        if (query === "PRAGMA page_count") return [{ page_count: pageCount }];
+        if (query === "PRAGMA page_size") return [{ page_size: 4096 }];
+        if (query === "PRAGMA freelist_count") return [{ freelist_count: 0 }];
         return [];
       },
     };
     setDesktopDatabaseForTests(db);
 
-    const footprint = await compactDesktopDatabase();
+    const result = await compactDesktopDatabase();
 
     expect(queries).toContain("VACUUM");
     expect(signalCompactingDatabase).toHaveBeenCalledOnce();
     expect(clearDesktopOperation).toHaveBeenCalledOnce();
-    expect(footprint).toMatchObject({
-      globalBytes: 0,
-      seasonBytes: 0,
-      historyBytes: 0,
-      fileBytes: 0,
+    expect(result).toMatchObject({
+      freedBytes: (8 - 4) * 4096,
+      footprint: {
+        globalBytes: 0,
+        seasonBytes: 0,
+        historyBytes: 0,
+        fileBytes: 4 * 4096,
+      },
     });
+  });
+});
+
+describe("formatDesktopDbBytes", () => {
+  it("formats bytes, kilobytes, and megabytes", () => {
+    expect(formatDesktopDbBytes(512)).toBe("512 B");
+    expect(formatDesktopDbBytes(2048)).toBe("2.0 KB");
+    expect(formatDesktopDbBytes(12.3 * 1024 * 1024)).toBe("12.3 MB");
+  });
+});
+
+describe("formatCompactResultMessage", () => {
+  it("includes freed space and footprint breakdown", () => {
+    const message = formatCompactResultMessage({
+      freedBytes: 12.3 * 1024 * 1024,
+      footprint: {
+        globalBytes: 1000,
+        seasonBytes: 41 * 1024 * 1024,
+        historyBytes: 2 * 1024 * 1024,
+        fileBytes: 50 * 1024 * 1024,
+        freelistCount: 0,
+        realities: [],
+      },
+    });
+    expect(message).toBe(
+      "Database compacted — freed 12.3 MB (season 41.0 MB · history 2.0 MB · global 1000 B · file 50.0 MB)",
+    );
   });
 });
 

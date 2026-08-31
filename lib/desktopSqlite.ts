@@ -346,6 +346,30 @@ export type DesktopDbFootprint = {
   realities: DesktopDbRealityFootprint[];
 };
 
+export type DesktopDbCompactResult = {
+  footprint: DesktopDbFootprint;
+  /** On-disk file bytes reclaimed (0 if the file grew). */
+  freedBytes: number;
+};
+
+/** Human-readable size for compact summaries and UI flash messages. */
+export function formatDesktopDbBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function formatCompactResultMessage(result: DesktopDbCompactResult): string {
+  const fp = result.footprint;
+  return (
+    `Database compacted — freed ${formatDesktopDbBytes(result.freedBytes)} ` +
+    `(season ${formatDesktopDbBytes(fp.seasonBytes)} · ` +
+    `history ${formatDesktopDbBytes(fp.historyBytes)} · ` +
+    `global ${formatDesktopDbBytes(fp.globalBytes)} · ` +
+    `file ${formatDesktopDbBytes(fp.fileBytes)})`
+  );
+}
+
 function pragmaNumber(rows: Record<string, unknown>[], key: string): number | null {
   const row = rows[0];
   if (!row) return null;
@@ -465,21 +489,49 @@ export async function checkpointDesktopDatabase(): Promise<void> {
   }
 }
 
+async function runDesktopDatabaseCompact(
+  db: SqlExecutor,
+): Promise<DesktopDbCompactResult> {
+  const before = await measureDesktopDbFootprint(db);
+  await recompactAllRealitySeasonsInDb(db);
+  await db.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+  await db.execute("VACUUM");
+  const footprint = await measureDesktopDbFootprint(db);
+  return {
+    footprint,
+    freedBytes: Math.max(0, before.fileBytes - footprint.fileBytes),
+  };
+}
+
 /**
  * Reclaim disk space: re-encode every reality season (slim completed + compact
  * live), VACUUM, then return an approximate footprint summary. Desktop only.
  */
-export async function compactDesktopDatabase(): Promise<DesktopDbFootprint | undefined> {
+export async function compactDesktopDatabase(): Promise<DesktopDbCompactResult | undefined> {
   if (!isDesktop()) return undefined;
   signalCompactingDatabase();
   try {
     const db = await loadDatabase();
-    await recompactAllRealitySeasonsInDb(db);
-    await db.execute("PRAGMA wal_checkpoint(TRUNCATE)");
-    await db.execute("VACUUM");
-    return await measureDesktopDbFootprint(db);
+    return await runDesktopDatabaseCompact(db);
   } finally {
     clearDesktopOperation();
+  }
+}
+
+/**
+ * Compact during app close. Caller owns the closing overlay — no desktop
+ * operation phase is toggled here.
+ */
+export async function compactDesktopDatabaseOnClose(): Promise<
+  DesktopDbCompactResult | undefined
+> {
+  if (!isDesktop()) return undefined;
+  try {
+    const db = await loadDatabase();
+    return await runDesktopDatabaseCompact(db);
+  } catch (err) {
+    console.warn("[desktopSqlite] close compact failed:", err);
+    return undefined;
   }
 }
 

@@ -4,22 +4,12 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { useDraftStore } from "@/store/draftStore";
 import { isDesktop, saveFileNative, openFileNative } from "@/lib/desktopStorage";
-import { compactDesktopDatabase, type DesktopDbFootprint } from "@/lib/desktopSqlite";
+import {
+  compactDesktopDatabase,
+  formatCompactResultMessage,
+} from "@/lib/desktopSqlite";
 import { REALITY_CODE_PREFIX } from "@/lib/realityShare";
 import Modal from "./Modal";
-
-function formatMb(bytes: number): string {
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatCompactFootprint(fp: DesktopDbFootprint): string {
-  return (
-    `Database compacted — season ${formatMb(fp.seasonBytes)} · ` +
-    `history ${formatMb(fp.historyBytes)} · ` +
-    `global ${formatMb(fp.globalBytes)} · ` +
-    `file ${formatMb(fp.fileBytes)}`
-  );
-}
 
 interface CommunityEntry {
   id: string;
@@ -362,10 +352,10 @@ export default function RealitiesHub({ onChoose }: Props) {
     if (!isDesktop() || compacting) return;
     setCompacting(true);
     try {
-      const footprint = await compactDesktopDatabase();
+      const result = await compactDesktopDatabase();
       flash(
         "ok",
-        footprint ? formatCompactFootprint(footprint) : "Database compacted",
+        result ? formatCompactResultMessage(result) : "Database compacted",
       );
     } catch {
       flash("err", "Compact failed");
