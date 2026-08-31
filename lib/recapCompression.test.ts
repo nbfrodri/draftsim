@@ -14,11 +14,14 @@ import {
   encodeRecapForPersistCached,
   encodeRecapHeavyFields,
   decodeRecapHeavyFields,
+  encodeSeasonForDesktopDb,
   slimRecapFallback,
+  slimTournamentForArchive,
   type RecapCompact,
 } from "./recapCompression";
 import type { GameRecap } from "./types";
 import type { TournamentState } from "./tournament";
+import type { SeasonState } from "./season/types";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -382,5 +385,66 @@ describe("edge cases", () => {
         restored1.winProbTimeline![i].blueProb,
       )).toBeLessThanOrEqual(0.001);
     }
+  });
+});
+
+function makeTournamentWithRecap(
+  status: TournamentState["status"],
+  recap: GameRecap,
+): TournamentState {
+  return {
+    id: `t-${status}`,
+    status,
+    matches: [
+      {
+        id: "m1",
+        series: { games: [{ recap }] },
+      },
+    ],
+  } as unknown as TournamentState;
+}
+
+describe("slimTournamentForArchive / encodeSeasonForDesktopDb", () => {
+  it("strips timeline fields and recapC but keeps mvp", () => {
+    const recap = buildRealisticRecap();
+    const slimmed = slimTournamentForArchive(
+      makeTournamentWithRecap("complete", recap),
+    );
+    const out = slimmed.matches[0]!.series!.games[0]!.recap as GameRecap & {
+      recapC?: unknown;
+    };
+    expect(out.winProbTimeline).toBeUndefined();
+    expect(out.goldLeadTimeline).toBeUndefined();
+    expect(out.notableEvents).toBeUndefined();
+    expect(out.perPickKDA).toBeUndefined();
+    expect(out.recapC).toBeUndefined();
+    expect(out.mvp).toEqual(recap.mvp);
+    expect(out.durationMinutes).toBe(recap.durationMinutes);
+  });
+
+  it("slims completed stages and compact-encodes incomplete ones", () => {
+    const complete = makeTournamentWithRecap("complete", buildRealisticRecap());
+    const live = makeTournamentWithRecap("in-progress", buildRealisticRecap());
+    // Pre-compact the complete tournament so decode-then-slim is exercised.
+    const season = {
+      tournaments: {
+        done: compactEncodeTournamentForPersist(complete),
+        live,
+      },
+    } as unknown as SeasonState;
+
+    const encoded = encodeSeasonForDesktopDb(season);
+
+    const doneRecap = encoded.tournaments.done!.matches[0]!.series!.games[0]!
+      .recap as GameRecap & { recapC?: RecapCompact };
+    expect(doneRecap.winProbTimeline).toBeUndefined();
+    expect(doneRecap.recapC).toBeUndefined();
+    expect(doneRecap.mvp).toBeDefined();
+
+    const liveRecap = encoded.tournaments.live!.matches[0]!.series!.games[0]!
+      .recap as GameRecap & { recapC?: RecapCompact };
+    expect(liveRecap.winProbTimeline).toBeUndefined();
+    expect(liveRecap.recapC?.wp).toBeDefined();
+    expect(liveRecap.mvp).toBeDefined();
   });
 });

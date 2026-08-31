@@ -19,6 +19,8 @@ import {
   syncRemovedRealities,
   syncRealityHistory,
   compactDesktopDatabase,
+  measureDesktopDbFootprint,
+  recompactAllRealitySeasonsInDb,
   shouldSuggestCompactAfterDelete,
   COMPACT_SUGGEST_HISTORY_THRESHOLD,
   COMPACT_SUGGEST_SEASON_BYTES,
@@ -26,6 +28,13 @@ import {
 } from "./desktopSqlite";
 import { signalCompactingDatabase, clearDesktopOperation } from "./desktopStorage";
 import { UPSERT_REALITY_HISTORY_SQL } from "./desktopSqliteSchema";
+import {
+  compactEncodeTournamentForPersist,
+  type RecapCompact,
+} from "./recapCompression";
+import type { GameRecap } from "./types";
+import type { SeasonState } from "./season/types";
+import type { TournamentState } from "./tournament";
 
 const STORE_KEY = "draftsim-store";
 
@@ -613,10 +622,244 @@ describe("compactDesktopDatabase", () => {
     };
     setDesktopDatabaseForTests(db);
 
-    await compactDesktopDatabase();
+    const footprint = await compactDesktopDatabase();
 
     expect(queries).toContain("VACUUM");
     expect(signalCompactingDatabase).toHaveBeenCalledOnce();
     expect(clearDesktopOperation).toHaveBeenCalledOnce();
+    expect(footprint).toMatchObject({
+      globalBytes: 0,
+      seasonBytes: 0,
+      historyBytes: 0,
+      fileBytes: 0,
+    });
+  });
+});
+
+describe("measureDesktopDbFootprint", () => {
+  it("returns expected lengths for fake rows", async () => {
+    const seasonJson = '{"tournaments":{}}';
+    const historyJson = '{"id":"h1"}';
+    const globalJson = '{"version":1}';
+
+    const db: SqlExecutor = {
+      async execute() {
+        return { rowsAffected: 0 };
+      },
+      async select(query) {
+        if (query.includes("FROM global_state")) {
+          return [{ bytes: globalJson.length }];
+        }
+        if (query.includes("FROM realities") && query.includes("season_bytes")) {
+          return [
+            { id: "r1", name: "Alpha", season_bytes: seasonJson.length },
+            { id: "r2", name: "Beta", season_bytes: 10 },
+          ];
+        }
+        if (query.includes("FROM reality_history")) {
+          return [
+            {
+              reality_id: "r1",
+              history_bytes: historyJson.length * 2,
+              history_count: 2,
+            },
+          ];
+        }
+        if (query === "PRAGMA page_count") return [{ page_count: 4 }];
+        if (query === "PRAGMA page_size") return [{ page_size: 4096 }];
+        if (query === "PRAGMA freelist_count") return [{ freelist_count: 1 }];
+        throw new Error(`Unexpected select: ${query}`);
+      },
+    };
+
+    const fp = await measureDesktopDbFootprint(db);
+    expect(fp.globalBytes).toBe(globalJson.length);
+    expect(fp.seasonBytes).toBe(seasonJson.length + 10);
+    expect(fp.historyBytes).toBe(historyJson.length * 2);
+    expect(fp.fileBytes).toBe(4 * 4096);
+    expect(fp.freelistCount).toBe(1);
+    expect(fp.realities).toEqual([
+      {
+        id: "r1",
+        name: "Alpha",
+        seasonBytes: seasonJson.length,
+        historyBytes: historyJson.length * 2,
+        historyCount: 2,
+      },
+      {
+        id: "r2",
+        name: "Beta",
+        seasonBytes: 10,
+        historyBytes: 0,
+        historyCount: 0,
+      },
+    ]);
+  });
+});
+
+describe("recompactAllRealitySeasonsInDb", () => {
+  it("slims completed tournaments and keeps compact recaps on incomplete ones", async () => {
+    const fatRecap: GameRecap = {
+      durationMinutes: 32,
+      mvp: {
+        side: "blue",
+        lane: "bottom",
+        championId: 1,
+        kills: 9,
+        deaths: 1,
+        assists: 6,
+        laneGoldDiff: 2800,
+        playerName: "MVP",
+      },
+      biggestSwing: null,
+      winProbTimeline: Array.from({ length: 40 }, (_, i) => ({
+        minute: i,
+        blueProb: 0.5,
+      })),
+      goldLeadTimeline: Array.from({ length: 40 }, (_, i) => ({
+        minute: i,
+        goldLead: i * 100,
+      })),
+      notableEvents: [
+        {
+          minute: 12,
+          side: "blue",
+          type: "baron",
+          description: "Baron",
+          probDelta: 0.1,
+        },
+      ],
+      perPickKDA: {
+        blue: [
+          { k: 1, d: 0, a: 2 },
+          { k: 2, d: 1, a: 3 },
+          { k: 3, d: 0, a: 4 },
+          { k: 4, d: 1, a: 5 },
+          { k: 5, d: 0, a: 6 },
+        ],
+        red: [
+          { k: 0, d: 1, a: 1 },
+          { k: 1, d: 2, a: 1 },
+          { k: 0, d: 3, a: 2 },
+          { k: 1, d: 2, a: 0 },
+          { k: 0, d: 4, a: 1 },
+        ],
+      },
+      ratings: {
+        blue: [8.5, 7.2, 9.1, 6.5, 5.8],
+        red: [3.2, 4.1, 2.9, 3.5, 4.8],
+      },
+    };
+
+    const makeT = (id: string, status: TournamentState["status"]) =>
+      ({
+        id,
+        status,
+        matches: [
+          {
+            id: `${id}-m`,
+            series: { games: [{ recap: { ...fatRecap } }] },
+          },
+        ],
+      }) as unknown as TournamentState;
+
+    const season: SeasonState = {
+      tournaments: {
+        done: makeT("done", "complete"),
+        live: makeT("live", "in-progress"),
+      },
+    } as unknown as SeasonState;
+
+    // Store a bloated (decoded) season like an old import.
+    let stored = JSON.stringify(season);
+    const updates: string[] = [];
+
+    const db: SqlExecutor = {
+      async execute(query, bindValues = []) {
+        if (query.includes("UPDATE realities SET season_json")) {
+          stored = bindValues[0] as string;
+          updates.push(stored);
+          return { rowsAffected: 1 };
+        }
+        return { rowsAffected: 0 };
+      },
+      async select(query) {
+        if (query.includes("FROM realities")) {
+          return [
+            {
+              id: "r1",
+              name: "Test",
+              year: 2026,
+              season_json: stored,
+            },
+          ];
+        }
+        return [];
+      },
+    };
+
+    const rewritten = await recompactAllRealitySeasonsInDb(db);
+    expect(rewritten).toBe(1);
+    expect(updates).toHaveLength(1);
+
+    const next = JSON.parse(updates[0]!) as SeasonState;
+    const doneRecap = next.tournaments.done!.matches[0]!.series!.games[0]!
+      .recap as GameRecap & { recapC?: RecapCompact };
+    expect(doneRecap.winProbTimeline).toBeUndefined();
+    expect(doneRecap.goldLeadTimeline).toBeUndefined();
+    expect(doneRecap.notableEvents).toBeUndefined();
+    expect(doneRecap.perPickKDA).toBeUndefined();
+    expect(doneRecap.recapC).toBeUndefined();
+    expect(doneRecap.mvp?.playerName).toBe("MVP");
+
+    const liveRecap = next.tournaments.live!.matches[0]!.series!.games[0]!
+      .recap as GameRecap & { recapC?: RecapCompact };
+    expect(liveRecap.winProbTimeline).toBeUndefined();
+    expect(liveRecap.recapC?.wp).toBeDefined();
+    expect(liveRecap.mvp?.playerName).toBe("MVP");
+
+    // Idempotent second pass.
+    const again = await recompactAllRealitySeasonsInDb(db);
+    expect(again).toBe(0);
+  });
+
+  it("compact-encodes incomplete tournaments that already had recapC", async () => {
+    const recap: GameRecap = {
+      durationMinutes: 28,
+      mvp: null,
+      biggestSwing: null,
+      winProbTimeline: [{ minute: 1, blueProb: 0.6 }],
+    };
+    const live = compactEncodeTournamentForPersist({
+      id: "live",
+      status: "in-progress",
+      matches: [{ id: "m", series: { games: [{ recap }] } }],
+    } as unknown as TournamentState);
+
+    let stored = JSON.stringify({
+      tournaments: { live },
+    });
+
+    const db: SqlExecutor = {
+      async execute(query, bindValues = []) {
+        if (query.includes("UPDATE realities SET season_json")) {
+          stored = bindValues[0] as string;
+          return { rowsAffected: 1 };
+        }
+        return { rowsAffected: 0 };
+      },
+      async select() {
+        return [
+          { id: "r1", name: "Test", year: 2026, season_json: stored },
+        ];
+      },
+    };
+
+    await recompactAllRealitySeasonsInDb(db);
+    const next = JSON.parse(stored) as SeasonState;
+    const out = next.tournaments.live!.matches[0]!.series!.games[0]!
+      .recap as GameRecap & { recapC?: RecapCompact };
+    expect(out.recapC?.wp).toBeDefined();
+    expect(out.winProbTimeline).toBeUndefined();
   });
 });

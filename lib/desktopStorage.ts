@@ -157,7 +157,10 @@ export function resetAppClosePhaseForTests(): void {
 export type DesktopOperationPhase =
   | "idle"
   | "deleting-reality"
-  | "compacting-database";
+  | "compacting-database"
+  | "importing-reality"
+  | "opening-reality"
+  | "leaving-season";
 
 let desktopOperationPhase: DesktopOperationPhase = "idle";
 const desktopOperationListeners = new Set<() => void>();
@@ -178,12 +181,37 @@ export function signalCompactingDatabase(): void {
   setDesktopOperationPhase("compacting-database");
 }
 
+/** Called before parsing a large reality JSON and writing it into SQLite. */
+export function signalImportingReality(): void {
+  setDesktopOperationPhase("importing-reality");
+}
+
+/** Called while decoding a large franchise season to open/resume it. */
+export function signalOpeningReality(): void {
+  setDesktopOperationPhase("opening-reality");
+}
+
+/** Called while snapshotting the live season back into the reality slot + flush. */
+export function signalLeavingSeason(): void {
+  setDesktopOperationPhase("leaving-season");
+}
+
 export function clearDesktopOperation(): void {
   setDesktopOperationPhase("idle");
 }
 
 export function getDesktopOperationPhase(): DesktopOperationPhase {
   return desktopOperationPhase;
+}
+
+/** True while delete / compact / import overlays should block window close. */
+export function isDesktopOperationBlocking(): boolean {
+  return desktopOperationPhase !== "idle";
+}
+
+/** Let React paint a desktop-operation overlay before heavy sync/async work. */
+export function waitForDesktopOverlayPaint(): Promise<void> {
+  return waitForClosingOverlayPaint();
 }
 
 /** Subscribe for useSyncExternalStore — never fires synchronously. */
@@ -447,6 +475,12 @@ async function registerTauriCloseFlushHandler(): Promise<void> {
   const { hasPendingSqliteWrites } = await import("./desktopSqliteStorage");
   const appWindow = getCurrentWindow();
   await appWindow.onCloseRequested(async (event) => {
+    // Never quit mid-import/delete/compact — JSON→DB write can take seconds
+    // on large realities and a kill mid-upsert corrupts or drops the import.
+    if (isDesktopOperationBlocking()) {
+      event.preventDefault();
+      return;
+    }
     if (pendingWrites.size === 0 && !hasPendingSqliteWrites()) return;
     event.preventDefault();
     signalAppClosing();
@@ -475,7 +509,14 @@ if (typeof window !== "undefined") {
     ? schedulePersistFlushOnExit
     : scheduleWebPersistFlushOnExit;
 
-  window.addEventListener("beforeunload", onExit);
+  window.addEventListener("beforeunload", (event) => {
+    // Browser/tab close during import/delete/compact — ask the user to wait.
+    if (isDesktopOperationBlocking()) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    onExit();
+  });
   // pagehide is more reliable than beforeunload on mobile / bfcache navigations.
   window.addEventListener("pagehide", onExit);
   // Tab switch / minimize / app background — backup so debounced writes land.

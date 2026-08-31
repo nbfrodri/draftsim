@@ -9,6 +9,8 @@
 import type { StorageValue } from "zustand/middleware";
 import type { SavedReality } from "@/store/draftStore";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
+import type { SeasonState } from "@/lib/season/types";
+import { encodeSeasonForDesktopDb } from "@/lib/recapCompression";
 import {
   DESKTOP_DB_FILENAME,
   JSON_MIGRATION_FLAG,
@@ -213,6 +215,50 @@ async function upsertGlobalState(
   );
 }
 
+/** Persist seasons: slim completed stages, compact-encode live ones. */
+function seasonJsonForDb(season: SeasonState): string {
+  if (!season?.tournaments || typeof season.tournaments !== "object") {
+    return JSON.stringify(season ?? {});
+  }
+  return JSON.stringify(encodeSeasonForDesktopDb(season));
+}
+
+/**
+ * Rewrite every reality's season_json with desktop-db encoding (slim completed
+ * + compact incomplete), then callers may VACUUM.
+ * Fixes DBs that grew far past the JSON export size after importing decoded seasons.
+ */
+export async function recompactAllRealitySeasonsInDb(db: SqlExecutor): Promise<number> {
+  const rows = await db.select<{
+    id: string;
+    name: string;
+    year: number;
+    season_json: string;
+  }>("SELECT id, name, year, season_json FROM realities");
+
+  let rewritten = 0;
+  for (const row of rows) {
+    let season: SeasonState;
+    try {
+      season = JSON.parse(row.season_json) as SeasonState;
+    } catch {
+      continue;
+    }
+    if (!season?.tournaments || typeof season.tournaments !== "object") continue;
+
+    const recompressed = encodeSeasonForDesktopDb(season);
+    const nextJson = JSON.stringify(recompressed);
+    if (nextJson === row.season_json) continue;
+
+    await db.execute(
+      `UPDATE realities SET season_json = ?, updated_at = ? WHERE id = ?`,
+      [nextJson, Date.now(), row.id],
+    );
+    rewritten++;
+  }
+  return rewritten;
+}
+
 async function upsertRealityRow(
   db: SqlExecutor,
   reality: Pick<SavedReality, "id" | "name" | "year" | "season">,
@@ -226,7 +272,13 @@ async function upsertRealityRow(
        year = excluded.year,
        season_json = excluded.season_json,
        updated_at = excluded.updated_at`,
-    [reality.id, reality.name, reality.year, JSON.stringify(reality.season), now],
+    [
+      reality.id,
+      reality.name,
+      reality.year,
+      seasonJsonForDb(reality.season),
+      now,
+    ],
   );
 }
 
@@ -277,6 +329,119 @@ export function shouldSuggestCompactAfterDelete(reality: RealityFootprint): bool
   return false;
 }
 
+export type DesktopDbRealityFootprint = {
+  id: string;
+  name?: string;
+  seasonBytes: number;
+  historyBytes: number;
+  historyCount: number;
+};
+
+export type DesktopDbFootprint = {
+  globalBytes: number;
+  seasonBytes: number;
+  historyBytes: number;
+  fileBytes: number;
+  freelistCount: number | null;
+  realities: DesktopDbRealityFootprint[];
+};
+
+function pragmaNumber(rows: Record<string, unknown>[], key: string): number | null {
+  const row = rows[0];
+  if (!row) return null;
+  const direct = row[key];
+  if (typeof direct === "number" && Number.isFinite(direct)) return direct;
+  // Some drivers return a single anonymous column.
+  for (const value of Object.values(row)) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+/** Approximate on-disk payload sizes for diagnostics after compact / VACUUM. */
+export async function measureDesktopDbFootprint(
+  db: SqlExecutor,
+): Promise<DesktopDbFootprint> {
+  const globalRows = await db.select<{ bytes: number }>(
+    "SELECT COALESCE(SUM(LENGTH(state_json)), 0) AS bytes FROM global_state",
+  );
+  const globalBytes = Number(globalRows[0]?.bytes ?? 0);
+
+  const realityRows = await db.select<{
+    id: string;
+    name: string;
+    season_bytes: number;
+  }>("SELECT id, name, LENGTH(season_json) AS season_bytes FROM realities");
+
+  const historyRows = await db.select<{
+    reality_id: string;
+    history_bytes: number;
+    history_count: number;
+  }>(
+    `SELECT reality_id,
+            COALESCE(SUM(LENGTH(entry_json)), 0) AS history_bytes,
+            COUNT(*) AS history_count
+     FROM reality_history
+     GROUP BY reality_id`,
+  );
+  const historyById = new Map(
+    historyRows.map((r) => [
+      r.reality_id,
+      {
+        historyBytes: Number(r.history_bytes ?? 0),
+        historyCount: Number(r.history_count ?? 0),
+      },
+    ]),
+  );
+
+  const realities: DesktopDbRealityFootprint[] = realityRows.map((r) => {
+    const hist = historyById.get(r.id);
+    return {
+      id: r.id,
+      name: r.name,
+      seasonBytes: Number(r.season_bytes ?? 0),
+      historyBytes: hist?.historyBytes ?? 0,
+      historyCount: hist?.historyCount ?? 0,
+    };
+  });
+
+  const seasonBytes = realities.reduce((sum, r) => sum + r.seasonBytes, 0);
+  const historyBytes = realities.reduce((sum, r) => sum + r.historyBytes, 0);
+
+  const pageCount =
+    pragmaNumber(
+      (await db.select<Record<string, unknown>>("PRAGMA page_count")) as Record<
+        string,
+        unknown
+      >[],
+      "page_count",
+    ) ?? 0;
+  const pageSize =
+    pragmaNumber(
+      (await db.select<Record<string, unknown>>("PRAGMA page_size")) as Record<
+        string,
+        unknown
+      >[],
+      "page_size",
+    ) ?? 0;
+  const freelistCount = pragmaNumber(
+    (await db.select<Record<string, unknown>>("PRAGMA freelist_count")) as Record<
+      string,
+      unknown
+    >[],
+    "freelist_count",
+  );
+
+  return {
+    globalBytes,
+    seasonBytes,
+    historyBytes,
+    fileBytes: pageCount * pageSize,
+    freelistCount,
+    realities,
+  };
+}
+
 /**
  * Checkpoint the WAL file into the main DB file on close / flush.
  *
@@ -301,21 +466,31 @@ export async function checkpointDesktopDatabase(): Promise<void> {
 }
 
 /**
- * Reclaim disk space after large deletes (SQLite does not shrink the file
- * automatically). Desktop only — runs PRAGMA vacuum on the app database.
+ * Reclaim disk space: re-encode every reality season (slim completed + compact
+ * live), VACUUM, then return an approximate footprint summary. Desktop only.
  */
-export async function compactDesktopDatabase(): Promise<void> {
-  if (!isDesktop()) return;
+export async function compactDesktopDatabase(): Promise<DesktopDbFootprint | undefined> {
+  if (!isDesktop()) return undefined;
   signalCompactingDatabase();
   try {
     const db = await loadDatabase();
+    await recompactAllRealitySeasonsInDb(db);
+    await db.execute("PRAGMA wal_checkpoint(TRUNCATE)");
     await db.execute("VACUUM");
+    return await measureDesktopDbFootprint(db);
   } finally {
     clearDesktopOperation();
   }
 }
 
-/** Sync history rows: upsert each entry, then drop rows removed from state. */
+/**
+ * Sync history rows: upsert each entry, then drop rows removed from state.
+ *
+ * Hall history entries are already lightweight résumés (champion / MVP
+ * snapshots — not full tournament recaps), so we do not archive-slim them
+ * here. Season `season_json` is where chart payloads live; prefer that slim
+ * path (encodeSeasonForDesktopDb) for DB size reduction.
+ */
 export async function syncRealityHistory(
   db: SqlExecutor,
   realityId: string,

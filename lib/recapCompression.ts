@@ -242,6 +242,12 @@ const encodedRecapCache = new WeakMap<GameRecap, PersistEncodedRecap>();
 export function encodeRecapForPersistCached(recap: GameRecap): PersistEncodedRecap {
   const hit = encodedRecapCache.get(recap);
   if (hit) return hit;
+  // Already persisted form (e.g. loaded from SQLite / re-export) — keep as-is.
+  if ((recap as PersistEncodedRecap).recapC) {
+    const existing = recap as PersistEncodedRecap;
+    encodedRecapCache.set(recap, existing);
+    return existing;
+  }
   const { slim, compact } = encodeRecapHeavyFields(recap);
   const encoded: PersistEncodedRecap = { ...slim, recapC: compact };
   encodedRecapCache.set(recap, encoded);
@@ -385,6 +391,62 @@ export function compactEncodeSeasonForPersist(season: SeasonState): SeasonState 
   lastSeasonInput = season;
   lastSeasonResult = result;
   return result;
+}
+
+/**
+ * Strip heavy per-game chart fields from a tournament before archive / DB
+ * persist of completed stages. Keeps lightweight summary fields (mvp,
+ * biggestSwing, duration, lane gold diff) so Hall of Fame and opening a
+ * completed stage still show basic recaps — just without win-prob / gold
+ * charts and damage bars.
+ */
+export function slimTournamentForArchive(
+  tournament: TournamentState,
+): TournamentState {
+  return {
+    ...tournament,
+    matches: tournament.matches.map((m) => {
+      if (!m.series) return m;
+      return {
+        ...m,
+        series: {
+          ...m.series,
+          games: m.series.games.map((g) => {
+            if (!g.recap) return g;
+            const slim = { ...g.recap } as typeof g.recap & {
+              recapC?: unknown;
+            };
+            delete slim.winProbTimeline;
+            delete slim.goldLeadTimeline;
+            delete slim.notableEvents;
+            delete slim.perPickKDA;
+            delete slim.recapC;
+            return { ...g, recap: slim };
+          }),
+        },
+      };
+    }),
+  };
+}
+
+/**
+ * Desktop SQLite season encoding: decode any compact recaps, archive-slim
+ * completed tournaments (no chart payloads), compact-encode incomplete ones
+ * so live stages keep charts while finished stages stay small.
+ */
+export function encodeSeasonForDesktopDb(season: SeasonState): SeasonState {
+  const decoded = decodeCompactSeason(season);
+  return {
+    ...decoded,
+    tournaments: Object.fromEntries(
+      Object.entries(decoded.tournaments).map(([id, t]) => [
+        id,
+        t.status === "complete"
+          ? slimTournamentForArchive(t)
+          : compactEncodeTournamentForPersist(t),
+      ]),
+    ),
+  };
 }
 
 // ── Slim fallback (quota exceeded) ───────────────────────────────────────────
