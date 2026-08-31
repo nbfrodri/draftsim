@@ -204,9 +204,6 @@ function CareerStatusBadge({
       title="Retired"
     >
       {size === "md" ? "Retired" : "Ret"}
-      {inactiveYears != null && size === "md"
-        ? ` · ${Math.min(TOTAL_INACTIVE_BEFORE_RETIRE, Math.max(1, inactiveYears))}y`
-        : ""}
     </span>
   );
 }
@@ -1769,7 +1766,12 @@ function TeamComparePanel({
     [entries, records, keyA, keyB],
   );
 
-  const statRow = (label: string, a: string | number, b: string | number) => {
+  const statRow = (
+    label: string,
+    a: string | number,
+    b: string | number,
+    hint?: string,
+  ) => {
     const na = Number(a);
     const nb = Number(b);
     return (
@@ -1782,7 +1784,10 @@ function TeamComparePanel({
         >
           {a}
         </span>
-        <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 text-center min-w-[5.5rem]">
+        <span
+          className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 text-center min-w-[5.5rem]"
+          title={hint}
+        >
           {label}
         </span>
         <span
@@ -2052,9 +2057,15 @@ function TeamComparePanel({
               compare.recordB?.worldsTitles ?? 0,
             )}
             {statRow(
+              "Global Cups",
+              compare.recordA?.intlTitles["global-cup"] ?? 0,
+              compare.recordB?.intlTitles["global-cup"] ?? 0,
+            )}
+            {statRow(
               "Intl seasons",
               compare.intlAppearancesA,
               compare.intlAppearancesB,
+              "Archived seasons with at least one international roster appearance (First Stand, MSI, Worlds, or Global Cup)",
             )}
             {statRow(
               "Worlds finals",
@@ -2158,6 +2169,10 @@ function PlayerComparePanel({
         : null,
     [entries, careers, idA, idB],
   );
+  const titlesByEvent = useMemo(
+    () => computePlayerTitlesByEvent(entries),
+    [entries],
+  );
 
   const fmtRate = (n: number | null) =>
     n == null ? "—" : `${Math.round(n * 100)}%`;
@@ -2166,7 +2181,12 @@ function PlayerComparePanel({
   const fmtGd = (sum: number, games: number) =>
     games <= 0 ? "—" : formatGoldAdvAvg(sum / games);
 
-  const statRow = (label: string, a: string | number, b: string | number) => {
+  const statRow = (
+    label: string,
+    a: string | number,
+    b: string | number,
+    hint?: string,
+  ) => {
     const na = typeof a === "number" ? a : Number(a);
     const nb = typeof b === "number" ? b : Number(b);
     const numeric = Number.isFinite(na) && Number.isFinite(nb);
@@ -2184,7 +2204,10 @@ function PlayerComparePanel({
         >
           {a}
         </span>
-        <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 text-center min-w-[5.5rem]">
+        <span
+          className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 text-center min-w-[5.5rem]"
+          title={hint}
+        >
           {label}
         </span>
         <span
@@ -2618,9 +2641,15 @@ function PlayerComparePanel({
               compare.playerB.intlTitles,
             )}
             {statRow(
+              "Global Cups",
+              titlesByEvent.get(compare.playerA.playerId)?.globalCup ?? 0,
+              titlesByEvent.get(compare.playerB.playerId)?.globalCup ?? 0,
+            )}
+            {statRow(
               "Intl seasons",
               compare.playerA.intlAppearances,
               compare.playerB.intlAppearances,
+              "Career international event appearances — each First Stand, MSI, Worlds, or Global Cup rostered counts once per season",
             )}
             {statRow(
               "Avg grade",
@@ -4279,7 +4308,13 @@ function CareerWindowChips({ windows }: { windows: PlayerCareerWindow[] }) {
           )}
           {w.label}
           {w.splitPlacement != null && (
-            <span className="tabular-nums text-rift-muted/70">
+            <span
+              className={
+                w.splitPlacement <= 2
+                  ? "tabular-nums text-rift-goldbright"
+                  : "tabular-nums text-rift-muted/70"
+              }
+            >
               {splitPlacementLabel(w.splitPlacement)}
             </span>
           )}
@@ -4289,7 +4324,7 @@ function CareerWindowChips({ windows }: { windows: PlayerCareerWindow[] }) {
                 w.intlOutcome.kind === "champion" || w.intlOutcome.kind === "finalist"
                   ? "text-rift-goldbright"
                   : w.intlOutcome.kind === "did-not-qualify"
-                    ? "text-rift-muted/45"
+                    ? "text-rift-redbright/85"
                     : "text-rift-muted/65"
               }
             >
@@ -4580,13 +4615,6 @@ const PlayerProfileView = memo(function PlayerProfileView({
                         </button>
                         <LaneIcon lane={st.lane} size="xs" />
                         <span className={`px-1 border font-display text-[8px] flex-shrink-0 ${STAGE_TIER_CLS[st.tier] ?? ""}`}>{st.tier}</span>
-                        <span className="text-[7px] uppercase tracking-[0.15em] text-rift-muted/45 truncate min-w-0">{st.stages.join(", ")}</span>
-                        {t.careerStatus === "academy" && j === t.stints.length - 1 && (
-                          <span className="text-[7px] uppercase tracking-[0.15em] text-amber-400/80">→ Academy</span>
-                        )}
-                        {t.careerStatus === "free-agent" && j === t.stints.length - 1 && (
-                          <span className="text-[7px] uppercase tracking-[0.15em] text-sky-400/80">→ FA</span>
-                        )}
                       </span>
                     ))
                   ) : t.affiliateTeam ? (
@@ -5184,6 +5212,7 @@ const SORT_OPTIONS: Record<
     { key: "name", label: "Name" },
     { key: "grade", label: "Avg Grade" },
     { key: "titles", label: "Titles" },
+    { key: "intlTitles", label: "International Titles" },
     { key: "mvps", label: "MVPs" },
     { key: "allPro", label: "All-Pro" },
     { key: "pentakills", label: "Pentakills" },
@@ -5550,6 +5579,7 @@ function SearchPanel({
           sortVals: {
             grade: p.grade,
             titles: p.titles,
+            intlTitles: playerCareersById.get(p.id)?.intlTitles ?? 0,
             mvps: p.mvps,
             allPro: p.allPro,
             pentakills: p.pentakills,

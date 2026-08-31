@@ -51,10 +51,11 @@ type ChipTone =
 const CHIP_TONE_CLS: Record<ChipTone, string> = {
   champion:
     "border-rift-gold/55 bg-rift-gold/10 text-rift-goldbright shadow-[inset_0_0_0_1px_rgba(200,170,110,0.12)]",
-  finalist: "border-rift-gold/35 bg-rift-bg/25 text-rift-mutedbright",
+  finalist:
+    "border-rift-gold/45 bg-rift-gold/[0.08] text-rift-goldbright/90 shadow-[inset_0_0_0_1px_rgba(200,170,110,0.08)]",
   placed: "border-rift-line/40 bg-rift-bg/20 text-rift-mutedbright",
   exit: "border-rift-line/30 bg-rift-bg/10 text-rift-muted/65",
-  dnq: "border-rift-line/20 bg-transparent text-rift-muted/40",
+  dnq: "border-rift-red/35 bg-rift-red/[0.06] text-rift-redbright/85",
 };
 
 function splitTone(placement: number, champion: boolean): ChipTone {
