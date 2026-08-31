@@ -1284,6 +1284,47 @@ describe("post-Worlds transfer digest carry", () => {
     ]);
   });
 
+  it("never surfaces Global Cup as a transfer digest section", () => {
+    const base = makeReality(true);
+    const gcMove = {
+      event: "global-cup" as const,
+      lane: "top" as const,
+      fromTeamId: base.teams[0]!.id,
+      toTeamId: base.teams[1]!.id,
+      star: { tier: "A" as const, grade: null, goodChamps: [] as string[] },
+      swap: { tier: "B" as const, grade: null, goodChamps: [] as string[] },
+    };
+    const events = visibleTransferDigestEvents({
+      ...base,
+      status: "complete",
+      phases: [
+        ...base.phases,
+        {
+          kind: "international",
+          event: "global-cup",
+          label: "Global Cup",
+          tournamentIds: [],
+          status: "complete",
+        },
+      ],
+      transfersByEvent: {
+        worlds: [
+          {
+            event: "worlds",
+            lane: "jungle",
+            fromTeamId: base.teams[0]!.id,
+            toTeamId: base.teams[1]!.id,
+            star: { tier: "S" as const, grade: null, goodChamps: [] },
+            swap: { tier: "C" as const, grade: null, goodChamps: [] },
+          },
+        ],
+        "global-cup": [gcMove],
+      },
+    });
+    expect(events).not.toContain("global-cup");
+    expect(events).toContain("worlds");
+  });
+
   it("roster news timeMarks stay on their window at offseason (not all Offseason)", () => {
     const base = makeReality(true);
     const season = {

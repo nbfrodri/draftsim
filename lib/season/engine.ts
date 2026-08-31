@@ -2203,6 +2203,8 @@ export function applyTournamentUpdate(
   // the just-shifted patch factors in, so it runs after the patch. The
   // upcoming transfer phase (startPhase below) then pauses for the followed
   // team's decisions, or flows straight through if there are none.
+  // Global Cup intentionally has no transfer window — roster stays frozen
+  // from Worlds through Global Cup; year-end offseason is Post Worlds.
   if (phase.kind === "international" && (phase.event === "first-stand" || phase.event === "msi")) {
     next = applyTransfers(next, champions, phase);
   }

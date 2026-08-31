@@ -74,6 +74,29 @@ const ROSTER_TIME_SORT: Record<string, number> = {
   Offseason: 7,
 };
 
+/**
+ * Display labels for timeMark values in the Roster Moves section.
+ * Mid-split marks ("Winter", "Spring", "Summer") happened AFTER the split
+ * ended but BEFORE the following international — clarify this so the user
+ * can distinguish pre-intl moves from post-intl transfer window moves.
+ */
+const ROSTER_TIMEMARK_LABEL: Record<string, string> = {
+  Winter: "After Winter Split · Pre First Stand",
+  Spring: "After Spring Split · Pre MSI",
+  Summer: "After Summer Split · Pre Worlds",
+  "First Stand window": "Post First Stand",
+  "MSI window": "Post MSI",
+  "Worlds window": "Post Worlds (window)",
+  Offseason: "Offseason",
+};
+
+/** Mid-split checkpoint marks — long lists, default collapsed in digest. */
+const PRE_INTL_ROSTER_TIMEMARKS = new Set(["Winter", "Spring", "Summer"]);
+
+function isPreIntlRosterTimeMark(timeMark: string) {
+  return PRE_INTL_ROSTER_TIMEMARKS.has(timeMark);
+}
+
 function groupRosterNewsByTime(items: readonly RosterNewsItem[]) {
   const groups = new Map<string, RosterNewsItem[]>();
   for (const n of items) {
@@ -337,6 +360,10 @@ export default function TransferWindowPanel() {
   const [panelOpen, setPanelOpen] = useState(true);
   /** Demotions & roster entries disclosure — expanded by default. */
   const [rosterNewsOpen, setRosterNewsOpen] = useState(true);
+  /** Per timeMark group in Roster moves — pre-intl sections start collapsed. */
+  const [collapsedRosterGroups, setCollapsedRosterGroups] = useState<Set<string>>(
+    () => new Set(PRE_INTL_ROSTER_TIMEMARKS),
+  );
   const [panelTab, setPanelTab] = useState<PanelTab>("yours");
   const [newsKindFilter, setNewsKindFilter] = useState<NewsKindFilter>("all");
 
@@ -1107,45 +1134,79 @@ export default function TransferWindowPanel() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {rosterNewsGroups.map(([timeMark, items]) => (
+                    {rosterNewsGroups.map(([timeMark, items]) => {
+                      const isPreIntl = isPreIntlRosterTimeMark(timeMark);
+                      const displayLabel =
+                        ROSTER_TIMEMARK_LABEL[timeMark] ?? timeMark;
+                      const isCollapsed = collapsedRosterGroups.has(timeMark);
+                      return (
                       <div key={timeMark}>
-                        <div className="px-2.5 py-1 border-b border-rift-line/20 bg-rift-bg/25 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCollapsedRosterGroups((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(timeMark)) next.delete(timeMark);
+                              else next.add(timeMark);
+                              return next;
+                            })
+                          }
+                          aria-expanded={!isCollapsed}
+                          className={`w-full px-2.5 py-1 border-b flex items-center gap-2 text-left transition-colors ${
+                            isPreIntl
+                              ? "border-amber-500/20 bg-amber-500/[0.03] hover:bg-amber-500/[0.06]"
+                              : "border-rift-line/20 bg-rift-bg/25 hover:bg-rift-bg/40"
+                          }`}
+                        >
                           <span
-                            className="w-1.5 h-1.5 rounded-full bg-emerald-400/70 shrink-0"
+                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${isPreIntl ? "bg-amber-400/70" : "bg-emerald-400/70"}`}
                             aria-hidden
                           />
-                          <span className="text-[8px] uppercase tracking-[0.2em] text-rift-gold/60 flex-1 truncate">
-                            {timeMark}
+                          <span
+                            className={`text-[8px] uppercase tracking-[0.2em] flex-1 truncate ${
+                              isPreIntl ? "text-amber-300/70" : "text-rift-gold/60"
+                            }`}
+                          >
+                            {displayLabel}
                           </span>
                           <span className="text-[8px] text-rift-muted/45 tabular-nums shrink-0">
                             {items.length}
                           </span>
-                        </div>
-                        <div className="divide-y divide-rift-line/12 max-h-[28rem] overflow-y-auto">
-                          {items.map((n, i) => {
-                            const team = seasonTeam(season, n.teamId);
-                            const highlight = !!controlledId && n.teamId === controlledId;
-                            return (
-                              <RosterNewsRow
-                                key={`${n.teamId}-${n.lane}-${timeMark}-${i}`}
-                                item={n}
-                                team={
-                                  team
-                                    ? {
-                                        name: team.name,
-                                        iconKey: team.iconKey,
-                                        logoUrl: resolveTeamLogo(team.name, team.logoUrl),
-                                        color: team.color,
-                                      }
-                                    : undefined
-                                }
-                                highlight={highlight}
-                              />
-                            );
-                          })}
-                        </div>
+                          <span
+                            className={`text-[10px] leading-none shrink-0 ${isPreIntl ? "text-amber-300/60" : "text-emerald-300/60"}`}
+                            aria-hidden
+                          >
+                            {isCollapsed ? "▾" : "▴"}
+                          </span>
+                        </button>
+                        {!isCollapsed && (
+                          <div className="divide-y divide-rift-line/12 max-h-[28rem] overflow-y-auto">
+                            {items.map((n, i) => {
+                              const team = seasonTeam(season, n.teamId);
+                              const highlight = !!controlledId && n.teamId === controlledId;
+                              return (
+                                <RosterNewsRow
+                                  key={`${n.teamId}-${n.lane}-${timeMark}-${i}`}
+                                  item={n}
+                                  team={
+                                    team
+                                      ? {
+                                          name: team.name,
+                                          iconKey: team.iconKey,
+                                          logoUrl: resolveTeamLogo(team.name, team.logoUrl),
+                                          color: team.color,
+                                        }
+                                      : undefined
+                                  }
+                                  highlight={highlight}
+                                />
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                 )}
               </div>

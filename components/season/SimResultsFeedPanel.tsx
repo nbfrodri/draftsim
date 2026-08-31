@@ -8,20 +8,31 @@ import {
   IconSun,
   IconTrophy,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState, memo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo, type ReactNode } from "react";
 
+import LaneIcon from "../LaneIcon";
 import LeagueIcon from "../LeagueIcon";
+import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
+import TierChip from "./TierChip";
 import {
   countSummarizedYears,
+  feedEntryOrder,
+  groupSimResultFeedEntries,
   simResultYears,
   SIM_RESULTS_FULL_DETAIL_YEARS,
+  PRE_INTL_LABEL,
   type SimFollowedTeamSummary,
   type SimIntlResultEntry,
   type SimResultEntry,
   type SimResultTeamRef,
+  type SimRosterMoveSummary,
+  type SimRosterMovesEntry,
+  type SimRosterPlayer,
+  type SimRosterSnapshots,
   type SimSplitResultEntry,
   type SimYearResultEntry,
+  type SimResultYearGroup,
 } from "@/lib/season/simResultsSummary";
 import {
   INTERNATIONAL_LABELS,
@@ -31,6 +42,103 @@ import {
   type LeagueId,
   type SplitId,
 } from "@/lib/season/types";
+import type { Lane, PlayerTier, Roster } from "@/lib/types";
+
+function isRosterMovesEntry(entry: SimResultEntry): entry is SimRosterMovesEntry {
+  return entry.kind === "roster-moves";
+}
+
+type GroupedFeedCache = {
+  entries: SimResultEntry[];
+  showRosterMoves: boolean;
+  grouped: SimResultYearGroup[];
+};
+
+function sortYearEntriesLocal(entries: SimResultEntry[]): SimResultEntry[] {
+  if (entries.length <= 1) return entries;
+  for (let i = 1; i < entries.length; i++) {
+    if (feedEntryOrder(entries[i - 1]!) > feedEntryOrder(entries[i]!)) {
+      return [...entries].sort((a, b) => feedEntryOrder(a) - feedEntryOrder(b));
+    }
+  }
+  return entries;
+}
+
+/** Incrementally extend grouped feed when batched appends preserve the prefix. */
+function appendGroupedFeedEntries(
+  grouped: SimResultYearGroup[],
+  newEntries: SimResultEntry[],
+  showRosterMoves: boolean,
+): SimResultYearGroup[] {
+  if (newEntries.length === 0) return grouped;
+
+  const touchedYears = new Set<number>();
+  for (const entry of newEntries) {
+    if (!showRosterMoves && isRosterMovesEntry(entry)) continue;
+    touchedYears.add(entry.year);
+  }
+  if (touchedYears.size === 0) return grouped;
+
+  const byYear = new Map<number, SimResultEntry[]>();
+  for (const [year, list] of grouped) byYear.set(year, list);
+
+  for (const entry of newEntries) {
+    if (!showRosterMoves && isRosterMovesEntry(entry)) continue;
+    const list = byYear.get(entry.year) ?? [];
+    byYear.set(entry.year, [...list, entry]);
+  }
+
+  const next: SimResultYearGroup[] = [];
+  for (const year of [...byYear.keys()].sort((a, b) => a - b)) {
+    const list = byYear.get(year)!;
+    const prevGroup = grouped.find(([y]) => y === year);
+    if (prevGroup && !touchedYears.has(year)) {
+      next.push(prevGroup);
+    } else {
+      next.push([year, sortYearEntriesLocal(list)]);
+    }
+  }
+  return next;
+}
+
+function useGroupedFeedEntries(
+  entries: SimResultEntry[],
+  showRosterMoves: boolean,
+): SimResultYearGroup[] {
+  const cacheRef = useRef<GroupedFeedCache | null>(null);
+
+  return useMemo(() => {
+    const prev = cacheRef.current;
+    if (prev && prev.entries === entries && prev.showRosterMoves === showRosterMoves) {
+      return prev.grouped;
+    }
+    if (
+      prev &&
+      prev.showRosterMoves === showRosterMoves &&
+      entries.length > prev.entries.length
+    ) {
+      let prefixMatch = true;
+      for (let i = 0; i < prev.entries.length; i++) {
+        if (entries[i] !== prev.entries[i]) {
+          prefixMatch = false;
+          break;
+        }
+      }
+      if (prefixMatch) {
+        const grouped = appendGroupedFeedEntries(
+          prev.grouped,
+          entries.slice(prev.entries.length),
+          showRosterMoves,
+        );
+        cacheRef.current = { entries, showRosterMoves, grouped };
+        return grouped;
+      }
+    }
+    const grouped = groupSimResultFeedEntries(entries, showRosterMoves);
+    cacheRef.current = { entries, showRosterMoves, grouped };
+    return grouped;
+  }, [entries, showRosterMoves]);
+}
 
 const SPLIT_ICONS: Record<
   SplitId,
@@ -41,7 +149,7 @@ const SPLIT_ICONS: Record<
   summer: IconSun,
 };
 
-export default function SimResultsFeedPanel({
+function SimResultsFeedPanel({
   entries,
   compact: compactDefault = false,
   autoScroll: autoScrollDefault = false,
@@ -62,6 +170,7 @@ export default function SimResultsFeedPanel({
   const compactDuringSim = compactDefault || loading;
   const [expandedMode, setExpandedMode] = useState(!compactDuringSim);
   const [autoScroll, setAutoScroll] = useState(autoScrollDefault);
+  const [showRosterMoves, setShowRosterMoves] = useState(true);
   const years = useMemo(() => simResultYears(entries), [entries]);
   const latestYear = years[years.length - 1];
   const summarizedYearCount = useMemo(
@@ -99,24 +208,25 @@ export default function SimResultsFeedPanel({
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [autoScroll, entries.length]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<number, SimResultEntry[]>();
-    for (const entry of entries) {
-      const list = map.get(entry.year) ?? [];
-      list.push(entry);
-      map.set(entry.year, list);
-    }
-    return [...map.entries()].sort(([a], [b]) => a - b);
-  }, [entries]);
+  const grouped = useGroupedFeedEntries(entries, showRosterMoves);
 
-  const toggleYear = (year: number) => {
+  const rosterMoveCount = useMemo(
+    () => entries.filter(isRosterMovesEntry).length,
+    [entries],
+  );
+
+  const visibleEntryCount = showRosterMoves
+    ? entries.length
+    : entries.length - rosterMoveCount;
+
+  const toggleYear = useCallback((year: number) => {
     setCollapsedYears((prev) => {
       const next = new Set(prev);
       if (next.has(year)) next.delete(year);
       else next.add(year);
       return next;
     });
-  };
+  }, []);
 
   const dense = !expandedMode;
 
@@ -140,7 +250,7 @@ export default function SimResultsFeedPanel({
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
           <span className="text-[8px] text-rift-muted/60 tabular-nums">
-            {entries.length} update{entries.length === 1 ? "" : "s"}
+            {visibleEntryCount} update{visibleEntryCount === 1 ? "" : "s"}
             {years.length > 0 && (
               <span className="text-rift-muted/45">
                 {" "}
@@ -148,6 +258,23 @@ export default function SimResultsFeedPanel({
               </span>
             )}
           </span>
+          <button
+            type="button"
+            onClick={() => setShowRosterMoves((v) => !v)}
+            aria-pressed={showRosterMoves}
+            className={`px-1.5 py-0.5 border text-[7px] uppercase tracking-[0.15em] transition-colors ${
+              showRosterMoves
+                ? "border-rift-gold/50 text-rift-goldbright bg-rift-gold/10"
+                : "border-rift-line/50 text-rift-mutedbright/70 hover:border-rift-gold/40"
+            }`}
+            title={
+              rosterMoveCount > 0
+                ? `${rosterMoveCount} roster move${rosterMoveCount === 1 ? "" : "s"} in feed`
+                : "No roster moves yet"
+            }
+          >
+            Roster moves
+          </button>
           <button
             type="button"
             onClick={() => setExpandedMode((v) => !v)}
@@ -205,7 +332,7 @@ export default function SimResultsFeedPanel({
                 isLatest={year === latestYear}
                 loading={loading}
                 dense={dense}
-                onToggle={() => toggleYear(year)}
+                onToggleYear={toggleYear}
               />
             ))}
           </div>
@@ -215,6 +342,8 @@ export default function SimResultsFeedPanel({
   );
 }
 
+export default memo(SimResultsFeedPanel);
+
 const YearSection = memo(function YearSection({
   year,
   yearEntries,
@@ -223,7 +352,7 @@ const YearSection = memo(function YearSection({
   isLatest,
   loading,
   dense,
-  onToggle,
+  onToggleYear,
 }: {
   year: number;
   yearEntries: SimResultEntry[];
@@ -232,8 +361,12 @@ const YearSection = memo(function YearSection({
   isLatest: boolean;
   loading: boolean;
   dense: boolean;
-  onToggle: () => void;
+  onToggleYear: (year: number) => void;
 }) {
+  const handleToggle = useCallback(() => {
+    onToggleYear(year);
+  }, [onToggleYear, year]);
+
   return (
     <section className="relative cv-auto">
       {groupIdx > 0 && (
@@ -244,7 +377,7 @@ const YearSection = memo(function YearSection({
       )}
       <button
         type="button"
-        onClick={onToggle}
+        onClick={handleToggle}
         className={`w-full flex items-center gap-2 px-2 py-1.5 mb-1 border border-rift-gold/35 bg-rift-panel/95 text-left transition-colors hover:bg-rift-gold/[0.06] ${
           isLatest ? "border-rift-gold/50" : ""
         }`}
@@ -280,9 +413,9 @@ const YearSection = memo(function YearSection({
       </button>
       {!collapsed && (
         <div className="space-y-1.5 pl-0.5">
-          {yearEntries.map((entry, i) => (
+          {yearEntries.map((entry) => (
             <SimResultCard
-              key={`${simResultCardKey(entry)}-${i}`}
+              key={simResultCardKey(entry)}
               entry={entry}
               dense={dense}
             />
@@ -321,6 +454,10 @@ function simResultCardKey(entry: SimResultEntry): string {
       return `intl-${entry.seasonId}-${entry.event}`;
     case "year":
       return `year-${entry.seasonId}`;
+    case "roster-moves":
+      return entry.preIntl
+        ? `roster-moves-${entry.seasonId}-pre-${entry.afterEvent}`
+        : `roster-moves-${entry.seasonId}-${entry.afterEvent}`;
   }
 }
 
@@ -338,18 +475,44 @@ const SimResultCard = memo(function SimResultCard({
       return <IntlCard entry={entry} dense={dense} />;
     case "year":
       return <YearCard entry={entry} dense={dense} />;
+    case "roster-moves":
+      return <RosterMovesCard entry={entry} dense={dense} />;
   }
 });
 
-function SimTeamName({
+const SimTeamName = memo(function SimTeamName({
   team,
   className = "",
   logoSize = 11,
+  rosterSnap,
 }: {
   team: SimResultTeamRef;
   className?: string;
   logoSize?: number;
+  /** Historical roster snapshot — shown on hover instead of the live roster. */
+  rosterSnap?: SimRosterPlayer[];
 }) {
+  const hint = useMemo(
+    () => ({
+      name: team.name,
+      leagueId: team.leagueId,
+      iconKey: team.iconKey,
+      logoUrl: team.logoUrl,
+      color: team.color,
+      ...(rosterSnap?.length
+        ? { players: rosterSnap as unknown as Roster }
+        : {}),
+    }),
+    [
+      team.name,
+      team.leagueId,
+      team.iconKey,
+      team.logoUrl,
+      team.color,
+      rosterSnap,
+    ],
+  );
+
   return (
     <TeamNameLink
       teamId={team.id}
@@ -360,17 +523,11 @@ function SimTeamName({
       color={team.color}
       logoSize={logoSize}
       renderAs="span"
-      hint={{
-        name: team.name,
-        leagueId: team.leagueId,
-        iconKey: team.iconKey,
-        logoUrl: team.logoUrl,
-        color: team.color,
-      }}
+      hint={hint}
       className={`min-w-0 truncate inline-flex items-center gap-1 ${className}`}
     />
   );
-}
+});
 
 function EntryHeader({
   year,
@@ -414,11 +571,13 @@ function PlacementRow({
   team,
   logoSize,
   highlight = false,
+  snapshots,
 }: {
   rank: number;
   team: SimResultTeamRef;
   logoSize: number;
   highlight?: boolean;
+  snapshots?: SimRosterSnapshots;
 }) {
   return (
     <div
@@ -433,6 +592,7 @@ function PlacementRow({
         team={team}
         logoSize={logoSize}
         className={highlight ? "text-rift-goldbright font-display tracking-wide" : ""}
+        rosterSnap={snapshots?.[team.id]}
       />
       {rank === 1 && (
         <IconTrophy size={10} stroke={1.6} className="text-rift-gold/70 flex-shrink-0" aria-hidden />
@@ -473,6 +633,7 @@ const SplitCard = memo(function SplitCard({
                   team={team}
                   logoSize={logoSize}
                   highlight={i === 0}
+                  snapshots={entry.rosterSnapshots}
                 />
               ))}
               {placements.length > topN && (
@@ -526,6 +687,7 @@ const IntlCard = memo(function IntlCard({
               team={p}
               logoSize={logoSize}
               className={p.rank === 1 ? "text-rift-goldbright" : ""}
+              rosterSnap={entry.rosterSnapshots?.[p.id]}
             />
             {p.rank === 1 && (
               <IconTrophy size={10} stroke={1.6} className="text-rift-gold/70 flex-shrink-0" aria-hidden />
@@ -547,10 +709,12 @@ function SplitWinnersGrid({
   splits,
   dense,
   logoSize,
+  champIndex,
 }: {
   splits: SimSplitResultEntry[];
   dense: boolean;
   logoSize: number;
+  champIndex: Map<string, SimResultTeamRef>;
 }) {
   if (splits.length === 0) return null;
 
@@ -586,8 +750,7 @@ function SplitWinnersGrid({
                   </span>
                 </td>
                 {splits.map((splitEntry) => {
-                  const league = splitEntry.leagues.find((l) => l.leagueId === leagueId);
-                  const champ = league?.placements[0];
+                  const champ = champIndex.get(`${splitEntry.split}:${leagueId}`);
                   return (
                     <td key={splitEntry.split} className="py-0.5 px-1 min-w-0 max-w-[5.5rem]">
                       {champ ? (
@@ -595,6 +758,7 @@ function SplitWinnersGrid({
                           team={champ}
                           logoSize={logoSize}
                           className="text-rift-goldbright/90"
+                          rosterSnap={splitEntry.rosterSnapshots?.[champ.id]}
                         />
                       ) : (
                         <span className="text-rift-muted/40">—</span>
@@ -666,6 +830,22 @@ const YearCard = memo(function YearCard({
   dense: boolean;
 }) {
   const logoSize = dense ? 10 : 11;
+  const worldsRosterSnap = useMemo(() => {
+    if (!entry.worldsChampion) return undefined;
+    return entry.intls.find((i) => i.event === "worlds")?.rosterSnapshots?.[
+      entry.worldsChampion.id
+    ];
+  }, [entry.intls, entry.worldsChampion]);
+  const splitChampIndex = useMemo(() => {
+    const index = new Map<string, SimResultTeamRef>();
+    for (const splitEntry of entry.splits) {
+      for (const league of splitEntry.leagues) {
+        const champ = league.placements[0];
+        if (champ) index.set(`${splitEntry.split}:${league.leagueId}`, champ);
+      }
+    }
+    return index;
+  }, [entry.splits]);
 
   return (
     <div className="border-2 border-rift-gold/45 bg-rift-gold/[0.08] px-2.5 py-2">
@@ -687,6 +867,7 @@ const YearCard = memo(function YearCard({
             team={entry.worldsChampion}
             logoSize={logoSize}
             className="text-rift-goldbright"
+            rosterSnap={worldsRosterSnap}
           />
           <span className="text-rift-muted/60 flex-shrink-0 inline-flex items-center gap-0.5">
             (<LeagueIcon league={entry.worldsChampion.leagueId} size={10} />
@@ -695,7 +876,12 @@ const YearCard = memo(function YearCard({
         </div>
       )}
 
-      <SplitWinnersGrid splits={entry.splits} dense={dense} logoSize={logoSize} />
+      <SplitWinnersGrid
+        splits={entry.splits}
+        dense={dense}
+        logoSize={logoSize}
+        champIndex={splitChampIndex}
+      />
 
       {entry.intls.length > 0 && (
         <div className="mb-1">
@@ -713,7 +899,11 @@ const YearCard = memo(function YearCard({
                   {intl.label}:
                 </span>
                 {intl.placements[0] ? (
-                  <SimTeamName team={intl.placements[0]} logoSize={logoSize} />
+                  <SimTeamName
+                    team={intl.placements[0]}
+                    logoSize={logoSize}
+                    rosterSnap={intl.rosterSnapshots?.[intl.placements[0].id]}
+                  />
                 ) : (
                   "—"
                 )}
@@ -726,6 +916,234 @@ const YearCard = memo(function YearCard({
       {entry.followedTeam && (
         <FollowedTeamSummary summary={entry.followedTeam} logoSize={logoSize} />
       )}
+    </div>
+  );
+});
+
+function rosterMoveKey(move: SimRosterMoveSummary, index: number): string {
+  const playerKey =
+    move.swapId ??
+    move.starId ??
+    move.swapName ??
+    move.starName ??
+    move.swapTier ??
+    move.starTier;
+  return `${move.lane}:${move.fromTeam.id}:${move.toTeam.id}:${move.kind ?? "swap"}:${playerKey}:${index}`;
+}
+
+const SimMovePlayer = memo(function SimMovePlayer({
+  playerId,
+  name,
+  tier,
+  lane,
+  tone = "neutral",
+}: {
+  playerId?: string;
+  name?: string;
+  tier: PlayerTier;
+  lane: Lane;
+  tone?: "out" | "in" | "neutral";
+}) {
+  const displayName = name?.trim();
+  const hint = useMemo(
+    () =>
+      playerId || displayName
+        ? {
+            player: {
+              ...(playerId ? { id: playerId } : {}),
+              name: displayName ?? "Unknown",
+              lane,
+              tier,
+              goodChamps: [],
+              badChamps: [],
+            },
+            lane,
+          }
+        : undefined,
+    [displayName, lane, playerId, tier],
+  );
+  const nameCls =
+    tone === "out"
+      ? "text-rift-muted/60"
+      : tone === "in"
+        ? "text-rift-goldbright/75"
+        : "text-rift-mutedbright/80";
+
+  if (!displayName && !playerId) {
+    return <TierChip tier={tier} size="xs" />;
+  }
+
+  return (
+    <span className="inline-flex items-center gap-0.5 min-w-0 max-w-[4.5rem]">
+      <PlayerNameLink
+        playerId={playerId}
+        name={displayName ?? "Unknown"}
+        hint={hint}
+        renderAs="span"
+        className={`truncate text-[7px] cursor-pointer ${nameCls}`}
+      />
+      <TierChip tier={tier} size="xs" />
+    </span>
+  );
+});
+
+const RosterMoveRow = memo(function RosterMoveRow({
+  move,
+  logoSize,
+}: {
+  move: SimRosterMoveSummary;
+  logoSize: number;
+}) {
+  const isInbound = move.kind === "callup" || move.kind === "fa-sign";
+  const isExit = move.kind === "retire" || move.kind === "demotion";
+
+  return (
+    <div className="flex items-center gap-1 min-w-0 text-[8px] text-rift-mutedbright/75">
+      <LaneIcon lane={move.lane} size="xs" className="flex-shrink-0 opacity-60" />
+
+      {isExit ? (
+        <>
+          <SimTeamName team={move.fromTeam} logoSize={logoSize} />
+          <SimMovePlayer
+            playerId={move.swapId}
+            name={move.swapName}
+            tier={move.swapTier}
+            lane={move.lane}
+            tone="out"
+          />
+          <span className="text-rift-gold/30 flex-shrink-0 text-[9px]" aria-hidden>→</span>
+          <span
+            className={`px-1 py-px border text-[7px] uppercase tracking-[0.1em] flex-shrink-0 ${
+              move.kind === "retire"
+                ? "border-red-400/40 text-red-300/70 bg-red-400/[0.05]"
+                : "border-amber-500/40 text-amber-300/75 bg-amber-500/[0.05]"
+            }`}
+          >
+            {move.kind === "retire" ? "RET" : "ACY"}
+          </span>
+        </>
+      ) : isInbound ? (
+        <>
+          <SimTeamName team={move.toTeam} logoSize={logoSize} />
+          {move.swapName || move.swapId ? (
+            <>
+              <SimMovePlayer
+                playerId={move.swapId}
+                name={move.swapName}
+                tier={move.swapTier}
+                lane={move.lane}
+                tone="out"
+              />
+              <span className="text-rift-gold/30 flex-shrink-0 text-[9px]" aria-hidden>→</span>
+            </>
+          ) : null}
+          <span
+            className={`px-1 py-px border text-[7px] uppercase tracking-[0.1em] flex-shrink-0 ${
+              move.kind === "callup"
+                ? "border-sky-500/40 text-sky-300/85 bg-sky-500/[0.06]"
+                : "border-rift-blue/40 text-rift-bluebright/85 bg-rift-blue/[0.06]"
+            }`}
+          >
+            {move.kind === "callup" ? "ACY" : "FA"}
+          </span>
+          <SimMovePlayer
+            playerId={move.starId}
+            name={move.starName}
+            tier={move.starTier}
+            lane={move.lane}
+            tone="in"
+          />
+        </>
+      ) : (
+        <>
+          <SimTeamName team={move.fromTeam} logoSize={logoSize} />
+          <SimMovePlayer
+            playerId={move.swapId}
+            name={move.swapName}
+            tier={move.swapTier}
+            lane={move.lane}
+            tone="out"
+          />
+          <span className="text-rift-gold/30 flex-shrink-0 text-[9px]" aria-hidden>
+            ⇄
+          </span>
+          <SimTeamName team={move.toTeam} logoSize={logoSize} />
+          <SimMovePlayer
+            playerId={move.starId}
+            name={move.starName}
+            tier={move.starTier}
+            lane={move.lane}
+            tone="in"
+          />
+        </>
+      )}
+    </div>
+  );
+});
+
+const ROSTER_MOVES_DEFAULT_VISIBLE = 5;
+
+const RosterMovesCard = memo(function RosterMovesCard({
+  entry,
+  dense,
+}: {
+  entry: SimRosterMovesEntry;
+  dense: boolean;
+}) {
+  const logoSize = dense ? 10 : 11;
+  const [expanded, setExpanded] = useState(false);
+  const hasMore = entry.moves.length > ROSTER_MOVES_DEFAULT_VISIBLE;
+  const visibleMoves = useMemo(
+    () =>
+      expanded || !hasMore
+        ? entry.moves
+        : entry.moves.slice(0, ROSTER_MOVES_DEFAULT_VISIBLE),
+    [entry.moves, expanded, hasMore],
+  );
+
+  // Pre-intl entries use a subtler amber border to distinguish them from the
+  // post-intl transfer window entries (which use the default rift-line border).
+  const borderClass = entry.preIntl
+    ? "border border-amber-500/20 bg-amber-500/[0.03]"
+    : "border border-rift-line/22 bg-rift-bg/25";
+  const cardLabel = entry.preIntl
+    ? `${PRE_INTL_LABEL[entry.afterEvent] ?? entry.label} · Roster Moves`
+    : `${entry.label} · Roster Moves`;
+
+  return (
+    <div className={`px-2.5 py-1.5 ${borderClass}`}>
+      <EntryHeader
+        year={entry.year}
+        label={cardLabel}
+        icon={
+          <span
+            className={`text-[10px] flex-shrink-0 ${entry.preIntl ? "text-amber-400/55" : "text-rift-muted/50"}`}
+            aria-hidden
+          >
+            {entry.preIntl ? "↓" : "⇄"}
+          </span>
+        }
+      />
+      <div className="space-y-0.5">
+        {visibleMoves.map((move, i) => (
+          <RosterMoveRow
+            key={rosterMoveKey(move, i)}
+            move={move}
+            logoSize={logoSize}
+          />
+        ))}
+        {hasMore && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="mt-0.5 text-[7px] text-rift-muted/55 pl-5 hover:text-rift-goldbright/80 transition-colors uppercase tracking-[0.15em]"
+          >
+            {expanded
+              ? "Show less"
+              : `Show all ${entry.moves.length} moves`}
+          </button>
+        )}
+      </div>
     </div>
   );
 });

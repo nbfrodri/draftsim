@@ -42,6 +42,7 @@ import {
 export type { TeamCardHint };
 import { deriveStar } from "@/lib/players";
 import type { LeagueId, SeasonTeam } from "@/lib/season/types";
+import type { Roster } from "@/lib/types";
 
 export interface TeamCardResolveOpts {
   /** Archived season entry id — render THAT year's snapshot. */
@@ -75,12 +76,22 @@ function lazily<T>(compute: () => T): () => T {
   return () => (box ??= { v: compute() }).v;
 }
 
+/** Stable cache key for feed snapshot hovers (minimal player fields). */
+function snapshotResolveKey(teamId: string, players: Roster): string {
+  let key = teamId;
+  for (const p of players) {
+    key += `|${p.lane}:${p.tier}:${p.name ?? ""}:${p.id ?? ""}`;
+  }
+  return key;
+}
+
 interface LiveIndex {
   season: import("@/lib/season/types").SeasonState | null;
   teamsById: Map<string, SeasonTeam>;
   academyByTeam: Map<string, number>;
   hallEntries: SeasonHistoryEntry[];
   hallKeys: () => Set<string>;
+  snapshotCardCache: Map<string, TeamCardData>;
 }
 
 function resolveLive(
@@ -146,7 +157,22 @@ function resolveLive(
         )
       : null;
 
-  return teamCardFromSeasonTeam(resolved, {
+  // When the caller supplies snapshot players (e.g. from a Live Results feed
+  // entry), prefer those over the live roster so hover shows the team as it
+  // was at that specific event, not the current post-transfer lineup.
+  const snapshotPlayers = hint?.players?.length ? hint.players : null;
+  const snapshotCacheKey = snapshotPlayers?.length
+    ? snapshotResolveKey(resolved.id, snapshotPlayers)
+    : null;
+  if (snapshotCacheKey) {
+    const cached = idx.snapshotCardCache.get(snapshotCacheKey);
+    if (cached) return cached;
+  }
+
+  const teamForCard = snapshotPlayers
+    ? { ...resolved, players: snapshotPlayers }
+    : resolved;
+  const card = teamCardFromSeasonTeam(teamForCard, {
     academyCount,
     form,
     standing,
@@ -154,9 +180,17 @@ function resolveLive(
     titleCounts: liveTitleCounts(season, resolved),
     winRates: liveTeamWinRates(season, resolved.id),
     ...(h2h ? { h2h } : {}),
-    scope: franchiseYear != null ? `Live · Year ${franchiseYear}` : "Live season",
+    scope: snapshotPlayers
+      ? `Snapshot · Year ${franchiseYear ?? "?"}`
+      : franchiseYear != null
+        ? `Live · Year ${franchiseYear}`
+        : "Live season",
     archived: false,
   });
+  if (snapshotCacheKey) {
+    idx.snapshotCardCache.set(snapshotCacheKey, card);
+  }
+  return card;
 }
 
 export function LiveTeamCardProvider({
@@ -176,7 +210,15 @@ export function LiveTeamCardProvider({
     return seasonHistory;
   }, [season?.franchise?.id, realities, seasonHistory]);
 
+  const snapshotCardCacheRef = useRef(new Map<string, TeamCardData>());
+  const prevSeasonIdRef = useRef<string | undefined>(undefined);
+
   const index = useMemo<LiveIndex>(() => {
+    const seasonId = season?.id;
+    if (seasonId !== prevSeasonIdRef.current) {
+      prevSeasonIdRef.current = seasonId;
+      snapshotCardCacheRef.current.clear();
+    }
     const teamsById = new Map<string, SeasonTeam>();
     for (const t of season?.teams ?? []) teamsById.set(t.id, t);
     const academyByTeam = new Map<string, number>();
@@ -190,6 +232,7 @@ export function LiveTeamCardProvider({
       academyByTeam,
       hallEntries,
       hallKeys: lazily(() => archivedTeamKeys(hallEntries)),
+      snapshotCardCache: snapshotCardCacheRef.current,
     };
   }, [season, hallEntries]);
 

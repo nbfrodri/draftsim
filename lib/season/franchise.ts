@@ -121,12 +121,12 @@ export function splitFromRosterTimeMark(mark?: string): RosterTimeSplit | null {
   return null;
 }
 
-/** Accordion section order for the League transfer digest (always Worlds first). */
+/** Accordion section order for the League transfer digest (always Worlds first).
+ *  Global Cup is omitted — no transfer window between Worlds and Global Cup. */
 export const TRANSFER_DIGEST_SECTION_ORDER: readonly InternationalId[] = [
   "worlds",
   "first-stand",
   "msi",
-  "global-cup",
 ];
 
 /**
@@ -144,6 +144,7 @@ export const TRANSFER_DIGEST_SECTION_ORDER: readonly InternationalId[] = [
  * (Worlds → First Stand → MSI), regardless of season status or carry.
  * Presence is driven by each move's event stamp (not raw bucket length) so
  * mis-bucketed mid-season rows still open the correct accordion.
+ * Global Cup never appears — there is no roster window for that event.
  */
 export function visibleTransferDigestEvents(
   season: Pick<
@@ -153,9 +154,11 @@ export function visibleTransferDigestEvents(
 ): InternationalId[] {
   const stamped = new Set<InternationalId>();
   for (const e of INTERNATIONAL_DISPLAY_ORDER) {
+    if (e === "global-cup") continue;
     if (transfersForDigestEvent(season, e).length > 0) stamped.add(e);
   }
   for (const bucket of Object.keys(season.transfersByEvent ?? {}) as InternationalId[]) {
+    if (bucket === "global-cup") continue;
     if (
       transfersForDigestEvent(season, bucket).length > 0 &&
       !(INTERNATIONAL_DISPLAY_ORDER as readonly string[]).includes(bucket)
@@ -173,10 +176,11 @@ export function visibleTransferDigestEvents(
   const filtered = new Set(
     [...stamped].filter(
       (e) =>
-        allowAll ||
-        played.has(e) ||
-        // Prior-year post-Worlds carry (Worlds not yet played this year).
-        (e === "worlds" && transfersForDigestEvent(season, "worlds").length > 0),
+        e !== "global-cup" &&
+        (allowAll ||
+          played.has(e) ||
+          // Prior-year post-Worlds carry (Worlds not yet played this year).
+          (e === "worlds" && transfersForDigestEvent(season, "worlds").length > 0)),
     ),
   );
   const ordered = TRANSFER_DIGEST_SECTION_ORDER.filter((e) => filtered.has(e));

@@ -101,12 +101,26 @@ const MatchReplayModal = lazy(() =>
 // (league cards with standings, international cards with seeds), sim
 // controls, past results, and the Worlds champion banner.
 
+/** Isolated store subscription so feed batched updates don't re-render the dashboard. */
+function SeasonSimResultsFeed() {
+  const simResultsFeed = useDraftStore((s) => s.simResultsFeed);
+  const dismissSimResultsFeed = useDraftStore((s) => s.dismissSimResultsFeed);
+  if (simResultsFeed.length === 0) return null;
+  return (
+    <div id="sim-results-panel" className="mb-6 cv-auto scroll-mt-4">
+      <SimResultsFeedPanel
+        entries={simResultsFeed}
+        title="Simulation Results"
+        onDismiss={dismissSimResultsFeed}
+      />
+    </div>
+  );
+}
+
 export default function SeasonDashboard() {
   const season = useDraftStore((s) => s.season)!;
   const champions = useDraftStore((s) => s.champions);
   const simulating = useDraftStore((s) => s.simulating);
-  const simResultsFeed = useDraftStore((s) => s.simResultsFeed);
-  const dismissSimResultsFeed = useDraftStore((s) => s.dismissSimResultsFeed);
   const openSeasonTournament = useDraftStore((s) => s.openSeasonTournament);
   const simSeason = useDraftStore((s) => s.simSeason);
   const simSeasonMatchday = useDraftStore((s) => s.simSeasonMatchday);
@@ -115,6 +129,7 @@ export default function SeasonDashboard() {
   const abandonSeason = useDraftStore((s) => s.abandonSeason);
   const saveCurrentSeason = useDraftStore((s) => s.saveCurrentSeason);
   const exportCurrentSeason = useDraftStore((s) => s.exportCurrentSeason);
+  const exportReality = useDraftStore((s) => s.exportReality);
   const archiveSeasonToHistory = useDraftStore((s) => s.archiveSeasonToHistory);
   const inHistory = useDraftStore((s) =>
     s.seasonHistory.some((e) => e.id === s.season?.id),
@@ -141,10 +156,38 @@ export default function SeasonDashboard() {
     return () => clearTimeout(t);
   }, [saveFeedback]);
 
-  // Export the active season to a .json file (a portable backup of the
-  // same save slot saveCurrentSeason writes). Desktop → native Save
-  // dialog; web → browser download.
+  // Export button: when the season belongs to a reality, export the full
+  // reality (timeline + season history) — same path as RealitiesHub.
+  // For standalone seasons, fall back to the per-season export.
   const handleExportSeason = async () => {
+    if (season.franchise) {
+      const json = exportReality(season.franchise.id);
+      if (!json) {
+        setSaveFeedback("Export failed");
+        return;
+      }
+      const safe = season.franchise.name.replace(/[/\\:*?"<>|]/g, "_").trim() || "reality";
+      const filename = `${safe}.draftsim-reality.json`;
+      if (isDesktop()) {
+        const res = await saveFileNative({
+          defaultPath: filename,
+          filters: [{ name: "DraftSim Reality", extensions: ["json"] }],
+          content: json,
+        });
+        if (res.ok) setSaveFeedback("Reality exported");
+        else if (res.error !== "cancelled")
+          setSaveFeedback(res.error ? `Export failed: ${res.error}` : "Export failed");
+        return;
+      }
+      const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      setSaveFeedback("Reality exported");
+      return;
+    }
     const entry = exportCurrentSeason();
     if (!entry) {
       setSaveFeedback("Export failed");
@@ -246,7 +289,11 @@ export default function SeasonDashboard() {
           type="button"
           onClick={handleExportSeason}
           className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
-          title="Export this season to a .json file you can re-import later (or on another device) from the main menu"
+          title={
+            season.franchise
+              ? "Export this entire reality (timeline + season history) to a file — importable from the Realities hub"
+              : "Export this season to a .json file you can re-import later (or on another device) from the main menu"
+          }
         >
           <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
             <path d="M8 3v8M5 8l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
@@ -304,15 +351,7 @@ export default function SeasonDashboard() {
         <OffseasonView />
         <BulkYearsControl />
 
-        {!simulating && simResultsFeed.length > 0 && (
-          <div id="sim-results-panel" className="mb-6 cv-auto scroll-mt-4">
-            <SimResultsFeedPanel
-              entries={simResultsFeed}
-              title="Simulation Results"
-              onDismiss={dismissSimResultsFeed}
-            />
-          </div>
-        )}
+        {!simulating && <SeasonSimResultsFeed />}
 
         {/* Champion banner */}
         {season.status === "complete" && championTeam && (

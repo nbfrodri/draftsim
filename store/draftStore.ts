@@ -148,6 +148,7 @@ import {
   collectSimResultUpdates,
   compressSimResultsFeed,
   type SimResultEntry,
+  type SimResultEntryCache,
 } from "@/lib/season/simResultsSummary";
 import { inactiveSnapshotsForArchivedYear } from "@/lib/season/playerLifecycle";
 import { ensureTeamIdentities } from "@/lib/season/teamGen";
@@ -1299,12 +1300,11 @@ function flushSimResultsFeed(set: StoreSet): void {
   if (pendingSimResultUpdates.length === 0) return;
   const batch = pendingSimResultUpdates;
   pendingSimResultUpdates = [];
-  set((s) => ({
-    simResultsFeed: compressSimResultsFeed([
-      ...s.simResultsFeed,
-      ...batch,
-    ]),
-  }));
+  set((s) => {
+    const next = compressSimResultsFeed([...s.simResultsFeed, ...batch]);
+    if (next === s.simResultsFeed) return s;
+    return { simResultsFeed: next };
+  });
 }
 
 function scheduleSimResultsFlush(set: StoreSet): void {
@@ -1319,8 +1319,9 @@ function appendSimResults(
   set: StoreSet,
   season: SeasonState,
   seen: Set<string>,
+  entryCache?: SimResultEntryCache,
 ): void {
-  const updates = collectSimResultUpdates(season, seen);
+  const updates = collectSimResultUpdates(season, seen, entryCache);
   if (updates.length === 0) return;
   pendingSimResultUpdates.push(...updates);
   scheduleSimResultsFlush(set);
@@ -1333,6 +1334,7 @@ async function runFranchiseSeasonSim(
   realityId: string,
   shouldCancel: () => boolean,
   seen: Set<string>,
+  entryCache?: SimResultEntryCache,
 ): Promise<boolean> {
   let currentForms = get().playerForms;
   const safetyCap = 5000;
@@ -1391,14 +1393,14 @@ async function runFranchiseSeasonSim(
         ...(progress ? { simProgress: progress } : {}),
       }));
       const live = get().season;
-      if (live) appendSimResults(set, live, seen);
+      if (live) appendSimResults(set, live, seen, entryCache);
     } else {
       set((s) => ({ ...seasonPatchFor(s, after) }));
     }
     await new Promise((r) => setTimeout(r, 0));
   }
   const final = get().season;
-  if (final) appendSimResults(set, final, seen);
+  if (final) appendSimResults(set, final, seen, entryCache);
   return final?.status === "complete";
 }
 
@@ -2124,6 +2126,7 @@ export const useDraftStore = create<DraftStore>()(
     });
     void (async () => {
       const seen = new Set<string>();
+      const entryCache: SimResultEntryCache = new Map();
       try {
         await new Promise((r) => setTimeout(r, 0));
         const shouldCancel = () => get().bulkYearsCancelRequested;
@@ -2141,13 +2144,15 @@ export const useDraftStore = create<DraftStore>()(
               realityId,
               shouldCancel,
               seen,
+              entryCache,
             );
             if (!ok || shouldCancel()) break;
           }
 
           const finished = get().season;
           if (!finished?.franchise || finished.status !== "complete") break;
-          appendSimResults(set, finished, seen);
+          appendSimResults(set, finished, seen, entryCache);
+          entryCache.clear();
 
           set({ season: autoResolveOffseasonShop(finished, get().champions) });
           if (shouldCancel()) break;
@@ -2411,6 +2416,7 @@ export const useDraftStore = create<DraftStore>()(
     });
     void (async () => {
       const seen = trackResults ? new Set<string>() : null;
+      const entryCache = trackResults ? new Map() as SimResultEntryCache : null;
       try {
         await new Promise((r) => setTimeout(r, 0));
         const runId = season.id;
@@ -2501,7 +2507,7 @@ export const useDraftStore = create<DraftStore>()(
             }));
             if (seen) {
               const live = get().season;
-              if (live) appendSimResults(set, live, seen);
+              if (live) appendSimResults(set, live, seen, entryCache ?? undefined);
             }
           } else {
             set((s) => ({ ...seasonPatchFor(s, after) }));
@@ -2531,7 +2537,7 @@ export const useDraftStore = create<DraftStore>()(
         );
         if (seen) {
           const final = get().season;
-          if (final) appendSimResults(set, final, seen);
+          if (final) appendSimResults(set, final, seen, entryCache ?? undefined);
         }
       } finally {
         flushSimResultsFeed(set);
