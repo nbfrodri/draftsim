@@ -1,26 +1,26 @@
 "use client";
 
-import { memo, useCallback, useMemo, useState, useEffect } from "react";
-import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
+import { IconChevronDown,IconChevronRight } from "@tabler/icons-react";
+import { memo,useCallback,useMemo,useState } from "react";
 
 import {
-  computeFranchiseMatrix,
-  type MatrixCell,
-  type MatrixEvent,
-  type MatrixEventKind,
-  type MatrixRow,
-  type MatrixYear,
+computeFranchiseMatrix,
+type MatrixCell,
+type MatrixEvent,
+type MatrixEventKind,
+type MatrixRow,
+type MatrixYear,
 } from "@/lib/season/franchiseTimeline";
-import type { SeasonHistoryEntry, SeasonHistoryTeamRef } from "@/lib/season/history";
-import type { LeagueId, InternationalId, SplitId } from "@/lib/season/types";
-import { LEAGUE_IDS } from "@/lib/season/types";
+import type { SeasonHistoryEntry,SeasonHistoryTeamRef } from "@/lib/season/history";
 import type { DynastyTier } from "@/lib/season/historyRecords";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
+import type { InternationalId,LeagueId,SplitId } from "@/lib/season/types";
+import { LEAGUE_IDS } from "@/lib/season/types";
+import LeagueIcon from "./LeagueIcon";
+import type { TeamCardHint } from "./team/TeamCardContext";
+import TeamHoverCard from "./team/TeamHoverCard";
 import TeamLogoLink from "./team/TeamLogoLink";
 import TeamNameLink from "./team/TeamNameLink";
-import TeamHoverCard from "./team/TeamHoverCard";
-import type { TeamCardHint } from "./team/TeamCardContext";
-import LeagueIcon from "./LeagueIcon";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -718,14 +718,11 @@ export default function DynastyTimelinePanel({
     intlOnly: false,
   });
 
-  // Keep year indices in-bounds when matrix changes
-  useEffect(() => {
-    setFilters((prev) => ({
-      ...prev,
-      yearFromIdx: 0,
-      yearToIdx: Math.max(0, matrix.years.length - 1),
-    }));
-  }, [matrix.years.length]);
+  const [previousMaxIdx, setPreviousMaxIdx] = useState(maxIdx);
+  if (previousMaxIdx !== maxIdx) {
+    setPreviousMaxIdx(maxIdx);
+    setFilters(prev => ({ ...prev, yearFromIdx: 0, yearToIdx: maxIdx }));
+  }
 
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 

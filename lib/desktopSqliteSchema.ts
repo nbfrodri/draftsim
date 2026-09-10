@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS schema_meta (
   value TEXT NOT NULL
 );
 
+INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('persist_version', '7');
+
 CREATE TABLE IF NOT EXISTS global_state (
   store_key TEXT PRIMARY KEY NOT NULL,
   state_json TEXT NOT NULL,

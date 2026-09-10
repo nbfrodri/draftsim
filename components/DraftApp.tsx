@@ -1,46 +1,51 @@
 "use client";
+import { backupBeforeDestructiveChange } from "@/lib/backups";
+import { parseSeasonImport } from "@/lib/importPreview";
+import { decodeTournament } from "@/lib/tournamentShare";
+
+import dynamic from "next/dynamic";
 
 import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
-import { useDraftStore, type SavedTournamentEntry } from "@/store/draftStore";
-import { tournamentChampion, type TournamentState } from "@/lib/tournament";
+getAppClosePhase,
+getDesktopOperationPhase,
+isDesktop,
+isPersistReady,
+openFileNative,
+subscribeAppClosePhase,
+subscribeDesktopOperationPhase,
+subscribePersistReady,
+} from "@/lib/desktopStorage";
+import { hydrateMetaConfigFromDesktopFile } from "@/lib/metaRandomizer";
+import { tournamentChampion,type TournamentState } from "@/lib/tournament";
 import type { Champion } from "@/lib/types";
-import CreateSimulationForm from "./CreateSimulationForm";
-import DraftView from "./DraftView";
-import StrategyView from "./StrategyView";
-import BetweenGamesView from "./BetweenGamesView";
-import SeriesCompleteView from "./SeriesCompleteView";
-import TournamentSetup from "./TournamentSetup";
-import TournamentDashboard from "./TournamentDashboard";
-import MetaLibrary from "./MetaLibrary";
-import PairingsLibrary from "./PairingsLibrary";
-import SeasonSetup from "./SeasonSetup";
-import SeasonDashboard from "./SeasonDashboard";
-import SeasonHistoryGate from "./SeasonHistoryGate";
-import RealitiesHub from "./RealitiesHub";
+import { useDraftStore,type SavedTournamentEntry } from "@/store/draftStore";
+import {
+useCallback,
+useEffect,
+useRef,
+useState,
+useSyncExternalStore,
+} from "react";
+import AppClosingScreen from "./AppClosingScreen";
+import AppDesktopOperationOverlay from "./AppDesktopOperationOverlay";
+import AppStartupLoading from "./AppStartupLoading";
+import { LiveCoachCardProvider } from "./coach/CoachCardContext";
 import Modal from "./Modal";
 import { LivePlayerCardProvider } from "./player/PlayerCardContext";
 import { LiveTeamCardProvider } from "./team/TeamCardContext";
-import { LiveCoachCardProvider } from "./coach/CoachCardContext";
-import {
-  isDesktop,
-  openFileNative,
-  isPersistReady,
-  subscribePersistReady,
-  getAppClosePhase,
-  subscribeAppClosePhase,
-  getDesktopOperationPhase,
-  subscribeDesktopOperationPhase,
-} from "@/lib/desktopStorage";
-import { hydrateMetaConfigFromDesktopFile } from "@/lib/metaRandomizer";
-import AppStartupLoading from "./AppStartupLoading";
-import AppClosingScreen from "./AppClosingScreen";
-import AppDesktopOperationOverlay from "./AppDesktopOperationOverlay";
+const CreateSimulationForm = dynamic(() => import("./CreateSimulationForm"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const DraftView = dynamic(() => import("./DraftView"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const StrategyView = dynamic(() => import("./StrategyView"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const BetweenGamesView = dynamic(() => import("./BetweenGamesView"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const SeriesCompleteView = dynamic(() => import("./SeriesCompleteView"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const TournamentSetup = dynamic(() => import("./TournamentSetup"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const TournamentDashboard = dynamic(() => import("./TournamentDashboard"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const MetaLibrary = dynamic(() => import("./MetaLibrary"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const PairingsLibrary = dynamic(() => import("./PairingsLibrary"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const SeasonSetup = dynamic(() => import("./SeasonSetup"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const SeasonDashboard = dynamic(() => import("./SeasonDashboard"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const SeasonHistoryGate = dynamic(() => import("./SeasonHistoryGate"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+const RealitiesHub = dynamic(() => import("./RealitiesHub"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
 
 interface Props {
   champions: Champion[];
@@ -107,7 +112,15 @@ export default function DraftApp({ champions }: Props) {
 
   useEffect(() => {
     if (!persistReady) return;
-    setChampions(champions);
+    // Select the cache once per launch. Background updates apply next launch,
+    // so an ongoing simulation keeps its current catalogue.
+    let cancelled = false;
+    void import("@/lib/communityDragon").then(({ localChampions, refreshChampions }) => {
+      if (cancelled) return;
+      setChampions(localChampions());
+      void refreshChampions().catch(() => {});
+    });
+    return () => { cancelled = true; };
   }, [persistReady, champions, setChampions]);
 
   useEffect(() => {
@@ -341,7 +354,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
     null,
   );
 
-  const applyImportedSeason = (text: string) => {
+  const commitImportedSeason = (text: string) => {
     const res = importSeason(text);
     if (res.ok) {
       setSeasonImportError(null);
@@ -349,6 +362,28 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
     } else {
       setSeasonImportError(res.error ?? "Import failed");
     }
+  };
+
+  const [importPreview, setImportPreview] = useState<{ message: string; apply: () => void } | null>(null);
+  const applyImportedSeason = (text: string) => {
+    try {
+      const entry = parseSeasonImport(text);
+      const before = useDraftStore.getState().savedSeasons;
+      const replaces = before.find(s => s.id === entry.id);
+      setImportPreview({ message: `${entry.season.name} | Year ${entry.season.franchise?.year ?? 1} | ${entry.season.teams.length} teams: ${entry.season.teams.map(t => t.name).join(", ")}. ${replaces ? "Replaces the saved season with the same ID." : "Adds a saved season; the oldest slot may be removed if the library is full."}`,
+        apply: () => { if (useDraftStore.getState().savedSeasons !== before) { setSeasonImportError("Saved seasons changed. Review the file again."); return; } commitImportedSeason(text); } });
+    } catch (error) { setSeasonImportError(error instanceof Error ? error.message : String(error)); }
+  };
+  const previewTournament = async (text: string) => {
+    const decoded = await decodeTournament(text);
+    if (!decoded.tournament) return { ok: false, error: decoded.error ?? "Invalid tournament" };
+    const t = decoded.tournament, before = useDraftStore.getState().tournament;
+    setImportPreview({ message: `${t.name} | ${t.teams.length} teams: ${t.teams.map(team => team.name).join(", ")}. Replaces the current active tournament${before ? ` "${before.name}"` : ""}.`,
+      apply: () => {
+        if (useDraftStore.getState().tournament !== before) { setImportError("The current tournament changed. Review the import again."); return; }
+        void importTournament(text).then(res => { if (!res.ok) setImportError(res.error ?? "Import failed"); });
+      } });
+    return { ok: true };
   };
 
   const handleImportSeason = async () => {
@@ -396,7 +431,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
         }
         return;
       }
-      const res = await importTournament(fileResult.content);
+      const res = await previewTournament(fileResult.content);
       setImporting(false);
       if (res.ok) {
         setImportOpen(false);
@@ -407,7 +442,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
       return;
     }
     // Web path: use the pasted code textarea.
-    const res = await importTournament(importCode);
+    const res = await previewTournament(importCode);
     setImporting(false);
     if (res.ok) {
       // Tournament now in store — the parent component will route to the
@@ -955,13 +990,15 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
       {/* In-app confirms for history destructive actions. Replaces the
           earlier window.confirm() calls so the dialogs match the rest of
           the app's UX (and aren't blocked by browser settings). */}
+      <Modal open={importPreview !== null} title="Review import" beforeConfirm={backupBeforeDestructiveChange} message={importPreview?.message ?? ""} confirmLabel="Import"
+        onCancel={() => setImportPreview(null)} onConfirm={() => { const plan = importPreview; setImportPreview(null); plan?.apply(); }} />
       <Modal
         open={confirmDelete === "all"}
         title="Clear All Tournament History?"
         message="Every past tournament snapshot will be permanently deleted from this device. This cannot be undone."
         confirmLabel="Clear All"
         cancelLabel="Cancel"
-        tone="danger"
+        tone="danger" beforeConfirm={backupBeforeDestructiveChange}
         onConfirm={() => {
           clearHistory();
           setConfirmDelete(null);
@@ -979,7 +1016,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
         }
         confirmLabel="Delete"
         cancelLabel="Cancel"
-        tone="danger"
+        tone="danger" beforeConfirm={backupBeforeDestructiveChange}
         onConfirm={() => {
           if (confirmDelete && confirmDelete !== "all") {
             deleteHistoryEntry(confirmDelete);
@@ -996,7 +1033,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
         message="Every saved tournament will be permanently deleted from this device. This cannot be undone."
         confirmLabel="Clear All"
         cancelLabel="Cancel"
-        tone="danger"
+        tone="danger" beforeConfirm={backupBeforeDestructiveChange}
         onConfirm={() => {
           clearSavedTournaments();
           setConfirmSavedDelete(null);
@@ -1011,7 +1048,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
         message="Every saved season will be permanently deleted from this device. This cannot be undone."
         confirmLabel="Clear All"
         cancelLabel="Cancel"
-        tone="danger"
+        tone="danger" beforeConfirm={backupBeforeDestructiveChange}
         onConfirm={() => {
           clearSavedSeasons();
           setConfirmSeasonDelete(null);
@@ -1029,7 +1066,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
         }
         confirmLabel="Delete"
         cancelLabel="Cancel"
-        tone="danger"
+        tone="danger" beforeConfirm={backupBeforeDestructiveChange}
         onConfirm={() => {
           if (confirmSeasonDelete && confirmSeasonDelete !== "all") {
             deleteSavedSeason(confirmSeasonDelete);
@@ -1050,7 +1087,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
         }
         confirmLabel="Load Anyway"
         cancelLabel="Cancel"
-        tone="danger"
+        tone="danger" beforeConfirm={backupBeforeDestructiveChange}
         onConfirm={() => {
           if (confirmSeasonLoad) {
             loadSavedSeason(confirmSeasonLoad);
@@ -1071,7 +1108,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
         }
         confirmLabel="Delete"
         cancelLabel="Cancel"
-        tone="danger"
+        tone="danger" beforeConfirm={backupBeforeDestructiveChange}
         onConfirm={() => {
           if (confirmSavedDelete && confirmSavedDelete !== "all") {
             deleteSavedTournament(confirmSavedDelete);

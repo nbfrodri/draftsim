@@ -1,17 +1,18 @@
 "use client";
+import { useHydrated } from "@/lib/useHydrated";
 
 import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
+useCallback,
+useEffect,
+useId,
+useLayoutEffect,
+useRef,
+useState,
+type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 
-import { faBadgeYears, type FaBoardRow } from "@/lib/season/faMarket";
+import { faBadgeYears,type FaBoardRow } from "@/lib/season/faMarket";
 import { ACADEMY_YEARS_MAX } from "@/lib/season/playerLifecycle";
 import type { PlayerTier } from "@/lib/types";
 
@@ -47,9 +48,9 @@ export default function InactiveBoardTip({
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<Pos | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
 
-  useEffect(() => setMounted(true), []);
+
 
   const clearHide = () => {
     if (hideTimer.current) {

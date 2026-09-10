@@ -6,8 +6,8 @@
     "build:worker": "node scripts/build-bulk-sim-worker.mjs",
     "dev": "npm run build:worker && next dev --turbopack",
     "build": "npm run build:worker && next build",
-    "start": "next start",
-    "lint": "next lint",
+    "start": "node scripts/serve-static.mjs",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "refresh-data": "node scripts/refresh-meraki-data.mjs",
@@ -17,7 +17,10 @@
     "fetch-coaches": "node scripts/fetch-coaches.mjs",
     "calibrate": "tsx scripts/calibrate.ts",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
+    "desktop:build": "tauri build",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@tabler/icons-react": "^3.41.1",
@@ -27,24 +30,39 @@
     "@tauri-apps/plugin-sql": "^2.4.0",
     "exceljs": "^4.4.0",
     "gsap": "3.12.7",
-    "next": "^16.2.4",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
+    "jszip": "^3.10.2",
+    "next": "^16.3.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "recharts": "^3.8.1",
     "zustand": "5.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.11.2",
-    "@types/node": "22.10.5",
-    "@types/react": "19.0.7",
-    "@types/react-dom": "19.0.3",
+    "@types/node": "^22.20.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "autoprefixer": "10.4.20",
     "esbuild": "^0.28.1",
-    "postcss": "8.5.1",
-    "sharp": "^0.35.1",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.4",
+    "postcss": "^8.5.28",
+    "sharp": "^0.35.4",
     "tailwindcss": "3.4.17",
-    "tsx": "^4.21.0",
+    "tsx": "^4.23.13",
     "typescript": "5.7.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    },
+    "tsx": {
+      "esbuild": "$esbuild"
+    }
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

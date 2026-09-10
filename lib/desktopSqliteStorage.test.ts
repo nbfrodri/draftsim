@@ -97,4 +97,36 @@ describe("desktopSqliteStorage flush", () => {
     expect(hasPendingSqliteWrites()).toBe(false);
     expect(saveStorageValueToSqlite).toHaveBeenCalledWith(STORE, value);
   });
+  it("waits for a write already in flight and serializes newer snapshots", async () => {
+    let finish!: () => void;
+    vi.mocked(saveStorageValueToSqlite).mockImplementationOnce(() => new Promise<void>(r => { finish = r; }));
+    const storage = createDesktopSqliteStorage<{ realities: unknown[] }>();
+    storage.setItem(STORE, sampleValue());
+    await vi.advanceTimersByTimeAsync(500);
+    expect(hasPendingSqliteWrites()).toBe(true);
+    const next = { state: { realities: [{ id: "new" }] }, version: 6 };
+    storage.setItem(STORE, next);
+    let settled = false;
+    const closing = flushPendingSqliteWrites().then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(saveStorageValueToSqlite).toHaveBeenCalledTimes(1);
+    finish();
+    await closing;
+    expect(saveStorageValueToSqlite).toHaveBeenLastCalledWith(STORE, next);
+    expect(hasPendingSqliteWrites()).toBe(false);
+  });
+
+  it("retains failed data, propagates failure and retries without losing the snapshot", async () => {
+    vi.mocked(saveStorageValueToSqlite).mockRejectedValueOnce(new Error("disk full"));
+    const storage = createDesktopSqliteStorage<{ realities: unknown[] }>();
+    const value = sampleValue();
+    storage.setItem(STORE, value);
+    await expect(flushPendingSqliteWrites()).rejects.toThrow("disk full");
+    expect(hasPendingSqliteWrites()).toBe(true);
+    await flushPendingSqliteWrites();
+    expect(saveStorageValueToSqlite).toHaveBeenLastCalledWith(STORE, value);
+    expect(hasPendingSqliteWrites()).toBe(false);
+  });
+
 });

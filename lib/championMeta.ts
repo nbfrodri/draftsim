@@ -1,3 +1,4 @@
+import { assertShareInputSize,base64UrlDecode,base64UrlEncode,deflateString as deflate,inflateString as inflate } from "./shareCodec";
 // Curated champion meta-dataset for the match simulator.
 //
 // SOURCE: community-consensus knowledge (LoL Wiki, Mobalytics, op.gg patterns)
@@ -41,9 +42,9 @@ export type CC = "hard" | "soft" | "none";
 export type Mobility = "low" | "medium" | "high";
 export type MetaTier = "S+" | "S" | "A" | "B" | "C" | "D";
 
-import type { Lane } from "./types";
 import championMetaJson from "./data/championMeta.json";
 import championSynergiesJson from "./data/championSynergies.json";
+import type { Lane } from "./types";
 
 export type Archetype =
   | "engage"
@@ -303,47 +304,6 @@ export interface ParseMetaResult {
 
 const META_CODE_PREFIX = "META1:";
 
-async function deflate(input: string): Promise<Uint8Array> {
-  const stream = new Blob([input])
-    .stream()
-    .pipeThrough(new CompressionStream("deflate-raw"));
-  const buf = await new Response(stream).arrayBuffer();
-  return new Uint8Array(buf);
-}
-
-async function inflate(bytes: Uint8Array): Promise<string> {
-  const stream = new Blob([bytes])
-    .stream()
-    .pipeThrough(new DecompressionStream("deflate-raw"));
-  return await new Response(stream).text();
-}
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  let binary = "";
-  // String.fromCharCode in a loop is fine for kB-scale payloads (avoids
-  // call-stack issues from spreading big TypedArrays into apply).
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): Uint8Array {
-  const sanitized = input.replace(/-/g, "+").replace(/_/g, "/");
-  // base64 requires length to be a multiple of 4 — repad with `=`.
-  const padding = (4 - (sanitized.length % 4)) % 4;
-  const padded = sanitized + "=".repeat(padding);
-  const binary = atob(padded);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    out[i] = binary.charCodeAt(i);
-  }
-  return out;
-}
-
 export async function encodeMetaOverride(
   override: MetaOverride,
 ): Promise<string> {
@@ -359,6 +319,9 @@ export async function decodeMetaOverride(
   input: string,
   validAliases?: ReadonlySet<string>,
 ): Promise<ParseMetaResult> {
+  try { assertShareInputSize(input); } catch (error) {
+    return { override: null, error: (error as Error).message, championCount: 0, skippedEntries: 0 };
+  }
   const trimmed = input.trim();
   if (trimmed.startsWith(META_CODE_PREFIX)) {
     let json: string;
@@ -392,6 +355,9 @@ export function parseMetaOverride(
   json: string,
   validAliases?: ReadonlySet<string>,
 ): ParseMetaResult {
+  try { assertShareInputSize(json); } catch (error) {
+    return { override: null, error: (error as Error).message, championCount: 0, skippedEntries: 0 };
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);

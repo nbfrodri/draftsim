@@ -9,3 +9,10 @@ src-tauri/gen
 tsconfig.tsbuildinfo
 .DS_Store
 *.log
+
+test-results/
+playwright-report/
+audit-lint.json
+audit-dependencies.json
+
+.benchmarks/

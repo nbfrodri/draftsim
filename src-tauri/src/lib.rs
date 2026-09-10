@@ -1,3 +1,6 @@
+mod storage;
+mod backups;
+
 // Tint the native Windows 11 title bar (caption bar + buttons strip + border)
 // to the app's dark-gold theme via DWM, so the OS chrome reads as part of the
 // app instead of a bright system bar. Windows 11 (build 22000+) only; older
@@ -38,10 +41,13 @@ fn integrate_titlebar(window: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .invoke_handler(tauri::generate_handler![storage::persist_batch, backups::backup_create, backups::backup_list, backups::backup_restore, backups::backup_destination, backups::backup_import, backups::storage_size])
     .plugin(tauri_plugin_sql::Builder::default().build())
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
+      use tauri::Manager;
+      backups::recover_interrupted_restore(&app.path().app_data_dir()?).map_err(std::io::Error::other)?;
       #[cfg(windows)]
       {
         use tauri::Manager;

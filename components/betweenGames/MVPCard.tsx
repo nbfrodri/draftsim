@@ -1,19 +1,17 @@
 "use client";
 
-import { useMemo } from "react";
-import type { MatchTimeline } from "@/lib/matchSimulator";
-import type { Champion, Lane, Side } from "@/lib/types";
 import LaneIcon from "@/components/LaneIcon";
 import TeamName from "@/components/TeamName";
 import PlayerNameLink from "@/components/player/PlayerNameLink";
+import type { LaneKDA,MatchTimeline } from "@/lib/matchSimulator";
+import type { Champion,Lane,Side } from "@/lib/types";
+import { useMemo } from "react";
 import {
-  LANE_ORDER,
-  computeRunningStats,
-  computeLiveLaneGold,
-  formatLaneGold,
-  type SideLaneKDA,
+LANE_ORDER,
+computeLiveLaneGold,
+computeRunningStats,
+formatLaneGold
 } from "./shared";
-import type { LaneKDA } from "@/lib/matchSimulator";
 
 // MVP card. Shown after the match finishes. Picks the player with the
 // highest composite score across the 10 champions:
@@ -124,8 +122,6 @@ export function MVPCard({
     laneAdvantages,
     bluePicks,
     redPicks,
-    blueRoles,
-    redRoles,
     winner,
   ]);
 

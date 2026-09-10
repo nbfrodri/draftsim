@@ -1,15 +1,15 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import TeamName from "@/components/TeamName";
 import type { TeamScore } from "@/lib/matchSimulator";
 import {
-  getIdentityProfile,
-  identityMatchupEdge,
-  type IdentityProfile,
+getIdentityProfile,
+identityMatchupEdge,
+type IdentityProfile,
 } from "@/lib/sim/identities";
 import type { Side } from "@/lib/types";
-import TeamName from "@/components/TeamName";
-import { POSITIVE_MATCHUP_TAGS, buildComparisonRows, buildVerdict, type ComparisonRow } from "../shared";
+import { memo,useMemo } from "react";
+import { POSITIVE_MATCHUP_TAGS,buildComparisonRows,buildVerdict,type ComparisonRow } from "../shared";
 
 // ─── IdentityScoutingPanel ────────────────────────────────────────────────────
 
@@ -111,7 +111,7 @@ function ScoutingCard({
           <TeamName name={name} size={13} />
         </span>
         <span className="text-[8px] uppercase tracking-[0.3em] text-rift-mutedbright/55 flex-shrink-0">
-          peaks {profile.peakMinutes.min}–{profile.peakMinutes.max}'
+          peaks {profile.peakMinutes.min}–{profile.peakMinutes.max}&apos;
         </span>
       </div>
       <div className="text-[11px] md:text-xs font-display tracking-[0.1em] text-rift-goldbright">

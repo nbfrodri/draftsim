@@ -1,3 +1,4 @@
+import { flushPendingPersistWrites } from "./desktopStorage";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { PersistStorage, StorageValue } from "zustand/middleware";
 import {
@@ -147,4 +148,62 @@ describe("app close lifecycle", () => {
 
     unsub();
   });
+});
+
+
+describe("shared file/web write queue", () => {
+  it("retains a failed web snapshot for explicit retry", async () => {
+    let stored = "previous";
+    let fail = true;
+    const storage = createWebLazyStorage(() => ({
+      getItem: () => stored,
+      removeItem: () => {},
+      setItem: (_key, value) => { if (fail) throw new Error("quota"); stored = value; },
+    }));
+    storage.setItem("retry-test", { state: { changed: true }, version: 7 });
+    await expect(flushPendingPersistWrites()).rejects.toThrow("quota");
+    expect(stored).toBe("previous");
+    fail = false;
+    await flushPendingPersistWrites();
+    expect(JSON.parse(stored).state.changed).toBe(true);
+  });
+  it("waits for an already-running file write and drains its replacement serially", async () => {
+    let release!: () => void;
+    const calls: string[] = [];
+    const target = {
+      getItem: () => null, removeItem: () => {},
+      setItem: (_key: string, value: string) => {
+        calls.push(value);
+        return calls.length === 1 ? new Promise<void>(resolve => { release = resolve; }) : Promise.resolve();
+      },
+    };
+    const storage = createWebLazyStorage(() => target);
+    storage.setItem("serial-test", { state: { n: 1 }, version: 7 });
+    const first = flushPendingPersistWrites();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    storage.setItem("serial-test", { state: { n: 2 }, version: 7 });
+    let finished = false;
+    const closing = flushPendingPersistWrites().then(() => { finished = true; });
+    await Promise.resolve(); expect(finished).toBe(false);
+    release(); await Promise.all([first, closing]);
+    expect(calls.map(value => JSON.parse(value).state.n)).toEqual([1,2]);
+  });
+});
+
+
+it("a hydration timeout releases the screen but keeps writes blocked", () => {
+  resetPersistGateForTests();
+  const write = vi.fn();
+  const storage = gatePersistWritesUntilReady({ getItem: () => null, setItem: write, removeItem: () => {} });
+  forcePersistReady();
+  expect(isPersistReady()).toBe(true);
+  storage.setItem("protected", { state: {}, version: 7 });
+  expect(write).not.toHaveBeenCalled();
+  enablePersistWrites();
+  storage.setItem("protected", { state: {}, version: 7 });
+  expect(write).toHaveBeenCalledOnce();
+});
+it("a malformed saved JSON is an error, not a missing save", () => {
+  const storage = createWebLazyStorage(() => ({ getItem: () => "{broken", setItem: vi.fn(), removeItem: vi.fn() }));
+  expect(() => storage.getItem("protected")).toThrow();
 });

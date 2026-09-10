@@ -1,3 +1,4 @@
+import { readCachedData, writeCachedData } from "../versionedDataCache";
 // Real pro teams (names + logos) for season mode, fetched client-side
 // from the public LoL Esports API (the same one lolesports.com uses; it
 // sends Access-Control-Allow-Origin: * so it works from the browser and
@@ -137,7 +138,7 @@ async function getJson<T>(
 ): Promise<T> {
   const res = await fetch(`${API_BASE}/${path}`, {
     headers: { "x-api-key": API_KEY },
-    signal,
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`LoL Esports API ${res.status} on ${path}`);
   return (await res.json()) as T;
@@ -282,7 +283,7 @@ function matchRoster(
  *  Leagues resolve in parallel; each list is at most TEAMS_PER_LEAGUE long
  *  and may be shorter if the API has fewer current teams — callers should
  *  keep generated names/handles for the remainder. */
-export async function fetchRealTeams(
+async function refreshRealTeams(
   signal?: AbortSignal,
 ): Promise<Record<LeagueId, RealTeam[]>> {
   const leaguesRes = await getJson<{ data: { leagues: ApiLeague[] } }>(
@@ -344,4 +345,24 @@ export async function fetchRealTeams(
     }
   }
   return deduped;
+}
+
+function validTeams(value: unknown): value is Record<LeagueId, RealTeam[]> {
+  if (!value || typeof value !== "object") return false;
+  return LEAGUE_IDS.every(id => {
+    const teams = (value as Record<string, unknown>)[id];
+    return Array.isArray(teams) && teams.length > 0 && teams.every(t => typeof t?.name === "string" && t.name.length > 0);
+  });
+}
+export async function fetchRealTeams(signal?: AbortSignal): Promise<Record<LeagueId, RealTeam[]>> {
+  const cached = readCachedData("draftsim-teams-v1", 1, validTeams, BUNDLED_TEAMS);
+  try {
+    const fresh = await refreshRealTeams(signal);
+    if (!validTeams(fresh)) return cached;
+    writeCachedData("draftsim-teams-v1", 1, fresh);
+    return fresh;
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return cached;
+  }
 }

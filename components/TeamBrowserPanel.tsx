@@ -1,29 +1,29 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo,useState } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
-import { deriveStar, MAIN_POOL, playerForLane } from "@/lib/players";
-import { computePlayerSeasonLines, type PlayerSeasonLine } from "@/lib/season/stats";
+import { deriveStar,MAIN_POOL,playerForLane } from "@/lib/players";
 import { coachPlaystyle } from "@/lib/season/coach";
 import {
-  ACADEMY_MAX_PER_TEAM,
-  listTeamAcademy,
+ACADEMY_MAX_PER_TEAM,
+listTeamAcademy,
 } from "@/lib/season/faMarket";
+import { computePlayerSeasonLines,type PlayerSeasonLine } from "@/lib/season/stats";
 import {
-  LEAGUE_IDS,
-  LEAGUE_NAMES,
-  type LeagueId,
+LEAGUE_IDS,
+LEAGUE_NAMES,
+type LeagueId,
 } from "@/lib/season/types";
-import type { Champion, Lane, Player, PlayerTier, Roster } from "@/lib/types";
+import type { Champion,Lane,Player,PlayerTier,Roster } from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
 import { ChemistryBreakdown } from "./ChemistryRow";
-import TeamNameLink from "./team/TeamNameLink";
-import { buildLiveTeamStatsMap, TeamLiveStatsInline } from "./team/TeamLiveStats";
-import LeagueIcon from "./LeagueIcon";
-import LaneIcon from "./LaneIcon";
-import InactiveBrowseRow from "./season/InactiveBrowseRow";
-import PlayerHoverCard from "./player/PlayerHoverCard";
 import CoachNameLink from "./coach/CoachNameLink";
+import LaneIcon from "./LaneIcon";
+import LeagueIcon from "./LeagueIcon";
+import PlayerHoverCard from "./player/PlayerHoverCard";
+import InactiveBrowseRow from "./season/InactiveBrowseRow";
+import { buildLiveTeamStatsMap,TeamLiveStatsInline } from "./team/TeamLiveStats";
+import TeamNameLink from "./team/TeamNameLink";
 
 // Region/team browser — every team in every region with each player's full
 // identity: handle, skill tier, age, potential, and champion pool. A scouting
@@ -270,7 +270,7 @@ export default function TeamBrowserPanel() {
                                   const c = byId.get(id);
                                   if (!c) return null;
                                   return (
-                                    // eslint-disable-next-line @next/next/no-img-element
+
                                     <img
                                       key={id}
                                       src={c.iconUrl}
@@ -352,7 +352,7 @@ function PoolRow({
         const secondary = tiered && i >= MAIN_POOL;
         return (
           <span key={id} className="inline-flex items-center gap-1">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+            { }
             <img
               src={c.iconUrl}
               alt={c.name}

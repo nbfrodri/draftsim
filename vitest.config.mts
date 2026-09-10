@@ -8,12 +8,13 @@ import path from "node:path";
 export default defineConfig({
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "."),
+      "@": path.resolve(import.meta.dirname, "."),
     },
   },
   test: {
     environment: "node",
     include: ["lib/**/*.test.ts", "lib/**/__tests__/**/*.test.ts"],
     globals: false,
+    maxWorkers: 4,
   },
 });

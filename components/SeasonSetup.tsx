@@ -1,51 +1,49 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo,useState } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
-import { deriveStar, randomizeTiersForStar, PLAYER_TIERS } from "@/lib/players";
-import type {
-  AIDifficulty,
-  PlayerTier,
-  SeriesFormat,
-  VariancePreset,
-} from "@/lib/types";
-import type { TournamentFormat } from "@/lib/tournament";
+import { deriveStar,PLAYER_TIERS,randomizeTiersForStar } from "@/lib/players";
+import { overlayNames,realCoachForTeam,realOrKeep } from "@/lib/season/playerNames";
 import {
-  DEFAULT_LEAGUE_CONFIG,
-  DEFAULT_INTL_CONFIGS,
-  INTL_IDS,
-  SELECT_CLS,
-  LeagueConfigCard,
-  IntlConfigCard,
-  GlobalCupConfigCard,
-} from "./season/configCards";
-import TeamPicker from "./season/TeamPicker";
+BUNDLED_TEAMS,
+fetchRealTeams,
+type RealTeam,
+} from "@/lib/season/realTeams";
 import {
-  generateSeasonTeams,
-  rerollTeamIdentity,
+generateSeasonTeams,
+rerollTeamIdentity,
 } from "@/lib/season/teamGen";
 import {
-  BUNDLED_TEAMS,
-  fetchRealTeams,
-  type RealTeam,
-} from "@/lib/season/realTeams";
-import { overlayNames, realOrKeep, realCoachForTeam } from "@/lib/season/playerNames";
-import {
-  INTERNATIONAL_LABELS,
-  SPLIT_LABELS,
-  LEAGUE_IDS,
-  LEAGUE_NAMES,
-  type InternationalId,
-  type LeagueId,
-  type SeasonConfig,
-  type SeasonIntlConfig,
-  type SeasonLeagueConfig,
-  type SeasonTeam,
+INTERNATIONAL_LABELS,
+LEAGUE_IDS,
+LEAGUE_NAMES,
+SPLIT_LABELS,
+type InternationalId,
+type LeagueId,
+type SeasonConfig,
+type SeasonIntlConfig,
+type SeasonLeagueConfig,
+type SeasonTeam,
 } from "@/lib/season/types";
-import MetaPanel from "./MetaPanel";
-import TeamIcon from "./TeamIcon";
+import type {
+AIDifficulty,
+PlayerTier,
+VariancePreset
+} from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
 import CoachNameLink from "./coach/CoachNameLink";
+import MetaPanel from "./MetaPanel";
+import {
+DEFAULT_INTL_CONFIGS,
+DEFAULT_LEAGUE_CONFIG,
+GlobalCupConfigCard,
+INTL_IDS,
+IntlConfigCard,
+LeagueConfigCard,
+SELECT_CLS,
+} from "./season/configCards";
+import TeamPicker from "./season/TeamPicker";
+import TeamIcon from "./TeamIcon";
 
 // Season creation: name, per-league (or shared) split formats, meta
 // behavior, and the 60 randomized-but-editable team identities.
@@ -97,7 +95,12 @@ export default function SeasonSetup({ onCancel }: Props) {
     worlds: { ...DEFAULT_INTL_CONFIGS.worlds },
     "global-cup": { ...DEFAULT_INTL_CONFIGS["global-cup"] },
   }));
-  const [teams, setTeams] = useState<SeasonTeam[]>([]);
+  const prepareTeams = (input: SeasonTeam[]): SeasonTeam[] => !isReality ? input : input.map(t => ({
+    ...t, players: t.players.map(p => p.age != null ? p : { ...p, age: 18 + Math.floor(Math.random() * 8) }),
+  }));
+  const [teams, setRawTeams] = useState<SeasonTeam[]>(() => prepareTeams(generateSeasonTeams(champions)));
+  const setTeams = (next: SeasonTeam[] | ((previous: SeasonTeam[]) => SeasonTeam[])) =>
+    setRawTeams(previous => prepareTeams(typeof next === "function" ? next(previous) : next));
   const [controlledTeamId, setControlledTeamId] = useState<string | null>(
     null,
   );
@@ -110,28 +113,6 @@ export default function SeasonSetup({ onCancel }: Props) {
   const [realNames, setRealNames] = useState<
     "idle" | "loading" | "done" | "error"
   >("idle");
-
-  // Generate the initial 60 teams once champions are loaded.
-  useEffect(() => {
-    if (champions.length === 0 || teams.length > 0) return;
-    setTeams(generateSeasonTeams(champions));
-  }, [champions, teams.length]);
-
-  // Reality mode: stamp a starting age on any player missing one, so ages are
-  // visible and editable up front (re-rolls produce age-less players too). The
-  // guard returns the same array once all have ages, so this settles in one pass.
-  useEffect(() => {
-    if (!isReality) return;
-    setTeams((prev) => {
-      if (prev.every((t) => t.players.every((p) => p.age != null))) return prev;
-      return prev.map((t) => ({
-        ...t,
-        players: t.players.map((p) =>
-          p.age != null ? p : { ...p, age: 18 + Math.floor(Math.random() * 8) },
-        ),
-      }));
-    });
-  }, [isReality, teams]);
 
   const byLeague = useMemo(() => {
     const map = new Map<LeagueId, SeasonTeam[]>();

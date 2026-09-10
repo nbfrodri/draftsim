@@ -1,22 +1,23 @@
 "use client";
+import { useHydrated } from "@/lib/useHydrated";
 
 import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-  type MouseEvent,
+useCallback,
+useEffect,
+useId,
+useLayoutEffect,
+useRef,
+useState,
+type MouseEvent,
+type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 
-import LeagueIcon from "../LeagueIcon";
-import TeamIcon from "../TeamIcon";
 import { isDesktop } from "@/lib/desktopStorage";
 import type { CoachCardData } from "@/lib/season/coachCard";
-import { useCoachCardContext, type CoachCardHint } from "./CoachCardContext";
+import LeagueIcon from "../LeagueIcon";
+import TeamIcon from "../TeamIcon";
+import { useCoachCardContext,type CoachCardHint } from "./CoachCardContext";
 
 const SHOW_DELAY_MS = 240;
 const HIDE_DELAY_MS = 110;
@@ -304,9 +305,9 @@ export default function CoachHoverCard({
   const clickStartRef = useRef<Pointer | null>(null);
   const [data, setData] = useState<CoachCardData | null>(null);
   const [pos, setPos] = useState<Placement | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
 
-  useEffect(() => setMounted(true), []);
+
 
   const clearTimers = () => {
     if (showTimer.current) clearTimeout(showTimer.current);
@@ -367,6 +368,8 @@ export default function CoachHoverCard({
 
   useLayoutEffect(() => {
     if (!data) {
+      // Layout state tracks the measured portal position and is reset before paint.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPos(null);
       return;
     }

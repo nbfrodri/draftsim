@@ -1,141 +1,51 @@
 "use client";
 
 import {
-  IconChevronDown,
-  IconChevronRight,
-  IconTrophy,
+IconChevronDown,
+IconChevronRight,
+IconTrophy,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useRef, useState, memo, type ReactNode } from "react";
+import { memo,useCallback,useEffect,useMemo,useRef,useState,type ReactNode } from "react";
 
-import LaneIcon from "../LaneIcon";
-import LeagueIcon from "../LeagueIcon";
-import SplitIcon from "./SplitIcon";
-import PlayerNameLink from "../player/PlayerNameLink";
-import TeamNameLink from "../team/TeamNameLink";
-import TierChip from "./TierChip";
 import {
-  countSummarizedYears,
-  feedEntryOrder,
-  groupSimResultFeedEntries,
-  simResultYears,
-  SIM_RESULTS_FULL_DETAIL_YEARS,
-  PRE_INTL_LABEL,
-  type SimFollowedTeamSummary,
-  type SimIntlResultEntry,
-  type SimResultEntry,
-  type SimResultTeamRef,
-  type SimRosterMoveSummary,
-  type SimRosterMovesEntry,
-  type SimRosterPlayer,
-  type SimRosterSnapshots,
-  type SimSplitResultEntry,
-  type SimYearResultEntry,
-  type SimResultYearGroup,
+PRE_INTL_LABEL,
+SIM_RESULTS_FULL_DETAIL_YEARS,
+countSummarizedYears,
+groupSimResultFeedEntries,
+simResultYears,
+type SimFollowedTeamSummary,
+type SimIntlResultEntry,
+type SimResultEntry,
+type SimResultTeamRef,
+type SimResultYearGroup,
+type SimRosterMoveSummary,
+type SimRosterMovesEntry,
+type SimRosterPlayer,
+type SimRosterSnapshots,
+type SimSplitResultEntry,
+type SimYearResultEntry
 } from "@/lib/season/simResultsSummary";
 import {
-  INTERNATIONAL_LABELS,
-  LEAGUE_IDS,
-  SPLIT_LABELS,
-  type InternationalId,
-  type LeagueId,
-  type SplitId,
+INTERNATIONAL_LABELS,
+LEAGUE_IDS,
+SPLIT_LABELS,
+type InternationalId,
+type SplitId
 } from "@/lib/season/types";
-import type { Lane, PlayerTier, Roster } from "@/lib/types";
+import type { Lane,PlayerTier,Roster } from "@/lib/types";
+import LaneIcon from "../LaneIcon";
+import LeagueIcon from "../LeagueIcon";
+import PlayerNameLink from "../player/PlayerNameLink";
+import TeamNameLink from "../team/TeamNameLink";
+import SplitIcon from "./SplitIcon";
+import TierChip from "./TierChip";
 
 function isRosterMovesEntry(entry: SimResultEntry): entry is SimRosterMovesEntry {
   return entry.kind === "roster-moves";
 }
 
-type GroupedFeedCache = {
-  entries: SimResultEntry[];
-  showRosterMoves: boolean;
-  grouped: SimResultYearGroup[];
-};
-
-function sortYearEntriesLocal(entries: SimResultEntry[]): SimResultEntry[] {
-  if (entries.length <= 1) return entries;
-  for (let i = 1; i < entries.length; i++) {
-    if (feedEntryOrder(entries[i - 1]!) > feedEntryOrder(entries[i]!)) {
-      return [...entries].sort((a, b) => feedEntryOrder(a) - feedEntryOrder(b));
-    }
-  }
-  return entries;
-}
-
-/** Incrementally extend grouped feed when batched appends preserve the prefix. */
-function appendGroupedFeedEntries(
-  grouped: SimResultYearGroup[],
-  newEntries: SimResultEntry[],
-  showRosterMoves: boolean,
-): SimResultYearGroup[] {
-  if (newEntries.length === 0) return grouped;
-
-  const touchedYears = new Set<number>();
-  for (const entry of newEntries) {
-    if (!showRosterMoves && isRosterMovesEntry(entry)) continue;
-    touchedYears.add(entry.year);
-  }
-  if (touchedYears.size === 0) return grouped;
-
-  const byYear = new Map<number, SimResultEntry[]>();
-  for (const [year, list] of grouped) byYear.set(year, list);
-
-  for (const entry of newEntries) {
-    if (!showRosterMoves && isRosterMovesEntry(entry)) continue;
-    const list = byYear.get(entry.year) ?? [];
-    byYear.set(entry.year, [...list, entry]);
-  }
-
-  const next: SimResultYearGroup[] = [];
-  for (const year of [...byYear.keys()].sort((a, b) => a - b)) {
-    const list = byYear.get(year)!;
-    const prevGroup = grouped.find(([y]) => y === year);
-    if (prevGroup && !touchedYears.has(year)) {
-      next.push(prevGroup);
-    } else {
-      next.push([year, sortYearEntriesLocal(list)]);
-    }
-  }
-  return next;
-}
-
-function useGroupedFeedEntries(
-  entries: SimResultEntry[],
-  showRosterMoves: boolean,
-): SimResultYearGroup[] {
-  const cacheRef = useRef<GroupedFeedCache | null>(null);
-
-  return useMemo(() => {
-    const prev = cacheRef.current;
-    if (prev && prev.entries === entries && prev.showRosterMoves === showRosterMoves) {
-      return prev.grouped;
-    }
-    if (
-      prev &&
-      prev.showRosterMoves === showRosterMoves &&
-      entries.length > prev.entries.length
-    ) {
-      let prefixMatch = true;
-      for (let i = 0; i < prev.entries.length; i++) {
-        if (entries[i] !== prev.entries[i]) {
-          prefixMatch = false;
-          break;
-        }
-      }
-      if (prefixMatch) {
-        const grouped = appendGroupedFeedEntries(
-          prev.grouped,
-          entries.slice(prev.entries.length),
-          showRosterMoves,
-        );
-        cacheRef.current = { entries, showRosterMoves, grouped };
-        return grouped;
-      }
-    }
-    const grouped = groupSimResultFeedEntries(entries, showRosterMoves);
-    cacheRef.current = { entries, showRosterMoves, grouped };
-    return grouped;
-  }, [entries, showRosterMoves]);
+function useGroupedFeedEntries(entries: SimResultEntry[], showRosterMoves: boolean): SimResultYearGroup[] {
+  return useMemo(() => groupSimResultFeedEntries(entries, showRosterMoves), [entries, showRosterMoves]);
 }
 
 function SimResultsFeedPanel({
@@ -187,10 +97,11 @@ function SimResultsFeedPanel({
     });
   }, [expandedYearCount, latestYear, years]);
 
-  useEffect(() => {
-    if (!compactDuringSim) return;
-    setExpandedMode(false);
-  }, [compactDuringSim]);
+  const [previousCompact, setPreviousCompact] = useState(compactDuringSim);
+  if (previousCompact !== compactDuringSim) {
+    setPreviousCompact(compactDuringSim);
+    if (compactDuringSim) setExpandedMode(false);
+  }
 
   useEffect(() => {
     if (!autoScroll || !scrollRef.current) return;

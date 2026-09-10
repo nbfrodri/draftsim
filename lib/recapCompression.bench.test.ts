@@ -120,7 +120,7 @@ describe("compactEncodeTournamentForPersist benchmark (32 teams, ~150 recapped g
     expect(memoResult).toBe(lastWarm);
 
     const ratio = coldMs / Math.max(warmMs, 0.0001);
-    // eslint-disable-next-line no-console
+
     console.log(
       `[bench] compactEncodeTournamentForPersist — cold: ${coldMs.toFixed(2)}ms, ` +
         `warm (new tournament identity, cached matches): ${warmMs.toFixed(4)}ms/call, ` +

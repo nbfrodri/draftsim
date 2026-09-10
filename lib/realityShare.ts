@@ -1,37 +1,13 @@
+import { MAX_SHARE_OUTPUT_BYTES,assertShareInputSize,base64UrlDecode,base64UrlEncode,deflateString,inflateString } from "./shareCodec";
 // REAL1: compressed share codes for franchise realities (same deflate-base64
 // pattern as TOUR1: tournament codes).
 
 const REALITY_CODE_PREFIX = "REAL1:";
-
-async function deflateString(input: string): Promise<Uint8Array> {
-  const stream = new Blob([input])
-    .stream()
-    .pipeThrough(new CompressionStream("deflate-raw"));
-  const buf = await new Response(stream).arrayBuffer();
-  return new Uint8Array(buf);
-}
-
-async function inflateString(bytes: Uint8Array): Promise<string> {
-  const stream = new Blob([bytes])
-    .stream()
-    .pipeThrough(new DecompressionStream("deflate-raw"));
-  return await new Response(stream).text();
-}
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): Uint8Array {
-  const sanitized = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padding = (4 - (sanitized.length % 4)) % 4;
-  const padded = sanitized + "=".repeat(padding);
-  const binary = atob(padded);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
+/** Reality files can contain a century of archives; match the decoded-code limit. */
+export function assertRealityJsonSize(input: string): void {
+  if (input.length > MAX_SHARE_OUTPUT_BYTES || new TextEncoder().encode(input).byteLength > MAX_SHARE_OUTPUT_BYTES) {
+    throw new Error("Reality exceeds the 128 MiB uncompressed limit.");
+  }
 }
 
 /** Encode a reality export JSON string to a REAL1: share code. */
@@ -47,6 +23,9 @@ export interface DecodeRealityShareResult {
 
 /** Decode a REAL1: code (or pass through raw JSON exports). */
 export async function decodeRealityShareCode(input: string): Promise<DecodeRealityShareResult> {
+  try { if (input.trimStart().startsWith("{")) assertRealityJsonSize(input); else assertShareInputSize(input); } catch (error) {
+    return { json: null, error: (error as Error).message };
+  }
   const trimmed = input.trim();
   if (!trimmed.startsWith(REALITY_CODE_PREFIX)) {
     return trimmed.startsWith("{") ? { json: trimmed, error: null } : { json: null, error: "Expected REAL1: code or JSON export." };

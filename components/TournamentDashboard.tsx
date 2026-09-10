@@ -1,38 +1,35 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy,Suspense,useEffect,useMemo,useState } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
+import { isDesktop,saveFileNative } from "@/lib/desktopStorage";
 import {
-  encodeTournament,
-  matchesByRound,
-  playoffBracketKindFor,
-  tournamentChampion,
-} from "@/lib/tournament";
-import { isDesktop, saveFileNative } from "@/lib/desktopStorage";
-import {
-  feederEventOf,
-  qualifiedForInternational,
-  qualifierTag,
+feederEventOf,
+qualifiedForInternational,
+qualifierTag,
 } from "@/lib/season/engine";
-import Modal from "./Modal";
+import {
+encodeTournament,
+matchesByRound,
+tournamentChampion
+} from "@/lib/tournament";
+import { useDraftStore } from "@/store/draftStore";
 import MetaPanel from "./MetaPanel";
+import Modal from "./Modal";
+import { QualifierTagView,type QualifierTagInfo } from "./QualifierBadge";
 import TeamIcon from "./TeamIcon";
-import { QualifierTagView, type QualifierTagInfo } from "./QualifierBadge";
 
 // ─── Bracket sub-modules ──────────────────────────────────────────────
-import { Header } from "./tournament/bracket/BracketViews";
-import { RoundColumn } from "./tournament/bracket/BracketViews";
-import { DoubleElimView, TripleElimView } from "./tournament/bracket/BracketViews";
 import { BracketConnectorRoot } from "./tournament/bracket/BracketConnectors";
-import { LiveChampionMetaPanel, MetaEvolutionFeed } from "./tournament/bracket/LiveChampionMetaPanel";
-import { MatchOverrideModal } from "./tournament/bracket/MatchOverrideModal";
+import { DoubleElimView,Header,RoundColumn,TripleElimView } from "./tournament/bracket/BracketViews";
 import {
-  ReplayLoadingOverlay,
-  SaveTournamentModal,
-  SimulatingOverlay,
+ReplayLoadingOverlay,
+SaveTournamentModal,
+SimulatingOverlay,
 } from "./tournament/bracket/DashboardModals";
-import { RoundRobinView, GroupsPlayoffsView, SwissView } from "./tournament/bracket/FormatViews";
+import { GroupsPlayoffsView,RoundRobinView,SwissView } from "./tournament/bracket/FormatViews";
+import { LiveChampionMetaPanel,MetaEvolutionFeed } from "./tournament/bracket/LiveChampionMetaPanel";
+import { MatchOverrideModal } from "./tournament/bracket/MatchOverrideModal";
 import { StreaksPanel } from "./tournament/bracket/StreaksPanel";
 
 // ─── Replay sub-module (lazy — pulls in recharts + recap panels) ─────
@@ -161,7 +158,7 @@ export default function TournamentDashboard() {
       ? tournament.matches.find((m) => m.id === viewMatchId) ?? null
       : null;
     return { champion, rounds, pendingMatch, viewMatch };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [tournament, pendingMatchId, viewMatchId]);
   const totalRounds = rounds.length;
   // Season internationals: every team's home region + the seed it

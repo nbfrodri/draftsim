@@ -15,16 +15,16 @@
 // ExcelJS is dynamic-imported for the same reason as the exporter: the
 // ~1MB library only loads when the user actually imports.
 
-import { TIER_ORDER, type MetaOverride, type MetaTier } from "../championMeta";
+import { TIER_ORDER,type MetaOverride,type MetaTier } from "../championMeta";
 import type { Lane } from "../types";
-import type { SeasonHistoryEntry, SeasonHistoryTeamRef } from "./history";
+import type { SeasonHistoryEntry,SeasonHistoryTeamRef } from "./history";
 import {
-  INTERNATIONAL_LABELS,
-  LEAGUE_IDS,
-  SPLIT_LABELS,
-  type InternationalId,
-  type LeagueId,
-  type SplitId,
+INTERNATIONAL_LABELS,
+LEAGUE_IDS,
+SPLIT_LABELS,
+type InternationalId,
+type LeagueId,
+type SplitId,
 } from "./types";
 
 type Workbook = import("exceljs").Workbook;
@@ -458,6 +458,8 @@ export async function parseHistoryWorkbook(
 ): Promise<HistoryImportResult> {
   let wb: Workbook;
   try {
+    const { validateWorkbookZip } = await import("../zipImportLimits");
+    await validateWorkbookZip(data);
     // exceljs is CJS — handle both interop shapes (same as the exporter).
     const mod = (await import("exceljs")) as
       | typeof import("exceljs")

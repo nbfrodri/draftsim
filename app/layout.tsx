@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
-import { Cinzel, Inter } from "next/font/google";
-import "./globals.css";
 import ChampionImageFallback from "@/components/ChampionImageFallback";
+import PersistenceNotice from "@/components/PersistenceNotice";
+import type { Metadata } from "next";
+import { Cinzel,Inter } from "next/font/google";
+import "./globals.css";
 
 const display = Cinzel({
   subsets: ["latin"],
@@ -30,6 +31,7 @@ export default function RootLayout({
     <html lang="en" className={`${display.variable} ${body.variable}`}>
       <body className="font-body antialiased">
         <ChampionImageFallback />
+        <PersistenceNotice />
         {children}
       </body>
     </html>

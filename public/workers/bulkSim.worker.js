@@ -145,6 +145,10 @@
     return applyLock(game, pick);
   }
 
+  // lib/shareCodec.ts
+  var MAX_SHARE_INPUT_CHARS = 64 * 1024 * 1024;
+  var MAX_SHARE_OUTPUT_BYTES = 128 * 1024 * 1024;
+
   // lib/data/championMeta.json
   var championMeta_default = {
     Aatrox: {

@@ -1,54 +1,54 @@
 "use client";
+import { useLayoutEffect } from "react";
 
 import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useRef,
-  type ReactNode,
+createContext,
+useContext,
+useMemo,
+useRef,
+type ReactNode
 } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
-import { playerFormKey, type PlayerFormMap } from "@/lib/playerForm";
+import { playerFormKey,type PlayerFormMap } from "@/lib/playerForm";
 import {
-  inactiveValueBreakdown,
-  type FaBoardRow,
-  type MarketInactive,
+inactiveValueBreakdown,
+type FaBoardRow,
+type MarketInactive,
 } from "@/lib/season/faMarket";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 import {
-  listPlayers,
-  playerCareerStatuses,
-  type CareerStatusInfo,
-  type PlayerHit,
+listPlayers,
+playerCareerStatuses,
+type CareerStatusInfo,
+type PlayerHit,
 } from "@/lib/season/historySearch";
 import {
-  ACADEMY_YEARS,
-  TOTAL_INACTIVE_BEFORE_RETIRE,
-  type InactivePlayerSnapshot,
-} from "@/lib/season/playerLifecycle";
-import {
-  archivedPlayerIds,
-  archivedRosterSnapshot,
-  buildPlayerCardTeam,
-  buildPlayerCardTeamFromSeasonTeam,
-  careerHighlights,
-  historyPlayerCardTeam,
-  isSparsePlayerHint,
-  latestPlayerRosterSnapshot,
-  statusBadgeYears,
-  type PlayerCardData,
-  type PlayerCardStatus,
-  type PlayerCardTeam,
+archivedPlayerIds,
+archivedRosterSnapshot,
+buildPlayerCardTeam,
+buildPlayerCardTeamFromSeasonTeam,
+careerHighlights,
+historyPlayerCardTeam,
+isSparsePlayerHint,
+latestPlayerRosterSnapshot,
+statusBadgeYears,
+type PlayerCardData,
+type PlayerCardStatus,
+type PlayerCardTeam,
 } from "@/lib/season/playerCard";
 import {
-  computePlayerSeasonLines,
-  computePlayerTitleCounts,
-  type PlayerSeasonLine,
+ACADEMY_YEARS,
+TOTAL_INACTIVE_BEFORE_RETIRE,
+type InactivePlayerSnapshot,
+} from "@/lib/season/playerLifecycle";
+import {
+computePlayerSeasonLines,
+computePlayerTitleCounts,
+type PlayerSeasonLine,
 } from "@/lib/season/stats";
-import type { SeasonState, SeasonTeam } from "@/lib/season/types";
-import type { Champion, Lane, Player } from "@/lib/types";
+import type { SeasonState,SeasonTeam } from "@/lib/season/types";
+import type { Champion,Lane,Player } from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
 
 /**
  * Extra context a call site already has and the resolver can't cheaply derive —
@@ -391,9 +391,9 @@ export function LivePlayerCardProvider({
   // Read the freshest index at hover time without re-rendering every name in
   // the app whenever the season ticks.
   const indexRef = useRef(index);
-  indexRef.current = index;
+  useLayoutEffect(() => { indexRef.current = index; }, [index]);
   const navRef = useRef(onOpenProfile);
-  navRef.current = onOpenProfile;
+  useLayoutEffect(() => { navRef.current = onOpenProfile; }, [onOpenProfile]);
 
   // Only offer the click affordance once there is an archive to land in — a
   // brand-new reality's first year has no Hall page to open yet.
@@ -416,7 +416,7 @@ export function LivePlayerCardProvider({
         return indexRef.current.championsById;
       },
     }),
-    [hasProfileNav],
+    [hasProfileNav, hallEntries.length],
   );
 
   return (
@@ -669,9 +669,9 @@ export function HistoryPlayerCardProvider({
   }, [entries, championsById, liveInactive, liveRosterIds]);
 
   const indexRef = useRef(index);
-  indexRef.current = index;
+  useLayoutEffect(() => { indexRef.current = index; }, [index]);
   const navRef = useRef(onOpenProfile);
-  navRef.current = onOpenProfile;
+  useLayoutEffect(() => { navRef.current = onOpenProfile; }, [onOpenProfile]);
   const hasProfileNav = !!onOpenProfile;
 
   const value = useMemo<PlayerCardContextValue>(

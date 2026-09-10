@@ -1,22 +1,22 @@
 "use client";
 
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useDraftStore } from "@/store/draftStore";
-import { getTeam } from "@/lib/tournament";
-import { getChampionMeta } from "@/lib/championMeta";
-import { syntheticDamage } from "@/lib/sim/descriptions";
-import { computeGameRatings } from "@/lib/matchSimulator";
-import type { TournamentMatch, TournamentState, TournamentTeam } from "@/lib/tournament";
-import type { Champion, GameDraft, GameRecap, Lane, Roster, Side } from "@/lib/types";
-import { LANES } from "@/lib/lanes";
+import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
+import GoldLeadChart from "@/components/charts/GoldLeadChart";
+import WinProbChart from "@/components/charts/WinProbChart";
 import LaneIcon from "@/components/LaneIcon";
+import PlayerNameLink from "@/components/player/PlayerNameLink";
 import TeamLogoLink from "@/components/team/TeamLogoLink";
 import TeamNameLink from "@/components/team/TeamNameLink";
-import WinProbChart from "@/components/charts/WinProbChart";
-import GoldLeadChart from "@/components/charts/GoldLeadChart";
-import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
-import PlayerNameLink from "@/components/player/PlayerNameLink";
+import { getChampionMeta } from "@/lib/championMeta";
+import { LANES } from "@/lib/lanes";
+import { computeGameRatings } from "@/lib/matchSimulator";
 import { gameKillTotals } from "@/lib/recapStats";
+import { syntheticDamage } from "@/lib/sim/descriptions";
+import type { TournamentMatch,TournamentState,TournamentTeam } from "@/lib/tournament";
+import { getTeam } from "@/lib/tournament";
+import type { Champion,GameDraft,GameRecap,Lane,Roster,Side } from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
+import { memo,useEffect,useMemo,useState,type ReactNode } from "react";
 
 function resolveReplayTeam(
   tournament: TournamentState,
@@ -233,10 +233,11 @@ export function MatchReplayModal({
   const redTeam = getTeam(tournament, match.redTeamId);
   const series = match.series;
 
-  // Deep links (Notable Games) can open a specific tab after mount.
-  useEffect(() => {
+  const [previousMatch, setPreviousMatch] = useState({ id: match.id, initialGameIdx });
+  if (previousMatch.id !== match.id || previousMatch.initialGameIdx !== initialGameIdx) {
+    setPreviousMatch({ id: match.id, initialGameIdx });
     setActiveGameIdx(initialGameIdx);
-  }, [initialGameIdx, match.id]);
+  }
 
   // Esc-to-close, arrow keys for game tabs, body-scroll-lock.
   useEffect(() => {
@@ -264,7 +265,7 @@ export function MatchReplayModal({
     };
   }, [onClose, series?.games.length]);
 
-  const games = series?.games ?? [];
+  const games = useMemo(() => series?.games ?? [], [series?.games]);
   const game = games[activeGameIdx] ?? games[0];
   const matchBlueName = blueTeam?.name ?? games[0]?.blueTeam ?? "Blue";
   const matchRedName = redTeam?.name ?? games[0]?.redTeam ?? "Red";

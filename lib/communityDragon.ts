@@ -1,3 +1,5 @@
+import bundled from "./data/champions.json";
+import { readCachedData, writeCachedData } from "./versionedDataCache";
 import type { Champion, Lane } from "./types";
 import { MERAKI_POSITION_TO_LANE } from "./lanes";
 import { getMetaTiers } from "./championMeta";
@@ -33,7 +35,7 @@ function iconUrlFor(id: number): string {
 // component wrapping this call is prerendered at build time (static export
 // for Tauri) — champions refresh by rebuilding the app.
 async function fetchLanesFromMeraki(): Promise<Record<number, Lane[]>> {
-  const res = await fetch(MERAKI_URL);
+  const res = await fetch(MERAKI_URL, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`Meraki fetch failed: ${res.status}`);
   const raw = (await res.json()) as Record<string, MerakiChampion>;
   const out: Record<number, Lane[]> = {};
@@ -161,9 +163,9 @@ function injectPendingReleases(fetched: Champion[]): Champion[] {
   );
 }
 
-export async function fetchChampions(): Promise<Champion[]> {
+export async function refreshChampions(): Promise<Champion[]> {
   const [raw, lanesMap] = await Promise.all([
-    fetch(CHAMPIONS_URL).then((r) => {
+    fetch(CHAMPIONS_URL, { signal: AbortSignal.timeout(8000) }).then((r) => {
       if (!r.ok) throw new Error(`CommunityDragon fetch failed: ${r.status}`);
       return r.json() as Promise<RawChampion[]>;
     }),
@@ -185,5 +187,25 @@ export async function fetchChampions(): Promise<Champion[]> {
       lanes: unionLanes(lanesMap[c.id] ?? [], lanesFromMeta(c.alias)),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  return injectPendingReleases(fetched);
+  const result = injectPendingReleases(fetched);
+  if (!validChampions(result)) throw new Error("Invalid remote champion catalogue");
+  if (typeof window !== "undefined") writeCachedData("draftsim-champions-v1", 1, result);
+  return result;
 }
+
+export function validChampions(value: unknown): value is Champion[] {
+  if (!Array.isArray(value) || value.length < 100 || value.length > 1000) return false;
+  const ids = new Set<number>();
+  return value.every(c => {
+    if (!c || !Number.isSafeInteger(c.id) || c.id <= 0 || ids.has(c.id) || typeof c.name !== "string" || !c.name ||
+      typeof c.alias !== "string" || !c.alias || !Array.isArray(c.roles) || !c.roles.every((r: unknown) => typeof r === "string") ||
+      typeof c.iconUrl !== "string" || !Array.isArray(c.lanes) || !c.lanes.every((lane: Lane) => ALL_LANES.includes(lane))) return false;
+    ids.add(c.id); return true;
+  });
+}
+export function localChampions(): Champion[] {
+  const fallback = bundled.champions as Champion[];
+  return readCachedData("draftsim-champions-v1", 1, validChampions, fallback);
+}
+/** Static builds and first launches use the complete packaged catalogue. */
+export async function fetchChampions(): Promise<Champion[]> { return localChampions(); }

@@ -1,19 +1,20 @@
 "use client";
+import { useHydrated } from "@/lib/useHydrated";
 
-import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import {
-  decodeMetaOverride,
-  encodeMetaOverride,
-  getMetaTier,
-  getMetaTiers,
-  TIER_ORDER,
-  type MetaOverride,
-  type MetaTier,
+decodeMetaOverride,
+encodeMetaOverride,
+getMetaTier,
+getMetaTiers,
+TIER_ORDER,
+type MetaOverride,
+type MetaTier,
 } from "@/lib/championMeta";
-import type { Champion, Lane } from "@/lib/types";
+import { isDesktop,openFileNative,saveFileNative } from "@/lib/desktopStorage";
+import type { Champion,Lane } from "@/lib/types";
+import { useEffect,useMemo,useState } from "react";
+import { createPortal } from "react-dom";
 import LaneIcon from "./LaneIcon";
-import { isDesktop, saveFileNative, openFileNative } from "@/lib/desktopStorage";
 
 interface Props {
   open: boolean;
@@ -159,7 +160,7 @@ export default function MetaEditor({
   const [editing, setEditing] = useState<MetaOverride>({});
   const [draggedAlias, setDraggedAlias] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<MetaTier | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
 
   // "Add champion" picker state. The panel toggles open with a search box
   // listing champions not already in the active role's tier list.
@@ -282,21 +283,18 @@ export default function MetaEditor({
     });
   };
 
-  useEffect(() => setMounted(true), []);
 
-  // Re-seed the editor whenever it opens with a fresh snapshot of the active
-  // meta. getMetaTier reads the override+baseline so random/custom states flow.
-  useEffect(() => {
-    if (!open) return;
-    const seed = buildInitialEditing(champions, initialOverride, getMetaTier);
-    setEditing(seed);
-  }, [open, champions, initialOverride]);
 
-  // Clear the add-picker search when switching roles so each role tab opens
-  // with a fresh list (the panel itself stays open if the user left it open).
-  useEffect(() => {
+  const [editingSource, setEditingSource] = useState({ open: false, champions, initialOverride });
+  if (editingSource.open !== open || editingSource.champions !== champions || editingSource.initialOverride !== initialOverride) {
+    setEditingSource({ open, champions, initialOverride });
+    if (open) setEditing(buildInitialEditing(champions, initialOverride, getMetaTier));
+  }
+  const [previousRole, setPreviousRole] = useState(activeRole);
+  if (previousRole !== activeRole) {
+    setPreviousRole(activeRole);
     setAddSearch("");
-  }, [activeRole]);
+  }
 
   useEffect(() => {
     if (!open) return;

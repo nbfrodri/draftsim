@@ -1,30 +1,30 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo,useState } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
-import { deriveStar } from "@/lib/players";
 import { sideFormsFor } from "@/lib/playerForm";
-import { teamSeasonGrades } from "@/lib/season/stats";
-import { seasonTeam, type SeasonState } from "@/lib/season/types";
+import { deriveStar } from "@/lib/players";
 import {
-  ACADEMY_MAX_PER_TEAM,
-  USER_ACADEMY_ROOKIE_SOFT_MAX,
-  listTeamAcademy,
-  isRosterVacancy,
+ACADEMY_MAX_PER_TEAM,
+USER_ACADEMY_ROOKIE_SOFT_MAX,
+isRosterVacancy,
+listTeamAcademy,
 } from "@/lib/season/faMarket";
+import { teamSeasonGrades } from "@/lib/season/stats";
+import { seasonTeam,type SeasonState } from "@/lib/season/types";
 import {
-  computeTeamChampionWR,
-  type TournamentChampionWREntry,
-  type TournamentMatch,
-  type TournamentState,
+computeTeamChampionWR,
+type TournamentChampionWREntry,
+type TournamentMatch,
+type TournamentState,
 } from "@/lib/tournament";
-import type { Champion, Lane, PlayerTier } from "@/lib/types";
-import TeamNameLink from "./team/TeamNameLink";
-import LaneIcon from "./LaneIcon";
-import InactiveBrowseRow from "./season/InactiveBrowseRow";
-import PlayerNameLink from "./player/PlayerNameLink";
+import type { Champion,Lane,PlayerTier } from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
 import CoachNameLink from "./coach/CoachNameLink";
+import LaneIcon from "./LaneIcon";
+import PlayerNameLink from "./player/PlayerNameLink";
+import InactiveBrowseRow from "./season/InactiveBrowseRow";
+import TeamNameLink from "./team/TeamNameLink";
 
 // "My Team" dashboard panel for the controlled team: the live roster with
 // tier badges (and ▲/▼ shift arrows when a tier moved this split) + current
@@ -173,7 +173,7 @@ function ChampWRChip({ champ, rec }: ChampWRItem) {
       className="inline-flex items-center gap-1 text-[10px]"
       title={`${champ.name}: ${rec.wins}-${rec.games - rec.wins} (${pct}% over ${rec.games} games)`}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
+      { }
       <img src={champ.iconUrl} alt={champ.name} className="w-4 h-4 object-cover border border-rift-line/40" />
       <span className="text-rift-mutedbright max-w-[64px] truncate">{champ.name}</span>
       <span className={`tabular-nums ${wrTone(rec.winRate)}`}>{pct}%</span>
@@ -187,7 +187,7 @@ function ChampWRRow({ champ, rec }: ChampWRItem) {
   const losses = rec.games - rec.wins;
   return (
     <div className="flex items-center gap-2 text-[10px] py-0.5">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
+      { }
       <img src={champ.iconUrl} alt={champ.name} className="w-4 h-4 object-cover border border-rift-line/40 shrink-0" />
       <span className="text-rift-mutedbright truncate w-20 shrink-0">{champ.name}</span>
       <span className="tabular-nums text-rift-muted/70 w-10 shrink-0 text-right">

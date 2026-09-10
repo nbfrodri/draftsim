@@ -489,3 +489,17 @@ button { -webkit-tap-highlight-color: transparent; }
       rgba(200, 170, 110, 0.45) 50.5%, transparent 50.5%),
     rgba(30, 35, 40, 0.9);
 }
+
+/* Keep keyboard focus visible across dense management screens. */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid #c8aa6e;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

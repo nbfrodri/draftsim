@@ -1,28 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
+import { useEffect,useMemo,useRef,useState } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
-import { currentGame, maxGames, seriesScore, starRatingBias } from "@/lib/series";
 import {
-  buildGameRecap,
-  simulateMatch,
-  type SimulationResult,
+buildGameRecap,
+simulateMatch,
+type SimulationResult,
 } from "@/lib/matchSimulator";
-import type { Champion, Side } from "@/lib/types";
+import { currentGame,maxGames,seriesScore,starRatingBias } from "@/lib/series";
+import type { Champion,Side } from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
 import AIRationaleHistory from "./AIRationaleHistory";
+import Modal from "./Modal";
+import SynergyView from "./SynergyView";
 import TeamName from "./TeamName";
 import TierListView from "./TierListView";
-import SynergyView from "./SynergyView";
-import Modal from "./Modal";
 
-import { CompletedSide, StrategyRecap, WinnerButton } from "./betweenGames/CompletedSide";
+import { CompletedSide,StrategyRecap,WinnerButton } from "./betweenGames/CompletedSide";
 import { SimulationPanel } from "./betweenGames/playback/SimulationPanel";
 
 interface Props {
   champions: Champion[];
 }
+
+const LANES = ["top", "jungle", "middle", "bottom", "support"] as const;
 
 export default function BetweenGamesView({ champions }: Props) {
   const series = useDraftStore((s) => s.series)!;
@@ -65,7 +67,6 @@ export default function BetweenGamesView({ champions }: Props) {
   // context so single-series sims behave identically.
   const tournament = useDraftStore((s) => s.tournament);
   const playerForms = useDraftStore((s) => s.playerForms);
-  const LANES = ["top", "jungle", "middle", "bottom", "support"] as const;
 
   const simOptions = useMemo(() => {
     // Determine team keys for form lookup (tournament uses team id; single-

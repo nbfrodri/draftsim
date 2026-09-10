@@ -1,96 +1,96 @@
 "use client";
 
 import {
-  lazy,
-  Suspense,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
+lazy,
+Suspense,
+useEffect,
+useMemo,
+useState,
+type ReactNode,
 } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
-import type { SeasonMatchdayResult } from "@/store/draftStore";
+import { computeChampionTeamTournamentMvp,computeFinalsMvp } from "@/lib/awards";
+import { isDesktop,saveFileNative } from "@/lib/desktopStorage";
 import {
-  computeStandings,
-  formatHasStandings,
-  tournamentChampion,
-} from "@/lib/tournament";
-import type { TournamentMatch, TournamentState } from "@/lib/tournament";
+computeAllProTeams,
+type RawAllProTeam,
+} from "@/lib/season/allPro";
 import {
-  feederEventOf,
-  leagueOfTournament,
-  phaseProgress,
-  qualifiedForInternational,
-  qualifierTag,
-  seasonGoldenRoadTeamId,
-  seasonHasGlobalCup,
+feederEventOf,
+leagueOfTournament,
+phaseProgress,
+qualifiedForInternational,
+qualifierTag,
+seasonGoldenRoadTeamId,
+seasonHasGlobalCup,
 } from "@/lib/season/engine";
 import {
-  computeSeasonStats,
-  computeSeasonRookiesOfYear,
-  computeStageStats,
-  type PlayerSeasonLine,
+computePowerRankings,
+type PowerRankingRow,
+type PowerTag,
+} from "@/lib/season/powerRankings";
+import { logoForTeamName } from "@/lib/season/realTeams";
+import { buildSeasonStory } from "@/lib/season/seasonStory";
+import {
+computeSeasonRookiesOfYear,
+computeSeasonStats,
+computeStageStats,
+type PlayerSeasonLine,
 } from "@/lib/season/stats";
 import {
-  computeAllProTeams,
-  type RawAllProTeam,
-} from "@/lib/season/allPro";
-import { computeFinalsMvp, computeChampionTeamTournamentMvp } from "@/lib/awards";
+INTERNATIONAL_DISPLAY_ORDER,
+INTERNATIONAL_LABELS,
+LEAGUE_IDS,
+seasonTeam,
+SPLIT_FEEDS_EVENT,
+SPLIT_LABELS,
+type InternationalId,
+type LeagueId,
+type SeasonPhase,
+type SeasonState,
+} from "@/lib/season/types";
+import type { TournamentMatch,TournamentState } from "@/lib/tournament";
 import {
-  computePowerRankings,
-  type PowerRankingRow,
-  type PowerTag,
-} from "@/lib/season/powerRankings";
-import { buildSeasonStory } from "@/lib/season/seasonStory";
-import SeasonStoryCard from "./SeasonStoryCard";
-import MyTeamPanel from "./MyTeamPanel";
-import TransferWindowPanel from "./TransferWindowPanel";
-import TeamBrowserPanel from "./TeamBrowserPanel";
-import FreeAgentsPanel from "./FreeAgentsPanel";
+computeStandings,
+formatHasStandings,
+tournamentChampion,
+} from "@/lib/tournament";
+import type { Champion,Lane } from "@/lib/types";
+import type { SeasonMatchdayResult } from "@/store/draftStore";
+import { useDraftStore } from "@/store/draftStore";
 import FranchisePanel from "./FranchisePanel";
+import FreeAgentsPanel from "./FreeAgentsPanel";
+import LaneIcon from "./LaneIcon";
+import LeagueIcon from "./LeagueIcon";
+import { CopyMetaCodeButton,MetaDriftChips } from "./MetaSnapshots";
+import Modal from "./Modal";
+import MyTeamPanel from "./MyTeamPanel";
 import OffseasonView from "./OffseasonView";
+import PlayerNameLink from "./player/PlayerNameLink";
+import {
+IntlChampionBadge,
+QualifierTagView,
+TeamFormBadge,
+type QualifierTagInfo,
+} from "./QualifierBadge";
 import BulkYearsControl from "./season/BulkYearsControl";
 import SimResultsFeedPanel from "./season/SimResultsFeedPanel";
-import {
-  INTERNATIONAL_LABELS,
-  LEAGUE_IDS,
-  SPLIT_FEEDS_EVENT,
-  SPLIT_LABELS,
-  INTERNATIONAL_DISPLAY_ORDER,
-  seasonTeam,
-  type LeagueId,
-  type InternationalId,
-  type SeasonPhase,
-  type SeasonState,
-} from "@/lib/season/types";
-import type { Champion, Lane } from "@/lib/types";
-import TeamNameLink from "./team/TeamNameLink";
-import TeamLogoLink from "./team/TeamLogoLink";
-import {
-  buildLiveTeamStatsMap,
-  TeamLiveStatsInline,
-  type LiveTeamStats,
-} from "./team/TeamLiveStats";
-import LeagueIcon from "./LeagueIcon";
-import LaneIcon from "./LaneIcon";
-import PlayerNameLink from "./player/PlayerNameLink";
-import { logoForTeamName } from "@/lib/season/realTeams";
-import {
-  IntlChampionBadge,
-  QualifierTagView,
-  TeamFormBadge,
-  type QualifierTagInfo,
-} from "./QualifierBadge";
-import { CopyMetaCodeButton, MetaDriftChips } from "./MetaSnapshots";
-import Modal from "./Modal";
-import { isDesktop, saveFileNative } from "@/lib/desktopStorage";
 import SeasonMetaPanel from "./SeasonMetaPanel";
+import SeasonStoryCard from "./SeasonStoryCard";
 import {
-  ReplayLoadingOverlay,
-  SimulatingOverlay,
+buildLiveTeamStatsMap,
+TeamLiveStatsInline,
+type LiveTeamStats,
+} from "./team/TeamLiveStats";
+import TeamLogoLink from "./team/TeamLogoLink";
+import TeamNameLink from "./team/TeamNameLink";
+import TeamBrowserPanel from "./TeamBrowserPanel";
+import {
+ReplayLoadingOverlay,
+SimulatingOverlay,
 } from "./tournament/bracket/DashboardModals";
 import { GroupStandingsTable } from "./tournament/bracket/StandingsTables";
+import TransferWindowPanel from "./TransferWindowPanel";
 const MatchReplayModal = lazy(() =>
   import("./tournament/replay/MatchReplayModal").then((m) => ({
     default: m.MatchReplayModal,
@@ -161,7 +161,7 @@ export default function SeasonDashboard() {
   // For standalone seasons, fall back to the per-season export.
   const handleExportSeason = async () => {
     if (season.franchise) {
-      const json = exportReality(season.franchise.id);
+      const json = await exportReality(season.franchise.id);
       if (!json) {
         setSaveFeedback("Export failed");
         return;

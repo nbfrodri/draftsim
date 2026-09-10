@@ -1,10 +1,11 @@
 "use client";
+import { useHydrated } from "@/lib/useHydrated";
 
-import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import { getActiveSynergies } from "@/lib/championMeta";
-import { useDraftStore } from "@/store/draftStore";
 import type { Champion } from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
+import { useEffect,useMemo,useState } from "react";
+import { createPortal } from "react-dom";
 
 interface Props {
   open: boolean;
@@ -15,7 +16,7 @@ interface Props {
 export default function SynergyView({ open, champions, onClose }: Props) {
   const [search, setSearch] = useState("");
   const [focusedAlias, setFocusedAlias] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
   // Subscribe to the synergy version so a randomize/reset triggers a
   // re-render with the new active list.
   const synergyVersion = useDraftStore((s) => s.synergyVersion);
@@ -25,7 +26,7 @@ export default function SynergyView({ open, champions, onClose }: Props) {
     [synergyVersion],
   );
 
-  useEffect(() => setMounted(true), []);
+
 
   useEffect(() => {
     if (!open) return;
@@ -39,13 +40,11 @@ export default function SynergyView({ open, champions, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // Reset filters when the modal closes — opening fresh feels cleaner.
-  useEffect(() => {
-    if (!open) {
-      setSearch("");
-      setFocusedAlias(null);
-    }
-  }, [open]);
+  const [previousOpen, setPreviousOpen] = useState(open);
+  if (previousOpen !== open) {
+    setPreviousOpen(open);
+    if (!open) { setSearch(""); setFocusedAlias(null); }
+  }
 
   const byAlias = useMemo(
     () => new Map(champions.map((c) => [c.alias, c])),

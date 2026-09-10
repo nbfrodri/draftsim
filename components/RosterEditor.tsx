@@ -1,20 +1,21 @@
 "use client";
+import { useHydrated } from "@/lib/useHydrated";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import gsap from "gsap";
-import type { Champion, Lane, PlayerTier, Roster } from "@/lib/types";
 import {
-  deriveStar,
-  emptyRoster,
-  LANE_ORDER,
-  MAX_POOL,
-  normalizeRoster,
-  PLAYER_TIERS,
-  playableInLane,
-  randomizeChampPools,
-  randomizeRoster,
+deriveStar,
+emptyRoster,
+LANE_ORDER,
+MAX_POOL,
+normalizeRoster,
+playableInLane,
+PLAYER_TIERS,
+randomizeChampPools,
+randomizeRoster,
 } from "@/lib/players";
+import type { Champion,Lane,PlayerTier,Roster } from "@/lib/types";
+import gsap from "gsap";
+import { useEffect,useMemo,useRef,useState } from "react";
+import { createPortal } from "react-dom";
 import LaneIcon from "./LaneIcon";
 
 interface Props {
@@ -59,20 +60,18 @@ export default function RosterEditor({
   const [editing, setEditing] = useState<Roster>(() => emptyRoster());
   const [activeLane, setActiveLane] = useState<Lane>("top");
   const [search, setSearch] = useState("");
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
 
-  useEffect(() => setMounted(true), []);
 
-  // Re-seed whenever opened with a fresh normalized copy of the roster.
-  useEffect(() => {
-    if (!open) return;
-    setEditing(
-      roster && roster.length > 0
-        ? normalizeRoster(roster, champions)
-        : emptyRoster(),
-    );
-    setSearch("");
-  }, [open, roster, champions]);
+
+  const [editingSource, setEditingSource] = useState({ open: false, roster, champions });
+  if (editingSource.open !== open || editingSource.roster !== roster || editingSource.champions !== champions) {
+    setEditingSource({ open, roster, champions });
+    if (open) {
+      setEditing(roster?.length ? normalizeRoster(roster, champions) : emptyRoster());
+      setSearch("");
+    }
+  }
 
   useEffect(() => {
     if (!open) return;

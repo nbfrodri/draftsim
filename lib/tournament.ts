@@ -4,16 +4,16 @@
 // The data model already accommodates round-robin and per-match overrides
 // for Phase 2 — the missing logic is just helpers in this file.
 
+import { deriveStar } from "./players";
 import type {
-  AIDifficulty,
-  DraftMode,
-  Roster,
-  SeriesFormat,
-  SeriesState,
-  Side,
-  VariancePreset,
+AIDifficulty,
+DraftMode,
+Roster,
+SeriesFormat,
+SeriesState,
+Side,
+VariancePreset,
 } from "./types";
-import { deriveStar, normalizeRoster, rosterFromStar } from "./players";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -4066,124 +4066,7 @@ export function matchesByRound(
 // META1: meta codes — opaque, ~50% smaller than raw JSON, URL-safe.
 // Decoders accept either raw JSON or the encoded prefix form.
 
-const TOURNAMENT_CODE_PREFIX = "TOUR1:";
-
-async function deflateString(input: string): Promise<Uint8Array> {
-  const stream = new Blob([input])
-    .stream()
-    .pipeThrough(new CompressionStream("deflate-raw"));
-  const buf = await new Response(stream).arrayBuffer();
-  return new Uint8Array(buf);
-}
-
-async function inflateString(bytes: Uint8Array): Promise<string> {
-  const stream = new Blob([bytes])
-    .stream()
-    .pipeThrough(new DecompressionStream("deflate-raw"));
-  return await new Response(stream).text();
-}
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): Uint8Array {
-  const sanitized = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padding = (4 - (sanitized.length % 4)) % 4;
-  const padded = sanitized + "=".repeat(padding);
-  const binary = atob(padded);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
-}
-
-export async function encodeTournament(
-  tournament: TournamentState,
-): Promise<string> {
-  const json = JSON.stringify(tournament);
-  const compressed = await deflateString(json);
-  return TOURNAMENT_CODE_PREFIX + base64UrlEncode(compressed);
-}
-
-export interface ParseTournamentResult {
-  tournament: TournamentState | null;
-  error: string | null;
-}
-
-export async function decodeTournament(
-  input: string,
-): Promise<ParseTournamentResult> {
-  const trimmed = input.trim();
-  let json: string;
-  if (trimmed.startsWith(TOURNAMENT_CODE_PREFIX)) {
-    try {
-      const b64 = trimmed.slice(TOURNAMENT_CODE_PREFIX.length);
-      const bytes = base64UrlDecode(b64);
-      json = await inflateString(bytes);
-    } catch (e) {
-      return {
-        tournament: null,
-        error: `Invalid tournament code: ${e instanceof Error ? e.message : "decode failed"}`,
-      };
-    }
-  } else {
-    json = trimmed;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch (e) {
-    return {
-      tournament: null,
-      error: `Invalid JSON: ${e instanceof Error ? e.message : "parse error"}`,
-    };
-  }
-  if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { tournament: null, error: "Expected object at root" };
-  }
-  // Light shape validation — defensive against shape drift but we
-  // trust our own exporter for full integrity.
-  const t = parsed as Partial<TournamentState>;
-  const validFormats: TournamentFormat[] = [
-    "single-elim",
-    "round-robin",
-    "double-elim",
-    "swiss",
-    "swiss-playoffs",
-    "groups-playoffs",
-    "round-robin-playoffs",
-    "swiss-playoffs-de",
-    "groups-playoffs-de",
-  ];
-  if (
-    typeof t.id !== "string" ||
-    typeof t.name !== "string" ||
-    !Array.isArray(t.teams) ||
-    !Array.isArray(t.matches) ||
-    !validFormats.includes(t.format as TournamentFormat)
-  ) {
-    return { tournament: null, error: "Tournament shape invalid" };
-  }
-  // Ensure every team carries a well-formed roster. Codes exported before
-  // the players feature have none → synthesize a uniform roster from the
-  // stored star rating (deriveStar(result) === starRating). Codes that do
-  // carry rosters get normalized (capped/disjoint pools, valid tiers).
-  const withRosters: TournamentState = {
-    ...(parsed as TournamentState),
-    teams: (t.teams as TournamentTeam[]).map((team) => ({
-      ...team,
-      players:
-        Array.isArray(team.players) && team.players.length > 0
-          ? normalizeRoster(team.players)
-          : rosterFromStar(
-              typeof team.starRating === "number" ? team.starRating : 3,
-            ),
-    })),
-  };
-  return { tournament: withRosters, error: null };
-}
+export { decodeTournament,encodeTournament,type ParseTournamentResult } from "./tournamentShare";
 
 // Tournament-wide champion crowning. For single-elim: winner of the
 // final match (the one with feedsInto == null). For round-robin: top of

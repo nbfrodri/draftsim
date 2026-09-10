@@ -1,3 +1,4 @@
+import { loadRealityHistoryFromDb, savePersistedStateToDbExecutor } from "./desktopSqlite";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 
@@ -898,5 +899,38 @@ describe("recompactAllRealitySeasonsInDb", () => {
       .recap as GameRecap & { recapC?: RecapCompact };
     expect(out.recapC?.wp).toBeDefined();
     expect(out.winProbTimeline).toBeUndefined();
+  });
+});
+
+
+describe("lazy-history safety and write budget", () => {
+  beforeEach(() => resetSqliteStorageForTests());
+  it("an active but unloaded placeholder never deletes existing history", async () => {
+    const { db, historyRows } = createMockPersistDb();
+    setDesktopDatabaseForTests(db);
+    const reality = makeReality("r", "Saved");
+    await savePersistedStateToDbExecutor(db, STORE_KEY, { realities: [reality] }, { forceAllHistory: true });
+    resetSqliteStorageForTests(); setDesktopDatabaseForTests(db);
+    await savePersistedStateToDbExecutor(db, STORE_KEY, { activeRealityId: "r", realities: [{ ...reality, history: [] }] });
+    expect(historyRows.size).toBe(1);
+    // A read discarded by a later switch must not authorize the stale [] either.
+    expect(await loadRealityHistoryFromDb("r")).toHaveLength(1);
+    await savePersistedStateToDbExecutor(db, STORE_KEY, { activeRealityId: "other", realities: [{ ...reality, history: [] }] });
+    expect(historyRows.size).toBe(1);
+  });
+  it("does not rewrite 100 unchanged realities and 10000 historical seasons", async () => {
+    const { db } = createMockPersistDb();
+    const realities = Array.from({ length: 100 }, (_, n) => ({
+      ...makeReality("r"+n, "Reality "+n),
+      history: Array.from({ length: 100 }, (_, y) => makeEntry("year"+y, "Year "+y)),
+    }));
+    const execute = vi.spyOn(db, "execute");
+    await savePersistedStateToDbExecutor(db, STORE_KEY, { realities }, { forceAllHistory: true });
+    const initialWrites = execute.mock.calls.length;
+    execute.mockClear();
+    await savePersistedStateToDbExecutor(db, STORE_KEY, { realities, soundEnabled: false });
+    expect(initialWrites).toBe(10201);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0][0]).toContain("global_state");
   });
 });

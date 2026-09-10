@@ -493,7 +493,7 @@ describe("lifecycle sim (tune GRADE_GAP_THRESHOLD)", () => {
     expect(avgPlaying).toBeLessThan(30);
 
     // Surface numbers in the vitest reporter for the final summary.
-    // eslint-disable-next-line no-console
+
     console.log(
       `[lifecycle-sim] gap=${GRADE_GAP_THRESHOLD} demotion/yr=${(avgRate * 100).toFixed(2)}% ` +
         `academy≈${avgAcademy.toFixed(0)} fa≈${avgFa.toFixed(0)} retired≈${avgRet.toFixed(0)} ` +
@@ -909,7 +909,7 @@ describe("lifecycle FA market metrics (mid-split + offseason)", () => {
       )
       .join(" | ");
 
-    // eslint-disable-next-line no-console
+
     console.log(
       `[fa-metrics] seeds=${nSeeds}×${years}y teams=${teamCount}\n` +
         `  mid/yr:   FA→acy=${perYr(sumMid.faToAcademy).toFixed(2)} ` +

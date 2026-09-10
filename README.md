@@ -92,7 +92,7 @@ awareness, **enemy-roster scouting**, and side-aware drafting.
 
 ## 🚀 Quick start
 
-> Prerequisites: **Node 20+** and **npm 10+**.
+> Prerequisites: **Node 22.12+** and **npm 10+**.
 
 ```bash
 npm install
@@ -539,7 +539,7 @@ draftsim/
 | `npm run dev` | Turbopack dev server at `http://localhost:3000` |
 | `npm run build` | Production static export to `out/` |
 | `npm start` | Serve the production build (web only) |
-| `npm run lint` | Next.js ESLint |
+| `npm run lint` | ESLint CLI (Next.js + React Hooks) |
 | `npm test` | Vitest unit suite (`lib/**/*.test.ts`) |
 | `npm run test:watch` | Vitest in watch mode |
 | `npm run desktop:dev` | Tauri dev window + Next.js hot reload |
@@ -640,7 +640,7 @@ DraftSim ships as a native desktop app via [Tauri v2](https://tauri.app/).
 
 ### Prerequisites
 
-- **Node 20+** and **npm 10+** (same as web build).
+- **Node 22.12+** and **npm 10+** (same as web build).
 - **Rust 1.77+** — install from [rustup.rs](https://rustup.rs/).
 - **Windows**: Visual Studio Build Tools 2022 (C++ workload) or VS 2022.
 - **macOS**: Xcode Command Line Tools (`xcode-select --install`).
@@ -750,3 +750,16 @@ Unofficial fan-made simulator. League of Legends and all champion names, splash
 art, icons, and sound effects are property of **Riot Games, Inc.** Data sources
 (CommunityDragon, Meraki Analytics) are community mirrors of public Riot client
 assets. No affiliation with, or endorsement by, Riot Games.
+
+## Verification and audit
+
+- `npm run check`: lint, TypeScript, tests and production export.
+- `npm run build` then `npm start`: serve `out/` on localhost with CSP.
+- `npx playwright install chromium` then `npm run test:e2e`: browser flows against the production export.
+- Windows with Edge installed: `$env:PLAYWRIGHT_CHANNEL='msedge'; npm run test:e2e`.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`: native rollback and IPC tests using in-memory SQLite.
+- `npm audit`: published npm dependency advisories.
+
+Failed saves retain the previous copy and support retry. Failed hydration blocks writes until loading succeeds. Database compaction is explicit maintenance instead of work on every close. Reality exports include dormant slots' history.
+
+[Audit report and proposed improvements (Spanish)](docs/audit-2026-09-10.md).

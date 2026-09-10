@@ -1,38 +1,39 @@
 "use client";
+import { useLayoutEffect } from "react";
 
 import {
-  createContext,
-  useContext,
-  useMemo,
-  useRef,
-  type ReactNode,
+createContext,
+useContext,
+useMemo,
+useRef,
+type ReactNode,
 } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
-import { coachPlaystyle, type Coach } from "@/lib/season/coach";
+import { coachPlaystyle,type Coach } from "@/lib/season/coach";
+import {
+archivedCoachNames,
+archivedCoachSnapshot,
+buildCoachCardTeam,
+buildCoachCardTeamFromSeasonTeam,
+coachCardFromLive,
+coachTitleHighlights,
+coachYearTitleLabels,
+liveCoachTitleCounts,
+liveCoachYearLabels,
+titleCountsFromCoachRecord,
+type CoachCardData,
+type CoachCardHint,
+} from "@/lib/season/coachCard";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 import {
-  coachProfile,
-  computeCoachRecords,
-  listCoachesRich,
-  type CoachHit,
-  type CoachRecord,
+coachProfile,
+computeCoachRecords,
+listCoachesRich,
+type CoachHit,
+type CoachRecord,
 } from "@/lib/season/historySearch";
-import {
-  archivedCoachNames,
-  archivedCoachSnapshot,
-  buildCoachCardTeam,
-  buildCoachCardTeamFromSeasonTeam,
-  coachCardFromLive,
-  coachTitleHighlights,
-  coachYearTitleLabels,
-  liveCoachTitleCounts,
-  liveCoachYearLabels,
-  titleCountsFromCoachRecord,
-  type CoachCardData,
-  type CoachCardHint,
-} from "@/lib/season/coachCard";
-import type { SeasonState, SeasonTeam } from "@/lib/season/types";
+import type { SeasonState,SeasonTeam } from "@/lib/season/types";
+import { useDraftStore } from "@/store/draftStore";
 
 export type { CoachCardHint };
 
@@ -249,9 +250,9 @@ export function LiveCoachCardProvider({
   }, [season, hallEntries]);
 
   const indexRef = useRef(index);
-  indexRef.current = index;
+  useLayoutEffect(() => { indexRef.current = index; }, [index]);
   const navRef = useRef(onOpenProfile);
-  navRef.current = onOpenProfile;
+  useLayoutEffect(() => { navRef.current = onOpenProfile; }, [onOpenProfile]);
 
   const hasProfileNav = !!onOpenProfile && hallEntries.length > 0;
 
@@ -422,9 +423,9 @@ export function HistoryCoachCardProvider({
   }, [entries]);
 
   const indexRef = useRef(index);
-  indexRef.current = index;
+  useLayoutEffect(() => { indexRef.current = index; }, [index]);
   const navRef = useRef(onOpenProfile);
-  navRef.current = onOpenProfile;
+  useLayoutEffect(() => { navRef.current = onOpenProfile; }, [onOpenProfile]);
   const hasProfileNav = !!onOpenProfile;
 
   const value = useMemo<CoachCardContextValue>(

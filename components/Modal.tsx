@@ -1,8 +1,9 @@
 "use client";
+import { useHydrated } from "@/lib/useHydrated";
 
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import gsap from "gsap";
+import { useEffect,useRef,useId,useState } from "react";
+import { createPortal } from "react-dom";
 
 interface Props {
   open: boolean;
@@ -12,6 +13,7 @@ interface Props {
   cancelLabel?: string;
   tone?: "danger" | "default";
   onConfirm: () => void;
+  beforeConfirm?: () => Promise<void>;
   onCancel: () => void;
 }
 
@@ -32,26 +34,38 @@ export default function Modal({
   cancelLabel = "Cancel",
   tone = "default",
   onConfirm,
+  beforeConfirm,
   onCancel,
 }: Props) {
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const confirmingRef = useRef(false);
+  const confirm = async () => {
+    if (confirmingRef.current) return;
+    confirmingRef.current = true;
+    setConfirming(true); setConfirmError(null);
+    try { await beforeConfirm?.(); onConfirm(); }
+    catch (error) { setConfirmError(error instanceof Error ? error.message : String(error)); }
+    finally { confirmingRef.current = false; setConfirming(false); }
+  };
+  const titleId = useId();
+  const messageId = useId();
   const backdropRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const confirmBtnRef = useRef<HTMLButtonElement | null>(null);
   const lastFocusedRef = useRef<Element | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
 
   // Keep latest callbacks in refs so the open-animation effect doesn't depend
   // on their identities (parent may re-create them each render).
   const onCancelRef = useRef(onCancel);
   const onConfirmRef = useRef(onConfirm);
   useEffect(() => {
-    onCancelRef.current = onCancel;
+    onCancelRef.current = () => { if (!confirmingRef.current) { setConfirmError(null); onCancel(); } };
     onConfirmRef.current = onConfirm;
   });
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+
 
   useEffect(() => {
     if (!open) return;
@@ -59,36 +73,29 @@ export default function Modal({
     // Remember who had focus so we can restore on close.
     lastFocusedRef.current = document.activeElement;
 
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     // Entrance animation.
     gsap.fromTo(
       backdropRef.current,
       { opacity: 0 },
-      { opacity: 1, duration: 0.25, ease: "power2.out" },
+      { opacity: 1, duration: reducedMotion ? 0 : 0.25, ease: "power2.out" },
     );
     gsap.fromTo(
       panelRef.current,
       { opacity: 0, y: -24, scale: 0.94 },
-      { opacity: 1, y: 0, scale: 1, duration: 0.35, ease: "back.out(1.4)" },
+      { opacity: 1, y: 0, scale: 1, duration: reducedMotion ? 0 : 0.35, ease: "back.out(1.4)" },
     );
 
     // Move initial focus onto the confirm button.
     const focusTimer = window.setTimeout(() => {
-      confirmBtnRef.current?.focus();
+      const cancel = panelRef.current?.querySelector<HTMLElement>("[data-modal-cancel]");
+      (tone === "danger" ? cancel : confirmBtnRef.current)?.focus();
     }, 0);
 
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         onCancelRef.current();
-        return;
-      }
-      if (e.key === "Enter") {
-        // Only fire confirm from Enter if focus is not on the cancel button
-        // (otherwise Enter on cancel would still confirm — confusing).
-        const active = document.activeElement as HTMLElement | null;
-        if (active?.dataset.modalCancel === "true") return;
-        e.preventDefault();
-        onConfirmRef.current();
         return;
       }
       if (e.key === "Tab" && panelRef.current) {
@@ -118,7 +125,7 @@ export default function Modal({
         prev.focus();
       }
     };
-  }, [open]);
+  }, [open, tone]);
 
   if (!open || !mounted) return null;
 
@@ -130,16 +137,17 @@ export default function Modal({
   const modal = (
     <div
       ref={backdropRef}
-      className="fixed inset-0 z-[100] flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-[12000] flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
+        if (e.target === e.currentTarget) onCancelRef.current();
       }}
     >
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
         className="relative w-full max-w-md bg-rift-panel/95 border border-rift-gold/60 shadow-[0_0_60px_rgba(0,0,0,0.8)] p-6 md:p-8"
       >
         <span className="absolute -top-1.5 -left-1.5 w-3 h-3 rotate-45 bg-rift-gold" />
@@ -153,20 +161,23 @@ export default function Modal({
           </span>
         </div>
         <h2
-          id="modal-title"
+          id={titleId}
           className="font-display text-xl md:text-2xl tracking-[0.15em] text-rift-goldbright text-center mb-3"
         >
           {title}
         </h2>
-        <p className="text-sm text-rift-mutedbright text-center mb-6 md:mb-8 leading-relaxed">
+        <p id={messageId} className="max-h-[50vh] overflow-auto text-sm text-rift-mutedbright text-center mb-6 md:mb-8 leading-relaxed">
           {message}
         </p>
 
+        {confirmError && <p role="alert" className="mb-3 text-sm text-red-300">{confirmError}</p>}
+        {confirming && <p role="status" className="mb-3 text-sm text-rift-mutedbright">Saving a preventive copy...</p>}
         <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
             data-modal-cancel="true"
-            onClick={onCancel}
+            disabled={confirming}
+            onClick={() => onCancelRef.current()}
             className="py-3 border border-rift-line hover:border-rift-gold/60 text-rift-mutedbright hover:text-rift-goldbright font-display tracking-[0.3em] text-sm uppercase transition-colors"
           >
             {cancelLabel}
@@ -174,7 +185,8 @@ export default function Modal({
           <button
             ref={confirmBtnRef}
             type="button"
-            onClick={onConfirm}
+            disabled={confirming}
+            onClick={() => void confirm()}
             className={`py-3 border font-display tracking-[0.3em] text-sm uppercase transition-all ${confirmClasses}`}
           >
             {confirmLabel}

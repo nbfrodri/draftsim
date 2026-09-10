@@ -1,30 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { SimulationResult } from "@/lib/matchSimulator";
-import { playEventBlip } from "@/lib/sounds";
-import type { Champion, Lane } from "@/lib/types";
-import WinProbChart from "@/components/charts/WinProbChart";
-import GoldLeadChart from "@/components/charts/GoldLeadChart";
 import TeamName from "@/components/TeamName";
-import {
-  type PlayMode,
-  type PlaySpeed,
-  SECONDS_PER_EVENT_AT_1X,
-  PLAYBACK_UI_UPDATE_MS,
-  EVENT_BLIP_SEVERITY,
-  matchPaceLabel,
-  computeRunningStats,
-} from "../shared";
+import type { SimulationResult } from "@/lib/matchSimulator";
 import { computeGameRatings } from "@/lib/matchSimulator";
+import { playEventBlip } from "@/lib/sounds";
+import type { Champion,Lane } from "@/lib/types";
+import { useEffect,useMemo,useRef,useState } from "react";
+import { CompIdentityBadge,SynergyStrip } from "../comparison/CompIdentityBadge";
+import { TeamComparison } from "../comparison/TeamComparison";
+import { ChampionContributions } from "../contributions/ChampionContributions";
+import { MVPCard } from "../MVPCard";
+import { MatchTimelinePanel } from "../scoreboard/MatchTimelinePanel";
+import {
+computeRunningStats,
+EVENT_BLIP_SEVERITY,
+matchPaceLabel,
+PLAYBACK_UI_UPDATE_MS,
+type PlayMode,
+type PlaySpeed,
+SECONDS_PER_EVENT_AT_1X,
+} from "../shared";
 import { PlayControls } from "./PlayControls";
 import { ProbabilityBar } from "./ProbabilityBar";
-import { TimelineRow } from "./TimelineRow";
-import { MatchTimelinePanel } from "../scoreboard/MatchTimelinePanel";
-import { MVPCard } from "../MVPCard";
-import { ChampionContributions } from "../contributions/ChampionContributions";
-import { TeamComparison } from "../comparison/TeamComparison";
-import { CompIdentityBadge, SynergyStrip } from "../comparison/CompIdentityBadge";
 
 
 function formatClock(min: number): string {
@@ -79,19 +76,22 @@ export function SimulationPanel({
   const [mode, setMode] = useState<PlayMode>("playing");
   const [speed, setSpeed] = useState<PlaySpeed>(1);
   const [currentMin, setCurrentMin] = useState(0);
-  const [latestEventIdx, setLatestEventIdx] = useState(-1);
+  const lastPlayedEventRef = useRef(-1);
 
   const playStartRef = useRef<number | null>(null);
   const accumulatedRef = useRef(0); // seconds elapsed at last pause
 
-  // Reset state every time a new result is provided (re-simulate).
-  useEffect(() => {
+  const [previousResult, setPreviousResult] = useState(result);
+  if (previousResult !== result) {
+    setPreviousResult(result);
     setMode("playing");
     setSpeed(1);
     setCurrentMin(0);
-    setLatestEventIdx(-1);
+  }
+  useEffect(() => {
     playStartRef.current = null;
     accumulatedRef.current = 0;
+    lastPlayedEventRef.current = -1;
   }, [result]);
 
   // Animation loop: event-paced playback. Each event consumes a 5s real-time
@@ -163,10 +163,11 @@ export function SimulationPanel({
   // which blip plays. We only fire when latestEventIdx ADVANCES (not on
   // every render), and we skip the synthetic "Match start" anchor at idx 0
   // by checking that an actual event exists.
+  const latestEventIdx = revealedCount - 1;
   useEffect(() => {
-    if (revealedCount - 1 !== latestEventIdx) {
+    if (latestEventIdx !== lastPlayedEventRef.current) {
       const nextIdx = revealedCount - 1;
-      setLatestEventIdx(nextIdx);
+      lastPlayedEventRef.current = nextIdx;
       if (nextIdx >= 0 && nextIdx < result.timeline.events.length) {
         const ev = result.timeline.events[nextIdx];
         playEventBlip(EVENT_BLIP_SEVERITY[ev.type] ?? "minor");

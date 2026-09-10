@@ -17,12 +17,12 @@
  *    beforeunload (best-effort; Tauri close events may not fire the
  *    beforeunload listener on all platforms, so we also fire the flush
  *    eagerly from the debounce itself when the timer triggers).
- *  - Atomic writes: we attempt write-to-.tmp then rename. If rename is
- *    unavailable we fall back to a direct write (acceptable — the window
- *    for corruption is tiny on desktop).
+ *  - Atomic replacement uses write-to-.tmp then rename; failure preserves
+ *    the previous file and retains the pending snapshot for retry.
  */
 
-import type { PersistStorage, StorageValue } from "zustand/middleware";
+import type { PersistStorage,StorageValue } from "zustand/middleware";
+import { markSavePending, markSaveStarted, markSaveConfirmed, markSaveCancelled, reportPersistenceError } from "./persistenceStatus";
 
 // ---------------------------------------------------------------------------
 // Detection
@@ -47,12 +47,19 @@ export function isDesktop(): boolean {
 // onRehydrateStorage (success or failure).
 
 let persistWritesEnabled = false;
+/** Freeze scheduling while recovery replaces durable storage. */
+export function pausePersistWrites(): () => void {
+  const previous = persistWritesEnabled;
+  persistWritesEnabled = false;
+  return () => { persistWritesEnabled = previous; };
+}
 let persistReady = false;
 const persistReadyListeners = new Set<() => void>();
 
 /** Allow Zustand persist setItem calls (call once rehydration finishes). */
 export function enablePersistWrites(): void {
   persistWritesEnabled = true;
+  reportPersistenceError(null, "hydrate");
   if (!persistReady) {
     persistReady = true;
     for (const cb of persistReadyListeners) cb();
@@ -65,11 +72,13 @@ export function enablePersistWrites(): void {
  * forever on the startup screen.
  */
 export function forcePersistReady(): void {
-  if (persistReady) return;
   console.warn(
     "[draftsim] persist gate forced open after timeout — hydrate may still be in flight",
   );
-  enablePersistWrites();
+  persistWritesEnabled = false;
+  reportPersistenceError("Saved data could not be loaded. Saving is paused to protect your existing save. Retry loading before continuing.", "hydrate");
+  persistReady = true;
+  for (const cb of persistReadyListeners) cb();
 }
 
 /** True after enablePersistWrites — UI should wait for this before empty states. */
@@ -228,7 +237,7 @@ export function resetDesktopOperationPhaseForTests(): void {
   desktopOperationListeners.clear();
 }
 
-const CLOSE_COMPACT_TIMEOUT_MS = 120_000;
+const CLOSE_SAVE_TIMEOUT_MS = 120_000;
 const CLOSE_ERROR_DISPLAY_MS = 1_500;
 
 /** Let React paint the closing overlay before blocking on disk I/O. */
@@ -242,28 +251,30 @@ function waitForClosingOverlayPaint(): Promise<void> {
 }
 
 async function flushPendingWritesOnClose(): Promise<"ok" | "failed"> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
       (async () => {
         await flushPendingPersistWrites();
         // After all pending SQLite writes complete, checkpoint the WAL so the
         // main .db file is fully up-to-date before compact / process exit.
-        const { checkpointDesktopDatabase, compactDesktopDatabaseOnClose } =
-          await import("./desktopSqlite");
+        const { checkpointDesktopDatabase } = await import("./desktopSqlite");
         await checkpointDesktopDatabase();
-        await compactDesktopDatabaseOnClose();
+        // VACUUM is explicit maintenance, not part of every window close.
       })(),
       new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error("close save/compact timeout")),
-          CLOSE_COMPACT_TIMEOUT_MS,
+        timeout = setTimeout(
+          () => reject(new Error("close save timeout")),
+          CLOSE_SAVE_TIMEOUT_MS,
         );
       }),
     ]);
     return "ok";
   } catch (err) {
-    console.warn("[desktopStorage] close save/compact failed:", err);
+    console.warn("[desktopStorage] close save failed:", err);
     return "failed";
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
   }
 }
 
@@ -355,6 +366,7 @@ interface PendingWrite {
 }
 
 const pendingWrites = new Map<string, PendingWrite>();
+let fileFlushInFlight: Promise<void> | null = null;
 const DEBOUNCE_MS = 500;
 
 /** Cancel a debounced write for `key` without flushing it. */
@@ -363,47 +375,19 @@ export function cancelPendingWrite(key: string): void {
   if (!pending) return;
   clearTimeout(pending.timer);
   pendingWrites.delete(key);
+  markSaveCancelled(`file:${key}`);
 }
 
 /** Execute a write immediately (bypassing debounce). */
 async function executeWrite(key: string, value: string): Promise<void> {
-  const { writeTextFile, rename, BaseDirectory, exists } = await fsModule();
+  const { writeTextFile, rename, BaseDirectory } = await fsModule();
   const base = BaseDirectory.AppData;
   const filename = keyToFilename(key);
   const tmpFilename = `${filename}.tmp`;
-
   await ensureAppDataDir();
-
-  try {
-    // Attempt atomic write: write to .tmp then rename over the target.
-    await writeTextFile(tmpFilename, value, { baseDir: base });
-    try {
-      // Check if target exists first; rename always overwrites on most OSes.
-      await rename(tmpFilename, filename, {
-        oldPathBaseDir: base,
-        newPathBaseDir: base,
-      });
-    } catch {
-      // rename failed (edge case on some fs) — direct write as fallback.
-      await writeTextFile(filename, value, { baseDir: base });
-      // Best-effort cleanup of tmp.
-      try {
-        const { remove } = await fsModule();
-        await remove(tmpFilename, { baseDir: base });
-      } catch {
-        // ignore
-      }
-    }
-  } catch {
-    // Atomic path entirely unavailable — fall back to direct write.
-    try {
-      await writeTextFile(filename, value, { baseDir: base });
-    } catch (err) {
-      console.warn("[desktopStorage] write failed for key:", key, err);
-    }
-  }
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _ = exists; // imported for side-effect in ensureAppDataDir
+  // Never truncate the last good file if replacing it fails.
+  await writeTextFile(tmpFilename, value, { baseDir: base });
+  await rename(tmpFilename, filename, { oldPathBaseDir: base, newPathBaseDir: base });
 }
 
 /** Schedule a debounced write; cancels any pending write for the same key.
@@ -418,20 +402,13 @@ function scheduleWrite(
   if (existing) clearTimeout(existing.timer);
 
   const timer = setTimeout(() => {
-    pendingWrites.delete(key);
-    let value: string;
-    try {
-      value = serialize();
-    } catch (err) {
-      console.warn("[desktopStorage] serialization failed for key:", key, err);
-      return;
-    }
-    void Promise.resolve(flush(key, value)).catch((err) => {
+    void flushPendingWrites().catch((err) => {
       console.warn("[desktopStorage] debounced write failed:", key, err);
     });
   }, DEBOUNCE_MS);
 
   pendingWrites.set(key, { serialize, flush, timer });
+  markSavePending(`file:${key}`);
 }
 
 /**
@@ -441,40 +418,61 @@ function scheduleWrite(
  * write to a half-closed app.
  */
 /** Flush all debounced persist writes immediately (e.g. after a year boundary). */
+/** Drop superseded snapshots only after a confirmed restore, before reload handlers run. */
+export async function discardPendingPersistWritesAfterRestore(): Promise<void> {
+  const { cancelPendingSqliteWrite } = await import("./desktopSqliteStorage");
+  cancelPendingSqliteWrite("draftsim-store");
+  for (const key of [...pendingWrites.keys()]) cancelPendingWrite(key);
+}
+
 export async function flushPendingPersistWrites(): Promise<void> {
   const { flushPendingSqliteWrites } = await import("./desktopSqliteStorage");
   await flushPendingSqliteWrites();
   await flushPendingWrites();
+  reportPersistenceError(null, "simulation");
 }
 
 async function flushPendingWrites(): Promise<void> {
-  const entries = [...pendingWrites.entries()];
-  for (const [key, pending] of entries) {
-    clearTimeout(pending.timer);
-    pendingWrites.delete(key);
-    // Stringify NOW (the deferred serialization must happen at flush time)
-    // then write. Errors are ignored — we're shutting down.
-    try {
-      const value = pending.serialize();
-      await Promise.resolve(pending.flush(key, value));
-    } catch {
-      // Ignore flush errors.
+  if (fileFlushInFlight) return fileFlushInFlight;
+  const drain = async () => {
+    while (pendingWrites.size) {
+      const [key, pending] = pendingWrites.entries().next().value!;
+      clearTimeout(pending.timer);
+      pendingWrites.delete(key);
+      try {
+        markSaveStarted(`file:${key}`);
+        const serialized = pending.serialize();
+        const result = pending.flush(key, serialized);
+        // localStorage must finish synchronously in pagehide/beforeunload.
+        if (result) await result;
+        reportPersistenceError(null, "file");
+        if (!pendingWrites.has(key)) markSaveConfirmed(`file:${key}`, key === "draftsim-store" ? new TextEncoder().encode(serialized).byteLength : undefined);
+        else markSavePending(`file:${key}`);
+      } catch (error) {
+        if (!pendingWrites.has(key)) pendingWrites.set(key, pending);
+        reportPersistenceError("Your latest changes could not be saved. Your previous save is preserved. Retry or export before closing.", "file");
+        throw error;
+      }
     }
-  }
+  };
+  const operation = drain();
+  fileFlushInFlight = operation;
+  try { await operation; }
+  finally { if (fileFlushInFlight === operation) fileFlushInFlight = null; }
 }
 
 /** Best-effort flush when the page is going away (can't await in sync handlers). */
 function schedulePersistFlushOnExit(): void {
-  void flushPendingPersistWrites();
+  void flushPendingPersistWrites().catch((error) => console.warn("[desktopStorage] exit flush failed:", error));
 }
 
 /** Web-only exit flush (localStorage debounce — no SQLite on web). */
 function scheduleWebPersistFlushOnExit(): void {
-  void flushPendingWrites();
+  void flushPendingWrites().catch((error) => console.warn("[desktopStorage] exit flush failed:", error));
 }
 
 /** Register Tauri close handler: veto close, flush SQLite + files, then destroy. */
-async function registerTauriCloseFlushHandler(): Promise<void> {
+export async function registerTauriCloseFlushHandler(): Promise<void> {
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   const appWindow = getCurrentWindow();
   await appWindow.onCloseRequested(async (event) => {
@@ -485,6 +483,7 @@ async function registerTauriCloseFlushHandler(): Promise<void> {
       return;
     }
     event.preventDefault();
+    if (getAppClosePhase() !== "idle") return;
     signalAppClosing();
     await waitForClosingOverlayPaint();
     const flushResult = await flushPendingWritesOnClose();
@@ -493,6 +492,8 @@ async function registerTauriCloseFlushHandler(): Promise<void> {
       await new Promise((resolve) => {
         setTimeout(resolve, CLOSE_ERROR_DISPLAY_MS);
       });
+      setAppClosePhase("idle");
+      return;
     }
     try {
       // destroy() force-closes WITHOUT re-emitting onCloseRequested
@@ -552,7 +553,7 @@ export const desktopStorage = {
       return await readTextFile(filename, { baseDir: base });
     } catch (err) {
       console.warn("[desktopStorage] getItem failed for key:", key, err);
-      return null;
+      throw err;
     }
   },
 
@@ -565,7 +566,9 @@ export const desktopStorage = {
 
   async removeItem(key: string): Promise<void> {
     if (!isDesktop()) return;
-    // Cancel any pending write for this key.
+    // Drain in-flight writes so a late rename cannot recreate the removed file.
+    cancelPendingWrite(key);
+    if (fileFlushInFlight) await fileFlushInFlight;
     cancelPendingWrite(key);
     try {
       const { remove, BaseDirectory, exists } = await fsModule();
@@ -577,6 +580,7 @@ export const desktopStorage = {
       }
     } catch (err) {
       console.warn("[desktopStorage] removeItem failed for key:", key, err);
+      throw err;
     }
   },
 };
@@ -618,7 +622,7 @@ export function createDesktopLazyStorage<S>(): PersistStorage<S> {
         return JSON.parse(raw) as StorageValue<S>;
       } catch (err) {
         console.warn("[desktopStorage] failed to parse persisted state:", name, err);
-        return null;
+        throw err;
       }
     },
     setItem(name: string, value: StorageValue<S>): void {
@@ -673,7 +677,7 @@ export function createWebLazyStorage<S>(
         return JSON.parse(raw) as StorageValue<S>;
       } catch (err) {
         console.warn("[desktopStorage] failed to parse persisted state:", name, err);
-        return null;
+        throw err;
       }
     },
     setItem(name: string, value: StorageValue<S>): void {

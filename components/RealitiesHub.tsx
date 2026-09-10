@@ -1,14 +1,15 @@
 "use client";
+import { previewRealityImport, type RealityImportPreview } from "@/lib/importPreview";
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo,useCallback,useEffect,useRef,useState } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
-import { isDesktop, saveFileNative, openFileNative } from "@/lib/desktopStorage";
 import {
-  compactDesktopDatabase,
-  formatCompactResultMessage,
+compactDesktopDatabase,
+formatCompactResultMessage,
 } from "@/lib/desktopSqlite";
+import { isDesktop,openFileNative,saveFileNative } from "@/lib/desktopStorage";
 import { REALITY_CODE_PREFIX } from "@/lib/realityShare";
+import { useDraftStore } from "@/store/draftStore";
 import Modal from "./Modal";
 
 interface CommunityEntry {
@@ -182,7 +183,8 @@ export default function RealitiesHub({ onChoose }: Props) {
   const exportReality = useDraftStore((s) => s.exportReality);
   const exportRealityShareCode = useDraftStore((s) => s.exportRealityShareCode);
   const importReality = useDraftStore((s) => s.importReality);
-  const importRealityShareCode = useDraftStore((s) => s.importRealityShareCode);
+  const [preview, setPreview] = useState<RealityImportPreview | null>(null);
+  const previewTarget = useRef<unknown>(null);
 
   const [name, setName] = useState("");
   const [aging, setAging] = useState(true);
@@ -222,7 +224,7 @@ export default function RealitiesHub({ onChoose }: Props) {
       try {
         // Yield so the button disable paints before heavy stringify.
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
-        const json = exportReality(id);
+        const json = await exportReality(id);
         if (!json) {
           flash("err", "Export failed");
           return;
@@ -260,20 +262,13 @@ export default function RealitiesHub({ onChoose }: Props) {
   );
 
   const applyImport = async (text: string) => {
-    const res = await importReality(text);
-    if (res.ok) flash("ok", "Reality imported");
-    else flash("err", res.error ?? "Import failed");
+    try {
+      const plan = await previewRealityImport(text, useDraftStore.getState().realities);
+      previewTarget.current = useDraftStore.getState().realities.find(r => r.id === plan.id);
+      setPreview(plan);
+    } catch (error) { flash("err", error instanceof Error ? error.message : "Import failed"); }
   };
-
-  const applyShareCode = async () => {
-    const code = shareCodeInput.trim();
-    if (!code) return;
-    const res = await importRealityShareCode(code);
-    if (res.ok) {
-      flash("ok", "Reality imported from share code");
-      setShareCodeInput("");
-    } else flash("err", res.error ?? "Import failed");
-  };
+  const applyShareCode = async () => { if (shareCodeInput.trim()) await applyImport(shareCodeInput); };
 
   const copyShareCode = useCallback(
     async (id: string) => {
@@ -505,10 +500,7 @@ export default function RealitiesHub({ onChoose }: Props) {
                           type="button"
                           onClick={() => {
                             setShareCodeInput(entry.code!);
-                            void importRealityShareCode(entry.code!).then((res) => {
-                              if (res.ok) flash("ok", `Imported “${entry.title}”`);
-                              else flash("err", res.error ?? "Import failed");
-                            });
+                            void applyImport(entry.code!);
                           }}
                           className="px-2 py-1 border border-rift-gold/60 bg-rift-gold/10 text-rift-goldbright text-[8px] uppercase tracking-[0.2em] hover:bg-rift-gold/20"
                         >
@@ -599,6 +591,19 @@ export default function RealitiesHub({ onChoose }: Props) {
         )}
       </div>
 
+      <Modal open={preview !== null} title="Review reality import"
+        message={preview ? `${preview.name} | Year ${preview.year} | ${preview.archivedYears} archived seasons | ${preview.teams.length} teams: ${preview.teams.join(", ")}. ${preview.replaces ? `Replaces "${preview.replaces}", including its history.` : "Adds a new reality. Existing realities are preserved."}` : ""}
+        confirmLabel="Import" onCancel={() => setPreview(null)} onConfirm={() => {
+          if (!preview || rowBusy) return;
+          if (useDraftStore.getState().realities.find(r => r.id === preview.id) !== previewTarget.current) {
+            flash("err", "The target reality changed. Review the import again."); setPreview(null); return;
+          }
+          const plan = preview; setPreview(null); setRowBusy(true);
+          void importReality(plan.json).then(res => {
+            if (res.ok) { flash("ok", "Reality imported"); setShareCodeInput(""); }
+            else flash("err", res.error ?? "Import failed");
+          }).catch(error => flash("err", String(error))).finally(() => setRowBusy(false));
+        }} />
       <Modal
         open={compactPromptOpen}
         title="Reality deleted"

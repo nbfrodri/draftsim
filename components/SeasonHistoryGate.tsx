@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect,useState,useTransition } from "react";
 import HallPanelLoading from "./hall/HallPanelLoading";
 import SeasonHistoryView from "./SeasonHistoryView";
 

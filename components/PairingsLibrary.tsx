@@ -1,23 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect,useMemo,useState } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
 import {
-  COUNTER_SEVERITY_MAX,
-  COUNTER_SEVERITY_MIN,
-  SYNERGY_BONUS_MAX,
-  SYNERGY_BONUS_MIN,
-  decodePairings,
-  encodePairings,
-  getActiveCounterOverride,
-  getActiveSynergies,
-  type CounterPair,
-  type Synergy,
+COUNTER_SEVERITY_MAX,
+COUNTER_SEVERITY_MIN,
+SYNERGY_BONUS_MAX,
+SYNERGY_BONUS_MIN,
+decodePairings,
+encodePairings,
+getActiveCounterOverride,
+getActiveSynergies,
+type CounterPair,
+type Synergy,
 } from "@/lib/championMeta";
+import { isDesktop,openFileNative,saveFileNative } from "@/lib/desktopStorage";
 import { HARD_COUNTERS } from "@/lib/draftAI/data";
-import { isDesktop, openFileNative, saveFileNative } from "@/lib/desktopStorage";
 import type { Champion } from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
 import Modal from "./Modal";
 
 // Main-menu section: the user's library of synergy + counterpick sets.
@@ -887,7 +887,7 @@ function ChampLabel({
   return (
     <span className="inline-flex items-center gap-1.5 min-w-0 flex-shrink-0">
       {champion?.iconUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
+
         <img
           src={champion.iconUrl}
           alt=""
@@ -939,7 +939,7 @@ function ChampPicker({
       </span>
       <div className="flex items-center gap-1.5">
         {selected?.iconUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
+
           <img
             src={selected.iconUrl}
             alt=""
@@ -984,7 +984,7 @@ function ChampPicker({
                 }}
                 className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-rift-gold/10 transition-colors"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
+                { }
                 <img
                   src={c.iconUrl}
                   alt=""

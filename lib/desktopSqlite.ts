@@ -6,38 +6,73 @@
  * the entire franchise on every set().
  */
 
-import type { StorageValue } from "zustand/middleware";
-import type { SavedReality } from "@/store/draftStore";
+import { encodeSeasonForDesktopDb } from "@/lib/recapCompression";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 import type { SeasonState } from "@/lib/season/types";
-import { encodeSeasonForDesktopDb } from "@/lib/recapCompression";
+import type { SavedReality } from "@/store/draftStore";
+import type { StorageValue } from "zustand/middleware";
 import {
-  DESKTOP_DB_FILENAME,
-  JSON_MIGRATION_FLAG,
-  META_CONFIG_KEY,
-  PERSIST_VERSION,
-  SCHEMA_SQL,
-  UPSERT_REALITY_HISTORY_SQL,
-  mergePersistedState,
-  parseMetaConfigJson,
-  splitPersistedState,
-  type PersistedStoreState,
+DESKTOP_DB_FILENAME,
+JSON_MIGRATION_FLAG,
+META_CONFIG_KEY,
+PERSIST_VERSION,
+SCHEMA_SQL,
+UPSERT_REALITY_HISTORY_SQL,
+mergePersistedState,
+parseMetaConfigJson,
+splitPersistedState,
+type PersistedStoreState,
 } from "./desktopSqliteSchema";
+import {
+clearDesktopOperation,
+desktopStorage,
+isDesktop,
+signalCompactingDatabase,
+} from "./desktopStorage";
 
 export { PERSIST_VERSION } from "./desktopSqliteSchema";
-import {
-  clearDesktopOperation,
-  isDesktop,
-  desktopStorage,
-  signalCompactingDatabase,
-} from "./desktopStorage";
 
 export type SqlExecutor = {
   execute: (query: string, bindValues?: unknown[]) => Promise<{ rowsAffected: number }>;
   select: <T>(query: string, bindValues?: unknown[]) => Promise<T[]>;
+  batch?: (statements: SqlStatement[]) => Promise<void>;
 };
 
+type SqlStatement = { query: string; bindValues: unknown[] };
 let dbPromise: Promise<SqlExecutor> | null = null;
+const writeTails = new WeakMap<SqlExecutor, Promise<unknown>>();
+const savedRealities = new WeakMap<SqlExecutor, Map<string, {
+  name: string; year: number; season: unknown; history: unknown[]; historySynced: boolean;
+}>>();
+
+function serializeDbWrite<T>(db: SqlExecutor, operation: () => Promise<T>): Promise<T> {
+  const previous = writeTails.get(db) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(operation);
+  writeTails.set(db, next);
+  return next;
+}
+
+/** Native batch owns a single SQLx transaction; test executors may execute directly. */
+async function atomicWrite(db: SqlExecutor, operation: (writer: SqlExecutor) => Promise<void>): Promise<void> {
+  const loadedBefore = new Set(loadedHistoryRealityIds);
+  const statements: SqlStatement[] = [];
+  const writer: SqlExecutor = db.batch ? {
+    select: (query, values) => db.select(query, values),
+    execute: async (query, bindValues = []) => {
+      statements.push({ query, bindValues });
+      return { rowsAffected: 0 };
+    },
+  } : db;
+  try {
+    await operation(writer);
+    if (db.batch && statements.length) await db.batch(statements);
+  } catch (error) {
+    loadedHistoryRealityIds.clear();
+    for (const id of loadedBefore) loadedHistoryRealityIds.add(id);
+    savedRealities.delete(db);
+    throw error;
+  }
+}
 
 /** Reality ids whose history rows are fully loaded in memory (lazy history). */
 const loadedHistoryRealityIds = new Set<string>();
@@ -53,7 +88,9 @@ export function setDesktopDatabaseForTests(db: SqlExecutor | null): void {
   dbPromise = db ? Promise.resolve(db) : null;
 }
 
-/** @internal test helper */
+export const isRealityHistoryLoaded = (id: string): boolean => loadedHistoryRealityIds.has(id);
+
+/** Mark history installed in state (including intentionally empty histories). */
 export function markRealityHistoryLoaded(realityId: string): void {
   loadedHistoryRealityIds.add(realityId);
 }
@@ -79,8 +116,18 @@ async function loadDatabase(): Promise<SqlExecutor> {
       await db.execute("PRAGMA synchronous = NORMAL");
       await db.execute("PRAGMA foreign_keys = ON");
       await db.execute(SCHEMA_SQL);
-      return db as unknown as SqlExecutor;
-    })();
+      const versions = await db.select<{ value: string }[]>("SELECT value FROM schema_meta WHERE key = 'persist_version'");
+      if (versions[0]?.value !== String(PERSIST_VERSION)) throw new Error("Unsupported saved database version. Update DraftSim before opening it.");
+      const { invoke } = await import("@tauri-apps/api/core");
+      return {
+        execute: (query: string, values?: unknown[]) => db.execute(query, values),
+        select: <T>(query: string, values?: unknown[]) => db.select<T[]>(query, values),
+        batch: (statements: SqlStatement[]) => invoke<void>("persist_batch", { statements }),
+      } satisfies SqlExecutor;
+    })().catch((error) => {
+      dbPromise = null;
+      throw error;
+    });
   }
   return dbPromise;
 }
@@ -290,19 +337,25 @@ export async function upsertRealityInDb(
   options?: { syncHistory?: boolean },
 ): Promise<void> {
   const db = await loadDatabase();
-  await upsertRealityRow(db, reality);
-  if (options?.syncHistory && reality.history) {
-    await syncRealityHistory(db, reality.id, reality.history);
-    loadedHistoryRealityIds.add(reality.id);
-  }
+  await serializeDbWrite(db, () => atomicWrite(db, async (writer) => {
+    await upsertRealityRow(writer, reality);
+    if (options?.syncHistory && reality.history) {
+      await syncRealityHistory(writer, reality.id, reality.history);
+      loadedHistoryRealityIds.add(reality.id);
+    }
+  }));
+  savedRealities.delete(db);
 }
 
 /** Remove one reality and its Hall history from SQLite. */
 export async function deleteRealityFromDb(realityId: string): Promise<void> {
   const db = await loadDatabase();
-  await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
-  await db.execute("DELETE FROM realities WHERE id = ?", [realityId]);
-  loadedHistoryRealityIds.delete(realityId);
+  await serializeDbWrite(db, () => atomicWrite(db, async (writer) => {
+    await writer.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
+    await writer.execute("DELETE FROM realities WHERE id = ?", [realityId]);
+    loadedHistoryRealityIds.delete(realityId);
+  }));
+  savedRealities.delete(db);
 }
 
 /** History entry count above which a delete may leave reclaimable free pages. */
@@ -483,7 +536,7 @@ export async function checkpointDesktopDatabase(): Promise<void> {
   if (!isDesktop()) return;
   try {
     const db = await loadDatabase();
-    await db.execute("PRAGMA wal_checkpoint(FULL)");
+    await serializeDbWrite(db, () => db.execute("PRAGMA wal_checkpoint(FULL)"));
   } catch {
     // Best-effort — do not block close on checkpoint failure.
   }
@@ -512,7 +565,10 @@ export async function compactDesktopDatabase(): Promise<DesktopDbCompactResult |
   signalCompactingDatabase();
   try {
     const db = await loadDatabase();
-    return await runDesktopDatabaseCompact(db);
+    return await serializeDbWrite(db, async () => {
+      savedRealities.delete(db);
+      return runDesktopDatabaseCompact(db);
+    });
   } finally {
     clearDesktopOperation();
   }
@@ -528,7 +584,10 @@ export async function compactDesktopDatabaseOnClose(): Promise<
   if (!isDesktop()) return undefined;
   try {
     const db = await loadDatabase();
-    return await runDesktopDatabaseCompact(db);
+    return await serializeDbWrite(db, async () => {
+      savedRealities.delete(db);
+      return runDesktopDatabaseCompact(db);
+    });
   } catch (err) {
     console.warn("[desktopSqlite] close compact failed:", err);
     return undefined;
@@ -611,7 +670,22 @@ export async function savePersistedStateToDbExecutor(
   state: PersistedStoreState,
   options?: { forceAllHistory?: boolean },
 ): Promise<void> {
-  const { global, realities, activeRealityId } = splitPersistedState(state);
+  return serializeDbWrite(db, async () => {
+    const previous = savedRealities.get(db);
+    await atomicWrite(db, (writer) => reconcilePersistedState(writer, storeKey, state, options, previous));
+    savedRealities.set(db, new Map((state.realities ?? []).map((r) => [r.id, {
+      name: r.name, year: r.year, season: r.season, history: r.history ?? [],
+      historySynced: !!options?.forceAllHistory || loadedHistoryRealityIds.has(r.id),
+    }])));
+  });
+}
+
+async function reconcilePersistedState(
+  db: SqlExecutor, storeKey: string, state: PersistedStoreState,
+  options?: { forceAllHistory?: boolean },
+  previous?: Map<string, { name: string; year: number; season: unknown; history: unknown[]; historySynced: boolean }>,
+): Promise<void> {
+  const { global, realities } = splitPersistedState(state);
 
   // ── Empty-state wipe guard ─────────────────────────────────────────────────
   // If the in-memory realities list is empty but the DB already has rows, this
@@ -642,7 +716,8 @@ export async function savePersistedStateToDbExecutor(
   await upsertGlobalState(db, storeKey, global);
 
   for (const r of realities) {
-    await upsertRealityRow(db, {
+    const prev = previous?.get(r.id);
+    if (!prev || prev.name !== r.name || prev.year !== r.year || prev.season !== r.season) await upsertRealityRow(db, {
       id: r.id,
       name: r.name,
       year: r.year,
@@ -650,9 +725,8 @@ export async function savePersistedStateToDbExecutor(
     });
     const historyLoaded =
       options?.forceAllHistory ||
-      loadedHistoryRealityIds.has(r.id) ||
-      r.id === activeRealityId;
-    if (historyLoaded) {
+      loadedHistoryRealityIds.has(r.id);
+    if (historyLoaded && (!prev?.historySynced || prev.history !== r.history || options?.forceAllHistory)) {
       await syncRealityHistory(db, r.id, r.history as SeasonHistoryEntry[]);
       loadedHistoryRealityIds.add(r.id);
     }
@@ -686,7 +760,7 @@ export async function loadPersistedStateFromDbExecutor(
   try {
     global = JSON.parse(globalRows[0].state_json) as Record<string, unknown>;
   } catch {
-    return null;
+    throw new Error("Saved global state is invalid; refusing to overwrite it.");
   }
 
   const activeRealityId =
@@ -713,7 +787,7 @@ export async function loadPersistedStateFromDbExecutor(
     try {
       season = JSON.parse(row.season_json);
     } catch {
-      season = null;
+      throw new Error("Saved reality is invalid; refusing to overwrite it.");
     }
 
     let history: unknown[] = [];
@@ -727,7 +801,7 @@ export async function loadPersistedStateFromDbExecutor(
           try {
             return JSON.parse(h.entry_json);
           } catch {
-            return null;
+            throw new Error("Saved history is invalid; refusing to overwrite it.");
           }
         })
         .filter((e): e is unknown => e != null);
@@ -763,11 +837,12 @@ export async function loadRealityHistoryFromDb(
       try {
         return JSON.parse(r.entry_json) as SeasonHistoryEntry;
       } catch {
-        return null;
+        throw new Error("Saved history is invalid; refusing to overwrite it.");
       }
     })
     .filter((e): e is SeasonHistoryEntry => e != null);
-  loadedHistoryRealityIds.add(realityId);
+  // Reading alone does not authorize empty snapshots to replace this history.
+  // The caller marks it loaded only when installing the result into state.
   return history;
 }
 
@@ -812,9 +887,13 @@ export async function syncMetaConfigToSqlite(
 
 export async function clearDesktopStoreFromDb(storeKey: string): Promise<void> {
   const db = await loadDatabase();
-  await db.execute("DELETE FROM global_state WHERE store_key = ?", [storeKey]);
-  await db.execute("DELETE FROM realities");
-  await db.execute("DELETE FROM reality_history");
+  await serializeDbWrite(db, () => atomicWrite(db, async (writer) => {
+    await writer.execute("DELETE FROM global_state WHERE store_key = ?", [storeKey]);
+    await writer.execute("DELETE FROM reality_history");
+    await writer.execute("DELETE FROM realities");
+    loadedHistoryRealityIds.clear();
+    savedRealities.delete(db);
+  }));
 }
 
 export async function loadStorageValueFromSqlite<S>(
@@ -844,6 +923,6 @@ export async function loadLegacyJsonStorageValue<S>(
   try {
     return JSON.parse(raw) as StorageValue<S>;
   } catch {
-    return null;
+    throw new Error("Legacy saved state is invalid; refusing to overwrite it.");
   }
 }

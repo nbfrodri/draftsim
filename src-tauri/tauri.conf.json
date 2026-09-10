@@ -24,7 +24,34 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob: https:",
+        "font-src": "'self'",
+        "media-src": "'self' https://raw.communitydragon.org",
+        "connect-src": "'self' ipc: http://ipc.localhost https://raw.communitydragon.org https://cdn.merakianalytics.com https://esports-api.lolesports.com",
+        "worker-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'none'",
+        "frame-src": "'none'"
+      },
+      "devCsp": {
+        "default-src": "'self'",
+        "script-src": "'self' 'unsafe-eval' 'unsafe-inline'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob: https:",
+        "font-src": "'self'",
+        "media-src": "'self' https://raw.communitydragon.org",
+        "connect-src": "'self' ipc: http://ipc.localhost https://raw.communitydragon.org https://cdn.merakianalytics.com https://esports-api.lolesports.com ws://localhost:3000 ws://127.0.0.1:3000",
+        "worker-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'none'",
+        "frame-src": "'none'"
+      }
     }
   },
   "bundle": {

@@ -52,6 +52,8 @@ export default function BulkYearsControl() {
   const [exportPickBusy, setExportPickBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
+  const jobs = useDraftStore(s => s.bulkYearJobs);
+  const resume = useDraftStore(s => s.resumeBulkYears);
   const bulkYearsProgress = useDraftStore((s) => s.bulkYearsProgress);
 
   useEffect(() => {
@@ -150,6 +152,11 @@ export default function BulkYearsControl() {
           )}
         </div>
 
+        {!busy && jobs[fr.id] && <div className="p-3 text-sm text-rift-goldbright" role="status">
+          <p>Paused job: Continue through year {jobs[fr.id].targetYear - 1}. Completed seasons are preserved.</p>
+          {jobs[fr.id].error && <p className="text-red-300">{jobs[fr.id].error}</p>}
+          <button type="button" className="btn-gold mt-2 px-3 py-2" onClick={resume}>Resume simulation</button>
+        </div>}
         {bulkYearsProgress ? (
           <div className="px-3 py-3 space-y-3">
             <p className="text-[10px] text-rift-mutedbright/80 leading-relaxed">

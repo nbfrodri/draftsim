@@ -88,7 +88,7 @@ No es solo una herramienta de draft — el draft alimenta un **plan de juego**, 
 
 ## 🚀 Inicio rápido
 
-> Requisitos: **Node 20+** y **npm 10+**.
+> Requisitos: **Node 22.12+** y **npm 10+**.
 
 ```bash
 npm install
@@ -524,7 +524,7 @@ draftsim/
 | `npm run dev` | Servidor dev Turbopack en `http://localhost:3000` |
 | `npm run build` | Export estático de producción a `out/` |
 | `npm start` | Sirve build de producción (solo web) |
-| `npm run lint` | Next.js ESLint |
+| `npm run lint` | ESLint CLI (Next.js + React Hooks) |
 | `npm test` | Suite unitaria Vitest (`lib/**/*.test.ts`) |
 | `npm run test:watch` | Vitest en modo watch |
 | `npm run desktop:dev` | Ventana dev Tauri + hot reload Next.js |
@@ -620,7 +620,7 @@ DraftSim se distribuye como app de escritorio nativa vía [Tauri v2](https://tau
 
 ### Requisitos
 
-- **Node 20+** y **npm 10+** (igual que build web).
+- **Node 22.12+** y **npm 10+** (igual que build web).
 - **Rust 1.77+** — instalar desde [rustup.rs](https://rustup.rs/).
 - **Windows**: Visual Studio Build Tools 2022 (workload C++) o VS 2022.
 - **macOS**: Xcode Command Line Tools (`xcode-select --install`).
@@ -727,3 +727,16 @@ npm run desktop:dev  # desktop con hot reload
 ## 📄 Atribución y licencias
 
 Simulador fan-made no oficial. League of Legends y todos los nombres de campeones, splash art, iconos y efectos de sonido son propiedad de **Riot Games, Inc.** Fuentes de datos (CommunityDragon, Meraki Analytics) son mirrors comunitarios de assets públicos del cliente Riot. Sin afiliación ni respaldo de Riot Games.
+
+## Comprobaciones y auditoría
+
+- `npm run check`: lint, TypeScript, pruebas y exportación de producción.
+- `npm run build` seguido de `npm start`: sirve `out/` en localhost con CSP; no necesita un servidor Next.
+- `npx playwright install chromium` y `npm run test:e2e`: flujos de navegador contra la exportación de producción.
+- En Windows con Edge instalado: `$env:PLAYWRIGHT_CHANNEL='msedge'; npm run test:e2e`.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`: pruebas nativas de rollback y comando IPC con SQLite en memoria.
+- `npm audit`: avisos publicados para dependencias npm.
+
+Los fallos de guardado conservan la copia anterior y permiten reintentar. Un fallo de carga bloquea escrituras hasta recuperar la partida. La compactación se ejecuta desde mantenimiento, no en cada cierre. La exportación de una realidad carga también el historial de slots inactivos.
+
+[Informe de auditoría y mejoras propuestas](docs/audit-2026-09-10.md).

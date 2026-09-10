@@ -1,307 +1,160 @@
 "use client";
+import { reportPersistenceError } from "@/lib/persistenceStatus";
+import { backupBeforeDestructiveChange } from "@/lib/backups";
+import { forcePersistReady } from "@/lib/desktopStorage";
+import { createFranchiseActions } from "./actions/franchise";
+import { createImportsActions } from "./actions/imports";
+import { createSimulationActions } from "./actions/simulation";
+import { archiveCompletedTournament,compactEncodeRealitiesForPersist } from "./persistenceEncoding";
+import type { DraftStore,MetaSource,MetaTierListPreset,PairingsPreset,SavedSeasonEntry,SavedTournamentEntry,SeasonMatchdayMatch,SeasonMatchdayRegion,SeasonMatchdayTeam,StoreGet,StoreSet } from "./types";
+export type { MetaSource,MetaTierListPreset,PairingsPreset,SavedReality,SavedSeasonEntry,SavedTournamentEntry,SeasonMatchdayMatch,SeasonMatchdayRegion,SeasonMatchdayResult,SeasonMatchdayTeam } from "./types";
 
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { isDesktop, createWebLazyStorage, enablePersistWrites, flushPendingPersistWrites, gatePersistWritesUntilReady, resolveWebStringStorage, signalDeletingReality, signalImportingReality, signalOpeningReality, signalLeavingSeason, clearDesktopOperation, waitForDesktopOverlayPaint } from "@/lib/desktopStorage";
-import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
-import { loadRealityHistoryFromDb, markRealityHistoryLoaded, deleteRealityFromDb, upsertRealityInDb, shouldSuggestCompactAfterDelete, PERSIST_VERSION } from "@/lib/desktopSqlite";
-import {
-  applyLock,
-  applyTimeout,
-  currentAction,
-  swapChampions as swapChampionsPure,
-} from "@/lib/draftEngine";
-import {
-  applySideChoice,
-  chooseSideAI,
-  createSeries,
-  currentGame,
-  difficultyForSide,
-  effectiveSideRule,
-  fearlessLockedSet,
-  nextGameSides,
-  recordWinner,
-  requiredWins,
-  startNextGame,
-  starRatingBias,
-  winsByTeamName,
-} from "@/lib/series";
-import {
-  chooseAIAction,
-  chooseAIActionWithRationale,
-  isAITurn,
-  seriesAIContextFrom,
-  type AIRationale,
-} from "@/lib/draftAI";
-import { playActionSound, sounds, SOUND } from "@/lib/sounds";
-import {
-  setActiveCounterOverride,
-  setActiveMetaOverride,
-  setActiveSynergyOverride,
-  setMetaEnabled,
-  type CounterPair,
-  type MetaOverride,
-  type Synergy,
-} from "@/lib/championMeta";
-import {
-  loadCounterOverride,
-  loadMetaEnabled,
-  loadMetaOverride,
-  loadMetaSource,
-  loadPowerSpikeOverride,
-  loadSynergyOverride,
-  randomizeCounters,
-  randomizeMeta,
-  randomizePowerSpikes,
-  randomizeSynergies,
-  saveCounterOverride,
-  saveMetaEnabled,
-  saveMetaOverride,
-  saveMetaSource,
-  savePowerSpikeOverride,
-  saveSynergyOverride,
-  type PowerSpikeOverride,
-} from "@/lib/metaRandomizer";
+import { browserSaveStorage } from "@/lib/quotaSafeStorage";
+
 import { setActivePowerSpikeOverride } from "@/lib/championBuilds";
-import type {
-  Champion,
-  GameDraft,
-  Lane,
-  SeriesState,
-  SimulationSettings,
-  Side,
-} from "@/lib/types";
 import {
-  appendMatchPicks,
-  computeTournamentChampionWR,
-  computeTeamChampionWR,
-  createTournament,
-  crossMatchFearlessLocked,
-  decodeTournament,
-  effectiveLockedSet,
-  makeTournamentId,
-  recordMatchWinner,
-  startGroupsPlayoffs,
-  startRoundRobinPlayoffs,
-  startSwissPlayoffs,
-  isSwissStageComplete,
-  teamStarRating,
-  tournamentSeriesContext,
-  type CreateTournamentParams,
-  type TournamentMatch,
-  type TournamentState,
-} from "@/lib/tournament";
-import { buildGameRecap, computeGameRatings, simulateMatch } from "@/lib/matchSimulator";
-import { randomizeRoster } from "@/lib/players";
-import type { TeamStrategy } from "@/lib/sim/strategies";
+setActiveCounterOverride,
+setActiveMetaOverride,
+setActiveSynergyOverride,
+setMetaEnabled,
+type CounterPair,
+type MetaOverride,
+type Synergy,
+} from "@/lib/championMeta";
+import { PERSIST_VERSION,deleteRealityFromDb,isRealityHistoryLoaded,loadRealityHistoryFromDb,markRealityHistoryLoaded,shouldSuggestCompactAfterDelete,upsertRealityInDb } from "@/lib/desktopSqlite";
+import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
+import { clearDesktopOperation,createWebLazyStorage,enablePersistWrites,flushPendingPersistWrites,gatePersistWritesUntilReady,isDesktop,resolveWebStringStorage,signalDeletingReality,signalLeavingSeason,signalOpeningReality,waitForDesktopOverlayPaint } from "@/lib/desktopStorage";
 import {
-  applyRatingsToForms,
-  sideFormsFor,
-  type PlayerFormMap,
-} from "@/lib/playerForm";
-import {
-  PERSONALITY_LIST,
-  getPersonality,
+PERSONALITY_LIST,
+chooseAIAction,
+chooseAIActionWithRationale,
+getPersonality,
+isAITurn,
+seriesAIContextFrom
 } from "@/lib/draftAI";
-import { evolveMetaForTournament } from "@/lib/metaEvolution";
+import {
+applyLock,
+applyTimeout,
+currentAction,
+swapChampions as swapChampionsPure,
+} from "@/lib/draftEngine";
+import { computeGameRatings } from "@/lib/matchSimulator";
 import { isReverseSweep } from "@/lib/matchTags";
-import { runAutoPlayMatch } from "@/lib/sim/bulkSimClient";
-import { finalizeRoles } from "@/lib/sim/finalizeRoles";
-import { encodeRealityShareCode, decodeRealityShareCode } from "@/lib/realityShare";
+import { evolveMetaForTournament } from "@/lib/metaEvolution";
 import {
-  type RealityExportTarget,
-  writeRealityExportToTarget,
-} from "@/lib/realityExport";
+loadCounterOverride,
+loadMetaEnabled,
+loadMetaOverride,
+loadMetaSource,
+loadPowerSpikeOverride,
+loadSynergyOverride,
+randomizeCounters,
+randomizeMeta,
+randomizePowerSpikes,
+randomizeSynergies,
+saveCounterOverride,
+saveMetaEnabled,
+saveMetaOverride,
+saveMetaSource,
+savePowerSpikeOverride,
+saveSynergyOverride
+} from "@/lib/metaRandomizer";
 import {
-  compactEncodeTournamentForPersist,
-  slimTournamentForArchive,
-  compactEncodeSeasonForPersist,
-  decodeCompactSeason,
-  decodeCompactTournament,
+applyRatingsToForms
+} from "@/lib/playerForm";
+import { randomizeRoster } from "@/lib/players";
+import { encodeRealityShareCode } from "@/lib/realityShare";
+import {
+compactEncodeSeasonForPersist,
+compactEncodeTournamentForPersist,
+decodeCompactSeason,
+decodeCompactTournament
 } from "@/lib/recapCompression";
-import {
-  applyTournamentUpdate as applySeasonTournamentUpdate,
-  createSeason,
-  makeSeasonId,
-  nextPendingTournament as nextPendingSeasonTournament,
-  currentPhase as currentSeasonPhase,
-  phaseProgress as seasonPhaseProgress,
-  leagueOfTournament,
-} from "@/lib/season/engine";
-import {
-  resolveTransfer as resolveSeasonTransfer,
-  executeUserTransfer,
-  executeOffseasonUserTransfer,
-  aiResolveUserTransferWindow,
-  aiResolveUserOffseason,
-  bestCoachHire,
-} from "@/lib/season/transfers";
-import { advanceTransferWindow } from "@/lib/season/engine";
+import { bulkSimRealityMatches } from "@/lib/season/bulkYears";
 import { swapCoaches } from "@/lib/season/coach";
-import { seedFranchise, startNextSeason, applyUserFaSign, applyUserAcademyRecall, applyUserFaToAcademy, applyUserAcademyRelease, applyUserAcademyRookie, applyUserManualDemote, applyUserRookieSign, aiDecideFollowedDemotes } from "@/lib/season/franchise";
 import {
-  honorAgencyDemand as applyHonorAgencyDemand,
-  overrideAgencyDemand as applyOverrideAgencyDemand,
-  aiHonorFollowedAgency,
+advanceTransferWindow,
+applyTournamentUpdate as applySeasonTournamentUpdate,
+createSeason,
+currentPhase as currentSeasonPhase,
+leagueOfTournament,
+makeSeasonId,
+nextPendingTournament as nextPendingSeasonTournament,
+phaseProgress as seasonPhaseProgress,
+} from "@/lib/season/engine";
+import { aiDecideFollowedDemotes,applyUserAcademyRecall,applyUserAcademyRelease,applyUserAcademyRookie,applyUserFaSign,applyUserFaToAcademy,applyUserManualDemote,applyUserRookieSign,seedFranchise,startNextSeason } from "@/lib/season/franchise";
+import {
+aiHonorFollowedAgency,
+honorAgencyDemand as applyHonorAgencyDemand,
+overrideAgencyDemand as applyOverrideAgencyDemand,
 } from "@/lib/season/franchiseAgency";
-import { bulkSimRealityMatches, clampBulkYearCount } from "@/lib/season/bulkYears";
 import {
-  collectSimResultUpdates,
-  compressSimResultsFeed,
-  type SimResultEntry,
-  type SimResultEntryCache,
-} from "@/lib/season/simResultsSummary";
+buildSeasonHistoryEntry,
+type SeasonHistoryEntry,
+} from "@/lib/season/history";
 import { inactiveSnapshotsForArchivedYear } from "@/lib/season/playerLifecycle";
+import {
+collectSimResultUpdates,
+compressSimResultsFeed,
+type SimResultEntry,
+type SimResultEntryCache,
+} from "@/lib/season/simResultsSummary";
 import { ensureTeamIdentities } from "@/lib/season/teamGen";
 import {
-  buildSeasonHistoryEntry,
-  type SeasonHistoryEntry,
-} from "@/lib/season/history";
+aiResolveUserOffseason,
+aiResolveUserTransferWindow,
+bestCoachHire,
+executeOffseasonUserTransfer,
+executeUserTransfer,
+resolveTransfer as resolveSeasonTransfer,
+} from "@/lib/season/transfers";
 import type {
-  LeagueId,
-  SeasonConfig,
-  SeasonMetaSnapshot,
-  SeasonState,
-  SeasonTeam,
+SeasonMetaSnapshot,
+SeasonState
 } from "@/lib/season/types";
+import {
+applySideChoice,
+chooseSideAI,
+createSeries,
+currentGame,
+effectiveSideRule,
+fearlessLockedSet,
+nextGameSides,
+recordWinner,
+startNextGame,
+winsByTeamName
+} from "@/lib/series";
+import { runAutoPlayMatch } from "@/lib/sim/bulkSimClient";
+import { finalizeRoles } from "@/lib/sim/finalizeRoles";
+import { SOUND,playActionSound,sounds } from "@/lib/sounds";
+import {
+appendMatchPicks,
+computeTeamChampionWR,
+computeTournamentChampionWR,
+createTournament,
+effectiveLockedSet,
+isSwissStageComplete,
+makeTournamentId,
+recordMatchWinner,
+startGroupsPlayoffs,
+startRoundRobinPlayoffs,
+startSwissPlayoffs,
+teamStarRating,
+tournamentSeriesContext,
+type TournamentMatch,
+type TournamentState
+} from "@/lib/tournament";
+import type {
+Champion,
+GameDraft,
+SeriesState
+} from "@/lib/types";
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export const ACTION_SECONDS = 30;
 
-// A saved "reality" — a continuous franchise timeline. Its `season` is the
-// year currently in play; `history` is that reality's Hall. The active reality
-// mirrors into the live `season`/`seasonHistory`; the rest sit dormant here.
-export interface SavedReality {
-  id: string;
-  name: string;
-  year: number;
-  season: SeasonState;
-  history: SeasonHistoryEntry[];
-}
-
-// localStorage wrapper that gracefully handles QuotaExceededError.
-//
-// Fallback chain on QuotaExceededError:
-//   1. Drop tournamentHistory (largest field) and retry.
-//   2. If still over quota, fall back to the OLD slimming strategy for the
-//      active tournament: strip compact-encoded recap data back to just the
-//      lightweight summary fields (winProbTimeline etc. removed, recapC
-//      removed too). This is a last resort — replay charts will be lost on
-//      the next reload, but the save will succeed.
-//   3. Drop tournamentHistory entirely from the already-slimmed payload and
-//      retry one final time.
-//   4. Remove the key entirely so the next render proceeds in-memory only.
-const quotaSafeStorage =
-  typeof window === "undefined"
-    ? undefined
-    : ({
-        getItem: (key: string) => window.localStorage.getItem(key),
-        setItem: (key: string, value: string) => {
-          try {
-            window.localStorage.setItem(key, value);
-          } catch (err) {
-            const isQuota =
-              err instanceof DOMException &&
-              (err.name === "QuotaExceededError" ||
-                err.code === 22 ||
-                err.code === 1014);
-            if (!isQuota) throw err;
-
-            // Step 1: drop tournamentHistory and retry.
-            let parsed: { state?: Record<string, unknown> } | null = null;
-            try {
-              parsed = JSON.parse(value) as { state?: Record<string, unknown> };
-            } catch {
-              // Unparseable — fall through to key removal.
-            }
-            if (parsed?.state) {
-              try {
-                delete parsed.state.tournamentHistory;
-                window.localStorage.setItem(key, JSON.stringify(parsed));
-                console.warn("[draftsim] QuotaExceededError: dropped tournamentHistory to fit quota.");
-                return;
-              } catch {
-                // Step 2: also slim the active tournament by removing recapC.
-                try {
-                  const t = parsed.state.tournament as {
-                    matches?: Array<{
-                      series?: {
-                        games?: Array<{
-                          recap?: { recapC?: unknown };
-                        }>;
-                      };
-                    }>;
-                  } | null | undefined;
-                  if (t?.matches) {
-                    for (const m of t.matches) {
-                      if (!m.series) continue;
-                      for (const g of m.series.games ?? []) {
-                        if (!g.recap) continue;
-                        // Remove compact payload and fall back to full slim
-                        // (strip the heavy fields if they somehow reappeared).
-                        const rc = g.recap as Record<string, unknown>;
-                        delete rc.recapC;
-                        delete rc.winProbTimeline;
-                        delete rc.goldLeadTimeline;
-                        delete rc.notableEvents;
-                        delete rc.perPickKDA;
-                      }
-                    }
-                  }
-                  window.localStorage.setItem(key, JSON.stringify(parsed));
-                  console.warn("[draftsim] QuotaExceededError: dropped recapC + heavy fields from active tournament.");
-                  return;
-                } catch {
-                  // Step 3: also drop tournamentHistory and the manual
-                  // save slots from this slimmed copy.
-                  try {
-                    delete parsed.state.tournamentHistory;
-                    delete parsed.state.savedTournaments;
-                    window.localStorage.setItem(key, JSON.stringify(parsed));
-                    console.warn("[draftsim] QuotaExceededError: dropped history + saved tournaments + recapC from active tournament.");
-                    return;
-                  } catch {
-                    // Step 4: last resort — remove the key entirely.
-                  }
-                }
-              }
-            }
-
-            try {
-              window.localStorage.removeItem(key);
-            } catch {
-              // Storage truly broken — let the next render proceed
-              // with in-memory state only.
-            }
-          }
-        },
-        removeItem: (key: string) => window.localStorage.removeItem(key),
-      } satisfies Storage extends infer S
-        ? Pick<S & Storage, "getItem" | "setItem" | "removeItem">
-        : never);
-
-export type MetaSource = "default" | "randomized" | "custom";
-
-// One manual save slot (see DraftStore.savedTournaments). The tournament
-// is stored compact-encoded (recapC) so the persisted payload stays small
-// on both platforms; loadSavedTournament decodes it back to full form.
-// Alongside the tournament itself we capture the tournament-scoped store
-// context needed for a faithful resume: player form (hot/cold streaks)
-// and the pre-tournament meta snapshot that rolls back live-meta
-// evolution when the tournament ends or is abandoned.
-export interface SavedTournamentEntry {
-  /** Mirrors tournament.id — saving the same tournament upserts its slot. */
-  id: string;
-  savedAt: number;
-  tournament: TournamentState;
-  playerForms: PlayerFormMap;
-  preTournamentMetaSnapshot: {
-    metaOverride: MetaOverride | null;
-    metaSource: MetaSource;
-    metaEnabled: boolean;
-    synergyOverride: Synergy[] | null;
-    counterOverride: CounterPair[] | null;
-  } | null;
-}
+const quotaSafeStorage = browserSaveStorage();
 
 // Saved-slot caps. Desktop files have no quota so the cap is generous;
 // web shares the 5MB localStorage quota with everything else.
@@ -312,83 +165,12 @@ function savedTournamentsCap(): number {
   return isDesktop() ? SAVED_TOURNAMENTS_CAP_DESKTOP : SAVED_TOURNAMENTS_CAP_WEB;
 }
 
-// One manual season save slot — mirrors SavedTournamentEntry. The season
-// is stored with every stage tournament compact-encoded; loadSavedSeason
-// decodes them back. Player form (season-long hot/cold streaks) is
-// captured alongside so a resumed season feels identical.
-export interface SavedSeasonEntry {
-  /** Mirrors season.id — saving the same season upserts its slot. */
-  id: string;
-  savedAt: number;
-  season: SeasonState;
-  playerForms: PlayerFormMap;
-  // In-progress state so a save mid-draft/mid-match resumes EXACTLY where the
-  // user left off (a real "save game"), not just at the dashboard. The active
-  // draft series, the live tournament being played (compact-encoded like the
-  // season's), and the view/pending flags. All optional → older slots that
-  // predate this still load (they just resume at the dashboard).
-  series?: SeriesState | null;
-  tournament?: TournamentState | null;
-  seasonViewOpen?: boolean;
-  sideChoicePending?: boolean;
-}
-
-/** Team identity carried into a Latest Matchday row (so the panel can
- *  render icons + brand colors without re-reading season state). */
-export interface SeasonMatchdayTeam {
-  /** Live season team id — used by team hover cards. */
-  id?: string;
-  name: string;
-  iconKey: string;
-  color: string;
-  // Real pro team logo URL (https), when the team was named from the LoL
-  // Esports API. Absent for generated teams → falls back to the icon.
-  logoUrl?: string;
-}
-
-/** One match result inside a Latest Matchday region row. */
-export interface SeasonMatchdayMatch {
-  blue: SeasonMatchdayTeam;
-  red: SeasonMatchdayTeam;
-  blueScore: number;
-  redScore: number;
-  /** True when the blue team won the series. */
-  blueWon: boolean;
-  /** Stage tag: "winners" | "losers" | "elimination" | "grand-final" |
-   *  "grand-final-reset" | "group" | "regular". */
-  stage: string;
-  /** Group letter when stage === "group". */
-  group?: string;
-  /** Match result tags (e.g. reverse sweep on a 3-2 comeback). */
-  tags?: string[];
-  /** Live tournament + match ids for opening the replay modal. */
-  tournamentId?: string;
-  matchId?: string;
-  /** False when the match was resolved without series/recap data. */
-  hasReplay?: boolean;
-}
-
-/** Per-region (or per-event) results for one simulated matchday. */
-export interface SeasonMatchdayRegion {
-  league: LeagueId | null;
-  name: string;
-  results: SeasonMatchdayMatch[];
-  /** Teams that advanced when a play-in completed this matchday. */
-  qualified?: SeasonMatchdayTeam[];
-}
-
-/** The dashboard's Latest Matchday panel payload. */
-export interface SeasonMatchdayResult {
-  label: string;
-  regions: SeasonMatchdayRegion[];
-}
-
 // Seasons are heavy (20+ tournaments each), so the caps are tighter
 // than tournament save slots.
 const SAVED_SEASONS_CAP_DESKTOP = 20;
 const SAVED_SEASONS_CAP_WEB = 3;
 
-function savedSeasonsCap(): number {
+export function savedSeasonsCap(): number {
   return isDesktop() ? SAVED_SEASONS_CAP_DESKTOP : SAVED_SEASONS_CAP_WEB;
 }
 
@@ -398,474 +180,14 @@ function savedSeasonsCap(): number {
 const SEASON_HISTORY_CAP_DESKTOP = 200;
 const SEASON_HISTORY_CAP_WEB = 40;
 
-function seasonHistoryCap(): number {
+export function seasonHistoryCap(): number {
   return isDesktop() ? SEASON_HISTORY_CAP_DESKTOP : SEASON_HISTORY_CAP_WEB;
-}
-
-// ─── User preset libraries (Meta Tier Lists / Synergies & Counters) ───────
-// Named, persisted presets the user builds in the two main-menu library
-// sections. Applying a preset copies it into the ACTIVE overrides (the same
-// path randomize/custom-edit use), so series and tournaments created
-// afterwards pick it up via the normal metaSnapshot capture.
-
-export interface MetaTierListPreset {
-  id: string;
-  name: string;
-  createdAt: number;
-  updatedAt: number;
-  override: MetaOverride;
-}
-
-export interface PairingsPreset {
-  id: string;
-  name: string;
-  createdAt: number;
-  updatedAt: number;
-  synergies: Synergy[];
-  counters: CounterPair[];
 }
 
 function makePresetId(): string {
   return `preset-${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
-}
-
-interface DraftStore {
-  series: SeriesState | null;
-  selectedChampionId: number | null;
-  secondsLeft: number | null;
-  champions: Champion[];
-  soundEnabled: boolean;
-  volume: number;
-  metaOverride: MetaOverride | null;
-  // Bumps every time the override changes so React components keyed on this
-  // can invalidate memoized lookups that depend on module state.
-  metaVersion: number;
-  metaSource: MetaSource;
-  // Master switch for the meta tier system. When false, getMetaTier
-  // returns null for everyone; AI scoring loses its meta-tier signal,
-  // simulator's metaStrengthScore flattens, and tier badges hide.
-  metaEnabled: boolean;
-  // Random synergy / counter overrides. When non-null, replace the
-  // baseline CHAMPION_SYNERGIES / HARD_COUNTERS lists everywhere those
-  // are consulted (AI scoring, simulator, UI panels). Versions bump on
-  // every change so dependent useMemos invalidate.
-  synergyOverride: Synergy[] | null;
-  synergyVersion: number;
-  counterOverride: CounterPair[] | null;
-  counterVersion: number;
-  // Per-champion power-spike minute override (alias → minute, ≤ 14).
-  // Generated alongside synergyOverride / counterOverride by the
-  // randomizeSynergiesAndCounters action; later minutes mean a more
-  // impactful spike event in the simulator.
-  powerSpikeOverride: PowerSpikeOverride | null;
-  powerSpikeVersion: number;
-  // Rationale of the AI's current decision — populated when an AI turn
-  // starts, cleared on lock or when control returns to a human. Read by the
-  // overlay UI to surface the AI's reasoning during the hover phase.
-  aiRationale: AIRationale | null;
-  // History of rationales for the current game. Each entry is the rationale
-  // captured at the moment the AI locked in. Cleared on game start. Used
-  // by the post-draft "AI decisions" recap. Skip-fast-forwarded actions
-  // are NOT recorded (skip prioritises speed over instrumentation).
-  aiRationaleHistory: Array<{ actionIndex: number; rationale: AIRationale }>;
-  // ─── Player form (feature 5) ────────────────────────────────────────────
-  // Flat map of player form values keyed by `${teamKey}:${lane}`. Updated
-  // after every applied/simulated game. Tournament-scoped when a tournament
-  // is active (survives reload via persistence; resets per-tournament via
-  // startTournament). Series-scoped for single-series play (resets on
-  // startSimulation).
-  playerForms: PlayerFormMap;
-  // ─── Pre-tournament meta snapshot (feature 6 — live-meta rollback) ──────
-  // Captured in startTournament for live-meta tournaments so the user's own
-  // meta override (built in MetaEditor / via randomizeMeta) can be fully
-  // restored when the tournament ends or is abandoned.
-  //
-  // Relationship with tournament.metaSnapshot:
-  //   tournament.metaSnapshot = meta the TOURNAMENT was CREATED with (and
-  //     the current evolved state for live-meta tournaments — it mutates as
-  //     rounds complete). This is what every match and the AI uses for the
-  //     duration of the event.
-  //   preTournamentMetaSnapshot = meta the USER had configured BEFORE
-  //     startTournament was called. This is what we restore to on exit/end
-  //     so the evolved tiers don't bleed into subsequent standalone drafts.
-  //
-  // For non-live-meta tournaments the two snapshots are identical, so
-  // we only save/restore for live-meta. Persisted so a reload mid-tournament
-  // still restores cleanly. Cleared (set to null) after restore.
-  preTournamentMetaSnapshot: {
-    metaOverride: MetaOverride | null;
-    metaSource: MetaSource;
-    metaEnabled: boolean;
-    synergyOverride: Synergy[] | null;
-    counterOverride: CounterPair[] | null;
-  } | null;
-  // ─── Side choice pending state (feature 4 / loser-picks) ───────────────
-  // Set to true when the active series is under "loser-picks" and the human
-  // team is the one that holds the side choice. UI renders a picker;
-  // cleared when chooseSide() is called.
-  sideChoicePending: boolean;
-
-  setChampions: (champions: Champion[]) => void;
-  setSoundEnabled: (v: boolean) => void;
-  setVolume: (v: number) => void;
-  randomizeMetaTiers: () => void;
-  resetMetaTiers: () => void;
-  applyCustomMeta: (override: MetaOverride) => void;
-  setMetaEnabled: (enabled: boolean) => void;
-  randomizeSynergiesAndCounters: () => void;
-  resetSynergiesAndCounters: () => void;
-  hydrateMetaFromStorage: () => void;
-  startSimulation: (settings: SimulationSettings) => void;
-  selectChampion: (id: number | null) => void;
-  lockIn: () => void;
-  timeout: () => void;
-  // Resolves the current AI action and applies it to the game state. No-op
-  // if it isn't actually the AI's turn (mode/aiSide guard) or the draft is
-  // already complete. The optional `preDecidedId` lets the caller pre-compute
-  // the AI's choice (for hover/preview) and pass it through, so the locked
-  // champion is guaranteed to match the previewed one — important because
-  // chooseAIAction has random jitter and recomputing would give a different
-  // result.
-  triggerAIAction: (preDecidedId?: number) => void;
-  // Fast-forward the rest of the draft by resolving every remaining AI
-  // action synchronously. Used by the "Skip Draft" button in AI vs AI mode.
-  // Stops as soon as it reaches a non-AI action, or the draft completes.
-  completeAIDraft: () => void;
-  // Set/clear the AI's current decision rationale. DraftView writes this
-  // when an AI turn begins so the lock-in panel can render the breakdown.
-  setAIRationale: (r: AIRationale | null) => void;
-  tickTimer: () => void;
-  // Commit both teams' game plans (chosen on the StrategyView) onto the
-  // current game and advance the series from "strategy" → "between-games".
-  // No-op unless the series is currently in the "strategy" stage.
-  confirmStrategies: (
-    blueStrategy: TeamStrategy,
-    redStrategy: TeamStrategy,
-  ) => void;
-  declareWinner: (side: Side, recap?: import("@/lib/types").GameRecap) => void;
-  // Advance to the next game in the series. Side assignment is
-  // automatic: the team that LOST the previous game gets blue side
-  // ("loser picks side, always picks blue") — convention shipped pro
-  // tournaments. Optional explicit override accepts a boolean to force
-  // a swap regardless of the auto rule (kept for manual control).
-  proceedToNextGame: (swapSides?: boolean) => void;
-  swapPickSlots: (
-    gameIndex: number,
-    side: Side,
-    slotA: number,
-    slotB: number,
-  ) => void;
-  resetAll: () => void;
-
-  // ─── Tournament mode (Phase 1) ─────────────────────────────────────
-  // When non-null, the app runs in tournament mode. The active match is
-  // tracked by `tournament.activeMatchId`; when set, the existing series
-  // flow drives that match's series and `series` mirrors the match's
-  // `series` field. When the match completes, finishMatch() captures the
-  // winner, advances the bracket, and clears the active series.
-  tournament: TournamentState | null;
-  // Past tournaments (Phase 4). Snapshots saved when status transitions
-  // to "complete". Capped to the most recent 20 to keep persisted
-  // localStorage payload small.
-  tournamentHistory: TournamentState[];
-  // Transient flag set while a sim-one-match or sim-all-remaining run is
-  // in progress. The bulk actions run an async loop that yields to the
-  // event loop between matches (so the UI thread breathes) and commits
-  // batched state updates; the flag drives the SimulatingOverlay and
-  // guards against re-entry.
-  simulating: null | "match" | "all";
-  // Lightweight progress readout for the SimulatingOverlay while a bulk
-  // sim runs ("23/56 matches"). Intentionally NOT persisted (partialize
-  // whitelist) and only two numbers, so the per-update set() is cheap.
-  simProgress: { done: number; total: number } | null;
-  /** Epoch ms when the current bulk sim run started (not persisted). */
-  simStartedAt: number | null;
-  // Open a history entry for review — sets it as the active tournament.
-  // The dashboard renders it in its already-complete state.
-  loadFromHistory: (tournamentId: string) => void;
-  // Permanently remove a history entry.
-  deleteHistoryEntry: (tournamentId: string) => void;
-  // Wipe history entirely. No confirm — caller's responsibility.
-  clearHistory: () => void;
-  // ─── Saved tournaments (manual save slots, separate from history) ──
-  // History holds only FINISHED tournaments; this list holds explicit
-  // user saves made from the dashboard's Save button, at ANY stage of
-  // the tournament. Full state is captured — bracket, per-game recaps,
-  // meta snapshot + evolution log (meta shifting), pick histories — so
-  // win/loss streaks and live meta resume exactly where they were.
-  savedTournaments: SavedTournamentEntry[];
-  // Snapshot the active tournament into savedTournaments (upsert by
-  // tournament id). Returns false when no tournament is active.
-  saveCurrentTournament: () => boolean;
-  // Restore a saved entry as the active tournament — resumes the active
-  // match's series, the tournament meta, and player forms.
-  loadSavedTournament: (entryId: string) => void;
-  // Clone a saved entry under a fresh tournament id + "(Copy)" name.
-  duplicateSavedTournament: (entryId: string) => void;
-  // Permanently remove a saved entry.
-  deleteSavedTournament: (entryId: string) => void;
-  // Wipe all saved entries. No confirm — caller's responsibility.
-  clearSavedTournaments: () => void;
-  // ─── Season mode ─────────────────────────────────────────────────────
-  // A full competitive year: 6 leagues × 3 splits + First Stand, MSI,
-  // and Worlds, all built on the tournament engine. `season` is the
-  // single active season (persisted); `seasonViewOpen` routes between
-  // the main menu and the season dashboard while keeping the season
-  // alive in the background.
-  season: SeasonState | null;
-  seasonViewOpen: boolean;
-  // User's meta config captured at season start; re-applied when the
-  // user leaves the season view (and on abandon) so a season's evolved
-  // meta never bleeds into standalone play.
-  preSeasonMetaSnapshot: {
-    metaOverride: MetaOverride | null;
-    metaSource: MetaSource;
-    metaEnabled: boolean;
-    synergyOverride: Synergy[] | null;
-    counterOverride: CounterPair[] | null;
-  } | null;
-  startSeason: (config: SeasonConfig, teams: SeasonTeam[]) => void;
-  // Re-open the season dashboard from the menu (applies season meta).
-  openSeason: () => void;
-  // Back to the main menu; season stays active (restores user meta).
-  exitSeasonView: () => Promise<void>;
-  // Permanently delete the season (restores user meta).
-  abandonSeason: () => void;
-  // Load one of the season's tournaments as the active tournament so
-  // the user can browse its bracket or play/sim matches through the
-  // normal tournament flow. Updates sync back into the season.
-  openSeasonTournament: (tournamentId: string) => void;
-  // Accept or decline a pending followed-team transfer (index into
-  // season.proposedTransfers). Accepting swaps the players; either way the
-  // proposal is cleared.
-  resolveSeasonTransfer: (index: number, accept: boolean) => void;
-  // Hand the open window to the AI: it accepts the proposals that improve the
-  // roster, declines the rest, and shops the best upgrade per lane (offseason
-  // also hires a clearly better coach). For users who'd rather not micro-manage.
-  aiDecideSeasonTransfers: () => void;
-  aiDecideOffseason: () => void;
-  // Close the open transfer window and move on to the next split. Any
-  // proposals left undecided are treated as declined.
-  advanceSeasonTransfers: () => void;
-  // User-initiated swap: trade the followed team's player at `lane` for the
-  // named team's player, if that team would agree. No-op otherwise.
-  shopSeasonTransfer: (lane: Lane, otherTeamId: string) => void;
-  // Same, but for the post-Worlds OFFSEASON on a completed reality season.
-  shopOffseasonTransfer: (lane: Lane, otherTeamId: string) => void;
-  /** Sign an FA into a followed-team lane (offseason or mid-season transfer; value-gap gated). */
-  shopOffseasonFa: (lane: Lane, faPlayerId: string) => void;
-  /** Honor a pending player-agency demand (leave / call-up / depart). */
-  honorAgencyDemand: (demandId: string) => void;
-  /** Override a pending player-agency demand (keep the player). */
-  overrideAgencyDemand: (demandId: string) => void;
-  /** Sign an FA into the followed team's academy (not roster; academy must have room). */
-  shopFaToAcademy: (faPlayerId: string) => void;
-  /** Call up own academy player into a followed-team lane (same windows / gap as FA). */
-  shopAcademyRecall: (lane: Lane, academyPlayerId: string) => void;
-  /** Release own academy player to free agency. */
-  shopAcademyRelease: (academyPlayerId: string) => void;
-  /** Generate a rookie into the followed team's academy (room required). */
-  shopAcademyRookie: (lane?: Lane) => void;
-  /** Fill a vacant followed-team lane with a generated rookie (transfer / offseason). */
-  shopRookie: (lane: Lane) => void;
-  /** Manually bench a followed-team player to academy (opens vacancy; max 2/window). */
-  demoteFollowedPlayer: (lane: Lane) => void;
-  // Offseason coach market: swap the user's coach with another team's coach.
-  shopOffseasonCoach: (otherTeamId: string) => void;
-  // Edit the completed reality season's config (split/intl formats) so the
-  // change carries into next year via startNextSeason(prev.config).
-  updateSeasonConfig: (patch: Partial<SeasonConfig>) => void;
-  // Simulate the current phase (all its tournaments), the entire
-  // remaining season, or one specific tournament (a single league's
-  // split, or one international). Auto-advances phases, applies patch
-  // shifts, and crowns the Worlds champion.
-  simSeason: (scope: "phase" | "all" | { tournamentId: string }) => void;
-  // Advance every region (split phases) — or the current event (intl
-  // phases) — by exactly ONE matchday/round, in lockstep, and record the
-  // results into `seasonMatchday` for the dashboard's Latest Matchday
-  // panel. Works for the round-robin/Swiss/group regular stage AND for
-  // playoff brackets (freezing standings into the bracket transparently).
-  // Pass a tournamentId to advance just that one region's matchday.
-  simSeasonMatchday: (tournamentId?: string) => void;
-  // Results of the most recently simulated matchday (ephemeral — not
-  // persisted; resets on reload). null until the first matchday is run.
-  seasonMatchday: SeasonMatchdayResult | null;
-  /** Live feed of regional / international outcomes during bulk sims. */
-  simResultsFeed: SimResultEntry[];
-  /** Clear the simulation results feed from the dashboard. */
-  dismissSimResultsFeed: () => void;
-  // ─── Saved seasons (manual save slots, like saved tournaments) ─────
-  savedSeasons: SavedSeasonEntry[];
-  // Snapshot the active season (upsert by season id). Returns false
-  // when no season is active.
-  saveCurrentSeason: () => boolean;
-  // Build the active season's save entry (same payload saveCurrentSeason
-  // stores) without persisting it — for export-to-file. Null with no season.
-  exportCurrentSeason: () => SavedSeasonEntry | null;
-  // Add a season entry parsed from an exported .json file to Saved Seasons
-  // (upsert by id). Returns the entry id so the caller can load it.
-  importSeason: (json: string) => { ok: boolean; error?: string; id?: string };
-  // Restore a saved season as the active one and open its dashboard.
-  loadSavedSeason: (entryId: string) => void;
-  // Clone a saved season under a fresh id + "(Copy)" name.
-  duplicateSavedSeason: (entryId: string) => void;
-  deleteSavedSeason: (entryId: string) => void;
-  clearSavedSeasons: () => void;
-  // ─── Season history (Hall of Seasons) ───────────────────────────────
-  // Lightweight résumé archive of past seasons — Worlds champion &
-  // finalist, international title holders, split champions. Entries
-  // upsert by season id; archiving is the user's explicit choice.
-  seasonHistory: SeasonHistoryEntry[];
-  /** Archive the ACTIVE season's résumé. Returns false with no season. */
-  archiveSeasonToHistory: () => boolean;
-  /** Archive a saved season's résumé without loading it. */
-  archiveSavedSeasonToHistory: (entryId: string) => boolean;
-  // realityId scopes the mutation to that reality's Hall; omit for the
-  // one-off Season-mode Hall.
-  removeSeasonFromHistory: (entryId: string, realityId?: string) => void;
-  clearSeasonHistory: (realityId?: string) => void;
-
-  // ─── Franchise / Realities (continuous multi-season timelines) ───────
-  realities: SavedReality[];
-  activeRealityId: string | null;
-  /** Pending intent: the next started season becomes Year 1 of this reality
-   *  (set by the Realities hub before sending the user to season setup). */
-  pendingReality: { name: string; aging: boolean } | null;
-  /** Begin a new reality — records the intent so the next `startSeason`
-   *  promotes its result into Year 1 of a continuous timeline. */
-  beginNewReality: (name: string, aging: boolean) => void;
-  /** Turn the current configured season into Year 1 of a new named reality.
-   *  `aging` enables the offseason aging/retirement/rookie simulation. */
-  startReality: (name: string, aging: boolean) => void;
-  /** Roll the (complete) active reality season into the next year. */
-  continueSeasonToNextYear: () => void;
-  /** Auto-simulate N full franchise years (splits, internationals, year roll). */
-  simulateRealityYears: (
-    count: number,
-    options?: {
-      saveAfterEachYear?: boolean;
-      exportTarget?: RealityExportTarget;
-    },
-  ) => void;
-  /** Request cancellation of an in-progress bulk-year simulation. */
-  cancelBulkYears: () => void;
-  /** Progress while simulateRealityYears runs (not persisted). */
-  bulkYearsProgress: {
-    completed: number;
-    total: number;
-    year: number;
-    startedAt: number;
-  } | null;
-  bulkYearsCancelRequested: boolean;
-  /** Switch the live season to another saved reality (snapshots the current). */
-  switchReality: (id: string) => Promise<void>;
-  deleteReality: (id: string) => Promise<{ suggestCompact: boolean } | void>;
-  /** Serialize a reality (its timeline + its own season history) to a JSON
-   *  string for download. Tournaments are compact-encoded. Null if unknown. */
-  exportReality: (id: string) => string | null;
-  /** Export a reality as a REAL1: share code (compact import string). */
-  exportRealityShareCode: (id: string) => Promise<string | null>;
-  /** Restore a reality from an exported JSON string (upsert by id). */
-  importReality: (json: string) => Promise<{ ok: boolean; error?: string; id?: string }>;
-  /** Import from a REAL1: code or raw JSON export. */
-  importRealityShareCode: (code: string) => Promise<{ ok: boolean; error?: string; id?: string }>;
-  /** Merge entries parsed from an imported .xlsx (upsert by id, newest
-   *  archive first). Returns how many were new vs. overwritten. */
-  importSeasonHistory: (
-    entries: SeasonHistoryEntry[],
-  ) => { added: number; updated: number };
-
-  // ─── Preset libraries (main-menu sections) ─────────────────────────
-  // Saved meta tier lists. createMetaPreset returns the new preset id.
-  metaPresets: MetaTierListPreset[];
-  createMetaPreset: (name: string, override: MetaOverride) => string;
-  updateMetaPreset: (
-    id: string,
-    patch: Partial<Pick<MetaTierListPreset, "name" | "override">>,
-  ) => void;
-  deleteMetaPreset: (id: string) => void;
-  duplicateMetaPreset: (id: string) => void;
-  // Copy the preset into the active meta override (same path as
-  // applyCustomMeta) so subsequent series/tournaments use it.
-  applyMetaPreset: (id: string) => void;
-  // Saved synergy + counter sets, same lifecycle as meta presets.
-  pairingsPresets: PairingsPreset[];
-  createPairingsPreset: (
-    name: string,
-    synergies: Synergy[],
-    counters: CounterPair[],
-  ) => string;
-  updatePairingsPreset: (
-    id: string,
-    patch: Partial<Pick<PairingsPreset, "name" | "synergies" | "counters">>,
-  ) => void;
-  deletePairingsPreset: (id: string) => void;
-  duplicatePairingsPreset: (id: string) => void;
-  applyPairingsPreset: (id: string) => void;
-  startTournament: (params: CreateTournamentParams) => void;
-  // Import a previously-exported tournament from a TOUR1: code string.
-  // Returns a result object so the caller can show error feedback. On
-  // success, the tournament replaces any current tournament/series.
-  importTournament: (code: string) => Promise<{ ok: boolean; error?: string }>;
-  // Begin a match: copies the match's series (or creates a fresh one
-  // from the match's settings + the team names from the tournament) into
-  // the store's `series` field and sets `activeMatchId`. Optional
-  // `overrides` lets the caller change the match's format/mode/fearless
-  // for THIS match only (Phase 2.3 per-match overrides).
-  startMatch: (
-    matchId: string,
-    overrides?: Partial<{
-      format: import("@/lib/types").SeriesFormat;
-      fearless: boolean;
-      mode: import("@/lib/types").DraftMode;
-      aiSide: import("@/lib/types").Side | null;
-      aiDifficulty: import("@/lib/types").AIDifficulty;
-    }>,
-  ) => void;
-  // Called when the active match's series ends (winner declared on the
-  // last game). Records the winner against the tournament match,
-  // advances the winner to the next match's slot, clears the active
-  // series, and returns control to the dashboard.
-  finishMatch: () => void;
-  // Groups+playoffs: freeze the group standings and generate the
-  // single-elim playoff bracket with the top-N teams. No-op when not
-  // a groups-playoffs tournament or when already started.
-  generatePlayoffBracket: () => void;
-  // Auto-play a single tournament match. Shares the AI-vs-AI auto-draft
-  // + sim pipeline with simulateAllRemaining but scopes to one match
-  // and updates state once when that match resolves. No-op when the
-  // match doesn't exist, is already complete, or has unfilled team slots.
-  simulateOneMatch: (matchId: string) => void;
-  // Auto-play a batch of matches. Iterates over the supplied ids in
-  // order, auto-playing each one and advancing tournament state in
-  // between (so cross-match fearless and dynamic Swiss-round generation
-  // both behave correctly). Used by per-round / per-matchday / group-
-  // stage Sim buttons.
-  simulateMatches: (matchIds: string[]) => void;
-  // Auto-play every remaining Swiss-stage match (dynamic round generation
-  // included). Stops when the Swiss stage is complete — does not start
-  // playoffs for swiss-playoffs formats.
-  simulateSwissStage: () => void;
-  // Complete the Swiss stage and freeze standings into the playoff bracket
-  // for swiss-playoffs / swiss-playoffs-de / swiss-playoffs-te formats.
-  simulateSwissToPlayoffs: () => void;
-  // Spectator mode: auto-play every remaining match end-to-end. Forces
-  // every match into AI vs AI for the duration of the run so drafts and
-  // game outcomes resolve without user input. Updates tournament state
-  // once at the end (single set call) so the UI doesn't thrash through
-  // intermediate animations.
-  simulateAllRemaining: () => void;
-  // Exit tournament mode entirely (back to main menu). Aborts any
-  // active match — won't persist mid-match progress beyond what's
-  // already in `series`.
-  exitTournament: () => void;
-  // ─── Feature 4: loser-picks side choice ────────────────────────────────
-  /** Apply the human's side choice under "loser-picks". No-op when there
-   *  is no pending choice or the series isn't between games. Clears
-   *  `sideChoicePending` and starts the next game. */
-  chooseSide: (side: "blue" | "red") => void;
 }
 
 function allChampionIds(champs: Champion[]): number[] {
@@ -881,53 +203,6 @@ function allChampionIds(champs: Champion[]): number[] {
 // Memoized compact encoding for franchise realities — each slot carries a full
 // SeasonState; without this, partialize re-encoded nothing and disk/json size
 // ballooned for long franchises (69+ archived years).
-let lastRealitiesInput: SavedReality[] | null = null;
-let lastRealitiesResult: SavedReality[] | null = null;
-
-function compactEncodeRealitiesForPersist(
-  realities: SavedReality[],
-): SavedReality[] {
-  if (realities === lastRealitiesInput && lastRealitiesResult !== null) {
-    return lastRealitiesResult;
-  }
-  const result = realities.map((r) => ({
-    ...r,
-    season: compactEncodeSeasonForPersist(r.season),
-  }));
-  lastRealitiesInput = realities;
-  lastRealitiesResult = result;
-  return result;
-}
-
-// Snapshot a completed tournament into the history list. No-op if the
-// tournament isn't complete or already exists in history.
-//
-// Desktop mode: cap raised to 200; full recaps are kept with compact
-// encoding (recapC) so replay charts survive in history. The file-based
-// storage has no 5 MB quota so we don't need to slim down.
-//
-// Web mode: cap is 5 and recaps are slimmed to stay under localStorage
-// quota (same behaviour as before).
-function archiveCompletedTournament(
-  tournament: TournamentState,
-  history: TournamentState[],
-): TournamentState[] {
-  if (tournament.status !== "complete") return history;
-  // Season stages don't archive individually — the season engine owns
-  // their lifecycle and they'd flood history (a season has 20+ stages).
-  if (tournament.seasonId) return history;
-  if (history.some((t) => t.id === tournament.id)) return history;
-  if (isDesktop()) {
-    // Keep full recaps with compact encoding on desktop — files have no
-    // meaningful quota, and compact encoding keeps sizes reasonable.
-    const compact = compactEncodeTournamentForPersist(tournament);
-    const next = [compact, ...history];
-    return next.slice(0, 200);
-  }
-  const next = [slimTournamentForArchive(tournament), ...history];
-  return next.slice(0, 5);
-}
-
 // Apply the pre-tournament meta snapshot back to the active module
 // singletons and return a Zustand-compatible partial state patch. Called
 // by exitTournament and tournament-completion paths when a live-meta
@@ -986,7 +261,7 @@ function buildMetaRestorePatch(
 // produce the store patch. Shared by the season-mode meta swaps
 // (enter season → season meta; leave season → user meta). Unlike
 // buildMetaRestorePatch this does NOT consume any snapshot field.
-function applyMetaSnapshotPatch(
+export function applyMetaSnapshotPatch(
   snap: {
     metaOverride: MetaOverride | null;
     metaSource: MetaSource;
@@ -1017,7 +292,7 @@ function applyMetaSnapshotPatch(
   };
 }
 
-function autoResolveOffseasonShop(
+export function autoResolveOffseasonShop(
   season: SeasonState,
   champions: readonly Champion[],
 ): SeasonState {
@@ -1040,7 +315,7 @@ function autoResolveTransferWindow(
   return advanceTransferWindow(next, champions);
 }
 
-function rollFranchiseToNextYearState(
+export function rollFranchiseToNextYearState(
   season: SeasonState,
   champions: readonly Champion[],
   prevHistory: SeasonHistoryEntry[],
@@ -1064,11 +339,6 @@ function rollFranchiseToNextYearState(
   const history = historyBase.map((e) => (e.id === archived.id ? archived : e));
   return { season: next, history };
 }
-
-type StoreGet = () => DraftStore;
-type StoreSet = (
-  partial: Partial<DraftStore> | ((state: DraftStore) => Partial<DraftStore>),
-) => void;
 
 function freezeSeasonTournamentStage(t: TournamentState): TournamentState {
   const stageDone = t.matches
@@ -1145,7 +415,7 @@ async function runSwissStageSimulation(
   }
 
   set({
-    simulating: "all",
+    simulating: "all", bulkYearsCancelRequested: false,
     simProgress: {
       done: cur.matches.filter(
         (m) => m.bracket === undefined && m.winner != null,
@@ -1166,6 +436,7 @@ async function runSwissStageSimulation(
     const safetyCap = 200;
 
     for (let safety = 0; safety < safetyCap; safety++) {
+          if (get().bulkYearsCancelRequested) break;
       if (get().tournament?.id !== runId) return;
 
       const swissStartable = working.matches.find(
@@ -1239,7 +510,8 @@ async function runSwissStageSimulation(
         : {}),
     }));
   } finally {
-    set({ simulating: null, simProgress: null, simStartedAt: null });
+    set({ simulating: null, simProgress: null, simStartedAt: null, bulkYearsCancelRequested: false });
+    try { await flushPendingPersistWrites(); } catch (error) { reportPersistenceError(`Simulation stopped; save failed: ${String(error)}`, "simulation"); }
   }
 }
 
@@ -1247,7 +519,7 @@ const SIM_RESULTS_FLUSH_MS = 200;
 let pendingSimResultUpdates: SimResultEntry[] = [];
 let simResultsFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
-function resetSimResultsBatch(): void {
+export function resetSimResultsBatch(): void {
   pendingSimResultUpdates = [];
   if (simResultsFlushTimer != null) {
     clearTimeout(simResultsFlushTimer);
@@ -1255,7 +527,7 @@ function resetSimResultsBatch(): void {
   }
 }
 
-function flushSimResultsFeed(set: StoreSet): void {
+export function flushSimResultsFeed(set: StoreSet): void {
   if (simResultsFlushTimer != null) {
     clearTimeout(simResultsFlushTimer);
     simResultsFlushTimer = null;
@@ -1278,7 +550,7 @@ function scheduleSimResultsFlush(set: StoreSet): void {
   }, SIM_RESULTS_FLUSH_MS);
 }
 
-function appendSimResults(
+export function appendSimResults(
   set: StoreSet,
   season: SeasonState,
   seen: Set<string>,
@@ -1291,7 +563,7 @@ function appendSimResults(
 }
 
 /** Drive one franchise year to completion; auto-resolves transfer windows. */
-async function runFranchiseSeasonSim(
+export async function runFranchiseSeasonSim(
   get: StoreGet,
   set: StoreSet,
   realityId: string,
@@ -1304,6 +576,7 @@ async function runFranchiseSeasonSim(
   let sinceCommit = 0;
   const BATCH = 4;
   for (let step = 0; step < safetyCap; step++) {
+          if (get().bulkYearsCancelRequested) break;
     if (shouldCancel()) return false;
     const cur = get().season;
     if (!bulkSimRealityMatches(cur, realityId)) return false;
@@ -1338,6 +611,7 @@ async function runFranchiseSeasonSim(
       champions,
       currentForms,
     );
+    if (!bulkSimRealityMatches(get().season, realityId)) return false;
     currentForms = nextForms;
     const evo = evolveMetaForTournament(after, champions);
     if (evo.tournament !== after) {
@@ -1358,7 +632,7 @@ async function runFranchiseSeasonSim(
       const live = get().season;
       if (live) appendSimResults(set, live, seen, entryCache);
     } else {
-      set((s) => ({ ...seasonPatchFor(s, after) }));
+      set((s) => ({ ...seasonPatchFor(s, after), playerForms: currentForms }));
     }
     await new Promise((r) => setTimeout(r, 0));
   }
@@ -1373,7 +647,7 @@ async function runFranchiseSeasonSim(
 // Identity is also propagated into every tournament's team copies
 // (tournaments snapshot it at creation). No-op (same reference) for
 // healthy seasons.
-function ensureSeasonIdentities(season: SeasonState): SeasonState {
+export function ensureSeasonIdentities(season: SeasonState): SeasonState {
   const teams = ensureTeamIdentities(season.teams);
   const byId = new Map(teams.map((t) => [t.id, t]));
   // Tournament copies are checked even when the season teams are already
@@ -1449,6 +723,8 @@ function randomPersonalityId(): string {
   return PERSONALITY_LIST[idx].id;
 }
 
+let realitySwitchVersion = 0;
+
 export const useDraftStore = create<DraftStore>()(
   persist(
     (set, get) => ({
@@ -1493,6 +769,7 @@ export const useDraftStore = create<DraftStore>()(
   simProgress: null,
   simStartedAt: null,
   bulkYearsProgress: null,
+  bulkYearJobs: {},
   bulkYearsCancelRequested: false,
   playerForms: {},
   sideChoicePending: false,
@@ -2036,234 +1313,56 @@ export const useDraftStore = create<DraftStore>()(
     set({ season: { ...season, config: { ...season.config, ...patch } } });
   },
 
-  beginNewReality: (name, aging) => {
-    set({ pendingReality: { name: name.trim() || "My Reality", aging } });
-  },
+  ...createFranchiseActions(get, set, { rollFranchiseToNextYearState }),
 
   // NOTE: a reality keeps its OWN Hall in its slot's `history`. The global
   // `seasonHistory` is the one-off Season mode's Hall and is never touched by
   // realities, so the two never mix.
-  startReality: (name, aging) => {
-    const { season, champions } = get();
-    if (!season) return;
-    const seeded = seedFranchise(season, name, aging, Math.random, champions);
-    const id = seeded.franchise!.id;
-    set((s) => ({
-      season: seeded,
-      seasonViewOpen: true,
-      activeRealityId: id,
-      realities: [
-        ...s.realities.filter((r) => r.id !== id),
-        { id, name: seeded.franchise!.name, year: 1, season: seeded, history: [] },
-      ],
-    }));
-    if (isDesktop()) {
-      markRealityHistoryLoaded(id);
-      void upsertRealityInDb(
-        {
-          id,
-          name: seeded.franchise!.name,
-          year: 1,
-          season: seeded,
-          history: [],
-        },
-        { syncHistory: true },
-      ).catch((err) => console.warn("[draftsim] create reality DB sync failed:", err));
-    }
-  },
 
-  continueSeasonToNextYear: () => {
-    const { season, champions } = get();
-    if (!season || !season.franchise || season.status !== "complete") return;
-    const rid = season.franchise.id;
-    const prevHistory = get().realities.find((r) => r.id === rid)?.history ?? [];
-    const { season: next, history } = rollFranchiseToNextYearState(
-      season,
-      champions,
-      prevHistory,
-    );
-    set((s) => ({
-      season: next,
-      realities: s.realities.map((r) =>
-        r.id === next.franchise!.id
-          ? { ...r, year: next.franchise!.year, season: next, history }
-          : r,
-      ),
-    }));
-  },
 
-  cancelBulkYears: () => {
-    if (get().bulkYearsProgress) set({ bulkYearsCancelRequested: true });
-  },
 
-  simulateRealityYears: (count, options) => {
-    const { season, simulating, bulkYearsProgress } = get();
-    if (!season?.franchise || simulating || bulkYearsProgress) return;
-    const total = clampBulkYearCount(count);
-    const saveAfterEachYear = options?.saveAfterEachYear ?? false;
-    const exportTarget = options?.exportTarget;
-    const realityId = season.franchise.id;
-    const startYear = season.franchise.year;
-    const startedAt = Date.now();
-    resetSimResultsBatch();
-    set({
-      simulating: "all",
-      simProgress: null,
-      simStartedAt: startedAt,
-      simResultsFeed: [],
-      bulkYearsProgress: { completed: 0, total, year: startYear, startedAt },
-      bulkYearsCancelRequested: false,
-    });
-    void (async () => {
-      const seen = new Set<string>();
-      const entryCache: SimResultEntryCache = new Map();
-      try {
-        await new Promise((r) => setTimeout(r, 0));
-        const shouldCancel = () => get().bulkYearsCancelRequested;
-        let completed = 0;
 
-        while (completed < total) {
-          if (shouldCancel()) break;
-          const cur = get().season;
-          if (!bulkSimRealityMatches(cur, realityId)) break;
+  ...createSimulationActions(get, set, { resetSimResultsBatch, runFranchiseSeasonSim, appendSimResults, autoResolveOffseasonShop, rollFranchiseToNextYearState, applyMetaSnapshotPatch, flushSimResultsFeed }),
 
-          if (cur.status !== "complete") {
-            const ok = await runFranchiseSeasonSim(
-              get,
-              set,
-              realityId,
-              shouldCancel,
-              seen,
-              entryCache,
-            );
-            if (!ok || shouldCancel()) break;
-          }
 
-          const finished = get().season;
-          if (!finished?.franchise || finished.status !== "complete") break;
-          appendSimResults(set, finished, seen, entryCache);
-          entryCache.clear();
 
-          set({ season: autoResolveOffseasonShop(finished, get().champions) });
-          if (shouldCancel()) break;
-
-          const rid = finished.franchise.id;
-          const prevHistory =
-            get().realities.find((r) => r.id === rid)?.history ?? [];
-          const { season: next, history } = rollFranchiseToNextYearState(
-            get().season!,
-            get().champions,
-            prevHistory,
-          );
-          completed++;
-          set((s) => ({
-            season: next,
-            playerForms: {},
-            bulkYearsProgress: {
-              completed,
-              total,
-              year: next.franchise!.year,
-              startedAt: s.bulkYearsProgress?.startedAt ?? startedAt,
-            },
-            realities: s.realities.map((r) =>
-              r.id === next.franchise!.id
-                ? { ...r, year: next.franchise!.year, season: next, history }
-                : r,
-            ),
-            ...(next.currentMeta
-              ? applyMetaSnapshotPatch(
-                  {
-                    metaOverride: next.currentMeta.metaOverride,
-                    metaSource: next.currentMeta.metaOverride ? "custom" : "default",
-                    metaEnabled: next.currentMeta.metaEnabled,
-                    synergyOverride: next.currentMeta.synergyOverride,
-                    counterOverride: next.currentMeta.counterOverride,
-                  },
-                  s,
-                )
-              : {}),
-          }));
-
-          if (saveAfterEachYear) {
-            await flushPendingPersistWrites();
-          }
-
-          if (exportTarget) {
-            const json = get().exportReality(realityId);
-            if (json) {
-              await writeRealityExportToTarget(exportTarget, json);
-            }
-          }
-
-          await new Promise((r) => setTimeout(r, 0));
-        }
-      } finally {
-        flushSimResultsFeed(set);
-        await flushPendingPersistWrites();
-        set({
-          simulating: null,
-          simProgress: null,
-          simStartedAt: null,
-          bulkYearsProgress: null,
-          bulkYearsCancelRequested: false,
-        });
-      }
-    })();
-  },
 
   switchReality: async (id) => {
+    if (get().simulating) { get().cancelBulkYears(); return; }
+    const request = ++realitySwitchVersion;
     signalOpeningReality();
     await waitForDesktopOverlayPaint();
     try {
+      const initial = get().realities.find(r => r.id === id);
+      if (!initial) return;
+      const history = isDesktop() && !isRealityHistoryLoaded(id)
+        ? await loadRealityHistoryFromDb(id) : initial.history;
+      // Drain snapshots captured before the history was available.
+      await flushPendingPersistWrites();
+      if (request !== realitySwitchVersion) return;
       const s = get();
-      const realities = s.realities.map((r) =>
-        r.id === s.activeRealityId && s.season?.franchise
-          ? { ...r, year: s.season.franchise.year, season: s.season }
-          : r,
-      );
-      const target = realities.find((r) => r.id === id);
-      if (!target) return;
-
-      if (isDesktop() && s.activeRealityId && s.activeRealityId !== id) {
-        const outgoing = realities.find((r) => r.id === s.activeRealityId);
-        if (outgoing) {
-          void upsertRealityInDb(outgoing, {
-            syncHistory: outgoing.history.length > 0,
-          }).catch((err) =>
-            console.warn("[draftsim] switchReality outgoing DB sync failed:", err),
-          );
-        }
-      }
-
-      // Decode off the paint path — large franchises pay for compact→full here.
+      const target = s.realities.find(r => r.id === id);
+      if (!target || target !== initial) return;
       const decodedSeason = decodeCompactSeason(target.season);
+      if (isDesktop()) markRealityHistoryLoaded(id);
       set({
-        realities: realities.map((r) =>
-          r.id === id ? { ...r, season: decodedSeason } : r,
-        ),
+        realities: s.realities.map(r => {
+          if (r.id === id) return { ...r, season: decodedSeason, history };
+          return r.id === s.activeRealityId && s.season?.franchise
+            ? { ...r, year: s.season.franchise.year, season: s.season } : r;
+        }),
         activeRealityId: id,
         season: decodedSeason,
         seasonViewOpen: true,
       });
-      if (isDesktop() && target.history.length === 0) {
-        void loadRealityHistoryFromDb(id).then((history) => {
-          if (history.length === 0) return;
-          set((state) => {
-            if (state.activeRealityId !== id) return state;
-            return {
-              realities: state.realities.map((r) =>
-                r.id === id ? { ...r, history } : r,
-              ),
-            };
-          });
-        });
-      }
     } finally {
-      clearDesktopOperation();
+      if (request === realitySwitchVersion) clearDesktopOperation();
     }
   },
 
   deleteReality: async (id) => {
+    if (get().simulating) throw new Error("Pause simulation before deleting a reality.");
+    await backupBeforeDestructiveChange();
     const snapshot = get().realities.find((r) => r.id === id);
     const suggestCompact =
       isDesktop() && snapshot != null && shouldSuggestCompactAfterDelete(snapshot);
@@ -2293,7 +1392,7 @@ export const useDraftStore = create<DraftStore>()(
     return { suggestCompact };
   },
 
-  exportReality: (id) => {
+  exportReality: async (id) => {
     // If the reality being exported is the live one, snapshot its progress
     // first so the export matches what's on screen.
     const s = get();
@@ -2301,6 +1400,16 @@ export const useDraftStore = create<DraftStore>()(
       s.activeRealityId === id && s.season?.franchise?.id === id ? s.season : null;
     const r = s.realities.find((x) => x.id === id);
     if (!r) return null;
+    let history = r.history;
+    if (isDesktop() && !isRealityHistoryLoaded(id)) {
+      try {
+        await flushPendingPersistWrites();
+        history = await loadRealityHistoryFromDb(id);
+      } catch (error) {
+        console.warn("[draftsim] export history could not be loaded:", error);
+        return null;
+      }
+    }
     const season = decodeCompactSeason(live ?? r.season);
     const payload = {
       kind: "reality" as const,
@@ -2320,14 +1429,14 @@ export const useDraftStore = create<DraftStore>()(
             ]),
           ),
         },
-        history: r.history,
+        history,
       },
     };
     return JSON.stringify(payload);
   },
 
   exportRealityShareCode: async (id) => {
-    const json = get().exportReality(id);
+    const json = await get().exportReality(id);
     if (!json) return null;
     try {
       return await encodeRealityShareCode(json);
@@ -2336,85 +1445,9 @@ export const useDraftStore = create<DraftStore>()(
     }
   },
 
-  importReality: async (json) => {
-    const desktop = isDesktop();
-    // Overlay covers parse + (on desktop) JSON→SQLite. Close is blocked while
-    // the phase is active so a mid-import quit can't drop the write.
-    signalImportingReality();
-    await waitForDesktopOverlayPaint();
-    try {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(json);
-      } catch {
-        return { ok: false, error: "Not a valid file (bad JSON)." };
-      }
-      const p = parsed as { kind?: string; reality?: Partial<SavedReality> } | null;
-      const r = p?.reality;
-      const rs = r?.season as Partial<SeasonState> | undefined;
-      if (
-        !p ||
-        p.kind !== "reality" ||
-        !r ||
-        typeof r.id !== "string" ||
-        typeof r.name !== "string" ||
-        !rs ||
-        rs.tournaments == null ||
-        typeof rs.tournaments !== "object"
-      ) {
-        return { ok: false, error: "Not a DraftSim reality export." };
-      }
-      const id = r.id;
-      // Decode the compact tournaments back to full form, mirroring loadSavedSeason.
-      const decoded = ensureSeasonIdentities({
-        ...(rs as SeasonState),
-        tournaments: Object.fromEntries(
-          Object.entries((rs as SeasonState).tournaments).map(([tid, t]) => [
-            tid,
-            decodeCompactTournament(t),
-          ]),
-        ),
-      });
-      // Keep the franchise id pinned to the slot id (switchReality / archive
-      // routing key off season.franchise.id).
-      const season: SeasonState = decoded.franchise
-        ? { ...decoded, franchise: { ...decoded.franchise, id, name: r.name } }
-        : decoded;
-      const slot: SavedReality = {
-        id,
-        name: r.name,
-        year: typeof r.year === "number" ? r.year : (season.franchise?.year ?? 1),
-        season,
-        history: Array.isArray(r.history) ? (r.history as SeasonHistoryEntry[]) : [],
-      };
-      set((st) => ({
-        realities: [slot, ...st.realities.filter((x) => x.id !== id)],
-      }));
-      if (desktop) {
-        markRealityHistoryLoaded(id);
-        try {
-          await upsertRealityInDb(slot, { syncHistory: true });
-          await flushPendingPersistWrites();
-        } catch (err) {
-          console.warn("[draftsim] importReality DB sync failed:", err);
-          return {
-            ok: false,
-            error:
-              "Reality loaded in memory but failed to save to the database. Keep the app open and try again.",
-          };
-        }
-      }
-      return { ok: true, id };
-    } finally {
-      clearDesktopOperation();
-    }
-  },
+  ...createImportsActions(get, set, { ensureSeasonIdentities, applyMetaSnapshotPatch, savedSeasonsCap, seasonHistoryCap, ACTION_SECONDS }),
 
-  importRealityShareCode: async (code) => {
-    const decoded = await decodeRealityShareCode(code);
-    if (!decoded.json) return { ok: false, error: decoded.error ?? "Invalid code" };
-    return get().importReality(decoded.json);
-  },
+
 
   simSeason: (scope) => {
     const { season, simulating } = get();
@@ -2423,7 +1456,7 @@ export const useDraftStore = create<DraftStore>()(
     const trackResults = scope === "all";
     if (trackResults) resetSimResultsBatch();
     set({
-      simulating: "all",
+      simulating: "all", bulkYearsCancelRequested: false,
       simProgress: null,
       simStartedAt: Date.now(),
       ...(trackResults ? { simResultsFeed: [] } : {}),
@@ -2443,6 +1476,7 @@ export const useDraftStore = create<DraftStore>()(
         let sinceCommit = 0;
         const BATCH = 4;
         for (let step = 0; step < safetyCap; step++) {
+          if (get().bulkYearsCancelRequested) break;
           const cur = get().season;
           if (!cur || cur.id !== runId) return;
           if (cur.status === "complete") break;
@@ -2555,15 +1589,16 @@ export const useDraftStore = create<DraftStore>()(
         }
       } finally {
         flushSimResultsFeed(set);
-        set({ simulating: null, simProgress: null, simStartedAt: null });
+        set({ simulating: null, simProgress: null, simStartedAt: null, bulkYearsCancelRequested: false });
+    try { await flushPendingPersistWrites(); } catch (error) { reportPersistenceError(`Simulation stopped; save failed: ${String(error)}`, "simulation"); }
       }
-    })();
+    })().catch(error => reportPersistenceError(`Operation stopped: ${String(error)}`, "simulation"));
   },
 
   simSeasonMatchday: (tournamentId) => {
     const { season, simulating } = get();
     if (!season || simulating || season.status === "complete") return;
-    set({ simulating: "all", simProgress: null, simStartedAt: Date.now() });
+    set({ simulating: "all", bulkYearsCancelRequested: false, simProgress: null, simStartedAt: Date.now() });
     void (async () => {
       try {
         await new Promise((r) => setTimeout(r, 0));
@@ -2605,6 +1640,7 @@ export const useDraftStore = create<DraftStore>()(
         let sawBracket = false;
 
         for (const tid of targetIds) {
+          if (get().bulkYearsCancelRequested) break;
           const live0 = get().season?.tournaments[tid];
           if (!live0 || live0.status === "complete") continue;
           let t = live0;
@@ -2618,6 +1654,7 @@ export const useDraftStore = create<DraftStore>()(
           if (ids.length === 0) continue;
           const results: SeasonMatchdayMatch[] = [];
           for (const id of ids) {
+          if (get().bulkYearsCancelRequested) break;
             const liveT = get().season?.tournaments[tid];
             if (!liveT) break;
             const m = liveT.matches.find((x) => x.id === id);
@@ -2713,9 +1750,10 @@ export const useDraftStore = create<DraftStore>()(
             : {},
         );
       } finally {
-        set({ simulating: null, simProgress: null, simStartedAt: null });
+        set({ simulating: null, simProgress: null, simStartedAt: null, bulkYearsCancelRequested: false });
+    try { await flushPendingPersistWrites(); } catch (error) { reportPersistenceError(`Simulation stopped; save failed: ${String(error)}`, "simulation"); }
       }
-    })();
+    })().catch(error => reportPersistenceError(`Operation stopped: ${String(error)}`, "simulation"));
   },
 
   // ─── Saved seasons ───────────────────────────────────────────────────
@@ -2777,43 +1815,7 @@ export const useDraftStore = create<DraftStore>()(
     };
   },
 
-  importSeason: (json) => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(json);
-    } catch {
-      return { ok: false, error: "Not a valid season file (bad JSON)." };
-    }
-    // Light shape validation — we trust our own exporter for the deep
-    // tournament shape (same stance as importTournament). The compact
-    // tournaments are decoded later, in loadSavedSeason.
-    const entry = parsed as Partial<SavedSeasonEntry> | null;
-    const s = entry?.season as Partial<SeasonState> | undefined;
-    if (
-      !entry ||
-      typeof entry.id !== "string" ||
-      !s ||
-      typeof s.id !== "string" ||
-      typeof s.name !== "string" ||
-      s.tournaments == null ||
-      typeof s.tournaments !== "object"
-    ) {
-      return { ok: false, error: "Not a DraftSim season export." };
-    }
-    const safe: SavedSeasonEntry = {
-      ...(entry as SavedSeasonEntry),
-      savedAt:
-        typeof entry.savedAt === "number" ? entry.savedAt : Date.now(),
-      playerForms: entry.playerForms ?? {},
-    };
-    set((st) => ({
-      savedSeasons: [
-        safe,
-        ...st.savedSeasons.filter((e) => e.id !== safe.id),
-      ].slice(0, savedSeasonsCap()),
-    }));
-    return { ok: true, id: safe.id };
-  },
+
 
   loadSavedSeason: (entryId) => {
     const state = get();
@@ -2985,25 +1987,7 @@ export const useDraftStore = create<DraftStore>()(
     set({ seasonHistory: [] });
   },
 
-  importSeasonHistory: (entries) => {
-    // Dedupe the incoming batch by id (last occurrence wins), then
-    // upsert into the existing archive and re-sort the timeline.
-    const incoming = [...new Map(entries.map((e) => [e.id, e])).values()];
-    const existingIds = new Set(get().seasonHistory.map((e) => e.id));
-    const added = incoming.filter((e) => !existingIds.has(e.id)).length;
-    const updated = incoming.length - added;
-    set((s) => {
-      const byId = new Map(incoming.map((e) => [e.id, e]));
-      const merged = [
-        ...s.seasonHistory.map((e) => byId.get(e.id) ?? e),
-        ...incoming.filter((e) => !existingIds.has(e.id)),
-      ]
-        .sort((a, b) => b.archivedAt - a.archivedAt)
-        .slice(0, seasonHistoryCap());
-      return { seasonHistory: merged };
-    });
-    return { added, updated };
-  },
+
 
   // ─── Preset libraries ────────────────────────────────────────────────
 
@@ -3752,91 +2736,7 @@ export const useDraftStore = create<DraftStore>()(
     });
   },
 
-  importTournament: async (code) => {
-    const trimmed = code.trim();
-    if (!trimmed) return { ok: false, error: "Empty code" };
-    try {
-      const { tournament, error } = await decodeTournament(trimmed);
-      if (!tournament) {
-        return { ok: false, error: error ?? "Invalid tournament code" };
-      }
-      // Mid-tournament resume: if the snapshot has an active match
-      // with a saved series, restore that series to state.series so
-      // DraftApp routes the user straight back into where they left
-      // off. Status === "complete" snapshots leave activeMatchId null.
-      let resumedSeries: SeriesState | null = null;
-      if (tournament.activeMatchId) {
-        const activeMatch = tournament.matches.find(
-          (m) => m.id === tournament.activeMatchId,
-        );
-        if (activeMatch?.series) {
-          resumedSeries = activeMatch.series;
-        }
-      }
-      // Restore the meta snapshot so the AI sees the same tier list
-      // and pairings the original tournament was played on. Falls back
-      // gracefully when the snapshot isn't present (legacy codes).
-      const snap = tournament.metaSnapshot;
-      // Apply meta side-effects (the imperative singletons) to mirror
-      // the loaded snapshot. AI scoring reads from these, not the store.
-      if (snap !== undefined) {
-        setActiveMetaOverride(snap.metaOverride ?? null);
-        setMetaEnabled(snap.metaEnabled);
-        saveMetaOverride(snap.metaOverride ?? null);
-        saveMetaSource(snap.metaOverride ? "custom" : "default");
-        saveMetaEnabled(snap.metaEnabled);
-        // Pairings are optional in the snapshot — only restore if the
-        // loaded tournament actually carried them. Calling setActive*
-        // with null when the user hadn't randomized would otherwise
-        // wipe their currently-active pairings.
-        if (snap.synergyOverride !== undefined) {
-          setActiveSynergyOverride(snap.synergyOverride ?? null);
-          saveSynergyOverride(snap.synergyOverride ?? null);
-        }
-        if (snap.counterOverride !== undefined) {
-          setActiveCounterOverride(snap.counterOverride ?? null);
-          saveCounterOverride(snap.counterOverride ?? null);
-        }
-      }
-      set((state) => ({
-        tournament,
-        series: resumedSeries,
-        selectedChampionId: null,
-        secondsLeft:
-          resumedSeries && resumedSeries.timerEnabled ? ACTION_SECONDS : null,
-        aiRationale: null,
-        aiRationaleHistory: [],
-        ...(snap !== undefined
-          ? {
-              metaOverride: snap.metaOverride ?? null,
-              metaSource: (snap.metaOverride
-                ? "custom"
-                : "default") as MetaSource,
-              metaEnabled: snap.metaEnabled,
-              // Use the updater form's `state` so the bump is on the
-              // most-current store value, not a pre-await read.
-              metaVersion: state.metaVersion + 1,
-              ...(snap.synergyOverride !== undefined
-                ? {
-                    synergyOverride: snap.synergyOverride ?? null,
-                    synergyVersion: state.synergyVersion + 1,
-                  }
-                : {}),
-              ...(snap.counterOverride !== undefined
-                ? {
-                    counterOverride: snap.counterOverride ?? null,
-                    counterVersion: state.counterVersion + 1,
-                  }
-                : {}),
-            }
-          : {}),
-      }));
-      return { ok: true };
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Invalid tournament code";
-      return { ok: false, error: message };
-    }
-  },
+
 
   startMatch: (matchId, overrides) => {
     const { tournament } = get();
@@ -4093,7 +2993,7 @@ export const useDraftStore = create<DraftStore>()(
     // Two-phase: paint the overlay first, then run the sim on the next
     // tick so it doesn't block the render. Without this, the synchronous
     // chooseAIAction loop freezes the UI for hundreds of ms.
-    set({ simulating: "match" });
+    set({ simulating: "match", bulkYearsCancelRequested: false });
     setTimeout(async () => {
       try {
         const { tournament: cur, champions, playerForms } = get();
@@ -4131,7 +3031,7 @@ export const useDraftStore = create<DraftStore>()(
     if (!tournament || simulating) return;
     if (matchIds.length === 0) return;
     set({
-      simulating: "all",
+      simulating: "all", bulkYearsCancelRequested: false,
       simProgress: { done: 0, total: matchIds.length },
       simStartedAt: Date.now(),
     });
@@ -4153,6 +3053,7 @@ export const useDraftStore = create<DraftStore>()(
         let sinceCommit = 0;
         let done = 0;
         for (const id of matchIds) {
+          if (get().bulkYearsCancelRequested) break;
           // Abort if the tournament was exited/replaced mid-run (e.g. the
           // user navigated away). Never resurrect stale state.
           if (get().tournament?.id !== runId) return;
@@ -4204,9 +3105,10 @@ export const useDraftStore = create<DraftStore>()(
             : {}),
         }));
       } finally {
-        set({ simulating: null, simProgress: null, simStartedAt: null });
+        set({ simulating: null, simProgress: null, simStartedAt: null, bulkYearsCancelRequested: false });
+    try { await flushPendingPersistWrites(); } catch (error) { reportPersistenceError(`Simulation stopped; save failed: ${String(error)}`, "simulation"); }
       }
-    })();
+    })().catch(error => reportPersistenceError(`Operation stopped: ${String(error)}`, "simulation"));
   },
 
   simulateSwissStage: () => {
@@ -4222,7 +3124,7 @@ export const useDraftStore = create<DraftStore>()(
     if (!tournament || simulating) return;
     if (tournament.status === "complete") return;
     set({
-      simulating: "all",
+      simulating: "all", bulkYearsCancelRequested: false,
       simProgress: {
         done: tournament.matches.filter((m) => m.winner).length,
         total: tournament.matches.length,
@@ -4257,6 +3159,7 @@ export const useDraftStore = create<DraftStore>()(
         // reasonable.
         const safetyCap = 200;
         for (let safety = 0; safety < safetyCap; safety++) {
+          if (get().bulkYearsCancelRequested) break;
           // Abort if the tournament was exited/replaced mid-run — never
           // resurrect stale state with a late commit.
           if (get().tournament?.id !== runId) return;
@@ -4365,9 +3268,10 @@ export const useDraftStore = create<DraftStore>()(
           };
         });
       } finally {
-        set({ simulating: null, simProgress: null, simStartedAt: null });
+        set({ simulating: null, simProgress: null, simStartedAt: null, bulkYearsCancelRequested: false });
+    try { await flushPendingPersistWrites(); } catch (error) { reportPersistenceError(`Simulation stopped; save failed: ${String(error)}`, "simulation"); }
       }
-    })();
+    })().catch(error => reportPersistenceError(`Operation stopped: ${String(error)}`, "simulation"));
   },
 
   exitTournament: () => {
@@ -4454,6 +3358,7 @@ export const useDraftStore = create<DraftStore>()(
         : createWebLazyStorage(() => resolveWebStringStorage(quotaSafeStorage)),
     ),
     partialize: (state) => ({
+      bulkYearJobs: state.bulkYearJobs,
       series: state.series,
       soundEnabled: state.soundEnabled,
       volume: state.volume,
@@ -4525,12 +3430,9 @@ export const useDraftStore = create<DraftStore>()(
       return ps;
     },
     onRehydrateStorage: () => (state, error) => {
-      // Unlock persist writes whether hydration succeeded or failed — otherwise
-      // a storage error would leave the app unable to save, and the UI gate
-      // waiting on persist-ready would never clear.
-      enablePersistWrites();
       if (error) {
         console.warn("[draftsim] persist rehydration failed:", error);
+        forcePersistReady();
         return;
       }
       // Mirror persisted sound prefs onto the imperative SoundPlayer
@@ -4580,6 +3482,7 @@ export const useDraftStore = create<DraftStore>()(
           decodeCompactTournament(t),
         );
       }
+      enablePersistWrites();
       // JSON → SQLite migration runs inside createDesktopSqliteStorage
       // getItem (before the first read), not here — doing it after rehydrate
       // would leave memory empty while a later set() could overwrite the

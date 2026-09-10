@@ -18,13 +18,13 @@ export default function AppClosingScreen({ phase }: Props) {
       message={
         saving
           ? "Saving and compacting…"
-          : "Could not save all data — closing anyway"
+          : "Could not save all data. App kept open; please retry or export your save."
       }
       status={saving ? "busy" : "error"}
       aria-label={
         saving
           ? "Saving, compacting, and closing DraftSim"
-          : "Closing DraftSim after save error"
+          : "DraftSim kept open after save error"
       }
     />
   );

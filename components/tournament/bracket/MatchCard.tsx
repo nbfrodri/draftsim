@@ -1,15 +1,16 @@
 "use client";
+import { useLayoutEffect } from "react";
 
-import { memo, useCallback, useRef } from "react";
-import { useDraftStore } from "@/store/draftStore";
-import { getTeam } from "@/lib/tournament";
-import type { TournamentMatch, TournamentState, TournamentTeam } from "@/lib/tournament";
-import { isReverseSweep } from "@/lib/matchTags";
 import TeamLogoLink from "@/components/team/TeamLogoLink";
 import TeamNameLink from "@/components/team/TeamNameLink";
 import { getPersonality } from "@/lib/draftAI";
-import { computeTeamStreaks } from "@/lib/streaks";
+import { isReverseSweep } from "@/lib/matchTags";
 import type { TeamStreakMap } from "@/lib/streaks";
+import { computeTeamStreaks } from "@/lib/streaks";
+import type { TournamentMatch,TournamentState,TournamentTeam } from "@/lib/tournament";
+import { getTeam } from "@/lib/tournament";
+import { useDraftStore } from "@/store/draftStore";
+import { memo,useCallback,useRef } from "react";
 
 // ─── Shared memoized streak lookup ──────────────────────────────────────
 // computeTeamStreaks is O(teams × matches); previously EVERY MatchCard
@@ -35,7 +36,7 @@ export function teamStreaksFor(tournament: TournamentState): TeamStreakMap {
 // capture setState functions, never render-frame data).
 function useStableHandler(fn?: () => void): () => void {
   const ref = useRef(fn);
-  ref.current = fn;
+  useLayoutEffect(() => { ref.current = fn; }, [fn]);
   return useCallback(() => {
     ref.current?.();
   }, []);

@@ -1,62 +1,62 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo,useState } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
-import { MAIN_POOL, LANE_ORDER } from "@/lib/players";
+import { LANE_ORDER,MAIN_POOL } from "@/lib/players";
 import {
-  transferCandidates,
-  userTransferCount,
-  USER_MAX_TRANSFERS_PER_WINDOW,
-} from "@/lib/season/transfers";
-import {
-  buildFaBoard,
-  buildAcademyBoard,
-  recommendedFasForTeam,
-  recommendedAcademyForTeam,
-  USER_MAX_MANUAL_DEMOTES,
-  countTeamAcademy,
-  isRosterVacancy,
-  isSamePlayerReplaceNoise,
+buildAcademyBoard,
+buildFaBoard,
+countTeamAcademy,
+isRosterVacancy,
+isSamePlayerReplaceNoise,
+recommendedAcademyForTeam,
+recommendedFasForTeam,
+USER_MAX_MANUAL_DEMOTES,
 } from "@/lib/season/faMarket";
 import {
-  INTERNATIONAL_LABELS,
-  seasonTeam,
-  type InternationalId,
-  type LeagueId,
-  type PlayerTransfer,
-  type SeasonState,
-  type TransferPlayer,
-} from "@/lib/season/types";
-import {
-  splitFromRosterTimeMark,
-  visibleTransferDigestEvents,
-  transferDigestSectionTitle,
-  transfersForDigestEvent,
-  type RosterTimeSplit,
+splitFromRosterTimeMark,
+transferDigestSectionTitle,
+transfersForDigestEvent,
+visibleTransferDigestEvents,
+type RosterTimeSplit,
 } from "@/lib/season/franchise";
-import type { Champion, Lane } from "@/lib/types";
-import { playerFromTransferSnapshot, findLivePlayerForCard } from "@/lib/season/playerCard";
-import type { PlayerCardHint } from "./player/PlayerCardContext";
+import { findLivePlayerForCard,playerFromTransferSnapshot } from "@/lib/season/playerCard";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
-import TeamLogoLink from "./team/TeamLogoLink";
+import {
+transferCandidates,
+USER_MAX_TRANSFERS_PER_WINDOW,
+userTransferCount,
+} from "@/lib/season/transfers";
+import {
+INTERNATIONAL_LABELS,
+seasonTeam,
+type InternationalId,
+type LeagueId,
+type PlayerTransfer,
+type SeasonState,
+type TransferPlayer,
+} from "@/lib/season/types";
+import type { Champion,Lane } from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
+import { ChemScore,ProjectedChemScore } from "./ChemistryRow";
 import LaneIcon from "./LaneIcon";
-import { ChemScore, ProjectedChemScore } from "./ChemistryRow";
-import InactiveMarketBoard from "./season/InactiveMarketBoard";
-import VacancyFillPicker from "./season/VacancyFillPicker";
-import AgencyDemandsPanel from "./season/AgencyDemandsPanel";
-import RegionTeamFilters, {
-  matchesTeamFilters,
-  type FilterTeam,
-} from "./season/RegionTeamFilters";
+import type { PlayerCardHint } from "./player/PlayerCardContext";
 import PlayerNameLink from "./player/PlayerNameLink";
-import TierChip from "./season/TierChip";
-import RosterNewsRow, {
-  classifyRosterNews,
-  rosterNewsKindCounts,
-  type RosterNewsItem,
-  type RosterNewsKind,
+import AgencyDemandsPanel from "./season/AgencyDemandsPanel";
+import InactiveMarketBoard from "./season/InactiveMarketBoard";
+import RegionTeamFilters,{
+matchesTeamFilters,
+type FilterTeam,
+} from "./season/RegionTeamFilters";
+import RosterNewsRow,{
+classifyRosterNews,
+rosterNewsKindCounts,
+type RosterNewsItem,
+type RosterNewsKind,
 } from "./season/RosterNewsRow";
+import TierChip from "./season/TierChip";
+import VacancyFillPicker from "./season/VacancyFillPicker";
+import TeamLogoLink from "./team/TeamLogoLink";
 
 // Transfer-window UI: the league-wide recap of roster moves at each window
 // (after First Stand and MSI), plus the followed team's pending decisions with
@@ -262,7 +262,7 @@ function PlayerChip({
           const c = byId.get(id);
           if (!c) return null;
           return (
-            // eslint-disable-next-line @next/next/no-img-element
+
             <img
               key={id}
               src={c.iconUrl}
@@ -454,7 +454,7 @@ export default function TransferWindowPanel() {
   const windows = useMemo(() => {
     if (!season) return [] as InternationalId[];
     return visibleTransferDigestEvents(season);
-  }, [season?.transfersByEvent, season?.phases, season?.status, season?.updatedAt, season?.worldsOffseasonBaseline]);
+  }, [season]);
 
   /** Moves shown per digest section — by event stamp, not raw bucket. */
   const digestMovesByEvent = useMemo(() => {
@@ -479,12 +479,11 @@ export default function TransferWindowPanel() {
   }, [atWindow, phase?.event, windows, season?.status]);
 
   const windowsKey = windows.join("|");
-  useEffect(() => {
-    if (!preferredWindow) return;
-    // Sync open accordion to the preferred window (active transfer phase, else
-    // MSI > First Stand > Worlds). length>1 used to leave every section closed.
-    setOpenEvent((prev) => (prev === "__none__" ? prev : preferredWindow));
-  }, [preferredWindow, windowsKey]);
+  const [previousWindow, setPreviousWindow] = useState({ preferredWindow, windowsKey, initialized: false });
+  if (!previousWindow.initialized || previousWindow.preferredWindow !== preferredWindow || previousWindow.windowsKey !== windowsKey) {
+    setPreviousWindow({ preferredWindow, windowsKey, initialized: true });
+    if (preferredWindow) setOpenEvent(prev => prev === "__none__" ? prev : preferredWindow);
+  }
 
   if (!season || !season.config.playerTransfers) return null;
 

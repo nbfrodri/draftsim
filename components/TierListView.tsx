@@ -1,14 +1,15 @@
 "use client";
+import { useHydrated } from "@/lib/useHydrated";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
-  getActiveMetaOverride,
-  getMetaTier,
-  TIER_ORDER,
-  type MetaTier,
+getActiveMetaOverride,
+getMetaTier,
+TIER_ORDER,
+type MetaTier,
 } from "@/lib/championMeta";
-import type { Champion, Lane } from "@/lib/types";
+import type { Champion,Lane } from "@/lib/types";
+import { useEffect,useMemo,useRef,useState } from "react";
+import { createPortal } from "react-dom";
 import LaneIcon from "./LaneIcon";
 
 interface Props {
@@ -122,10 +123,10 @@ const ROLE_ACCENT: Record<Lane, string> = {
 export default function TierListView({ open, champions, overrideVersion = 0, onClose }: Props) {
   const [activeRole, setActiveRole] = useState<Lane>("top");
   const [search, setSearch] = useState("");
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => setMounted(true), []);
+
 
   useEffect(() => {
     if (!open) return;
@@ -139,10 +140,11 @@ export default function TierListView({ open, champions, overrideVersion = 0, onC
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // Reset search when role changes — clearer mental model: each tab is fresh.
-  useEffect(() => {
+  const [previousRole, setPreviousRole] = useState(activeRole);
+  if (previousRole !== activeRole) {
+    setPreviousRole(activeRole);
     setSearch("");
-  }, [activeRole]);
+  }
 
   // Group champions by tier for the active role, applying optional search.
   const grouped = useMemo(() => {

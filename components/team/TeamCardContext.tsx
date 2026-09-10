@@ -1,48 +1,49 @@
 "use client";
+import { useLayoutEffect } from "react";
 
 import {
-  createContext,
-  useContext,
-  useMemo,
-  useRef,
-  type ReactNode,
+createContext,
+useContext,
+useMemo,
+useRef,
+type ReactNode,
 } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
+import { deriveStar } from "@/lib/players";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
-import { buildTeamIdentity, refFor } from "@/lib/season/historySearch";
+import { buildTeamIdentity,refFor } from "@/lib/season/historySearch";
 import {
-  archivedAcademyCount,
-  archivedTeamKeys,
-  archivedTeamSnapshot,
-  archivedTeamSnapshotForScope,
-  archivedSeasonTeamWinRates,
-  averageTierFromRoster,
-  buildTeamCardIdentity,
-  careerArchivedTeamH2H,
-  careerTeamWinRates,
-  latestAcademyCount,
-  latestTeamRoster,
-  liveAcademyCount,
-  liveAllTimeTeamH2H,
-  liveTeamStandingLabel,
-  liveTeamWinRates,
-  liveTitleCounts,
-  liveTitleHighlights,
-  rosterLinesFromPlayers,
-  teamCardFromSeasonTeam,
-  teamNavKey,
-  teamTitleHighlightsFromEntry,
-  titleCountsFromEntry,
-  titleCountsFromRecords,
-  type TeamCardData,
-  type TeamCardHint,
+archivedAcademyCount,
+archivedSeasonTeamWinRates,
+archivedTeamKeys,
+archivedTeamSnapshot,
+archivedTeamSnapshotForScope,
+averageTierFromRoster,
+buildTeamCardIdentity,
+careerArchivedTeamH2H,
+careerTeamWinRates,
+latestAcademyCount,
+latestTeamRoster,
+liveAcademyCount,
+liveAllTimeTeamH2H,
+liveTeamStandingLabel,
+liveTeamWinRates,
+liveTitleCounts,
+liveTitleHighlights,
+rosterLinesFromPlayers,
+teamCardFromSeasonTeam,
+teamNavKey,
+teamTitleHighlightsFromEntry,
+titleCountsFromEntry,
+titleCountsFromRecords,
+type TeamCardData,
+type TeamCardHint,
 } from "@/lib/season/teamCard";
+import type { LeagueId,SeasonTeam } from "@/lib/season/types";
+import type { Roster } from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
 
 export type { TeamCardHint };
-import { deriveStar } from "@/lib/players";
-import type { LeagueId, SeasonTeam } from "@/lib/season/types";
-import type { Roster } from "@/lib/types";
 
 export interface TeamCardResolveOpts {
   /** Archived season entry id — render THAT year's snapshot. */
@@ -210,15 +211,11 @@ export function LiveTeamCardProvider({
     return seasonHistory;
   }, [season?.franchise?.id, realities, seasonHistory]);
 
-  const snapshotCardCacheRef = useRef(new Map<string, TeamCardData>());
-  const prevSeasonIdRef = useRef<string | undefined>(undefined);
+  const snapshotCardCache = useMemo(() => ({
+    seasonId: season?.id, values: new Map<string, TeamCardData>(),
+  }).values, [season?.id]);
 
   const index = useMemo<LiveIndex>(() => {
-    const seasonId = season?.id;
-    if (seasonId !== prevSeasonIdRef.current) {
-      prevSeasonIdRef.current = seasonId;
-      snapshotCardCacheRef.current.clear();
-    }
     const teamsById = new Map<string, SeasonTeam>();
     for (const t of season?.teams ?? []) teamsById.set(t.id, t);
     const academyByTeam = new Map<string, number>();
@@ -232,14 +229,14 @@ export function LiveTeamCardProvider({
       academyByTeam,
       hallEntries,
       hallKeys: lazily(() => archivedTeamKeys(hallEntries)),
-      snapshotCardCache: snapshotCardCacheRef.current,
+      snapshotCardCache,
     };
-  }, [season, hallEntries]);
+  }, [season, hallEntries, snapshotCardCache]);
 
   const indexRef = useRef(index);
-  indexRef.current = index;
+  useLayoutEffect(() => { indexRef.current = index; }, [index]);
   const navRef = useRef(onOpenProfile);
-  navRef.current = onOpenProfile;
+  useLayoutEffect(() => { navRef.current = onOpenProfile; }, [onOpenProfile]);
 
   const hasProfileNav = !!onOpenProfile && hallEntries.length > 0;
 
@@ -400,9 +397,9 @@ export function HistoryTeamCardProvider({
   }, [entries]);
 
   const indexRef = useRef(index);
-  indexRef.current = index;
+  useLayoutEffect(() => { indexRef.current = index; }, [index]);
   const navRef = useRef(onOpenProfile);
-  navRef.current = onOpenProfile;
+  useLayoutEffect(() => { navRef.current = onOpenProfile; }, [onOpenProfile]);
   const hasProfileNav = !!onOpenProfile;
 
   const value = useMemo<TeamCardContextValue>(

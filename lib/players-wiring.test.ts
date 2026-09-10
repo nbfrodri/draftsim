@@ -19,7 +19,14 @@ function tournamentWith(teams: Partial<TournamentTeam>[]): TournamentState {
     status: "in-progress",
     teams: teams as TournamentTeam[],
     matches: [],
-  } as TournamentState;
+    createdAt: 0,
+    updatedAt: 0,
+    activeMatchId: null,
+    defaults: { format: "bo1", mode: "aivai", aiDifficulty: "normal", aiSide: null, fearless: false, timerEnabled: false },
+    fearlessConfig: { perSeries: false, perTeam: false, global: false },
+    teamPickHistory: {},
+    globalPickHistory: [],
+  };
 }
 
 const baseSeriesParams = {

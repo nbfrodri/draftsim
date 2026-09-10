@@ -1,8 +1,8 @@
 "use client";
 
-import { memo, useState } from "react";
 import GlobalCupBadge from "@/components/GlobalCupBadge";
-import type { LeagueId, InternationalId } from "@/lib/season/types";
+import type { InternationalId,LeagueId } from "@/lib/season/types";
+import { memo,useState } from "react";
 
 // Region/league OR international-event logo, bundled offline under
 // public/league-logos/<id>.png (LeagueId: LCK…; InternationalId:
@@ -26,7 +26,7 @@ function LeagueIcon({
   }
   if (failedFor === league) return null;
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- static bundled
+
     // asset; next/image offers no win for a tiny inline mark.
     <img
       src={`/league-logos/${league}.png`}

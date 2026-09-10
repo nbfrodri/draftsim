@@ -43,6 +43,6 @@
     "public/workers/bulkSim.worker.js",
     "**/__tests__/**",
     "**/*.test.ts",
-    "vitest.config.ts"
+    "vitest.config.mts"
   ]
 }

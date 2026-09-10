@@ -1,19 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import {
-  ACADEMY_MAX_PER_TEAM,
-  USER_ACADEMY_ROOKIE_SOFT_MAX,
-  FA_OPEN_REPLACE_GAP,
-  ACADEMY_OPEN_REPLACE_GAP,
-  USER_MAX_FA_SIGNS,
-  type FaBoardRow,
-} from "@/lib/season/faMarket";
-import { LANE_ORDER } from "@/lib/players";
-import type { Lane, PlayerTier } from "@/lib/types";
 import LaneIcon from "@/components/LaneIcon";
 import PlayerHoverCard from "@/components/player/PlayerHoverCard";
+import { LANE_ORDER } from "@/lib/players";
+import {
+ACADEMY_MAX_PER_TEAM,
+ACADEMY_OPEN_REPLACE_GAP,
+FA_OPEN_REPLACE_GAP,
+USER_ACADEMY_ROOKIE_SOFT_MAX,
+USER_MAX_FA_SIGNS,
+type FaBoardRow,
+} from "@/lib/season/faMarket";
+import type { Lane,PlayerTier } from "@/lib/types";
 
 const TIER_CLS: Record<PlayerTier, string> = {
   "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
@@ -72,11 +72,11 @@ export default function InactiveMarketBoard({
   const [open, setOpen] = useState(defaultOpen);
   const [lane, setLane] = useState<Lane | "all">("all");
 
-  useEffect(() => {
-    if (!focusLane) return;
-    setOpen(true);
-    setLane(focusLane);
-  }, [focusLane]);
+  const [previousFocus, setPreviousFocus] = useState<Lane | null>(null);
+  if (previousFocus !== focusLane) {
+    setPreviousFocus(focusLane);
+    if (focusLane) { setOpen(true); setLane(focusLane); }
+  }
 
   const isFa = kind === "fa";
   const title = isFa ? "Free-agent board" : "Academy board";

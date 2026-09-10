@@ -1,47 +1,47 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo,useState } from "react";
 
-import { useDraftStore } from "@/store/draftStore";
 import { MAIN_POOL } from "@/lib/players";
-import {
-  activeWindowTransfers,
-  offseasonCandidates,
-  userTransferCount,
-  USER_MAX_TRANSFERS_OFFSEASON,
-} from "@/lib/season/transfers";
-import {
-  buildFaBoard,
-  buildAcademyBoard,
-  recommendedFasForTeam,
-  recommendedAcademyForTeam,
-  USER_MAX_MANUAL_DEMOTES,
-  countTeamAcademy,
-  isRosterVacancy,
-} from "@/lib/season/faMarket";
 import { coachPlaystyle } from "@/lib/season/coach";
-import { computeSeasonStats } from "@/lib/season/stats";
 import { intlConfigFor } from "@/lib/season/engine";
 import {
-  seasonTeam,
-  LEAGUE_IDS,
-  type InternationalId,
-  type LeagueId,
-  type SeasonIntlConfig,
-  type SeasonLeagueConfig,
-  type SeasonTeam,
+buildAcademyBoard,
+buildFaBoard,
+countTeamAcademy,
+isRosterVacancy,
+recommendedAcademyForTeam,
+recommendedFasForTeam,
+USER_MAX_MANUAL_DEMOTES,
+} from "@/lib/season/faMarket";
+import { computeSeasonStats } from "@/lib/season/stats";
+import {
+activeWindowTransfers,
+offseasonCandidates,
+USER_MAX_TRANSFERS_OFFSEASON,
+userTransferCount,
+} from "@/lib/season/transfers";
+import {
+LEAGUE_IDS,
+seasonTeam,
+type InternationalId,
+type LeagueId,
+type SeasonIntlConfig,
+type SeasonLeagueConfig,
+type SeasonTeam,
 } from "@/lib/season/types";
-import type { Champion, Lane, PlayerTier } from "@/lib/types";
-import TeamNameLink from "./team/TeamNameLink";
-import LaneIcon from "./LaneIcon";
+import type { Lane,PlayerTier } from "@/lib/types";
+import { useDraftStore } from "@/store/draftStore";
 import { ProjectedChemScore } from "./ChemistryRow";
-import { LeagueConfigCard, IntlConfigCard, GlobalCupConfigCard, INTL_IDS } from "./season/configCards";
-import TeamPicker from "./season/TeamPicker";
-import InactiveMarketBoard from "./season/InactiveMarketBoard";
-import VacancyFillPicker from "./season/VacancyFillPicker";
-import AgencyDemandsPanel from "./season/AgencyDemandsPanel";
-import PlayerNameLink from "./player/PlayerNameLink";
 import CoachNameLink from "./coach/CoachNameLink";
+import LaneIcon from "./LaneIcon";
+import PlayerNameLink from "./player/PlayerNameLink";
+import AgencyDemandsPanel from "./season/AgencyDemandsPanel";
+import { GlobalCupConfigCard,INTL_IDS,IntlConfigCard,LeagueConfigCard } from "./season/configCards";
+import InactiveMarketBoard from "./season/InactiveMarketBoard";
+import TeamPicker from "./season/TeamPicker";
+import VacancyFillPicker from "./season/VacancyFillPicker";
+import TeamNameLink from "./team/TeamNameLink";
 
 // The post-Worlds OFFSEASON for a reality: the year is decided, and before
 // rolling into the next one the user sees the season's headline stats and runs
@@ -308,7 +308,7 @@ export default function OffseasonView() {
                             const c = byId.get(id);
                             if (!c) return null;
                             return (
-                              // eslint-disable-next-line @next/next/no-img-element
+
                               <img key={id} src={c.iconUrl} alt={c.name} className={`w-4 h-4 object-cover border border-rift-line/40 ${i >= MAIN_POOL ? "opacity-50" : ""}`} />
                             );
                           })}
@@ -707,7 +707,7 @@ export default function OffseasonView() {
           Finalize Offseason → Year {fr.year + 1}
         </button>
         <p className="text-[8px] text-rift-muted/55 mt-1 text-center">
-          The rest of the league's offseason{fr.aging ? ", player aging, demotions & rookies/returnees," : ""} resolve as the next season begins.
+          The rest of the league&apos;s offseason{fr.aging ? ", player aging, demotions & rookies/returnees," : ""} resolve as the next season begins.
         </p>
       </div>
     </div>

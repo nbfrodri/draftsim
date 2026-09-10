@@ -1,19 +1,20 @@
 "use client";
+import { useHydrated } from "@/lib/useHydrated";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import gsap from "gsap";
-import {
-  getActiveCounterOverride,
-  getActiveSynergies,
-  getMetaTier,
-  type MetaTier,
-} from "@/lib/championMeta";
 import { getAbilityProfile } from "@/lib/championAbilities";
+import {
+getActiveCounterOverride,
+getActiveSynergies,
+getMetaTier,
+type MetaTier,
+} from "@/lib/championMeta";
 import { HARD_COUNTERS } from "@/lib/draftAI/data";
 import { metaFor } from "@/lib/draftAI/helpers";
+import type { Champion,Lane } from "@/lib/types";
 import { useDraftStore } from "@/store/draftStore";
-import type { Champion, Lane } from "@/lib/types";
+import gsap from "gsap";
+import { useEffect,useMemo,useRef } from "react";
+import { createPortal } from "react-dom";
 import LaneIcon from "./LaneIcon";
 
 interface Props {
@@ -127,13 +128,13 @@ export default function ChampionDetailModal({
   onClose,
 }: Props) {
   const open = champion != null;
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
   const backdropRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const lastFocusedRef = useRef<Element | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
 
-  useEffect(() => setMounted(true), []);
+
 
   // Mount-time focus + entry animation. Re-runs when the champion changes
   // (clicking a different champion swaps content with a new entry).

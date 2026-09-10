@@ -1,8 +1,8 @@
-import type { Champion } from "@/lib/types";
 import type { PlayerFormMap } from "@/lib/playerForm";
 import type { TournamentState } from "@/lib/tournament";
+import type { Champion } from "@/lib/types";
 import { autoPlayMatch } from "./autoPlayMatch";
-import type { BulkSimWorkerRequest, BulkSimWorkerResponse } from "./bulkSim.worker";
+import type { BulkSimWorkerRequest,BulkSimWorkerResponse } from "./bulkSim.worker";
 
 let worker: Worker | null = null;
 let nextId = 1;
@@ -11,11 +11,15 @@ const pending = new Map<
   {
     resolve: (v: [TournamentState, PlayerFormMap]) => void;
     reject: (e: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
   }
 >();
 
 function rejectAllPending(reason: string) {
-  for (const [, p] of pending) p.reject(new Error(reason));
+  for (const [, p] of pending) {
+    clearTimeout(p.timer);
+    p.reject(new Error(reason));
+  }
   pending.clear();
 }
 
@@ -31,16 +35,20 @@ function ensureWorker(): Worker | null {
       const p = pending.get(id);
       if (!p) return;
       pending.delete(id);
+      clearTimeout(p.timer);
       if (error || !tournament || !playerForms) {
         p.reject(new Error(error ?? "Bulk sim worker returned no result"));
         return;
       }
       p.resolve([tournament, playerForms]);
     };
-    worker.onerror = () => {
-      rejectAllPending("Bulk sim worker crashed");
+    const fail = (reason: string) => {
+      worker?.terminate();
       worker = null;
+      rejectAllPending(reason);
     };
+    worker.onerror = () => fail("Bulk sim worker crashed");
+    worker.onmessageerror = () => fail("Bulk sim worker returned an unreadable message");
     return worker;
   } catch {
     return null;
@@ -56,11 +64,16 @@ export function runAutoPlayMatch(
 ): Promise<[TournamentState, PlayerFormMap]> {
   const w = ensureWorker();
   if (!w) {
-    return Promise.resolve(autoPlayMatch(tournament, matchId, champions, playerForms));
+    return Promise.resolve().then(() => autoPlayMatch(tournament, matchId, champions, playerForms));
   }
   const id = nextId++;
   return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
+    const timer = setTimeout(() => {
+      w.terminate();
+      if (worker === w) worker = null;
+      rejectAllPending("Bulk sim worker timed out");
+    }, 120_000);
+    pending.set(id, { resolve, reject, timer });
     const msg: BulkSimWorkerRequest = {
       type: "autoPlayMatch",
       id,
@@ -69,7 +82,13 @@ export function runAutoPlayMatch(
       champions,
       playerForms,
     };
-    w.postMessage(msg);
+    try {
+      w.postMessage(msg);
+    } catch (error) {
+      pending.delete(id);
+      clearTimeout(timer);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
   });
 }
 
