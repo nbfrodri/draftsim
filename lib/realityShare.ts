@@ -1,18 +1,19 @@
-import { MAX_SHARE_OUTPUT_BYTES,assertShareInputSize,base64UrlDecode,base64UrlEncode,deflateString,inflateString } from "./shareCodec";
+import { assertUtf8Size,assertShareInputSize,base64UrlDecode,base64UrlEncode,deflateString,inflateString } from "./shareCodec";
 // REAL1: compressed share codes for franchise realities (same deflate-base64
 // pattern as TOUR1: tournament codes).
 
 const REALITY_CODE_PREFIX = "REAL1:";
-/** Reality files can contain a century of archives; match the decoded-code limit. */
+/** Desktop realities include full match archives, unlike the shorter web history. */
+export const MAX_REALITY_OUTPUT_BYTES = 512 * 1024 * 1024;
+export const MAX_REALITY_IMPORT_NODES = 64_000_000;
+
 export function assertRealityJsonSize(input: string): void {
-  if (input.length > MAX_SHARE_OUTPUT_BYTES || new TextEncoder().encode(input).byteLength > MAX_SHARE_OUTPUT_BYTES) {
-    throw new Error("Reality exceeds the 128 MiB uncompressed limit.");
-  }
+  assertUtf8Size(input, MAX_REALITY_OUTPUT_BYTES, "Reality exceeds the 512 MiB uncompressed limit.");
 }
 
 /** Encode a reality export JSON string to a REAL1: share code. */
 export async function encodeRealityShareCode(exportJson: string): Promise<string> {
-  const compressed = await deflateString(exportJson);
+  const compressed = await deflateString(exportJson, MAX_REALITY_OUTPUT_BYTES);
   return REALITY_CODE_PREFIX + base64UrlEncode(compressed);
 }
 
@@ -33,7 +34,7 @@ export async function decodeRealityShareCode(input: string): Promise<DecodeReali
   try {
     const b64 = trimmed.slice(REALITY_CODE_PREFIX.length);
     const bytes = base64UrlDecode(b64);
-    const json = await inflateString(bytes);
+    const json = await inflateString(bytes, MAX_REALITY_OUTPUT_BYTES);
     return { json, error: null };
   } catch (e) {
     return {

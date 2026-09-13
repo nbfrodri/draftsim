@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deflateString, inflateString, base64UrlEncode, base64UrlDecode, assertShareInputSize, MAX_SHARE_INPUT_CHARS } from "./shareCodec";
+import { assertUtf8Size, deflateString, inflateString, base64UrlEncode, base64UrlDecode, assertShareInputSize, MAX_SHARE_INPUT_CHARS } from "./shareCodec";
 describe("bounded share codec", () => {
   it("round trips unicode", async () => {
     const text = "España 日本 🎮".repeat(100);
@@ -16,4 +16,13 @@ describe("bounded share codec", () => {
   it("limits raw JSON before parsing", () => {
     expect(() => assertShareInputSize(" ".repeat(MAX_SHARE_INPUT_CHARS + 1))).toThrow("input limit");
   });
+});
+
+
+it("counts UTF-8 bytes exactly at limits and across surrogate chunk boundaries", () => {
+  for (const text of ["ascii", "\u00e9", "\ud800", "a".repeat(65535) + "\ud83c\udfae"]) {
+    const bytes = new TextEncoder().encode(text).byteLength;
+    expect(() => assertUtf8Size(text, bytes, "too large")).not.toThrow();
+    expect(() => assertUtf8Size(text, bytes - 1, "too large")).toThrow("too large");
+  }
 });

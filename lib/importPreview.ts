@@ -1,4 +1,4 @@
-import { assertRealityJsonSize, decodeRealityShareCode } from "./realityShare";
+import { assertRealityJsonSize, decodeRealityShareCode, MAX_REALITY_IMPORT_NODES } from "./realityShare";
 import { record, validSeason, validHistoryEntry, validTournament, validSeries, validateImportTree } from "./importValidation";
 import { assertShareInputSize } from "./shareCodec";
 import type { SavedReality, SavedSeasonEntry } from "@/store/types";
@@ -10,8 +10,7 @@ export function parseRealityImport(json: string) {
   assertRealityJsonSize(json);
   let parsed: unknown;
   try { parsed = JSON.parse(json); } catch { throw new Error("The file is not valid JSON or is truncated."); }
-  // Measured 39-year engine fixture: 3.23 million nodes; allow 100 years.
-  validateImportTree(parsed, 12_000_000);
+  validateImportTree(parsed, MAX_REALITY_IMPORT_NODES);
   if (!record(parsed) || parsed.kind !== "reality") throw new Error("Expected a DraftSim reality export.");
   if (parsed.version !== undefined && parsed.version !== 1) throw new Error("This reality export version is not supported. Update DraftSim before importing it.");
   const r = parsed.reality;

@@ -66,3 +66,15 @@ El modo de historial de escritorio se inicio y posteriormente se detuvo, con lig
 Se detuvieron los dos benchmarks tras indicar el usuario que la tarea estaba tardando demasiado. Se conservan los ultimos checkpoints completos en ambos directorios; el trabajo parcial del ano en curso puede haberse perdido al detener los procesos. No se lanzaran mas validaciones en esta sesion.
 
 Correcciones guardadas: lint y typecheck correctos; 1.215 pruebas unitarias, 8 Rust y 11 E2E aprobadas; build de instaladores MSI y NSIS completado. No se han instalado, publicado ni creado commits. Los limites y trabajos abiertos de este documento siguen pendientes.
+
+
+## Follow-up: backup UI and large imports ? 2026-09-13
+
+- Polished the dedicated backup panel, restore confirmation, save-status control and save/load error notices to match the app's Rift typography, framed dark surfaces, compact gold actions and cyan success states. Mobile history rows stack their actions; native dialog focus and recovery behavior remain covered.
+- Reality JSON and decoded REAL1 payloads now have a separate 512 MiB limit, with a 64-million-node traversal budget. Reality share-code compression uses the same decoded budget. Other formats retain their existing limits; compressed code input remains capped at 64 MiB.
+- UTF-8 size checks use small chunks, preserving surrogate pairs. Tree validation traverses one branch at a time instead of allocating an entries array and pending tuple per sibling. Depth 64, unsafe-key checks, finite-number validation and schema validation remain enforced.
+- Passed 50 focused tests, including a valid reality padded beyond 129 MiB through JSON and REAL1 preview, over 12 million nodes, UTF-8 boundaries and rejection above 512 MiB. These synthetic regressions do not certify every real 512 MiB file or SQLite durability.
+- Typecheck, lint of changed code, web build and all 12 Edge reliability/smoke E2E passed. Desktop, mobile and restore screenshots inspected in `test-results/playwright/`.
+- Earlier reliability backlog remains open. No franchise benchmark was restarted, no personal saves were touched and no commits were created.
+
+- Desktop build passed; refreshed MSI and NSIS installers are in `src-tauri/target/release/bundle/`. The app was not installed or launched against the personal profile.

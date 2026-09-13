@@ -22,3 +22,10 @@ describe("import preview", () => {
     expect(() => parseSeasonImport(JSON.stringify({ id: "x", season: {} }))).toThrow(/invalid/);
   });
 });
+
+
+it("accepts a reality with more than the former 12 million nodes", () => {
+  // A wide JSON array catches both the old node cap and breadth-sized queues.
+  const input = json.slice(0, -1) + ',"archiveIndex":[' + '0,'.repeat(12_000_000) + '0]}';
+  expect(parseRealityImport(input).id).toBe(reality.id);
+}, 30_000);

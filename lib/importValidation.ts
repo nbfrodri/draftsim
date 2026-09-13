@@ -25,19 +25,23 @@ export const TOURNAMENT_FORMATS = [
 
 /** Bound traversal and disallow prototype keys before merging imported dictionaries. */
 export function validateImportTree(value: unknown, maxNodes = 2_000_000): void {
-  const stack: Array<[unknown, number]> = [[value, 0]];
   let visited = 0;
-  while (stack.length) {
-    const [node, depth] = stack.pop()!;
+  // Depth is capped at 64, so recursion stays bounded without queuing every
+  // sibling or allocating Object.entries tuples for multi-million-node files.
+  const visit = (node: unknown, depth: number): void => {
     if (++visited > maxNodes || depth > 64) throw new Error("Import is too complex.");
     if (typeof node === "number" && !Number.isFinite(node)) throw new Error("Invalid number in import.");
-    if (node && typeof node === "object") {
-      for (const [key, child] of Object.entries(node)) {
-        if (["__proto__", "constructor", "prototype"].includes(key)) throw new Error("Unsafe key in import.");
-        stack.push([child, depth + 1]);
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child, depth + 1);
+    } else if (node && typeof node === "object") {
+      for (const key in node) {
+        if (!Object.hasOwn(node, key)) continue;
+        if (key === "__proto__" || key === "constructor" || key === "prototype") throw new Error("Unsafe key in import.");
+        visit((node as Obj)[key], depth + 1);
       }
     }
-  }
+  };
+  visit(value, 0);
 }
 
 const optional = (value: unknown, check: (v: unknown) => boolean) => value === undefined || check(value);

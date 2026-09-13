@@ -6,10 +6,24 @@ export function assertShareInputSize(input: string): void {
   if (input.length > MAX_SHARE_INPUT_CHARS) throw new Error("Import exceeds the 64 MiB input limit.");
 }
 
-export async function deflateString(input: string): Promise<Uint8Array> {
-  if (new TextEncoder().encode(input).byteLength > MAX_SHARE_OUTPUT_BYTES) {
-    throw new Error("Export exceeds the 128 MiB uncompressed limit.");
+/** Measure UTF-8 without allocating another buffer the size of a reality file. */
+export function assertUtf8Size(input: string, maxBytes: number, message: string): void {
+  if (input.length > maxBytes) throw new Error(message);
+  const encoder = new TextEncoder();
+  let bytes = 0;
+  for (let start = 0; start < input.length;) {
+    let end = Math.min(start + 64 * 1024, input.length);
+    // Keep surrogate pairs together across chunks.
+    const last = input.charCodeAt(end - 1);
+    if (end < input.length && last >= 0xd800 && last <= 0xdbff) end--;
+    bytes += encoder.encode(input.slice(start, end)).byteLength;
+    if (bytes > maxBytes) throw new Error(message);
+    start = end;
   }
+}
+
+export async function deflateString(input: string, maxBytes = MAX_SHARE_OUTPUT_BYTES): Promise<Uint8Array> {
+  assertUtf8Size(input, maxBytes, `Export exceeds the ${maxBytes / 1024 / 1024} MiB uncompressed limit.`);
   const stream = new Blob([input]).stream().pipeThrough(new CompressionStream("deflate-raw"));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
