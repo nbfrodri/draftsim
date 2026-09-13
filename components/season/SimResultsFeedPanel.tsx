@@ -498,6 +498,9 @@ const SplitCard = memo(function SplitCard({
 }) {
   const logoSize = dense ? 10 : 11;
   const topN = dense ? 2 : 4;
+  const [expandedLeagues, setExpandedLeagues] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   return (
     <div className="border border-rift-line/35 bg-rift-bg/40 px-2.5 py-2">
@@ -514,7 +517,7 @@ const SplitCard = memo(function SplitCard({
               {leagueId}
             </div>
             <div className="space-y-0.5">
-              {placements.slice(0, topN).map((team, i) => (
+              {placements.slice(0, expandedLeagues.has(leagueId) ? placements.length : topN).map((team, i) => (
                 <PlacementRow
                   key={team.id}
                   rank={i + 1}
@@ -525,9 +528,22 @@ const SplitCard = memo(function SplitCard({
                 />
               ))}
               {placements.length > topN && (
-                <div className="text-[7px] text-rift-muted/45 pl-3.5">
-                  +{placements.length - topN} more
-                </div>
+                <button
+                  type="button"
+                  aria-expanded={expandedLeagues.has(leagueId)}
+                  aria-label={`${expandedLeagues.has(leagueId) ? "Show fewer" : "Show all"} ${leagueId} teams in ${entry.label}, year ${entry.year}`}
+                  onClick={() => setExpandedLeagues((previous) => {
+                    const next = new Set(previous);
+                    if (next.has(leagueId)) next.delete(leagueId);
+                    else next.add(leagueId);
+                    return next;
+                  })}
+                  className="text-[7px] text-rift-muted/55 pl-3.5 hover:text-rift-goldbright/80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-rift-gold transition-colors"
+                >
+                  {expandedLeagues.has(leagueId)
+                    ? "Show less"
+                    : `+${placements.length - topN} more`}
+                </button>
               )}
             </div>
           </div>
