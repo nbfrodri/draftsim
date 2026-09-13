@@ -22,6 +22,25 @@ describe("recovery retention", () => {
     expect(items.has("draftsim-backup-101")).toBe(true);
     expect(await listBackups()).toHaveLength(2);
   });
+  it("preserves manual names after reload without naming later automatic copies", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(200);
+    const value = JSON.stringify({ version: 7, state: { realities: [] } });
+    const items = new Map([["draftsim-store", value]]);
+    vi.stubGlobal("localStorage", { get length() { return items.size; }, key: (i: number) => [...items.keys()][i],
+      getItem: (key: string) => items.get(key) ?? null, removeItem: (key: string) => items.delete(key),
+      setItem: (key: string, content: string) => { items.set(key, content); } });
+    await createBackup(true, "  Before finals / Finales  ");
+    expect(items.get("draftsim-store")).toBe(value);
+    expect((await listBackups())[0].name).toBe("Before finals / Finales");
+    // Simulate restoring a named snapshot. A later automatic copy gets no inherited name.
+    items.set("draftsim-store", items.get("draftsim-backup-200")!);
+    await createBackup(false);
+    const copies = await listBackups();
+    expect(copies[0].name).toBeUndefined();
+    expect(copies[1].name).toBe("Before finals / Finales");
+    await expect(createBackup(true, "x".repeat(81))).rejects.toThrow("80 characters");
+    expect(await listBackups()).toHaveLength(2);
+  });
   it("keeps recent, daily and weekly points without accumulating every snapshot", () => {
     const copies = Array.from({ length: 100 }, (_, i) => ({ id: String(i), createdAt: (100-i)*86400000, bytes: 10, realities: [], years: 1 }));
     const ids = retainedBackupIds(copies); expect(ids.has("0")).toBe(true); expect(ids.has("6")).toBe(true);

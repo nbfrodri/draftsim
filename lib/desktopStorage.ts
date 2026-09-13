@@ -1,3 +1,4 @@
+import { beginOperationProgress, advanceOperationProgress, clearOperationProgress } from "./operationProgress";
 /**
  * desktopStorage.ts — Zustand-persist-compatible StateStorage backed by
  * APPDATA files (via @tauri-apps/plugin-fs).
@@ -165,6 +166,10 @@ export function resetAppClosePhaseForTests(): void {
 
 export type DesktopOperationPhase =
   | "idle"
+  | "reviewing-import"
+  | "restoring-backup"
+  | "creating-backup"
+  | "backing-up-reality"
   | "deleting-reality"
   | "compacting-database"
   | "importing-reality"
@@ -177,7 +182,22 @@ const desktopOperationListeners = new Set<() => void>();
 function setDesktopOperationPhase(phase: DesktopOperationPhase): void {
   if (desktopOperationPhase === phase) return;
   desktopOperationPhase = phase;
+  if (phase === "idle") clearOperationProgress();
+  else if (phase === "deleting-reality") advanceOperationProgress("delete");
+  else beginOperationProgress({
+    "reviewing-import": "review", "backing-up-reality": "delete", "restoring-backup": "restore", "creating-backup": "backup",
+    "compacting-database": "compact", "importing-reality": "import", "opening-reality": "open", "leaving-season": "leave",
+  }[phase] as import("./operationProgress").OperationKind);
   for (const cb of desktopOperationListeners) cb();
+}
+
+export function signalReviewingImport(): void { setDesktopOperationPhase("reviewing-import"); }
+export function signalRestoringBackup(): void { setDesktopOperationPhase("restoring-backup"); }
+export function signalCreatingBackup(): void { setDesktopOperationPhase("creating-backup"); }
+
+/** Protect the entire delete operation, including its preventive backup. */
+export function signalBackingUpReality(): void {
+  setDesktopOperationPhase("backing-up-reality");
 }
 
 /** Called before async reality delete + flush on desktop. */
@@ -234,6 +254,7 @@ export function subscribeDesktopOperationPhase(onStoreChange: () => void): () =>
 /** @internal — test helper to reset operation phase between cases. */
 export function resetDesktopOperationPhaseForTests(): void {
   desktopOperationPhase = "idle";
+  clearOperationProgress();
   desktopOperationListeners.clear();
 }
 
@@ -418,6 +439,12 @@ function scheduleWrite(
  * write to a half-closed app.
  */
 /** Flush all debounced persist writes immediately (e.g. after a year boundary). */
+let restoreReloadReady = false;
+/** Only call after the restore succeeded and superseded pending writes were discarded. */
+export function prepareConfirmedRestoreReload(): () => void {
+  restoreReloadReady = true;
+  return () => { restoreReloadReady = false; };
+}
 /** Drop superseded snapshots only after a confirmed restore, before reload handlers run. */
 export async function discardPendingPersistWritesAfterRestore(): Promise<void> {
   const { cancelPendingSqliteWrite } = await import("./desktopSqliteStorage");
@@ -463,11 +490,13 @@ async function flushPendingWrites(): Promise<void> {
 
 /** Best-effort flush when the page is going away (can't await in sync handlers). */
 function schedulePersistFlushOnExit(): void {
+  if (restoreReloadReady) return;
   void flushPendingPersistWrites().catch((error) => console.warn("[desktopStorage] exit flush failed:", error));
 }
 
 /** Web-only exit flush (localStorage debounce — no SQLite on web). */
 function scheduleWebPersistFlushOnExit(): void {
+  if (restoreReloadReady) return;
   void flushPendingWrites().catch((error) => console.warn("[desktopStorage] exit flush failed:", error));
 }
 
@@ -513,6 +542,7 @@ if (typeof window !== "undefined") {
     : scheduleWebPersistFlushOnExit;
 
   window.addEventListener("beforeunload", (event) => {
+    if (restoreReloadReady) return;
     // Browser/tab close during import/delete/compact — ask the user to wait.
     if (isDesktopOperationBlocking()) {
       event.preventDefault();

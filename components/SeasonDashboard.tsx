@@ -253,12 +253,7 @@ export default function SeasonDashboard() {
       </button>
 
       {/* Save / Abandon — top-right */}
-      <div className="fixed top-3 right-3 md:top-4 md:right-4 flex items-center gap-2 z-30">
-        {saveFeedback && (
-          <span className="text-[9px] md:text-[10px] uppercase tracking-[0.25em] text-rift-goldbright">
-            {saveFeedback}
-          </span>
-        )}
+      <div className="fixed top-3 right-3 md:top-4 md:right-4 flex w-28 flex-col items-stretch gap-2 z-30">
         <button
           type="button"
           onClick={() => {
@@ -271,7 +266,7 @@ export default function SeasonDashboard() {
                 : "Save failed",
             );
           }}
-          className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
+          className="inline-flex items-center justify-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
           title={
             season.franchise
               ? "Save progress into this reality — find it in the Realities hub"
@@ -288,7 +283,7 @@ export default function SeasonDashboard() {
         <button
           type="button"
           onClick={handleExportSeason}
-          className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
+          className="inline-flex items-center justify-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
           title={
             season.franchise
               ? "Export this entire reality (timeline + season history) to a file — importable from the Realities hub"
@@ -304,15 +299,20 @@ export default function SeasonDashboard() {
         <button
           type="button"
           onClick={() => setConfirmAbandon(true)}
-          className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright/60 hover:text-rift-redbright hover:border-rift-red/50 hover:bg-rift-red/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
+          className="inline-flex items-center justify-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright/60 hover:text-rift-redbright hover:border-rift-red/50 hover:bg-rift-red/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
         >
           Abandon
         </button>
+        {saveFeedback && (
+          <span role="status" className="text-right text-[9px] md:text-[10px] uppercase tracking-[0.25em] text-rift-goldbright">
+            {saveFeedback}
+          </span>
+        )}
       </div>
 
-      <div className="max-w-6xl mx-auto pt-8">
+      <div className="max-w-6xl mx-auto pt-36 md:pt-8">
         {/* Header */}
-        <div className="text-center mb-6">
+        <div className="text-center mb-6 md:px-32">
           <div className="text-[10px] uppercase tracking-[0.5em] text-rift-gold/70 mb-1">
             Season Mode
           </div>

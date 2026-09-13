@@ -1,4 +1,5 @@
 "use client";
+import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 import { reportPersistenceError } from "@/lib/persistenceStatus";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
 import { forcePersistReady } from "@/lib/desktopStorage";
@@ -23,7 +24,7 @@ type Synergy,
 } from "@/lib/championMeta";
 import { PERSIST_VERSION,deleteRealityFromDb,isRealityHistoryLoaded,loadRealityHistoryFromDb,markRealityHistoryLoaded,shouldSuggestCompactAfterDelete,upsertRealityInDb } from "@/lib/desktopSqlite";
 import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
-import { clearDesktopOperation,createWebLazyStorage,enablePersistWrites,flushPendingPersistWrites,gatePersistWritesUntilReady,isDesktop,resolveWebStringStorage,signalDeletingReality,signalLeavingSeason,signalOpeningReality,waitForDesktopOverlayPaint } from "@/lib/desktopStorage";
+import { clearDesktopOperation,createWebLazyStorage,enablePersistWrites,flushPendingPersistWrites,gatePersistWritesUntilReady,isDesktop,isDesktopOperationBlocking,resolveWebStringStorage,signalBackingUpReality,signalDeletingReality,signalLeavingSeason,signalOpeningReality,waitForDesktopOverlayPaint } from "@/lib/desktopStorage";
 import {
 PERSONALITY_LIST,
 chooseAIAction,
@@ -1110,6 +1111,7 @@ export const useDraftStore = create<DraftStore>()(
           : {}),
       }));
 
+      advanceOperationProgress("save");
       if (isDesktop() && activeId) {
         const slot = get().realities.find((r) => r.id === activeId);
         if (slot) {
@@ -1120,11 +1122,10 @@ export const useDraftStore = create<DraftStore>()(
             season: slot.season,
           });
         }
-        // Global persist can finish in the background — reality season is already on disk.
-        void flushPendingPersistWrites().catch((err) =>
-          console.warn("[draftsim] exitSeasonView background flush failed:", err),
-        );
+
       }
+      await flushPendingPersistWrites();
+      recordOperationSuccess();
     } finally {
       clearDesktopOperation();
     }
@@ -1335,8 +1336,10 @@ export const useDraftStore = create<DraftStore>()(
     try {
       const initial = get().realities.find(r => r.id === id);
       if (!initial) return;
+      advanceOperationProgress("history");
       const history = isDesktop() && !isRealityHistoryLoaded(id)
         ? await loadRealityHistoryFromDb(id) : initial.history;
+      advanceOperationProgress("open");
       // Drain snapshots captured before the history was available.
       await flushPendingPersistWrites();
       if (request !== realitySwitchVersion) return;
@@ -1355,6 +1358,7 @@ export const useDraftStore = create<DraftStore>()(
         season: decodedSeason,
         seasonViewOpen: true,
       });
+      recordOperationSuccess();
     } finally {
       if (request === realitySwitchVersion) clearDesktopOperation();
     }
@@ -1362,34 +1366,35 @@ export const useDraftStore = create<DraftStore>()(
 
   deleteReality: async (id) => {
     if (get().simulating) throw new Error("Pause simulation before deleting a reality.");
-    await backupBeforeDestructiveChange();
-    const snapshot = get().realities.find((r) => r.id === id);
-    const suggestCompact =
-      isDesktop() && snapshot != null && shouldSuggestCompactAfterDelete(snapshot);
-
-    set((s) => {
-      const wasActive = s.activeRealityId === id;
-      return {
-        realities: s.realities.filter((r) => r.id !== id),
-        ...(wasActive
-          ? { activeRealityId: null, season: null, seasonViewOpen: false }
-          : {}),
-      };
-    });
-
-    if (!isDesktop()) return;
-
-    signalDeletingReality();
+    if (isDesktopOperationBlocking()) throw new Error("Wait for the current operation to finish.");
+    signalBackingUpReality();
     try {
-      await deleteRealityFromDb(id);
+      await waitForDesktopOverlayPaint();
+      await backupBeforeDestructiveChange();
+      signalDeletingReality();
+      await waitForDesktopOverlayPaint();
+      const snapshot = get().realities.find((r) => r.id === id);
+      const suggestCompact =
+        isDesktop() && snapshot != null && shouldSuggestCompactAfterDelete(snapshot);
+
+      if (isDesktop()) await deleteRealityFromDb(id);
+      set((s) => {
+        const wasActive = s.activeRealityId === id;
+        return {
+          realities: s.realities.filter((r) => r.id !== id),
+          ...(wasActive
+            ? { activeRealityId: null, season: null, seasonViewOpen: false }
+            : {}),
+        };
+      });
+
+      advanceOperationProgress("save");
       await flushPendingPersistWrites();
-    } catch (err) {
-      console.warn("[draftsim] deleteReality DB sync failed:", err);
+      recordOperationSuccess();
+      return { suggestCompact };
     } finally {
       clearDesktopOperation();
     }
-
-    return { suggestCompact };
   },
 
   exportReality: async (id) => {

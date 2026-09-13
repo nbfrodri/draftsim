@@ -7,10 +7,11 @@ import {
 compactDesktopDatabase,
 formatCompactResultMessage,
 } from "@/lib/desktopSqlite";
-import { isDesktop,openFileNative,saveFileNative } from "@/lib/desktopStorage";
+import { isDesktop,openFileNative,saveFileNative,isDesktopOperationBlocking,signalReviewingImport,waitForDesktopOverlayPaint,clearDesktopOperation } from "@/lib/desktopStorage";
 import { REALITY_CODE_PREFIX } from "@/lib/realityShare";
 import { useDraftStore } from "@/store/draftStore";
 import Modal from "./Modal";
+import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 
 interface CommunityEntry {
   id: string;
@@ -192,6 +193,8 @@ export default function RealitiesHub({ onChoose }: Props) {
   const [compactPromptOpen, setCompactPromptOpen] = useState(false);
   const [compacting, setCompacting] = useState(false);
   const [rowBusy, setRowBusy] = useState(false);
+  const deletingRef = useRef(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [shareCodeInput, setShareCodeInput] = useState("");
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -261,13 +264,25 @@ export default function RealitiesHub({ onChoose }: Props) {
     [exportReality, flash, realityList, rowBusy],
   );
 
-  const applyImport = async (text: string) => {
+  const prepareImport = async (read: () => Promise<string | null>) => {
+    if (isDesktopOperationBlocking()) return;
+    signalReviewingImport();
+    setRowBusy(true);
     try {
-      const plan = await previewRealityImport(text, useDraftStore.getState().realities);
+      await waitForDesktopOverlayPaint();
+      const text = await read();
+      if (text === null) return;
+      const plan = await previewRealityImport(text, useDraftStore.getState().realities, async stage => {
+        advanceOperationProgress(stage);
+        await waitForDesktopOverlayPaint();
+      });
       previewTarget.current = useDraftStore.getState().realities.find(r => r.id === plan.id);
       setPreview(plan);
+      recordOperationSuccess();
     } catch (error) { flash("err", error instanceof Error ? error.message : "Import failed"); }
+    finally { clearDesktopOperation(); setRowBusy(false); }
   };
+  const applyImport = (text: string) => prepareImport(async () => text);
   const applyShareCode = async () => { if (shareCodeInput.trim()) await applyImport(shareCodeInput); };
 
   const copyShareCode = useCallback(
@@ -295,14 +310,14 @@ export default function RealitiesHub({ onChoose }: Props) {
 
   const handleImport = async () => {
     if (isDesktop()) {
-      const res = await openFileNative({
-        filters: [{ name: "DraftSim Reality", extensions: ["json"] }],
+      await prepareImport(async () => {
+        const res = await openFileNative({ filters: [{ name: "DraftSim Reality", extensions: ["json"] }] });
+        if (!res.ok || res.content == null) {
+          if (res.error && res.error !== "cancelled") throw new Error(res.error);
+          return null;
+        }
+        return res.content;
       });
-      if (!res.ok || res.content == null) {
-        if (res.error && res.error !== "cancelled") flash("err", res.error);
-        return;
-      }
-      await applyImport(res.content);
       return;
     }
     fileInputRef.current?.click();
@@ -311,12 +326,7 @@ export default function RealitiesHub({ onChoose }: Props) {
   const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file) return;
-    try {
-      await applyImport(await file.text());
-    } catch {
-      flash("err", "Could not read file");
-    }
+    if (file) await prepareImport(() => file.text());
   };
 
   const handleOpen = useCallback(
@@ -334,15 +344,24 @@ export default function RealitiesHub({ onChoose }: Props) {
 
   const handleDelete = useCallback(
     async (id: string) => {
-      setConfirmDelete(null);
-      const result = await deleteReality(id);
-      if (result?.suggestCompact) {
-        setCompactPromptOpen(true);
+      if (rowBusy || deletingRef.current) return;
+      deletingRef.current = true;
+      setRowBusy(true);
+      setDeleteError(null);
+      try {
+        const result = await deleteReality(id);
+        setConfirmDelete(null);
+        flash("ok", "Reality deleted");
+        if (result?.suggestCompact) setCompactPromptOpen(true);
+      } catch (error) {
+        setDeleteError(error instanceof Error ? error.message : String(error));
+      } finally {
+        deletingRef.current = false;
+        setRowBusy(false);
       }
     },
-    [deleteReality],
+    [deleteReality, flash, rowBusy],
   );
-
   const handleCompactDatabase = async () => {
     if (!isDesktop() || compacting) return;
     setCompacting(true);
@@ -567,6 +586,7 @@ export default function RealitiesHub({ onChoose }: Props) {
           className="hidden"
           onChange={(e) => void onFilePicked(e)}
         />
+        {deleteError && <p role="alert" className="mb-3 text-xs text-rift-redbright">Could not delete the reality: {deleteError} Resolve the error and press Confirm to retry.</p>}
         {realityList.length === 0 ? (
           <div className="text-[11px] italic text-rift-muted/60">
             No realities yet — create one above.
@@ -592,7 +612,7 @@ export default function RealitiesHub({ onChoose }: Props) {
       </div>
 
       <Modal open={preview !== null} title="Review reality import"
-        message={preview ? `${preview.name} | Year ${preview.year} | ${preview.archivedYears} archived seasons | ${preview.teams.length} teams: ${preview.teams.join(", ")}. ${preview.replaces ? `Replaces "${preview.replaces}", including its history.` : "Adds a new reality. Existing realities are preserved."}` : ""}
+        message="Check the archive details before adding it to your saved realities."
         confirmLabel="Import" onCancel={() => setPreview(null)} onConfirm={() => {
           if (!preview || rowBusy) return;
           if (useDraftStore.getState().realities.find(r => r.id === preview.id) !== previewTarget.current) {
@@ -603,7 +623,25 @@ export default function RealitiesHub({ onChoose }: Props) {
             if (res.ok) { flash("ok", "Reality imported"); setShareCodeInput(""); }
             else flash("err", res.error ?? "Import failed");
           }).catch(error => flash("err", String(error))).finally(() => setRowBusy(false));
-        }} />
+        }}>
+        {preview && <div className="mb-6 space-y-4 text-left">
+          <div className="border border-rift-gold/30 bg-rift-gold/[0.04] p-4">
+            <p className="text-[9px] uppercase tracking-[0.2em] text-rift-gold">Reality archive</p>
+            <h3 className="mt-2 break-words font-display text-xl text-rift-goldbright">{preview.name}</h3>
+            <dl className="mt-4 grid grid-cols-3 divide-x divide-rift-gold/20 border-t border-rift-gold/20 pt-3 text-center">
+              {[ ["Current year", preview.year], ["Archived seasons", preview.archivedYears], ["Teams", preview.teams.length] ].map(([label, value]) => <div key={label}><dt className="text-[9px] uppercase tracking-wider text-rift-mutedbright">{label}</dt><dd className="mt-1 font-display text-xl tabular-nums text-rift-goldbright">{value}</dd></div>)}
+            </dl>
+          </div>
+          <div className={`border-l-2 p-3 text-sm leading-relaxed ${preview.replaces ? "border-rift-red bg-rift-red/5 text-rift-redbright" : "border-rift-blue bg-rift-blue/5 text-rift-mutedbright"}`}>
+            <p className="font-medium">{preview.replaces ? "Replaces an existing reality" : "Adds a new reality"}</p>
+            <p className="mt-1 text-xs">{preview.replaces ? `"${preview.replaces}" and its history will be replaced. A safety backup is created first.` : "Your existing realities and their history will be preserved."}</p>
+          </div>
+          <details className="border border-rift-line p-3">
+            <summary className="cursor-pointer text-xs text-rift-goldbright">Included teams ({preview.teams.length})</summary>
+            <ul className="mt-3 flex max-h-36 flex-wrap gap-1.5 overflow-y-auto">{preview.teams.map((team, index) => <li key={`${team}-${index}`} className="border border-rift-line bg-rift-bg/40 px-2 py-1 text-[10px] text-rift-mutedbright">{team}</li>)}</ul>
+          </details>
+        </div>}
+      </Modal>
       <Modal
         open={compactPromptOpen}
         title="Reality deleted"

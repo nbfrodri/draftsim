@@ -14,16 +14,16 @@ export default function AppClosingScreen({ phase }: Props) {
   return (
     <AppLifecycleShell
       overlay
-      ornament={saving ? "Saving and compacting" : "Save interrupted"}
+      ornament={saving ? "Saving progress" : "Save interrupted"}
       message={
         saving
-          ? "Saving and compacting…"
+          ? "Saving progress…"
           : "Could not save all data. App kept open; please retry or export your save."
       }
       status={saving ? "busy" : "error"}
       aria-label={
         saving
-          ? "Saving, compacting, and closing DraftSim"
+          ? "Saving and closing DraftSim"
           : "DraftSim kept open after save error"
       }
     />

@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { IconArchive, IconCheck, IconHistory, IconPlus, IconShieldCheck, IconX } from "@tabler/icons-react";
-import { createBackup, listBackups, restoreBackup, chooseBackupDestination, importExternalBackup, getBackupError, subscribeBackupError, type Backup } from "@/lib/backups";
+import { createManualBackup, listBackups, restoreBackup, chooseBackupDestination, importExternalBackup, getBackupError, subscribeBackupError, type Backup } from "@/lib/backups";
 import { isDesktop } from "@/lib/desktopStorage";
 import { useDraftStore } from "@/store/draftStore";
 
@@ -18,7 +18,10 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
   const cancel = useRef<HTMLButtonElement>(null);
   const restoreTrigger = useRef<string | null>(null);
   const operation = useRef(false);
+  const outsidePress = useRef(false);
   const titleId = useId();
+  const nameId = useId();
+  const [backupName, setBackupName] = useState("");
   const descriptionId = useId();
   const [copies, setCopies] = useState<Backup[] | null>(null);
   const [selected, setSelected] = useState<Backup | null>(null);
@@ -34,7 +37,7 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
     const previous = document.activeElement as HTMLElement | null;
     panel?.showModal();
     let active = true;
-    void listBackups().then(value => { if (active) setCopies(value); })
+    void listBackups().then(value => { if (active) { setCopies(value); setError(null); } })
       .catch(e => { if (active) setError(e instanceof Error ? e.message : String(e)); });
     return () => { active = false; panel?.close(); previous?.focus(); };
   }, [open]);
@@ -54,20 +57,30 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { operation.current = false; setBusy(null); }
   };
-  const cancelRestore = () => { setSelected(null); setError(null);  };
+  const cancelRestore = () => { if (!operation.current) { setSelected(null); setError(null); } };
   if (!open) return null;
   const restoring = busy === "Restoring saved data...";
 
   return createPortal(<dialog ref={dialog} aria-labelledby={titleId} aria-describedby={descriptionId}
+    onPointerDown={event => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      outsidePress.current = event.button === 0 && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom);
+    }}
+    onClick={event => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const outside = event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom;
+      if (event.target === event.currentTarget && outsidePress.current && outside && !operation.current) onClose();
+      outsidePress.current = false;
+    }}
     onKeyDown={event => {
       if (event.key !== "Tab") return;
-      const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), summary, [tabindex='0']")).filter(element => element.getClientRects().length > 0);
+      const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), summary, [tabindex='0']")).filter(element => element.getClientRects().length > 0);
       const first = buttons[0], last = buttons.at(-1);
       if (!first) { event.preventDefault(); event.currentTarget.focus(); }
       else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }}
-    onCancel={event => { event.preventDefault(); if (!restoring) { if (selected) cancelRestore(); else onClose(); } }}
+    onCancel={event => { event.preventDefault(); if (!operation.current) { if (selected) cancelRestore(); else onClose(); } }}
     className="m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto border border-rift-gold/50 bg-rift-paneldark p-0 text-rift-mutedbright shadow-[0_0_60px_rgba(0,0,0,0.8)] backdrop:bg-black/75 backdrop:backdrop-blur-sm">
     <header className="relative flex items-start justify-between gap-3 border-b border-rift-gold/20 bg-gradient-to-br from-rift-gold/[0.08] via-rift-panel to-rift-paneldark px-5 py-6 sm:px-7">
       <div className="flex min-w-0 items-start gap-4">
@@ -78,16 +91,17 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
           <p id={descriptionId} className="mt-2 max-w-sm text-xs leading-relaxed">{selected ? "Return all saved data to an earlier point." : "Keep your realities and their history within reach."}</p>
         </div>
       </div>
-      {!selected && <button type="button" autoFocus aria-label="Close" className={`${secondary} shrink-0 !px-2.5`} onClick={onClose}><IconX aria-hidden="true" size={16} stroke={1.5} /></button>}
+      {!selected && <button type="button" autoFocus disabled={!!busy} aria-label="Close" className={`${secondary} shrink-0 !px-2.5`} onClick={onClose}><IconX aria-hidden="true" size={16} stroke={1.5} /></button>}
     </header>
     <div className="space-y-5 p-5 sm:p-7">
       {selected ? <>
         <div className="border border-rift-gold/25 border-l-2 border-l-rift-gold bg-rift-gold/5 p-4">
+          {selected.name && <p className="mb-1 break-words font-display text-lg text-rift-goldbright">{selected.name}</p>}
           <p className="font-medium text-rift-goldbright">{date(selected.createdAt)}</p>
           <p className="mt-2 break-words text-sm">{selected.realities.join(", ") || "Saved drafts, tournaments and seasons"}</p>
         </div>
-        <p className="text-sm leading-relaxed">This replaces <strong className="text-rift-goldbright">all current saved data</strong>, including every reality and its history. Progress made after this copy will no longer be active.</p>
-        <p className="text-sm leading-relaxed">Your current data will be kept separately before restoring. The app will reload when finished.</p>
+        <p className="text-sm leading-relaxed">The backup is fully checked before restoring. This replaces <strong className="text-rift-goldbright">all current saved data</strong>, including every reality and its history. Progress made after this copy will no longer be active.</p>
+        <p className="text-sm leading-relaxed">Your current data will be kept separately before restoring. After a successful restore, only the latest pre-restore safety copy is kept. The app will reload when finished.</p>
         {error && <div role="alert" className="border border-rift-red/30 bg-rift-red/5 p-4 text-xs leading-relaxed text-rift-redbright"><p>Could not restore this copy. You can retry or go back.</p><details className="mt-2"><summary className="cursor-pointer">Technical details</summary><p className="mt-2 break-words">{error}</p></details></div>}
         {busy && <p role="status" className="text-sm text-rift-goldbright">{busy} Keep the app open.</p>}
         <div className="flex flex-wrap justify-end gap-3 border-t border-rift-line pt-5">
@@ -103,11 +117,27 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
           </div>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
-              <p className="font-display text-base text-rift-goldbright">{copies === null ? "Checking available copies..." : copies[0] ? date(copies[0].createdAt) : "No backups yet"}</p>
-              <p className="mt-1.5 text-xs leading-relaxed">{copies?.[0] ? "A restore point for all your saved data." : "Create your first restore point when you are ready."}</p>
+              <p className="break-words font-display text-base text-rift-goldbright">{copies === null ? (error ? "Backup history unavailable" : "Loading backup history...") : copies[0] ? copies[0].name || date(copies[0].createdAt) : "No backups yet"}</p>
+              <p className="mt-1.5 text-xs leading-relaxed">{copies?.[0] ? copies[0].name ? date(copies[0].createdAt) : "A restore point for all your saved data." : "Create your first restore point when you are ready."}</p>
             </div>
-            <button type="button" disabled={!!busy || saveUnavailable || copies === null} className={primary} onClick={() => void run("Creating backup...", async () => { await createBackup(); setCopies(await listBackups()); setSuccess("Backup created. Your saved data is ready to restore."); })}><IconPlus aria-hidden="true" size={14} />Create backup</button>
+
           </div>
+          <form className="mt-4 border-t border-rift-gold/15 pt-4" onSubmit={event => {
+            event.preventDefault();
+            if (busy || saveUnavailable || copies === null) return;
+            void run("Creating backup...", async () => {
+              await createManualBackup(backupName);
+              setCopies(await listBackups()); setBackupName("");
+              setSuccess("Backup created. Your saved data is ready to restore.");
+            });
+          }}>
+            <label htmlFor={nameId} className="text-[10px] uppercase tracking-[0.15em] text-rift-goldbright">Backup name <span className="normal-case tracking-normal text-rift-mutedbright">(optional)</span></label>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <input id={nameId} value={backupName} onChange={event => setBackupName(event.target.value)} maxLength={80} disabled={!!busy || saveUnavailable} placeholder="e.g. Before the playoffs" autoComplete="off" className="min-h-10 min-w-0 flex-1 border border-rift-line bg-rift-bg/60 px-3 py-2 text-sm text-rift-goldbright placeholder:text-rift-muted focus:border-rift-gold/60 focus:outline-none focus-visible:ring-1 focus-visible:ring-rift-gold/60 disabled:opacity-50" />
+              <button type="submit" disabled={!!busy || saveUnavailable || copies === null} className={`${primary} shrink-0`}><IconPlus aria-hidden="true" size={14} />Create backup</button>
+            </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-rift-mutedbright">Named copies follow the same automatic cleanup schedule.</p>
+          </form>
         </section>
         {saveUnavailable && <p className="border-l border-rift-gold/50 pl-3 text-xs leading-relaxed text-rift-gold">Resolve the save error before creating a new copy. You can still restore an earlier backup.</p>}
         {busy && <p role="status" className="text-sm text-rift-goldbright">{busy}</p>}
@@ -117,11 +147,12 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
           <details className="mt-2"><summary className="cursor-pointer">Technical details</summary><p className="mt-2 break-words">{error || backupError}</p></details>
           <button type="button" disabled={!!busy} className={`${secondary} mt-3`} onClick={() => void run("Checking backups...", async () => setCopies(await listBackups()))}>Refresh copies</button>
         </div>}
-        <section aria-label="Available backups">
+        <section aria-label="Available backups" aria-busy={copies === null && !error}>
           <div className="mb-3 flex items-center justify-between gap-3"><h3 className="flex items-center gap-2 font-display text-xs uppercase tracking-[0.18em] text-rift-goldbright"><IconHistory aria-hidden="true" size={16} className="text-rift-gold" />Backup history</h3>{copies && <span className="text-[10px] tabular-nums text-rift-mutedbright">{copies.length} {copies.length === 1 ? "copy" : "copies"}</span>}</div>
+          {copies === null && !error && <p role="status" className="flex items-center justify-center gap-3 border border-rift-gold/15 bg-rift-bg/30 px-5 py-8 text-xs"><span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-rift-gold/20 border-t-rift-gold motion-reduce:animate-none" />Loading backup history...</p>}
           {copies?.length === 0 && <p className="border border-dashed border-rift-gold/20 bg-rift-bg/30 px-5 py-8 text-center text-xs leading-relaxed">Your backups will appear here. Create one now, or let automatic backups keep copies as you play.</p>}
           {copies && copies.length > 0 && <ul className="divide-y divide-rift-gold/10 border border-rift-gold/15 bg-rift-bg/30">{copies.map((copy, index) => <li key={copy.id} className="flex flex-col items-start justify-between gap-3 p-4 transition-colors hover:bg-rift-gold/[0.03] sm:flex-row sm:items-center sm:gap-4">
-            <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><time dateTime={new Date(copy.createdAt).toISOString()} className="text-sm text-rift-goldbright">{date(copy.createdAt)}</time>{index === 0 && <span className="border border-rift-gold/25 bg-rift-gold/10 px-1.5 py-0.5 text-[8px] uppercase tracking-[0.14em] text-rift-gold">Latest</span>}</div>
+            <div className="min-w-0">{copy.name && <p className="mb-1 break-words font-display text-sm text-rift-goldbright">{copy.name}</p>}<div className="flex flex-wrap items-center gap-2"><time dateTime={new Date(copy.createdAt).toISOString()} className="text-sm text-rift-goldbright">{date(copy.createdAt)}</time>{index === 0 && <span className="border border-rift-gold/25 bg-rift-gold/10 px-1.5 py-0.5 text-[8px] uppercase tracking-[0.14em] text-rift-gold">Latest</span>}</div>
               <p className="mt-1 break-words text-xs leading-relaxed">{copy.realities.join(", ") || "Saved drafts, tournaments and seasons"}</p>
               <p className="mt-2 text-[10px] tabular-nums text-rift-mutedbright">{copy.bytes < 1024 * 1024 ? `${Math.max(1, Math.round(copy.bytes / 1024))} KB` : `${(copy.bytes / 1024 / 1024).toFixed(1)} MB`}</p></div>
             <button type="button" disabled={!!busy || !!simulating} className={`${secondary} w-full shrink-0 sm:w-auto`} data-backup-id={copy.id} onClick={() => { restoreTrigger.current = copy.id; setError(null); setSelected(copy); }}>Review restore</button>

@@ -1,3 +1,4 @@
+import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 /**
  * desktopSqlite.ts — SQLite persistence for DraftSim desktop (Tauri).
  *
@@ -546,9 +547,12 @@ async function runDesktopDatabaseCompact(
   db: SqlExecutor,
 ): Promise<DesktopDbCompactResult> {
   const before = await measureDesktopDbFootprint(db);
+  advanceOperationProgress("encode");
   await recompactAllRealitySeasonsInDb(db);
+  advanceOperationProgress("vacuum");
   await db.execute("PRAGMA wal_checkpoint(TRUNCATE)");
   await db.execute("VACUUM");
+  advanceOperationProgress("measure");
   const footprint = await measureDesktopDbFootprint(db);
   return {
     footprint,
@@ -567,7 +571,9 @@ export async function compactDesktopDatabase(): Promise<DesktopDbCompactResult |
     const db = await loadDatabase();
     return await serializeDbWrite(db, async () => {
       savedRealities.delete(db);
-      return runDesktopDatabaseCompact(db);
+      const result = await runDesktopDatabaseCompact(db);
+      recordOperationSuccess();
+      return result;
     });
   } finally {
     clearDesktopOperation();

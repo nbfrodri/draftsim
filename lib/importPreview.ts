@@ -20,10 +20,13 @@ export function parseRealityImport(json: string) {
   if (r.history !== undefined && (!Array.isArray(r.history) || !r.history.every(validHistoryEntry))) throw new Error("The season history contains invalid entries.");
   return r as unknown as SavedReality;
 }
-export async function previewRealityImport(input: string, existing: Pick<SavedReality, "id" | "name">[]): Promise<RealityImportPreview> {
+export async function previewRealityImport(input: string, existing: Pick<SavedReality, "id" | "name">[], onStage?: (stage: "decode" | "validate" | "summary") => Promise<void>): Promise<RealityImportPreview> {
+  await onStage?.("decode");
   const decoded = await decodeRealityShareCode(input);
   if (!decoded.json) throw new Error(decoded.error ?? "Could not decode the reality code.");
+  await onStage?.("validate");
   const r = parseRealityImport(decoded.json);
+  await onStage?.("summary");
   return { json: decoded.json, id: r.id, name: r.name, year: r.year ?? r.season.franchise?.year ?? 1,
     archivedYears: r.history?.length ?? 0, teams: r.season.teams.map(t => t.name),
     replaces: existing.find(slot => slot.id === r.id)?.name ?? null };

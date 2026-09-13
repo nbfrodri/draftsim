@@ -1,3 +1,4 @@
+import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
 import {
 setActiveCounterOverride,
@@ -49,10 +50,12 @@ importReality: async (json) => {
       catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Invalid reality export." }; }
       const rs = r.season;
       const id = r.id;
+      advanceOperationProgress("protect");
       if (get().realities.some(slot => slot.id === id)) {
         try { await backupBeforeDestructiveChange(); }
         catch (error) { return { ok: false, error: `Preventive backup failed: ${String(error)}` }; }
       }
+      advanceOperationProgress("decode");
       // Decode the compact tournaments back to full form, mirroring loadSavedSeason.
       const decoded = ensureSeasonIdentities({
         ...(rs as SeasonState),
@@ -75,6 +78,7 @@ importReality: async (json) => {
         season,
         history: Array.isArray(r.history) ? (r.history as SeasonHistoryEntry[]) : [],
       };
+      advanceOperationProgress("save");
       set((st) => ({
         realities: [slot, ...st.realities.filter((x) => x.id !== id)],
         ...(st.activeRealityId === id ? {
@@ -112,6 +116,8 @@ importReality: async (json) => {
           };
         }
       }
+      await flushPendingPersistWrites();
+      recordOperationSuccess();
       return { ok: true, id };
     } finally {
       clearDesktopOperation();

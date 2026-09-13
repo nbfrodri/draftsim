@@ -2,13 +2,14 @@
 import { useHydrated } from "@/lib/useHydrated";
 
 import gsap from "gsap";
-import { useEffect,useRef,useId,useState } from "react";
+import { useEffect,useRef,useId,useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 interface Props {
   open: boolean;
   title: string;
   message: string;
+  children?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   tone?: "danger" | "default";
@@ -30,6 +31,7 @@ export default function Modal({
   open,
   title,
   message,
+  children,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   tone = "default",
@@ -148,12 +150,12 @@ export default function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={messageId}
-        className="relative w-full max-w-md bg-rift-panel/95 border border-rift-gold/60 shadow-[0_0_60px_rgba(0,0,0,0.8)] p-6 md:p-8"
+        className={`relative max-h-[90dvh] overflow-x-hidden overflow-y-auto w-full ${children ? "max-w-xl" : "max-w-md"} bg-rift-panel/95 border border-rift-gold/60 shadow-[0_0_60px_rgba(0,0,0,0.8)] p-6 md:p-8`}
       >
-        <span className="absolute -top-1.5 -left-1.5 w-3 h-3 rotate-45 bg-rift-gold" />
-        <span className="absolute -top-1.5 -right-1.5 w-3 h-3 rotate-45 bg-rift-gold" />
-        <span className="absolute -bottom-1.5 -left-1.5 w-3 h-3 rotate-45 bg-rift-gold" />
-        <span className="absolute -bottom-1.5 -right-1.5 w-3 h-3 rotate-45 bg-rift-gold" />
+        <span className="absolute top-1.5 left-1.5 w-3 h-3 rotate-45 bg-rift-gold" />
+        <span className="absolute top-1.5 right-1.5 w-3 h-3 rotate-45 bg-rift-gold" />
+        <span className="absolute bottom-1.5 left-1.5 w-3 h-3 rotate-45 bg-rift-gold" />
+        <span className="absolute bottom-1.5 right-1.5 w-3 h-3 rotate-45 bg-rift-gold" />
 
         <div className="text-center mb-2 ornament">
           <span className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
@@ -166,10 +168,11 @@ export default function Modal({
         >
           {title}
         </h2>
-        <p id={messageId} className="max-h-[50vh] overflow-auto text-sm text-rift-mutedbright text-center mb-6 md:mb-8 leading-relaxed">
+        <p id={messageId} className="break-words text-sm text-rift-mutedbright text-center mb-6 md:mb-8 leading-relaxed">
           {message}
         </p>
 
+        {children}
         {confirmError && <p role="alert" className="mb-3 text-sm text-red-300">{confirmError}</p>}
         {confirming && <p role="status" className="mb-3 text-sm text-rift-mutedbright">Saving a preventive copy...</p>}
         <div className="grid grid-cols-2 gap-3">
@@ -178,7 +181,7 @@ export default function Modal({
             data-modal-cancel="true"
             disabled={confirming}
             onClick={() => onCancelRef.current()}
-            className="py-3 border border-rift-line hover:border-rift-gold/60 text-rift-mutedbright hover:text-rift-goldbright font-display tracking-[0.3em] text-sm uppercase transition-colors"
+            className="min-w-0 px-2 py-3 border border-rift-line hover:border-rift-gold/60 text-rift-mutedbright hover:text-rift-goldbright font-display tracking-[0.15em] sm:tracking-[0.3em] text-xs sm:text-sm uppercase transition-colors"
           >
             {cancelLabel}
           </button>
@@ -187,7 +190,7 @@ export default function Modal({
             type="button"
             disabled={confirming}
             onClick={() => void confirm()}
-            className={`py-3 border font-display tracking-[0.3em] text-sm uppercase transition-all ${confirmClasses}`}
+            className={`min-w-0 px-2 py-3 border font-display tracking-[0.15em] sm:tracking-[0.3em] text-xs sm:text-sm uppercase transition-all ${confirmClasses}`}
           >
             {confirmLabel}
           </button>

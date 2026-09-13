@@ -1,5 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { formatElapsed } from "@/lib/operationProgress";
+
 type Props = {
   ornament: string;
   message: string;
@@ -20,6 +23,8 @@ export default function AppLifecycleShell({
   status = "busy",
   "aria-label": ariaLabel,
 }: Props) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => { const started = Date.now(); const timer = setInterval(() => setElapsed(Date.now() - started), 1000); return () => clearInterval(timer); }, []);
   const spinnerClass =
     status === "error"
       ? "w-8 h-8 border-2 border-red-400/30 border-t-red-300/80 rounded-full"
@@ -64,6 +69,7 @@ export default function AppLifecycleShell({
           >
             {message}
           </p>
+          {status === "busy" && <p className="text-xs tabular-nums text-rift-mutedbright">Elapsed {formatElapsed(elapsed)} ? Please wait</p>}
         </div>
       </div>
     </div>
