@@ -6,7 +6,6 @@
     "build:worker": "node scripts/build-bulk-sim-worker.mjs",
     "dev": "npm run build:worker && next dev --turbopack",
     "build": "npm run build:worker && next build",
-    "start": "node scripts/serve-static.mjs",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -17,10 +16,16 @@
     "fetch-coaches": "node scripts/fetch-coaches.mjs",
     "calibrate": "tsx scripts/calibrate.ts",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build",
+    "desktop:build": "npm run check:version && tauri build --bundles nsis,msi",
     "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build",
-    "test:e2e": "playwright test"
+    "check": "npm run check:version && npm run test:release && npm run lint && npm run typecheck && npm test && npm run build",
+    "test:e2e": "playwright test",
+    "preview": "node scripts/serve-static.mjs",
+    "refresh-champions": "tsx scripts/bundle-champions.mts",
+    "version": "node scripts/desktop-version.mjs --sync",
+    "check:version": "node scripts/desktop-version.mjs",
+    "test:release": "node --test scripts/desktop-version.test.mjs",
+    "test:desktop": "cargo test --manifest-path src-tauri/Cargo.toml --lib --locked"
   },
   "dependencies": {
     "@tabler/icons-react": "^3.41.1",

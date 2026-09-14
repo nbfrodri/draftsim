@@ -6,7 +6,7 @@ import path from "node:path";
 const nextConfig: NextConfig = {
   // Static export for Tauri packaging: `next build` emits a fully static
   // site into out/, which src-tauri/tauri.conf.json points at via
-  // frontendDist. Champions are fetched at build time (app/page.tsx).
+  // frontendDist. The champion catalogue is bundled locally (app/page.tsx).
   output: "export",
   turbopack: {
     root: path.resolve(__dirname),

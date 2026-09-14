@@ -1,6 +1,8 @@
 // Lightweight snapshots of regional / international outcomes for live sim feeds.
 
 import { seasonHasGlobalCup } from "./engine";
+import { computeSeasonIntlMvps } from "./stats";
+import type { PlayerAward } from "../awards";
 import {
   INTERNATIONAL_DISPLAY_ORDER,
   INTERNATIONAL_LABELS,
@@ -107,6 +109,8 @@ export interface SimIntlResultEntry {
   event: InternationalId;
   label: string;
   placements: Array<SimResultTeamRef & { rank: number }>;
+  /** Winner-team tournament MVP, frozen when the event concluded. */
+  mvp?: PlayerAward;
   /** Per-team roster captured when this event concluded. */
   rosterSnapshots?: SimRosterSnapshots;
 }
@@ -264,6 +268,11 @@ export function buildIntlResultEntry(
     .filter((r): r is SimResultTeamRef & { rank: number } => r != null);
   // Snapshot all participating teams (≤24) so hover shows the winning roster.
   const rosterSnapshots = buildRosterSnapshots(season, ids);
+  const award = ids.length > 0
+    ? computeSeasonIntlMvps(season, event).find((result) => result.event === event)?.mvp
+    : undefined;
+  // Never display a play-in winner or a runner-up as the event champion's MVP.
+  const mvp = award?.teamId === ids[0] ? award : undefined;
   return {
     kind: "intl",
     seasonId: season.id,
@@ -271,6 +280,7 @@ export function buildIntlResultEntry(
     event,
     label: INTERNATIONAL_LABELS[event],
     placements,
+    ...(mvp ? { mvp: { ...mvp } } : {}),
     ...(Object.keys(rosterSnapshots).length > 0 ? { rosterSnapshots } : {}),
   };
 }

@@ -571,6 +571,25 @@ const IntlCard = memo(function IntlCard({
         label={entry.label}
         icon={<LeagueIcon league={entry.event} size={14} />}
       />
+      {entry.mvp && (
+        <div className="flex flex-wrap items-center gap-1.5 mb-1.5 text-[8px] text-rift-goldbright">
+          <span className="uppercase tracking-[0.15em] text-rift-gold/70">MVP</span>
+          <LaneIcon lane={entry.mvp.lane} size="xs" />
+          <PlayerNameLink
+            playerId={entry.mvp.playerId}
+            name={entry.mvp.playerName ?? entry.mvp.displayName}
+            seasonId={entry.seasonId}
+            className="font-display min-w-0 truncate"
+          />
+          <span className="text-rift-mutedbright/70">{entry.mvp.teamName}</span>
+          <span
+            className="text-rift-muted/60 tabular-nums"
+            title={`Average rating across ${entry.mvp.gamesPlayed} rated games`}
+          >
+            {entry.mvp.avgRating.toFixed(1)} rating
+          </span>
+        </div>
+      )}
       <ol className="space-y-0.5">
         {visible.map((p) => (
           <li

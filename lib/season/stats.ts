@@ -72,11 +72,15 @@ export interface SeasonIntlMvp {
   mvp: PlayerAward;
 }
 
-export function computeSeasonIntlMvps(season: SeasonState): SeasonIntlMvp[] {
+export function computeSeasonIntlMvps(
+  season: SeasonState,
+  eventFilter?: InternationalId,
+): SeasonIntlMvp[] {
   const out: SeasonIntlMvp[] = [];
   for (const phase of season.phases) {
     if (phase.kind !== "international" || !phase.event) continue;
     const event = phase.event;
+    if (eventFilter && event !== eventFilter) continue;
     const champId = season.intlResults[event]?.[0] ?? null;
     let chosen: PlayerAward | null = null;
     // Prefer the tournament whose champion IS the event champion (skips play-ins).

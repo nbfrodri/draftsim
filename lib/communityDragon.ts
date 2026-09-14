@@ -30,10 +30,8 @@ function iconUrlFor(id: number): string {
 // Meraki exposes a curated `positions` array per champion — it only lists
 // lanes the champion is actually played in (unlike u.gg's primary-roles which
 // ranks every lane and produces false positives for pure specialists).
-// The raw response is ~17MB which exceeds Next's 2MB data-cache limit; this
-// surfaces as a build-time warning but is fine in practice since the server
-// component wrapping this call is prerendered at build time (static export
-// for Tauri) — champions refresh by rebuilding the app.
+// Remote refresh runs after startup or through the data-maintenance script;
+// production builds use the packaged catalogue and do not need this request.
 async function fetchLanesFromMeraki(): Promise<Record<number, Lane[]>> {
   const res = await fetch(MERAKI_URL, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`Meraki fetch failed: ${res.status}`);

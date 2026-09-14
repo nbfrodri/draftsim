@@ -1,10 +1,19 @@
 name: Project checks
-on: [push, pull_request]
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+
 permissions:
   contents: read
+
 jobs:
-  web:
+  interface:
+    name: Interface and simulation checks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -12,6 +21,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run check:version
+      - run: npm run test:release
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
@@ -19,8 +30,16 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: interface-test-results
+          path: test-results/
+          retention-days: 7
   desktop:
+    name: Windows installers and native checks
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,20 +48,28 @@ jobs:
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
-      - run: npm run build
-      - run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
-      - run: npm run desktop:build
+      - run: npm run check:version
+      # Tauri's beforeBuildCommand builds the frontend exactly once.
+      - run: npm run desktop:build -- --ci
+      - run: npm run test:desktop
       - run: npx tsx scripts/create-install-fixture.mts install-fixture.json
       - name: Installer, reopen, legacy migration and reinstall smoke
         shell: pwsh
         run: |
-          $installer = (Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1).FullName
-          ./scripts/windows-install-smoke.ps1 -Installer $installer -Fixture install-fixture.json
+          $installers = @(Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe)
+          $msi = @(Get-ChildItem src-tauri/target/release/bundle/msi/*.msi)
+          if ($installers.Count -ne 1 -or $msi.Count -ne 1) { throw 'Expected one NSIS installer and one MSI installer.' }
+          ./scripts/windows-install-smoke.ps1 -Installer $installers[0].FullName -Fixture install-fixture.json
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: windows-installers-and-smoke
+          name: windows-installers
+          if-no-files-found: error
           path: |
             src-tauri/target/release/bundle/nsis/*-setup.exe
             src-tauri/target/release/bundle/msi/*.msi
-            ${{ runner.temp }}/draftsim-install-smoke/result.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-install-smoke
+          path: ${{ runner.temp }}/draftsim-install-smoke/result.json
+          retention-days: 7

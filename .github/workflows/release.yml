@@ -1,0 +1,67 @@
+name: Windows release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Match tag to all application versions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/desktop-version.mjs --tag "$RELEASE_TAG"
+  checks:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+  publish:
+    name: Publish NSIS and MSI
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installers
+          path: installers
+      - name: Publish verified Windows installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' nsis < <(find installers -type f -name '*-setup.exe' -print0)
+          mapfile -d '' msi < <(find installers -type f -name '*.msi' -print0)
+          if [[ ${#nsis[@]} -ne 1 || ${#msi[@]} -ne 1 ]]; then
+            echo 'Expected exactly one NSIS installer and one MSI installer.' >&2
+            exit 1
+          fi
+          # Stage all assets in a draft, then publish the complete release.
+          # A rerun can finish a failed draft upload, but never overwrite a public release.
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > release-draft.txt; then
+            if [[ $(cat release-draft.txt) != true ]]; then
+              echo 'This release is already public; use a new version tag.' >&2
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "DraftSim $RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" "${nsis[0]}" "${msi[0]}" --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
