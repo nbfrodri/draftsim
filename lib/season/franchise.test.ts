@@ -1609,3 +1609,26 @@ describe("no vacancy stubs on main roster", () => {
     );
   });
 });
+
+
+describe("permanent reality name reservations", () => {
+  it("repairs a missing registry from retired players and preserves it across reloads and years", () => {
+    let season = makeReality(false);
+    const retired = { ...season.teams[0]!.players[0]!, id: "old-founder", name: "RetiredFounder" };
+    season = {
+      ...season,
+      franchise: {
+        ...season.franchise!,
+        usedNames: undefined,
+        inactivePool: [{ player: retired, status: "retired", inactiveYears: 20, demotedYear: 1, lastTeamId: season.teams[0]!.id }],
+      },
+    };
+    season = startNextSeason(season, champions, rngFrom(543));
+    expect(season.franchise!.usedNames).toContain(retired.name);
+    // The permanent registry must outlive even a compacted inactive archive.
+    season.franchise!.inactivePool = [];
+    season = JSON.parse(JSON.stringify(season));
+    season = startNextSeason(season, champions, rngFrom(544));
+    expect(season.franchise!.usedNames).toContain(retired.name);
+  });
+});

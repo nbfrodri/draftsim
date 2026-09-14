@@ -323,6 +323,19 @@ function buildSplitCheckpointOutcomes(
   return { outcomes, roleMeans: computeRoleMeans(outcomes.values()) };
 }
 
+function reservedRealityNames(season: SeasonState): Set<string> {
+  const taken = new Set(season.franchise?.usedNames ?? []);
+  for (const team of season.teams) {
+    for (const player of team.players) if (player.name) taken.add(player.name);
+    if (team.coach?.name) taken.add(team.coach.name);
+  }
+  // Also repairs incomplete legacy registries using retained retired players.
+  for (const entry of season.franchise?.inactivePool ?? []) {
+    if (entry.player.name) taken.add(entry.player.name);
+  }
+  return taken;
+}
+
 /**
  * Mid-split demotion checkpoint (franchise aging only): evaluate underperformance
  * for the just-finished split, demote / fill slots, AI academy release/stash/
@@ -343,7 +356,7 @@ export function applyMidSplitDemotions(
 ): SeasonState {
   if (!season.franchise?.aging) return season;
 
-  const taken = new Set<string>(season.franchise.usedNames ?? []);
+  const taken = reservedRealityNames(season);
   for (const t of season.teams) {
     for (const p of t.players) if (p.name) taken.add(p.name);
     if (t.coach?.name) taken.add(t.coach.name);
@@ -386,7 +399,7 @@ export function applyMidSplitDemotions(
     ...t,
     players: byId.get(t.id) ?? t.players,
   }));
-  const usedNames = new Set<string>(season.franchise.usedNames ?? []);
+  const usedNames = new Set(taken);
   for (const t of teams) {
     for (const p of t.players) if (p.name) usedNames.add(p.name);
   }
@@ -572,6 +585,7 @@ export function startNextSeason(
   const closingYear = prev.franchise?.year ?? 1;
   const nextYear = closingYear + 1;
   let working = prev;
+  const usedNames = reservedRealityNames(prev);
   let evolvedTeams: SeasonTeam[] = working.teams;
   const rosterNews: Array<RosterNewsEvent & { teamId: string }> = [];
   let nextInactivePool = working.franchise?.inactivePool ?? [];
@@ -598,7 +612,8 @@ export function startNextSeason(
     working = fillRosterVacancies(working, champions, rng);
     rosterNews.push(...(working.rosterNews ?? []).slice(newsBeforeAdvance));
 
-    const taken = new Set<string>(working.franchise?.usedNames ?? []);
+    const taken = usedNames;
+    for (const name of reservedRealityNames(working)) taken.add(name);
     for (const t of working.teams) {
       for (const p of t.players) if (p.name) taken.add(p.name);
       if (t.coach?.name) taken.add(t.coach.name);
@@ -707,7 +722,6 @@ export function startNextSeason(
   const prior =
     prev.status === "complete" ? buildSeasonHistoryEntry(prevForHistory, Date.now()) : undefined;
   const year = nextYear;
-  const usedNames = new Set<string>(prev.franchise?.usedNames ?? []);
   for (const t of evolvedTeams) {
     for (const p of t.players) if (p.name) usedNames.add(p.name);
     if (t.coach?.name) usedNames.add(t.coach.name);
@@ -911,7 +925,7 @@ export function applyUserAcademyRookie(
   const pool = season.franchise.inactivePool ?? [];
   if (!teamAcademyHasRookieSoftRoom(pool, me)) return null;
 
-  const taken = new Set<string>(season.franchise.usedNames ?? []);
+  const taken = reservedRealityNames(season);
   for (const t of season.teams) {
     for (const p of t.players) if (p.name) taken.add(p.name);
     if (t.coach?.name) taken.add(t.coach.name);
@@ -1161,7 +1175,7 @@ export function applyUserRookieSign(
   const incumbent = team.players[slot]!;
   if (!isRosterVacancy(incumbent)) return null;
 
-  const taken = new Set<string>(season.franchise.usedNames ?? []);
+  const taken = reservedRealityNames(season);
   for (const t of season.teams) {
     for (const p of t.players) if (p.name) taken.add(p.name);
     if (t.coach?.name) taken.add(t.coach.name);
@@ -1335,7 +1349,7 @@ export function fillRosterVacancies(
     (season.franchise.inactivePool ?? []).filter((e) => !isRosterVacancy(e.player)),
   );
   let pool = healed.inactivePool;
-  const taken = new Set<string>(season.franchise.usedNames ?? []);
+  const taken = reservedRealityNames(season);
   for (const t of healed.teams) {
     for (const p of t.players) if (p.name) taken.add(p.name);
   }

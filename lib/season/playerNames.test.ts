@@ -21,6 +21,19 @@ const roster = (): Player[] =>
   }));
 
 describe("generateHandle", () => {
+  it("stays unique after exhausting all two-letter fallback suffixes", () => {
+    const taken = new Set<string>(["Vex", "Vexxx"]);
+    const handles = Array.from({ length: 1500 }, () => generateHandle(() => 0, taken));
+    expect(new Set(handles).size).toBe(1500);
+    expect(handles).not.toContain("Vexxx");
+    expect(handles.every(isValidHandle)).toBe(true);
+  });
+
+  it("reserves names regardless of case and surrounding whitespace", () => {
+    const taken = new Set([" VEX ", "vexaa"]);
+    expect(generateHandle(() => 0, taken)).toBe("Vexab");
+  });
+
   it("never repeats a handle while sharing a taken set", () => {
     const r = rng(1);
     const taken = new Set<string>();

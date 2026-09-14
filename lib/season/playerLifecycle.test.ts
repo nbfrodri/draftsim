@@ -1230,3 +1230,13 @@ describe("inactiveSnapshotsForArchivedYear", () => {
     expect(snaps.map((s) => s.playerId)).toEqual(["stay"]);
   });
 });
+
+
+describe("rookie name reservations", () => {
+  it("does not reuse a historical handle with different capitalization", () => {
+    const original = makeRookie("top", champions, rng(123), new Set());
+    const taken = new Set([original.name!.toUpperCase()]);
+    const rookie = makeRookie("top", champions, rng(123), taken);
+    expect(rookie.name!.toLowerCase()).not.toBe(original.name!.toLowerCase());
+  });
+});

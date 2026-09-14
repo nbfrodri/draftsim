@@ -118,34 +118,40 @@ function syllableSets(region?: string): { onsets: string[]; codas: string[] } {
   };
 }
 
+export function normalizeHandle(name: string): string {
+  return name.normalize("NFKC").trim().toLowerCase();
+}
+
 /** A unique generated handle; mutates `taken`. Optional `region` (league id)
  *  adds regional syllable flavor. Never trailing digit / Roman suffix. */
 export function generateHandle(rng: RNG, taken: Set<string>, region?: string): string {
+  const reserved = new Set([...taken].map(normalizeHandle));
   const { onsets, codas } = syllableSets(region);
   for (let attempt = 0; attempt < 80; attempt++) {
     const onset = onsets[Math.floor(rng() * onsets.length)]!;
     const coda = codas[Math.floor(rng() * codas.length)]!;
     const handle = onset + coda;
-    if (!taken.has(handle) && isValidHandle(handle)) {
+    if (!reserved.has(normalizeHandle(handle)) && isValidHandle(handle)) {
       taken.add(handle);
       return handle;
     }
   }
-  // Exhausted — append a letter suffix (never a digit).
+  // Grow the alphabetic suffix as needed: a finite used-name set must never
+  // force reuse, even after centuries or with an RNG that keeps colliding.
   const base = onsets[0] ?? "Vex";
-  for (let i = 0; i < 26 * 26; i++) {
-    const a = String.fromCharCode(97 + (i % 26));
-    const b = String.fromCharCode(97 + Math.floor(i / 26) % 26);
-    const handle = `${base}${a}${b}`;
-    if (!taken.has(handle) && isValidHandle(handle)) {
+  for (let suffix = "aa"; ; ) {
+    const handle = base + suffix;
+    if (!reserved.has(normalizeHandle(handle)) && isValidHandle(handle)) {
       taken.add(handle);
       return handle;
     }
+    const letters = suffix.split("");
+    let i = letters.length - 1;
+    while (i >= 0 && letters[i] === "z") letters[i--] = "a";
+    if (i < 0) letters.unshift("a");
+    else letters[i] = String.fromCharCode(letters[i]!.charCodeAt(0) + 1);
+    suffix = letters.join("");
   }
-  // Absolute last resort (still no trailing digit).
-  const fallback = `${base}xx`;
-  taken.add(fallback);
-  return fallback;
 }
 
 /** Name a roster's players in place: real handle per lane where the team

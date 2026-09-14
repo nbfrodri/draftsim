@@ -24,7 +24,7 @@ import {
   makePlayerId,
   type RNG,
 } from "../players";
-import { generateHandle, isValidHandle } from "./playerNames";
+import { generateHandle, isValidHandle, normalizeHandle } from "./playerNames";
 // Re-export for callers that imported isValidHandle from lifecycle.
 export { isValidHandle } from "./playerNames";
 import rookiePool from "./rookieNames.json";
@@ -98,9 +98,10 @@ const POOL_BY_LANE: Record<Lane, string[]> = (() => {
 
 function rookieName(lane: Lane, rng: RNG, taken: Set<string>, region?: string): string {
   const pool = POOL_BY_LANE[lane];
+  const reserved = new Set([...taken].map(normalizeHandle));
   for (let i = 0; i < 12 && pool.length > 0; i++) {
     const n = pool[Math.floor(rng() * pool.length)];
-    if (!taken.has(n) && isValidHandle(n)) {
+    if (!reserved.has(normalizeHandle(n)) && isValidHandle(n)) {
       taken.add(n);
       return n;
     }
@@ -740,6 +741,9 @@ export function runDemotionPass(
     return healed ? { ...t, players: healed.players } : t;
   });
   const inactiveHealed = reconciled.inactivePool as InactivePlayer[];
+  for (const entry of inactivePoolIn) {
+    if (entry.player.name) taken.add(entry.player.name);
+  }
 
   if (advancePool) {
     // Saves written before `clockYear` existed heal here (one pass, in place)
