@@ -190,22 +190,12 @@ export function splitPlacementLabel(placement: number): string {
 }
 
 export function intlOutcomeLabel(outcome: IntlOutcome): string {
-  switch (outcome.kind) {
-    case "champion":
-      return outcome.placement ? `#${outcome.placement}` : "Champion";
-    case "finalist":
-      return "Final · #2";
-    case "playoffs-exit":
-      return outcome.placement
-        ? `#${outcome.placement}`
-        : "Eliminated · Playoffs";
-    case "playins-exit":
-      return outcome.placement ? `#${outcome.placement}` : "Eliminated · Play-In";
-    case "did-not-qualify":
-      return "Didn't qualify";
-  }
+  if (outcome.kind === "did-not-qualify") return "Didn't qualify";
+  if (outcome.placement != null) return `#${outcome.placement}`;
+  if (outcome.kind === "champion") return "#1";
+  if (outcome.kind === "finalist") return "#2";
+  return "Placement unavailable";
 }
-
 /** True when a team reached the international final (#1 or #2). */
 export function reachedIntlFinal(placement: number | null): boolean {
   return placement != null && placement <= 2;

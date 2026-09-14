@@ -101,8 +101,20 @@ describe("teamIntlOutcome", () => {
     );
   });
 
+  it.each([
+    { kind: "champion", placement: 1, label: "#1" },
+    { kind: "playoffs-exit", placement: 5, label: "#5" },
+    { kind: "playins-exit", placement: 9, label: "#9" },
+    { kind: "champion", placement: null, label: "#1" },
+    { kind: "finalist", placement: null, label: "#2" },
+    { kind: "playoffs-exit", placement: null, label: "Placement unavailable" },
+    { kind: "playins-exit", placement: null, label: "Placement unavailable" },
+  ] as const)("labels $kind with placement $placement as $label", ({ kind, placement, label }) => {
+    expect(intlOutcomeLabel({ kind, placement })).toBe(label);
+  });
+
   it("labels outcomes for display", () => {
-    expect(intlOutcomeLabel({ kind: "finalist", placement: 2 })).toBe("Final · #2");
+    expect(intlOutcomeLabel({ kind: "finalist", placement: 2 })).toBe("#2");
     expect(intlOutcomeLabel({ kind: "did-not-qualify", placement: null })).toBe(
       "Didn't qualify",
     );

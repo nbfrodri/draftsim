@@ -157,7 +157,7 @@ const TeamSeasonRow = memo(function TeamSeasonRow({
         key="worlds-legacy"
         icon={<LeagueIcon league="worlds" size={12} />}
         label={INTERNATIONAL_LABELS.worlds}
-        result="Champion"
+        result="#1"
         tone="champion"
         title={`${INTERNATIONAL_LABELS.worlds} · World Champion`}
       />,
@@ -171,7 +171,7 @@ const TeamSeasonRow = memo(function TeamSeasonRow({
         key="worlds-finalist-legacy"
         icon={<LeagueIcon league="worlds" size={12} />}
         label={INTERNATIONAL_LABELS.worlds}
-        result="Final · #2"
+        result="#2"
         tone="finalist"
         title={`${INTERNATIONAL_LABELS.worlds} · Finalist`}
       />,
