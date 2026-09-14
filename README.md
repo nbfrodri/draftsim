@@ -32,6 +32,18 @@ DraftSim uses Microsoft Edge WebView2. The installer handles its installation wh
 
 The [systems reference](docs/systems.md) explains drafting, match simulation and franchise behavior in detail.
 
+## Title Playground
+
+Open **Season History → select a reality → Title Playground** to explore archived team and player titles through stacked bars and a cumulative timeline.
+
+- Filter by region, individual split or international competition, and an inclusive range of years.
+- Switch between teams and players; filter players by the position they played when winning each title.
+- Search, show Top 10 / Top 25 / all competitors, or pick a custom comparison.
+- Use team logos, position icons and competition badges to identify competitors; select a row for the exact winning years, clubs and regions.
+- Player titles belong to the region and position at the time of the win. Later transfers do not change their attribution.
+
+Works with existing realities and keeps their histories separate. Older archives with missing roster identities show a coverage notice instead of guessing player winners. The themed dropdowns support keyboard navigation. See the [Title Playground guide](docs/title-playground.md) for counting rules and controls.
+
 ## Gallery
 
 | Draft | Match simulation |

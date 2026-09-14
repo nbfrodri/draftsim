@@ -1,5 +1,6 @@
 "use client";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
+import dynamic from "next/dynamic";
 import { ComparePanel } from "./hall/ComparePanel";
 import { acyBadgeYears,CareerStatus,CareerStatusBadge,DynastyBadge,LANES,NavFn,NavPlayerName,PlayerTeamIcon,SeasonScope,TeamRef } from "./hall/shared";
 
@@ -123,6 +124,8 @@ import { HistoryTeamCardProvider } from "./team/TeamCardContext";
 import TeamLogoLink from "./team/TeamLogoLink";
 import TeamNameLink from "./team/TeamNameLink";
 import TeamSeasonResultsHistory from "./team/TeamSeasonResultsHistory";
+const TitlePlayground = dynamic(() => import("./hall/TitlePlayground"), { loading: () => <HallPanelLoading label="Loading title playground…" /> });
+
 type GoToSeasonFn = (seasonId: string) => void;
 const teamRefKey = (t: SeasonHistoryTeamRef) => `${t.leagueId}:${t.name}`;
 
@@ -204,10 +207,11 @@ const NavCoachName = memo(function NavCoachName({
 // starting and final tier tables side by side (per lane) plus the drift
 // between them.
 
-type HallTab = "timeline" | "records" | "dynasties" | "search" | "compare";
+type HallTab = "playground" | "timeline" | "records" | "dynasties" | "search" | "compare";
 type TimelineView = "seasons" | "overall";
 
 const HALL_TAB_LOADING: Record<HallTab, string> = {
+  playground: "Loading title playground…",
   timeline: "Loading timeline…",
   records: "Loading records & dynasties…",
   dynasties: "Loading franchise timeline…",
@@ -4995,11 +4999,12 @@ export default function SeasonHistoryView({
 
         {/* Timeline ↔ Records tabs */}
         {seasonHistory.length > 0 && (
-          <div className="flex items-center gap-1 mb-5">
+          <div className="flex flex-wrap items-center gap-1 mb-5">
             {(
               [
                 { id: "timeline", label: "Timeline" },
                 { id: "records", label: "Records & Dynasties" },
+                { id: "playground", label: "Title Playground" },
                 { id: "dynasties", label: "Franchise Timeline" },
                 { id: "search", label: "Search" },
                 { id: "compare", label: "Compare" },
@@ -5032,6 +5037,8 @@ export default function SeasonHistoryView({
           </p>
         ) : tabLoading ? (
           <HallPanelLoading label={HALL_TAB_LOADING[tab]} />
+        ) : deferredTab === "playground" ? (
+          <TitlePlayground key={source} entries={seasonHistory} />
         ) : deferredTab === "records" ? (
           <RecordsPanel
             entries={seasonHistory}

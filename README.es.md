@@ -32,6 +32,18 @@ DraftSim utiliza Microsoft Edge WebView2. El instalador gestiona su instalación
 
 La [referencia de sistemas](docs/systems.es.md) explica en detalle el draft, las partidas y las franquicias.
 
+## Title Playground
+
+Abre **Season History → elige una realidad → Title Playground** para explorar los títulos históricos de equipos y jugadores con barras apiladas y una evolución acumulada por año.
+
+- Filtra por región, split o competición internacional y por un intervalo de años inclusivo.
+- Alterna equipos y jugadores; filtra jugadores por la posición en la que ganaron cada título.
+- Busca competidores, muestra Top 10 / Top 25 / todos o selecciona una comparación personalizada.
+- Identifica competidores con logos de equipo, iconos de posición y competición; selecciona una fila para ver los años, clubes y regiones de cada título.
+- Los títulos de jugadores se atribuyen a la región y posición en el momento de ganarlos. Los fichajes posteriores no cambian esa atribución.
+
+Funciona con realidades existentes y mantiene separados sus historiales. Los archivos antiguos sin identidades de plantilla suficientes muestran un aviso, sin inventar ganadores. Los dropdowns oscuros admiten navegación por teclado. La [guía de Title Playground](docs/title-playground.md) detalla los controles y las reglas de cómputo en inglés.
+
 ## Galería
 
 | Draft | Simulación de partida |
