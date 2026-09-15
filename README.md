@@ -44,6 +44,11 @@ Open **Season History → select a reality → Title Playground** to explore arc
 
 Works with existing realities and keeps their histories separate. Older archives with missing roster identities show a coverage notice instead of guessing player winners. The themed dropdowns support keyboard navigation. See the [Title Playground guide](docs/title-playground.md) for counting rules and controls.
 
+Hover team and player names for profile cards. In the breakdown, click counts, competitions, years, teams or regions to filter the table; the button beside each year opens it in Timeline.
+
+Player Career History and team Results History include expandable roster snapshots for each recorded event, with cards pinned to that event and a Close roster button. Newly archived seasons retain every champion played in each player's champion pool. Existing realities support these changes; champions discarded from older capped summaries cannot be recovered automatically.
+
+
 ## Gallery
 
 | Draft | Match simulation |

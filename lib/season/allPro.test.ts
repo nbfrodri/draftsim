@@ -52,6 +52,19 @@ function seasonWithGame(): SeasonState {
 }
 
 describe("computePlayerChampStats", () => {
+  it("retains every champion when a player uses more than twelve", () => {
+    const season = seasonWithGame();
+    const series = season.tournaments.t.matches[0].series!;
+    const game = series.games[0];
+    series.games = Array.from({length: 20}, (_, i) => ({
+      ...game, bluePicks: [1000 + i, 101, 102, 103, 104],
+    }));
+    const pool = computePlayerChampStats(season).get("a1")!;
+    expect(pool).toHaveLength(20);
+    expect(pool.map(c => c.championId)).toEqual(Array.from({length:20}, (_,i) => 1000+i));
+    expect(pool.every(c => c.games === 1 && c.wins === 1)).toBe(true);
+  });
+
   it("joins champion to player by lane (not slot) and credits the win", () => {
     const champs = computePlayerChampStats(seasonWithGame());
     // Blue pick 0 (champ 100) is jungle → perPickIds.blue[1] = "a1".

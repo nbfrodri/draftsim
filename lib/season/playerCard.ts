@@ -196,6 +196,7 @@ export interface ArchivedRosterSnapshot {
 export function archivedRosterSnapshot(
   entry: SeasonHistoryEntry,
   playerId: string,
+  phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId,
 ): ArchivedRosterSnapshot | null {
   const phases = [...(entry.phaseRosters ?? [])].sort(
     (a, b) => a.phaseIndex - b.phaseIndex,
@@ -203,6 +204,7 @@ export function archivedRosterSnapshot(
   let latest: ArchivedRosterSnapshot | null = null;
   const teamIds = new Set<string>();
   for (const phase of phases) {
+    if (phaseScope && (phase.split ?? phase.event) !== phaseScope) continue;
     for (const team of phase.teams) {
       const found = team.players.find((p) => p.id === playerId);
       if (!found) continue;

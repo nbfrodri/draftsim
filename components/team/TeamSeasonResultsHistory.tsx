@@ -4,6 +4,7 @@ import { IconTrophy } from "@tabler/icons-react";
 import { memo, type ReactNode } from "react";
 
 import LeagueIcon from "@/components/LeagueIcon";
+import RosterSnapshotCards from "@/components/hall/RosterSnapshotCards";
 import GoToSeasonButton from "@/components/hall/GoToSeasonButton";
 import SplitIcon from "@/components/season/SplitIcon";
 import {
@@ -29,8 +30,7 @@ const SPLIT_SHORT: Record<SplitId, string> = {
 
 /** Calendar order: split → its international, through the competitive year. */
 const PHASE_ORDER: ReadonlyArray<
-  | { kind: "split"; id: SplitId }
-  | { kind: "intl"; id: InternationalId }
+  { kind: "split"; id: SplitId } | { kind: "intl"; id: InternationalId }
 > = [
   { kind: "split", id: "winter" },
   { kind: "intl", id: "first-stand" },
@@ -41,12 +41,7 @@ const PHASE_ORDER: ReadonlyArray<
   { kind: "intl", id: "global-cup" },
 ];
 
-type ChipTone =
-  | "champion"
-  | "finalist"
-  | "placed"
-  | "exit"
-  | "dnq";
+type ChipTone = "champion" | "finalist" | "placed" | "exit" | "dnq";
 
 const CHIP_TONE_CLS: Record<ChipTone, string> = {
   champion:
@@ -94,9 +89,16 @@ function ResultChip({
     >
       {icon}
       <span className="hidden sm:inline max-w-[4.5rem] truncate">{label}</span>
-      <span className="tabular-nums font-display tracking-normal">{result}</span>
+      <span className="tabular-nums font-display tracking-normal">
+        {result}
+      </span>
       {tone === "champion" && (
-        <IconTrophy size={9} stroke={1.6} className="text-rift-gold/75 flex-shrink-0" aria-hidden />
+        <IconTrophy
+          size={9}
+          stroke={1.6}
+          className="text-rift-gold/75 flex-shrink-0"
+          aria-hidden
+        />
       )}
     </span>
   );
@@ -109,7 +111,9 @@ const TeamSeasonRow = memo(function TeamSeasonRow({
   season: TeamSeasonLine;
   onGoToSeason?: (seasonId: string) => void;
 }) {
-  const chips: ReactNode[] = [];
+  const chips: { scope: SplitId | InternationalId; chip: ReactNode }[] = [];
+  const addChip = (scope: SplitId | InternationalId, chip: ReactNode) =>
+    chips.push({ scope, chip });
 
   for (const phase of PHASE_ORDER) {
     if (phase.kind === "split") {
@@ -117,7 +121,8 @@ const TeamSeasonRow = memo(function TeamSeasonRow({
       if (placement == null) continue;
       const champion = season.splitTitles.includes(phase.id);
       const label = SPLIT_SHORT[phase.id];
-      chips.push(
+      addChip(
+        phase.id,
         <ResultChip
           key={`sp-${phase.id}`}
           icon={<SplitIcon split={phase.id} size={12} />}
@@ -135,7 +140,8 @@ const TeamSeasonRow = memo(function TeamSeasonRow({
     const champion =
       season.intlTitles.includes(phase.id) || outcome.kind === "champion";
     const label = INTERNATIONAL_LABELS[phase.id];
-    chips.push(
+    addChip(
+      phase.id,
       <ResultChip
         key={`in-${phase.id}`}
         icon={<LeagueIcon league={phase.id} size={12} />}
@@ -152,7 +158,8 @@ const TeamSeasonRow = memo(function TeamSeasonRow({
     !season.intlTitles.includes("worlds") &&
     !season.intlOutcomes.worlds
   ) {
-    chips.push(
+    addChip(
+      "worlds",
       <ResultChip
         key="worlds-legacy"
         icon={<LeagueIcon league="worlds" size={12} />}
@@ -162,11 +169,9 @@ const TeamSeasonRow = memo(function TeamSeasonRow({
         title={`${INTERNATIONAL_LABELS.worlds} · World Champion`}
       />,
     );
-  } else if (
-    season.worlds === "finalist" &&
-    !season.intlOutcomes.worlds
-  ) {
-    chips.push(
+  } else if (season.worlds === "finalist" && !season.intlOutcomes.worlds) {
+    addChip(
+      "worlds",
       <ResultChip
         key="worlds-finalist-legacy"
         icon={<LeagueIcon league="worlds" size={12} />}
@@ -202,7 +207,38 @@ const TeamSeasonRow = memo(function TeamSeasonRow({
             No recorded results
           </span>
         ) : (
-          chips
+          chips.map(({ chip, scope }) => {
+            const stages = season.stages.filter(
+              (stage) => stage.split === scope || stage.event === scope,
+            );
+            return (
+              <details key={scope} className="group open:w-full">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-1">
+                  {chip}
+                  <span aria-hidden className="text-[9px] text-rift-gold/60">
+                    ▾
+                  </span>
+                </summary>
+                <div className="my-2 space-y-2">
+                  {stages.length ? (
+                    stages.map((stage, i) => (
+                      <RosterSnapshotCards
+                        key={i}
+                        seasonId={season.seasonId}
+                        phaseScope={stage.split ?? stage.event}
+                        label={stage.label}
+                        roster={stage.roster}
+                        team={stage.team}
+                        coach={stage.coach}
+                      />
+                    ))
+                  ) : (
+                    <RosterSnapshotCards seasonId={season.seasonId} label={scope} />
+                  )}
+                </div>
+              </details>
+            );
+          })
         )}
       </div>
     </div>

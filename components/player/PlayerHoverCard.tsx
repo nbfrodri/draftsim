@@ -530,6 +530,7 @@ type Placement = { top: number; left: number };
 export default function PlayerHoverCard({
   playerId,
   seasonId,
+  phaseScope,
   hint,
   disabled,
   className = "",
@@ -537,6 +538,7 @@ export default function PlayerHoverCard({
 }: {
   playerId?: string;
   seasonId?: string;
+  phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: PlayerCardHint;
   disabled?: boolean;
   className?: string;
@@ -589,6 +591,7 @@ export default function PlayerHoverCard({
       const run = () => {
         const resolved = ctx.resolve(playerId, {
           ...(seasonId ? { seasonId } : {}),
+          ...(phaseScope ? { phaseScope } : {}),
           ...(resolveHint ? { hint: resolveHint } : {}),
         });
         if (resolved) setData(resolved);
@@ -596,7 +599,7 @@ export default function PlayerHoverCard({
       if (immediate) run();
       else showTimer.current = setTimeout(run, SHOW_DELAY_MS);
     },
-    [active, ctx, playerId, seasonId, resolveHint],
+    [active, ctx, playerId, seasonId, phaseScope, resolveHint],
   );
 
   const close = useCallback((immediate = false) => {

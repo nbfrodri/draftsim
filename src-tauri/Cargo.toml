@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.2.0"
+version = "0.2.1"
 description = "League of Legends draft, match and franchise simulator"
 repository = "https://github.com/nbfrodri/draftsim"
 edition = "2021"

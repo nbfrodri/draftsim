@@ -275,6 +275,16 @@ test("title playground filters teams, player winning regions, years and realitie
   await expect(
     detail.getByRole("cell", { name: "MSI", exact: true }),
   ).toHaveCount(4);
+  await detail.getByRole("button", { name: "1", exact: true }).click();
+  await expect(detail.getByRole("cell", { name: "MSI", exact: true })).toHaveCount(1);
+  await detail.getByRole("button", { name: "G2", exact: true }).click();
+  await expect(detail.getByRole("button", { name: "Team: G2 ×", exact: true })).toBeVisible();
+  await detail.getByRole("button", { name: "Clear breakdown filters", exact: true }).click();
+  await expect(detail.getByRole("cell", { name: "MSI", exact: true })).toHaveCount(4);
+  await detail.getByRole("combobox", { name: "Breakdown split / event", exact: true }).click();
+  await page.getByRole("option", { name: "Winter", exact: true }).click();
+  await expect(detail.getByText("No titles match these breakdown filters.")).toBeVisible();
+  await detail.getByRole("button", { name: "Clear breakdown filters", exact: true }).click();
   await playground
     .getByRole("button", { name: "Cumulative timeline", exact: true })
     .click();
@@ -316,4 +326,46 @@ test("title playground filters teams, player winning regions, years and realitie
   await expect(
     playground.getByText("No competitors match this view"),
   ).toBeVisible();
+  // Cards are desktop-only. Enable their environment gate after browser storage hydration.
+  await page.evaluate(() => Object.defineProperty(window, "__TAURI_INTERNALS__", {value:{}, configurable:true}));
+  await page.getByRole("button", {name:"Reality · Alpha",exact:true}).click();
+  const teamRow = playground.getByRole("button", {name:"T1: 17 titles. View breakdown",exact:true});
+  await teamRow.getByText("T1", {exact:true}).hover();
+  await expect(page.getByRole("tooltip")).toBeVisible();
+  await page.getByRole("tooltip").click();
+  const results = page.getByText("Results History", {exact:true}).locator("..");
+  await results.locator("summary").filter({hasText:"Winter"}).first().click();
+  await expect(results.getByRole("region", {name:"winter roster snapshot"}).first()).toContainText("Traveller");
+  await page.screenshot({path:"test-results/playwright/team-roster-snapshot.png",fullPage:true});
+  const teamSnapshot = results.getByRole("region", {name:"winter roster snapshot"}).first();
+  await teamSnapshot.getByRole("button",{name:"Close roster",exact:true}).click();
+  await expect(teamSnapshot).not.toBeVisible();
+  await expect(results.locator("summary").filter({hasText:"Winter"}).first()).toBeFocused();
+
+  await page.getByRole("button", {name:"Title Playground",exact:true}).click();
+  await playground.getByRole("button", {name:"Players",exact:true}).click();
+  await playground.getByRole("button", {name:"Traveller: 21 titles. View breakdown",exact:true}).getByText("Traveller",{exact:true}).hover();
+  await expect(page.getByRole("tooltip")).toBeVisible();
+  await page.getByRole("tooltip").click();
+  const career = page.getByText("Career History",{exact:true}).locator("..");
+  await career.locator("summary").filter({hasText:"Winter"}).first().click();
+  await expect(career.getByRole("region", {name:/Winter.*roster snapshot/}).first()).toContainText("Traveller");
+  await page.screenshot({path:"test-results/playwright/player-roster-snapshot.png",fullPage:true});
+  const snapshot = career.getByRole("region", {name:/Winter.*roster snapshot/}).first();
+  await snapshot.getByRole("button",{name:"Traveller",exact:true}).hover();
+  await expect(page.getByRole("tooltip")).toContainText("T1");
+  await page.mouse.move(0,0);
+  await snapshot.getByRole("button",{name:"T1",exact:true}).hover();
+  await expect(page.getByRole("tooltip")).toContainText("Traveller");
+  await page.mouse.move(0,0);
+  await snapshot.getByRole("button",{name:"Close roster",exact:true}).click();
+  await expect(snapshot).not.toBeVisible();
+  await expect(career.locator("summary").filter({hasText:"Winter"}).first()).toBeFocused();
+  await page.getByRole("button", {name:"Title Playground",exact:true}).click();
+  await playground.getByRole("button", {name:"T1: 17 titles. View breakdown",exact:true}).click();
+  await playground.getByRole("button",{name:"View Alpha — Year 1 in timeline",exact:true}).first().click();
+  await expect(playground).not.toBeVisible();
+  await expect(page.getByRole("button",{name:"Timeline",exact:true})).toBeVisible();
+
+
 });

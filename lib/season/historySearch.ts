@@ -14,6 +14,7 @@ import {
   type InternationalId,
   type LeagueId,
   type SplitId,
+  type TeamRosterSnapshot,
   INTERNATIONAL_DISPLAY_ORDER,
 } from "./types";
 import {
@@ -848,6 +849,8 @@ export type CareerWindowKey = SplitId | InternationalId | "offseason";
  * collapsing the whole year into its final status.
  */
 export interface PlayerCareerWindow {
+  /** Exact roster captured at this checkpoint, never the end-of-year lineup. */
+  rosterSnapshot?: TeamRosterSnapshot;
   key: CareerWindowKey;
   /** Short chip label — "Winter", "MSI", "Offseason". */
   label: string;
@@ -1153,6 +1156,7 @@ export function playerProfile(
           label: careerWindowLabel(windowKey),
           kind: phase.kind,
           status: "active",
+          rosterSnapshot: me.t,
           team: ref,
           lane: me.lane,
           tier: me.tier,
@@ -1309,6 +1313,9 @@ export function playerProfile(
 // ─── Team profile ────────────────────────────────────────────────────────────
 
 export interface TeamStageRoster {
+  split?: SplitId;
+  event?: InternationalId;
+  team?: SeasonHistoryTeamRef;
   label: string;
   kind: "split" | "international";
   coach?: string;
@@ -1418,6 +1425,9 @@ export function teamProfile(entries: SeasonHistoryEntry[], key: string): TeamPro
       if (!t) continue;
       if (!resolvedTeamId) resolvedTeamId = t.teamId;
       stages.push({
+        split: phase.split,
+        event: phase.event,
+        team: refFor(identity, t.teamName, t.leagueId, t.logoUrl),
         label: phase.label,
         kind: phase.kind,
         ...(t.coach?.name ? { coach: t.coach.name } : {}),

@@ -123,6 +123,7 @@ import SeasonStoryCard from "./SeasonStoryCard";
 import { HistoryTeamCardProvider } from "./team/TeamCardContext";
 import TeamLogoLink from "./team/TeamLogoLink";
 import TeamNameLink from "./team/TeamNameLink";
+import RosterSnapshotCards from "./hall/RosterSnapshotCards";
 import TeamSeasonResultsHistory from "./team/TeamSeasonResultsHistory";
 const TitlePlayground = dynamic(() => import("./hall/TitlePlayground"), { loading: () => <HallPanelLoading label="Loading title playground…" /> });
 
@@ -2997,13 +2998,14 @@ const WINDOW_TONE: Record<CareerStatus, string> = {
 // every window of the calendar (Winter → First Stand → … → Offseason) and
 // which of them he lifted. Only rendered for archives that stamped their
 // academy / FA pool at each checkpoint; older years stay year-only.
-function CareerWindowChips({ windows }: { windows: PlayerCareerWindow[] }) {
+function CareerWindowChips({ windows, playerId, seasonId }: { windows: PlayerCareerWindow[]; playerId: string; seasonId: string }) {
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1">
       {windows.map((w, i) => (
-        <span
-          key={`${w.key}-${i}`}
-          className={`inline-flex items-center gap-1 border px-1 py-0.5 text-[7px] uppercase tracking-[0.15em] ${WINDOW_TONE[w.status]}`}
+        <details key={`${w.key}-${i}`} className="group open:w-full">
+        <summary
+
+          className={`inline-flex cursor-pointer list-none items-center gap-1 border px-1 py-0.5 text-[7px] uppercase tracking-[0.15em] ${WINDOW_TONE[w.status]}`}
           title={
             `${w.label} — ` +
             (w.status === "active"
@@ -3049,7 +3051,10 @@ function CareerWindowChips({ windows }: { windows: PlayerCareerWindow[] }) {
             </span>
           )}
           {w.title && <span className="text-rift-goldbright">🏆</span>}
-        </span>
+          <span aria-hidden className="ml-1 text-rift-gold/60">▾</span>
+        </summary>
+        <div className="mt-2 mb-1">{w.status === "active" ? <RosterSnapshotCards seasonId={seasonId} phaseScope={w.key === "offseason" ? undefined : w.key} label={w.label} team={w.team} roster={w.rosterSnapshot?.players} coach={w.rosterSnapshot?.coach?.name} highlightPlayerId={playerId} /> : <p className="text-[10px] text-rift-mutedbright">{w.label}: {w.status}. This player was not on a main roster at this checkpoint.</p>}</div>
+        </details>
       ))}
     </div>
   );
@@ -3372,7 +3377,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
                 />
                 <TitleTallyInline titles={t.titles} />
               </div>
-              {t.windows && <CareerWindowChips windows={t.windows} />}
+              {t.windows && <CareerWindowChips windows={t.windows} playerId={id} seasonId={t.seasonId} />}
             </div>
             </SeasonScope.Provider>
           ))}
@@ -5038,7 +5043,7 @@ export default function SeasonHistoryView({
         ) : tabLoading ? (
           <HallPanelLoading label={HALL_TAB_LOADING[tab]} />
         ) : deferredTab === "playground" ? (
-          <TitlePlayground key={source} entries={seasonHistory} />
+          <TitlePlayground key={source} entries={seasonHistory} onGoToSeason={goToSeasonInTimeline} />
         ) : deferredTab === "records" ? (
           <RecordsPanel
             entries={seasonHistory}

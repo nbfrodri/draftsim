@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { archivedRosterSnapshot } from "./playerCard";
 import type { SeasonHistoryEntry } from "./history";
 import {
   listPlayers,
@@ -1251,5 +1252,33 @@ describe("search title filters", () => {
     expect(passesMinGoldAdv(100, 10, 50)).toBe(false);
     expect(passesMinGoldAdv(100, 0, 50)).toBe(false);
     expect(passesMinGoldAdv(100, 10, null)).toBe(true);
+  });
+});
+
+describe("event roster snapshots", () => {
+  it("keeps original teammates in player windows and team stages after a transfer", () => {
+    const entries = retiredFixture([["vet", "old", "c", "d", "e"]]);
+    const entry = entries[0];
+    const winter = entry.phaseRosters![0];
+    const msi = structuredClone(winter);
+    msi.phaseIndex = 3;
+    msi.kind = "international";
+    msi.event = "msi";
+    delete msi.split;
+    msi.label = "MSI";
+    msi.teams[0].players[1] = {...msi.teams[0].players[1], id:"new", name:"New teammate"};
+    msi.teams[0].players[0].tier = "S";
+    entry.phaseRosters!.push(msi);
+    expect(archivedRosterSnapshot(entry, "vet", "winter")?.tier).toBe("A");
+    expect(archivedRosterSnapshot(entry, "vet", "msi")?.tier).toBe("S");
+    expect(archivedRosterSnapshot(entry, "old", "msi")).toBeNull();
+
+    const windows = playerProfile(entries, "vet")!.tenures[0].windows!;
+    expect(windows.find(w => w.key === "winter")!.rosterSnapshot!.players.map(p => p.id)).toContain("old");
+    expect(windows.find(w => w.key === "msi")!.rosterSnapshot!.players.map(p => p.id)).toContain("new");
+    expect(windows.find(w => w.key === "msi")!.rosterSnapshot!.players.map(p => p.id)).not.toContain("old");
+    const stages = teamProfile(entries, "LCK:T1")!.seasons[0].stages;
+    expect(stages.find(s => s.split === "winter")!.roster.map(p => p.id)).toContain("old");
+    expect(stages.find(s => s.event === "msi")!.roster.map(p => p.id)).toContain("new");
   });
 });

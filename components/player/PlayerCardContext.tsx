@@ -65,6 +65,7 @@ export interface PlayerCardHint {
 export interface PlayerCardResolveOpts {
   /** Archived season entry id — render THAT year's snapshot, not the latest. */
   seasonId?: string;
+  phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: PlayerCardHint;
 }
 
@@ -451,13 +452,13 @@ function resolveHistory(
   // identity (tier/champs/team); never treat that snapshot as "active" status.
   // When seasonId is pinned, latestPlayerRosterSnapshot / career hit identity
   // must NOT override — that mixed "current team" into year-scoped Hall rows.
-  const yearSnap = entry ? archivedRosterSnapshot(entry, playerId) : null;
+  const yearSnap = entry ? archivedRosterSnapshot(entry, playerId, opts?.phaseScope) : null;
   const latestSnap = !entry
     ? latestPlayerRosterSnapshot(idx.entries, playerId)
     : null;
   const identitySnap = yearSnap ?? latestSnap;
   const inactiveSnap =
-    entry?.inactivePlayers?.find((p) => p.playerId === playerId) ??
+    (opts?.phaseScope ? undefined : entry?.inactivePlayers?.find((p) => p.playerId === playerId)) ??
     (entry ? undefined : idx.liveInactiveById.get(playerId));
   // Numbers for the archived year come from that season's own career record.
   const yearRecord = entry?.playerCareers?.find((r) => r.playerId === playerId);
@@ -472,7 +473,7 @@ function resolveHistory(
     return null;
   }
 
-  const asOf = entry ? idx.statusAsOf(entry.id).get(playerId) : undefined;
+  const asOf = entry && !opts?.phaseScope ? idx.statusAsOf(entry.id).get(playerId) : undefined;
   // Year-scoped status stays inside that archive — never live-overlaid hit.
   const status: PlayerCardStatus = entry
     ? (asOf?.status ??

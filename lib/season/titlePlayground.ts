@@ -46,6 +46,7 @@ interface Appearance {
 }
 export interface TitleAward {
   id: string;
+  seasonId: string;
   year: number;
   seasonName: string;
   trophy: Trophy;
@@ -201,6 +202,7 @@ export function buildTitleDataset(
       }
       data.awards.push({
         id: `${entry.id}:${trophy}:${teamKey(team)}`,
+        seasonId: entry.id,
         year,
         seasonName: entry.name,
         trophy,

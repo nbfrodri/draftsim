@@ -17,6 +17,9 @@ import LeagueIcon from "../LeagueIcon";
 import TeamIcon from "../TeamIcon";
 import LaneIcon from "../LaneIcon";
 import PlaygroundSelect from "./PlaygroundSelect";
+import GoToSeasonButton from "./GoToSeasonButton";
+import PlayerNameLink from "../player/PlayerNameLink";
+import TeamNameLink from "../team/TeamNameLink";
 import type { Lane } from "@/lib/types";
 const POSITIONS: { lane: Lane; label: string }[] = [
   { lane: "top", label: "Top" },
@@ -70,7 +73,26 @@ function Identity({
       />
       <span className="min-w-0">
         <span className="block truncate text-[11px] font-medium text-rift-goldbright">
-          {row.name}
+          {player ? (
+            <PlayerNameLink
+              playerId={row.id}
+              name={row.name}
+              seasonId={row.awards.at(-1)?.seasonId}
+              renderAs="span"
+              noNavigate
+            />
+          ) : (
+            <TeamNameLink
+              name={row.name}
+              leagueId={row.team.leagueId}
+              seasonId={row.awards.at(-1)?.seasonId}
+              phaseScope={row.awards.at(-1)?.trophy}
+              hint={row.team}
+              showLogo={false}
+              renderAs="span"
+              noNavigate
+            />
+          )}
         </span>
         <span className="flex items-center gap-1.5 text-[10px] text-rift-mutedbright">
           {player && row.lane && <LaneIcon lane={row.lane} size="xs" />}
@@ -78,7 +100,20 @@ function Identity({
             <LeagueIcon key={region} league={region} size={12} />
           ))}
           <span className="truncate">
-            {player ? row.team.name : row.team.leagueId}
+            {player ? (
+              <TeamNameLink
+                name={row.team.name}
+                leagueId={row.team.leagueId}
+                seasonId={row.awards.at(-1)?.seasonId}
+                phaseScope={row.awards.at(-1)?.trophy}
+                hint={row.team}
+                showLogo={false}
+                renderAs="span"
+                noNavigate
+              />
+            ) : (
+              row.team.leagueId
+            )}
           </span>
         </span>
       </span>
@@ -214,10 +249,205 @@ function CumulativeChart({
   );
 }
 
+function TitleBreakdown({
+  row,
+  player,
+  onClose,
+  onGoToSeason,
+}: {
+  row: TitleRow;
+  player: boolean;
+  onClose: () => void;
+  onGoToSeason?: (seasonId: string) => void;
+}) {
+  const [trophy, setTrophy] = useState("");
+  const [year, setYear] = useState("");
+  const [team, setTeam] = useState("");
+  const [region, setRegion] = useState("");
+  const awards = row.awards.filter(
+    (a) =>
+      (!trophy || a.trophy === trophy) &&
+      (!year || String(a.year) === year) &&
+      (!team || a.team.leagueId + ":" + a.team.name === team) &&
+      (!region || a.team.leagueId === region),
+  );
+  const reset = () => {
+    setTrophy("");
+    setYear("");
+    setTeam("");
+    setRegion("");
+  };
+  const cell =
+    "inline-flex items-center gap-2 py-2 text-left hover:text-rift-goldbright focus-visible:outline focus-visible:outline-rift-gold";
+  return (
+    <section
+      id="title-playground-breakdown"
+      aria-label="Title breakdown"
+      className="border border-rift-gold/40 bg-rift-panel/30 p-4"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <Identity row={row} player={player} />
+        <button type="button" onClick={onClose} className={`${button} ${off}`}>
+          Close breakdown
+        </button>
+      </div>
+      <div className="my-4 flex flex-wrap gap-2">
+        <button type="button" className={`${button} ${off}`} onClick={reset}>
+          All titles · {row.total}
+        </button>
+        {TROPHIES.filter((t) => row.counts[t] > 0).map((t) => (
+          <button
+            type="button"
+            key={t}
+            aria-pressed={trophy === t}
+            onClick={() => setTrophy(trophy === t ? "" : t)}
+            className={`${button} ${trophy === t ? on : off} inline-flex items-center gap-2`}
+          >
+            <TrophyIcon trophy={t} />
+            {TROPHY_LABELS[t]} <strong>{row.counts[t]}</strong>
+          </button>
+        ))}
+      </div>
+      <div className="mb-3 flex flex-wrap items-end gap-3">
+        <PlaygroundSelect
+          label="Breakdown split / event"
+          value={trophy}
+          onChange={setTrophy}
+          options={[
+            { value: "", label: "All splits and events" },
+            ...TROPHIES.map((t) => ({ value: t, label: TROPHY_LABELS[t] })),
+          ]}
+        />
+        <PlaygroundSelect
+          label="Breakdown year"
+          value={year}
+          onChange={setYear}
+          options={[
+            { value: "", label: "All years" },
+            ...[...new Set(row.awards.map((a) => a.year))]
+              .sort((a, b) => a - b)
+              .map((y) => ({ value: String(y), label: `Year ${y}` })),
+          ]}
+        />
+        <button type="button" onClick={reset} className={`${button} ${off}`}>
+          Clear breakdown filters
+        </button>
+        {team && (
+          <button
+            type="button"
+            onClick={() => setTeam("")}
+            className={`${button} ${on}`}
+          >
+            Team: {team.slice(team.indexOf(":") + 1)} ×
+          </button>
+        )}
+        {region && (
+          <button
+            type="button"
+            onClick={() => setRegion("")}
+            className={`${button} ${on}`}
+          >
+            Region: {region} ×
+          </button>
+        )}
+      </div>
+      <p aria-live="polite" className="mb-2 text-[10px] text-rift-mutedbright">
+        {awards.length} of {row.total} titles · Select a year, competition, team
+        or region to filter this table.
+      </p>
+      <div className="max-h-64 overflow-auto">
+        <table className="w-full text-left text-[10px] text-rift-mutedbright">
+          <caption className="sr-only">
+            Documented titles for {row.name}
+          </caption>
+          <thead>
+            <tr className="border-b border-rift-line">
+              <th className="py-2">Year</th>
+              <th>Competition</th>
+              <th>Winning team</th>
+              <th>Region</th>
+            </tr>
+          </thead>
+          <tbody>
+            {awards.map((a) => (
+              <tr key={a.id} className="border-b border-rift-line/40">
+                <td>
+                  <span className="inline-flex items-center gap-3 pr-3">
+                    <button
+                      type="button"
+                      className={cell}
+                      onClick={() => setYear(String(a.year))}
+                    >
+                      {a.year}
+                    </button>
+                    <GoToSeasonButton
+                      seasonId={a.seasonId}
+                      seasonLabel={a.seasonName}
+                      onGoToSeason={onGoToSeason}
+                    />
+                  </span>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className={cell}
+                    onClick={() => setTrophy(a.trophy)}
+                  >
+                    <TrophyIcon trophy={a.trophy} />
+                    {TROPHY_LABELS[a.trophy]}
+                  </button>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className={cell}
+                    onClick={() => setTeam(a.team.leagueId + ":" + a.team.name)}
+                  >
+                    <TeamNameLink
+                      name={a.team.name}
+                      leagueId={a.team.leagueId}
+                      seasonId={a.seasonId}
+                      phaseScope={a.trophy}
+                      hint={a.team}
+                      logoUrl={resolveTeamLogo(a.team.name, a.team.logoUrl)}
+                      iconKey={a.team.iconKey}
+                      color={a.team.color}
+                      logoSize={18}
+                      renderAs="span"
+                      noNavigate
+                    />
+                  </button>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className={cell}
+                    onClick={() => setRegion(a.team.leagueId)}
+                  >
+                    <LeagueIcon league={a.team.leagueId} size={14} />
+                    {a.team.leagueId}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!awards.length && (
+          <p className="py-6 text-center text-xs text-rift-mutedbright">
+            No titles match these breakdown filters.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function TitlePlayground({
   entries,
+  onGoToSeason,
 }: {
   entries: SeasonHistoryEntry[];
+  onGoToSeason?: (seasonId: string) => void;
 }) {
   const data = useMemo(() => buildTitleDataset(entries), [entries]);
   const [mode, setMode] = useState<"teams" | "players">("teams");
@@ -697,81 +927,13 @@ export default function TitlePlayground({
         )}
       </div>
       {inspected && (
-        <section
-          id="title-playground-breakdown"
-          aria-label="Title breakdown"
-          className="border border-rift-gold/40 bg-rift-panel/30 p-4"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <Identity row={inspected} player={mode === "players"} />
-            <button
-              type="button"
-              onClick={() => setDetail(null)}
-              className={`${button} ${off}`}
-            >
-              Close breakdown
-            </button>
-          </div>
-          <div className="my-4 flex flex-wrap gap-2">
-            {TROPHIES.filter((t) => inspected.counts[t] > 0).map((t) => (
-              <span
-                key={t}
-                className="inline-flex items-center gap-2 border border-rift-line/50 px-2 py-1.5 text-[10px] text-rift-goldbright"
-              >
-                <TrophyIcon trophy={t} />
-                {TROPHY_LABELS[t]} <strong>{inspected.counts[t]}</strong>
-              </span>
-            ))}
-          </div>
-          <div className="max-h-64 overflow-y-auto">
-            <table className="w-full text-left text-[10px] text-rift-mutedbright">
-              <caption className="sr-only">
-                Documented titles for {inspected.name}
-              </caption>
-              <thead>
-                <tr className="border-b border-rift-line">
-                  <th className="py-2">Year</th>
-                  <th>Competition</th>
-                  <th>Winning team</th>
-                  <th>Region</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inspected.awards.map((award) => (
-                  <tr key={award.id} className="border-b border-rift-line/40">
-                    <td className="py-3">{award.year}</td>
-                    <td>
-                      <span className="inline-flex items-center gap-2">
-                        <TrophyIcon trophy={award.trophy} />
-                        {TROPHY_LABELS[award.trophy]}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="inline-flex items-center gap-2">
-                        <TeamIcon
-                          iconKey={award.team.iconKey}
-                          logoUrl={resolveTeamLogo(
-                            award.team.name,
-                            award.team.logoUrl,
-                          )}
-                          color={award.team.color}
-                          size={18}
-                        />
-                        {award.team.name}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="inline-flex items-center gap-2">
-                        <LeagueIcon league={award.team.leagueId} size={14} />
-                        {award.team.leagueId}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <TitleBreakdown
+          key={mode + inspected.id}
+          row={inspected}
+          player={mode === "players"}
+          onGoToSeason={onGoToSeason}
+          onClose={() => setDetail(null)}
+        />
       )}
     </section>
   );

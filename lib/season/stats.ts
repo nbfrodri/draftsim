@@ -538,13 +538,8 @@ export interface PlayerChampStat {
   wins: number;
 }
 
-/** Cap on champions stored per player per season (most-played first). Keeps the
- *  archived Hall entry from ballooning while still giving a full scrollable
- *  pool. */
-export const CHAMP_POOL_CAP = 12;
-
-/** Per-player champion pools for the season: championId → {games, wins},
- *  truncated to the CHAMP_POOL_CAP most-played champions per player. */
+/** Every champion played in the season, with exact games and wins.
+ * Kept complete when archiving so career pools never lose less-played picks. */
 export function computePlayerChampStats(
   season: SeasonState,
 ): Map<string, PlayerChampStat[]> {
@@ -589,8 +584,7 @@ export function computePlayerChampStats(
   for (const [pid, champs] of byPlayer) {
     const rows = [...champs.entries()]
       .map(([championId, v]) => ({ championId, games: v.games, wins: v.wins }))
-      .sort((a, b) => b.games - a.games || b.wins - a.wins || a.championId - b.championId)
-      .slice(0, CHAMP_POOL_CAP);
+      .sort((a, b) => b.games - a.games || b.wins - a.wins || a.championId - b.championId);
     out.set(pid, rows);
   }
   return out;
