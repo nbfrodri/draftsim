@@ -125,6 +125,7 @@ import TeamLogoLink from "./team/TeamLogoLink";
 import TeamNameLink from "./team/TeamNameLink";
 import RosterSnapshotCards from "./hall/RosterSnapshotCards";
 import CareerTeammates from "./hall/CareerTeammates";
+import ChampionRecords from "./hall/ChampionRecords";
 import TeamSeasonResultsHistory from "./team/TeamSeasonResultsHistory";
 const TitlePlayground = dynamic(() => import("./hall/TitlePlayground"), { loading: () => <HallPanelLoading label="Loading title playground…" /> });
 
@@ -1735,6 +1736,7 @@ function RecordsPanel({
 
   return (
     <div className="space-y-6">
+      <ChampionRecords entries={entries} />
       {/* All-time leaderboards */}
       <div className="cv-section">
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">

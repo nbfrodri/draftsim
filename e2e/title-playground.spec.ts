@@ -125,6 +125,7 @@ test("title playground filters teams, player winning regions, years and realitie
                     intlChampions: { worlds: history[0].runnerUp },
                     champion: history[0].runnerUp,
                     phaseRosters: [],
+                    playerCareers: [],
                   },
                 ],
               },
@@ -408,5 +409,27 @@ test("title playground filters teams, player winning regions, years and realitie
   await expect(playground).not.toBeVisible();
   await expect(page.getByRole("button",{name:"Timeline",exact:true})).toBeVisible();
 
+
+  await page.getByRole("button",{name:"Records & Dynasties",exact:true}).click();
+  const champions = page.getByRole("region",{name:"Most played champions",exact:true});
+  await expect(champions.getByText("Showing 1 of 1 champions", {exact:false})).toBeVisible();
+  await champions.locator("summary").first().click();
+  await expect(champions.getByRole("button",{name:"Traveller",exact:true})).toBeVisible();
+  await expect(champions.locator('img[alt="middle"]')).toHaveCount(1);
+  await expect(champions.getByText("4,000,000",{exact:true})).toHaveCount(2);
+  await expect(champions.getByText("2,172,840",{exact:true})).toHaveCount(2);
+  await expect(champions.getByText("1,827,160",{exact:true})).toHaveCount(2);
+  await expect(champions.getByText("54.3%",{exact:true})).toHaveCount(2);
+  await champions.getByRole("combobox",{name:"Players per champion",exact:true}).click();
+  await champions.getByRole("option",{name:"Top 10",exact:true}).click();
+  await expect(champions.getByText("Most frequent players · Top 10",{exact:true})).toBeVisible();
+  await champions.getByRole("combobox",{name:"Champions shown",exact:true}).click();
+  await champions.getByRole("option",{name:"All champions",exact:true}).click();
+  await champions.getByRole("button",{name:"Traveller",exact:true}).hover();
+  await expect(page.getByRole("tooltip")).toContainText("Traveller");
+  await page.mouse.move(0,0);
+  await page.screenshot({path:"test-results/playwright/champion-records.png",fullPage:true});
+  await page.getByRole("button",{name:"Reality · Beta",exact:true}).click();
+  await expect(champions.getByText("No champion usage recorded in this history yet.",{exact:true})).toBeVisible();
 
 });

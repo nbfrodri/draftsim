@@ -32,6 +32,10 @@ DraftSim uses Microsoft Edge WebView2. The installer handles its installation wh
 
 The [systems reference](docs/systems.md) explains drafting, match simulation and franchise behavior in detail.
 
+## Champion records
+
+Open **Records & Dynasties → Most played champions** for the selected reality's archived champion usage: games, wins, losses and global win rate. Show Top 10 / 25 / 50 / all champions, then expand one to see its Top 3 / 5 / 10 players, position icons and profile cards. WR is blue above 50%, red below 50% and neutral at 50%. Incomplete historical pools display a coverage notice.
+
 ## Title Playground
 
 Open **Season History → select a reality → Title Playground** to explore archived team and player titles through stacked bars and a cumulative timeline.

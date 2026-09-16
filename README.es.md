@@ -32,6 +32,10 @@ DraftSim utiliza Microsoft Edge WebView2. El instalador gestiona su instalación
 
 La [referencia de sistemas](docs/systems.es.md) explica en detalle el draft, las partidas y las franquicias.
 
+## Récords de campeones
+
+Abre **Records & Dynasties → Most played champions** para ver las partidas, victorias, derrotas y WR global de cada campeón en la realidad seleccionada. Filtra Top 10 / 25 / 50 / todos y despliega un campeón para ver su Top 3 / 5 / 10 jugadores, con iconos de posición y cards. El WR es azul por encima del 50 %, rojo por debajo y neutro al 50 %. Los champion pools históricos incompletos muestran un aviso.
+
 ## Title Playground
 
 Abre **Season History → elige una realidad → Title Playground** para explorar los títulos históricos de equipos y jugadores con barras apiladas y una evolución acumulada por año.
