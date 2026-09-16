@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { archivedRosterSnapshot } from "./playerCard";
+import { careerTeammates } from "./teammates";
 import type { SeasonHistoryEntry } from "./history";
 import {
   listPlayers,
@@ -1280,5 +1281,44 @@ describe("event roster snapshots", () => {
     const stages = teamProfile(entries, "LCK:T1")!.seasons[0].stages;
     expect(stages.find(s => s.split === "winter")!.roster.map(p => p.id)).toContain("old");
     expect(stages.find(s => s.event === "msi")!.roster.map(p => p.id)).toContain("new");
+  });
+});
+
+
+describe("career teammates", () => {
+  it("counts each shared season once, ranks by seasons then events, and keeps player IDs separate", () => {
+    const entries = retiredFixture([["vet", "buddy", "one"], ["vet", "buddy", "two"]]);
+    const first = entries[0];
+    const spring = structuredClone(first.phaseRosters![0]);
+    spring.phaseIndex = 2;
+    spring.split = "spring";
+    spring.teams[0].players = spring.teams[0].players.filter(p => p.id !== "one");
+    spring.teams[0].players.push({id:"two",name:"Same name",lane:"middle",tier:"A"});
+    first.phaseRosters!.push(spring, structuredClone(spring));
+    first.phaseRosters![0].teams[0].players[2].name = "Same name";
+    first.splitChampions = {winter:{LCK:{name:"T1",leagueId:"LCK",iconKey:"shield",color:"#fff"}},spring:{LCK:{name:"T1",leagueId:"LCK",iconKey:"shield",color:"#fff"}}};
+    const rows = careerTeammates([...entries, first], "vet");
+    expect(rows.map(p => [p.id,p.seasons.length,p.events])).toEqual([
+      ["buddy",2,3], ["two",2,2], ["one",1,1],
+    ]);
+    expect(rows.some(p => p.id === "vet")).toBe(false);
+    expect(rows.find(p => p.id === "buddy")!.seasons[0].titles).toEqual(["winter","spring"]);
+    expect(rows.find(p => p.id === "one")!.seasons[0].titles).toEqual(["winter"]);
+    expect(rows.find(p => p.id === "two")!.seasons[0].titles).toEqual(["spring"]);
+
+    expect(playerProfile(entries,"vet")!.teammates).toEqual(careerTeammates(entries,"vet"));
+  });
+  it("does not infer shared time from non-overlapping rosters, incomplete years, or missing IDs", () => {
+    const entries = retiredFixture([["vet","old"]]);
+    const later = structuredClone(entries[0].phaseRosters![0]);
+    later.split = "summer";
+    later.phaseIndex = 4;
+    later.teams[0].players = [{id:"new",name:"New",tier:"A",lane:"top"},{name:"Unknown",tier:"A",lane:"jungle"}];
+    entries[0].phaseRosters!.push(later);
+    const unfinished = structuredClone(entries[0]);
+    unfinished.id = "unfinished";
+    unfinished.complete = false;
+    expect(careerTeammates([...entries,unfinished],"vet").map(p => p.id)).toEqual(["old"]);
+    expect(careerTeammates([{...entries[0],phaseRosters:[]}],"vet")).toEqual([]);
   });
 });

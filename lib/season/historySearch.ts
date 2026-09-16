@@ -1,3 +1,4 @@
+import { careerTeammates, type CareerTeammate } from "./teammates";
 // Liquipedia-style search over the Hall of Seasons archive: build player, team,
 // and coach PROFILES by scanning the archived season entries (champions, split
 // results, phase rosters, careers). Pure + framework-free so the UI just renders.
@@ -928,6 +929,7 @@ export interface PlayerSeasonStat {
 }
 
 export interface PlayerProfile {
+  teammates: CareerTeammate[];
   id: string;
   name: string;
   lane: Lane | null; // primary (most-recent) position
@@ -1305,6 +1307,7 @@ export function playerProfile(
         a.leagueId.localeCompare(b.leagueId),
     ),
     career,
+    teammates: careerTeammates(entries, playerId),
     tenures: trimmedTenures,
     seasons,
   };

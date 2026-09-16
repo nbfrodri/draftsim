@@ -249,6 +249,173 @@ function CumulativeChart({
   );
 }
 
+function titlePieSectors(winners: TitleRow[], total: number) {
+  let angle = -Math.PI / 2;
+  return winners.map((row, i) => {
+    const start = angle;
+    angle += (row.total / total) * Math.PI * 2;
+    const end = angle;
+    const path = `M 160 160 L ${160 + 140 * Math.cos(start)} ${160 + 140 * Math.sin(start)} A 140 140 0 ${end - start > Math.PI ? 1 : 0} 1 ${160 + 140 * Math.cos(end)} ${160 + 140 * Math.sin(end)} Z`;
+    return {
+      row,
+      path,
+      labelX: 160 + 94 * Math.cos((start + end) / 2),
+      labelY: 160 + 94 * Math.sin((start + end) / 2),
+      labelSize: Math.min(30, Math.max(8, (end - start) * 70)),
+      color: LINE_COLORS[i % LINE_COLORS.length],
+      percent: ((row.total / total) * 100).toFixed(1),
+    };
+  });
+}
+
+function TitlePieChart({
+  rows,
+  onSelect,
+}: {
+  rows: TitleRow[];
+  onSelect: (id: string) => void;
+}) {
+  const [showPercent, setShowPercent] = useState(true);
+  const winners = rows.filter((row) => row.total > 0);
+  const total = winners.reduce((sum, row) => sum + row.total, 0);
+  const sectors = titlePieSectors(winners, total);
+  return (
+    <section aria-label="Team title shares">
+      <p className="mb-3 text-[10px] text-rift-mutedbright">
+        Share of {total} titles among the {winners.length} displayed
+        title-winning teams. Region, competition, year, search and comparison
+        filters apply; Show controls which teams enter this total.
+      </p>
+      <label className="mb-3 flex items-center gap-2 text-[10px] text-rift-mutedbright">
+        <input
+          type="checkbox"
+          checked={showPercent}
+          onChange={(event) => setShowPercent(event.target.checked)}
+        />
+        Show percentages on chart
+      </label>
+      {!total ? (
+        <p className="py-12 text-center text-sm text-rift-mutedbright">
+          No titles to chart for the displayed teams.
+        </p>
+      ) : (
+        <div className="grid items-center gap-5 md:grid-cols-[minmax(240px,360px)_1fr]">
+          <svg
+            viewBox="0 0 320 320"
+            role="group"
+            aria-label="Team title share pie chart"
+            className="mx-auto w-full max-w-[360px]"
+          >
+            {sectors.map(({ row, path, color, percent }) => {
+              const props = {
+                fill: color,
+                stroke: "#0b151b",
+                strokeWidth: 2,
+                style: {outline: "none"},
+                role: "button",
+                tabIndex: 0,
+                "aria-label": `${row.name}: ${row.total} titles (${percent}%). View breakdown`,
+                onClick: () => onSelect(row.id),
+                onKeyDown: (e: React.KeyboardEvent<SVGElement>) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelect(row.id);
+                  }
+                },
+                className:
+                  "cursor-pointer outline-none hover:opacity-80 focus-visible:stroke-rift-goldbright focus-visible:stroke-[4]",
+              };
+              return winners.length === 1 ? (
+                <circle key={row.id} cx={160} cy={160} r={140} {...props}>
+                  <title>
+                    {row.name}: {row.total} titles ({percent}%)
+                  </title>
+                </circle>
+              ) : (
+                <path key={row.id} d={path} {...props}>
+                  <title>
+                    {row.name}: {row.total} titles ({percent}%)
+                  </title>
+                </path>
+              );
+            })}
+            <g pointerEvents="none" aria-hidden="true">
+              {sectors.map(({ row, percent, labelX, labelY, labelSize }) => {
+                const x = winners.length === 1 ? 160 : labelX;
+                const y = winners.length === 1 ? 150 : labelY;
+                return (
+                  <g key={row.id}>
+                    <foreignObject
+                      x={x - labelSize / 2}
+                      y={y - labelSize / 2}
+                      width={labelSize}
+                      height={labelSize}
+                    >
+                      <div className="flex h-full w-full items-center justify-center rounded-sm bg-rift-bg/80 p-0.5">
+                        {resolveTeamLogo(row.team.name, row.team.logoUrl) ? <TeamIcon
+                          iconKey={row.team.iconKey}
+                          logoUrl={resolveTeamLogo(
+                            row.team.name,
+                            row.team.logoUrl,
+                          )}
+                          color={row.team.color}
+                          size={Math.max(6, labelSize - 4)}
+                        /> : <span className="truncate font-semibold text-white" style={{fontSize: Math.min(9, Math.max(4, labelSize / 4))}}>{row.name}</span>}
+                      </div>
+                    </foreignObject>
+                    {showPercent && (
+                      <text
+                        x={x}
+                        y={y + labelSize / 2 + 10}
+                        textAnchor="middle"
+                        fill="#ffffff"
+                        stroke="#0b151b"
+                        strokeWidth={3}
+                        paintOrder="stroke"
+                        fontSize={Math.min(11, Math.max(6, labelSize / 2))}
+                        fontWeight={600}
+                      >
+                        {percent}%
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          </svg>
+          <div
+            className="max-h-[380px] space-y-1 overflow-y-auto"
+            aria-label="Title share legend"
+          >
+            {sectors.map(({ row, color, percent }) => (
+              <button
+                type="button"
+                key={row.id}
+                onClick={() => onSelect(row.id)}
+                className="flex w-full items-center gap-3 border-b border-rift-line/30 px-2 py-2 text-left hover:bg-rift-gold/5 focus-visible:outline focus-visible:outline-rift-gold"
+              >
+                <span
+                  className="h-2 w-2 shrink-0"
+                  style={{ backgroundColor: color }}
+                />
+                <span className="min-w-0 flex-1">
+                  <Identity row={row} />
+                </span>
+                <span className="text-right text-[11px] tabular-nums text-rift-goldbright">
+                  {percent}%
+                  <span className="block text-[9px] text-rift-mutedbright">
+                    {row.total} titles
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function TitleBreakdown({
   row,
   player,
@@ -452,7 +619,7 @@ export default function TitlePlayground({
   const data = useMemo(() => buildTitleDataset(entries), [entries]);
   const [mode, setMode] = useState<"teams" | "players">("teams");
   const [position, setPosition] = useState<Lane | undefined>();
-  const [chart, setChart] = useState<"bars" | "timeline">("bars");
+  const [chart, setChart] = useState<"bars" | "timeline" | "pie">("bars");
   const [regions, setRegions] = useState<LeagueId[]>([...LEAGUE_IDS]);
   const [trophies, setTrophies] = useState<Trophy[]>([...TROPHIES]);
   const [from, setFrom] = useState("");
@@ -530,6 +697,7 @@ export default function TitlePlayground({
               aria-pressed={mode === value}
               onClick={() => {
                 setMode(value);
+                if (value === "players" && chart === "pie") setChart("bars");
                 setPosition(undefined);
                 setSelected([]);
                 setDetail(null);
@@ -788,7 +956,11 @@ export default function TitlePlayground({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
-              {chart === "bars" ? "Title ranking" : "Cumulative titles"}
+              {chart === "bars"
+                ? "Title ranking"
+                : chart === "pie"
+                  ? "Team title shares"
+                  : "Cumulative titles"}
             </h3>
             <p
               className="mt-1 text-[10px] text-rift-mutedbright"
@@ -799,7 +971,13 @@ export default function TitlePlayground({
             </p>
           </div>
           <div className="flex gap-2">
-            {(["bars", "timeline"] as const).map((value) => (
+            {(
+              [
+                "bars",
+                "timeline",
+                ...(mode === "teams" ? ["pie" as const] : []),
+              ] as const
+            ).map((value) => (
               <button
                 type="button"
                 key={value}
@@ -807,7 +985,11 @@ export default function TitlePlayground({
                 onClick={() => setChart(value)}
                 className={`${button} ${chart === value ? on : off}`}
               >
-                {value === "bars" ? "Bars" : "Cumulative timeline"}
+                {value === "bars"
+                  ? "Bars"
+                  : value === "pie"
+                    ? "Pie chart"
+                    : "Cumulative timeline"}
               </button>
             ))}
           </div>
@@ -862,6 +1044,8 @@ export default function TitlePlayground({
               selection.
             </p>
           </div>
+        ) : chart === "pie" ? (
+          <TitlePieChart rows={visible} onSelect={setDetail} />
         ) : chart === "timeline" ? (
           <CumulativeChart
             rows={visible}

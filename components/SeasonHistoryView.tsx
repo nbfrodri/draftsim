@@ -124,6 +124,7 @@ import { HistoryTeamCardProvider } from "./team/TeamCardContext";
 import TeamLogoLink from "./team/TeamLogoLink";
 import TeamNameLink from "./team/TeamNameLink";
 import RosterSnapshotCards from "./hall/RosterSnapshotCards";
+import CareerTeammates from "./hall/CareerTeammates";
 import TeamSeasonResultsHistory from "./team/TeamSeasonResultsHistory";
 const TitlePlayground = dynamic(() => import("./hall/TitlePlayground"), { loading: () => <HallPanelLoading label="Loading title playground…" /> });
 
@@ -3122,10 +3123,10 @@ function ChampPool({
             <span className="truncate flex-1 min-w-0 text-rift-mutedbright">
               {champ?.name ?? `#${cs.championId}`}
             </span>
-            <span className="tabular-nums text-rift-muted/55 w-7 text-right shrink-0 text-[9px]">
+            <span className="tabular-nums text-rift-muted/55 min-w-7 whitespace-nowrap text-right shrink-0 text-[9px]">
               {cs.games}g
             </span>
-            <span className="tabular-nums shrink-0 inline-flex items-baseline gap-0.5 w-[4.25rem] justify-end">
+            <span className="tabular-nums shrink-0 inline-flex items-baseline gap-0.5 min-w-[4.25rem] whitespace-nowrap justify-end">
               <span className="text-rift-bluebright font-medium">{cs.wins}W</span>
               <span className="text-rift-muted/35">–</span>
               <span className="text-rift-redbright/75">{losses}L</span>
@@ -3307,6 +3308,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
           </div>
         </div>
       )}
+      <CareerTeammates key={id} rows={p.teammates} onGoToSeason={onGoToSeason} />
       <div>
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Career History</div>
         <div className="space-y-1.5">

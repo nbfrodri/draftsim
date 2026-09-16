@@ -44,6 +44,10 @@ Abre **Season History → elige una realidad → Title Playground** para explora
 
 Funciona con realidades existentes y mantiene separados sus historiales. Los archivos antiguos sin identidades de plantilla suficientes muestran un aviso, sin inventar ganadores. Los dropdowns oscuros admiten navegación por teclado. La [guía de Title Playground](docs/title-playground.md) detalla los controles y las reglas de cómputo en inglés.
 
+El gráfico circular de equipos muestra su porcentaje de los títulos seleccionados, con logos o nombres en los sectores y porcentajes opcionales. Respeta los filtros de región, competición, años y comparación.
+
+Los perfiles incluyen Most frequent teammates: temporadas compartidas contadas una vez por año, eventos compartidos y años desplegables con los títulos ganados juntos y accesos a Timeline. Ambos jugadores deben figurar en el roster ganador del evento para atribuirles un título compartido.
+
 Los nombres de equipos y jugadores muestran sus cards. En el desglose, pulsa cantidades, competiciones, años, equipos o regiones para filtrar la tabla; el botón junto al año lo abre en Timeline.
 
 Career History de jugadores y Results History de equipos incluyen snapshots desplegables del roster de cada evento registrado, con cards contextualizadas al evento y un botón Close roster. Las nuevas temporadas archivadas conservan todos los campeones jugados en los champion pools. Funciona en realidades existentes; los campeones descartados de resúmenes antiguos no se recuperan automáticamente.

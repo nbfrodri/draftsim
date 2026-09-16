@@ -14,6 +14,12 @@ Open **Season History → select a reality → Title Playground**. Season Mode a
 - Bars stack the selected competition counts. The cumulative timeline plots up to eight competitors and starts counting inside the selected year range, not before it.
 - Select a bar or timeline legend with mouse or keyboard to open exact counts and the winning year, competition, club and region.
 
+The team **Pie chart** shows counts and percentages among the displayed title-winning teams. Search, comparison selection and Top 10 / Top 25 / All affect its denominator, along with region, competition and year filters. Sectors show team logos or names; **Show percentages on chart** toggles percentage labels. Select a sector or legend entry to open the breakdown.
+
+## Shared career history
+
+Player profiles rank **Most frequent teammates** by distinct archived seasons together, then by shared events. Sharing only part of a season counts as one shared season. Expand a player to see exact seasons, titles won together and a shortcut to each year in Timeline. Only simultaneous main-roster snapshots count; a transfer after a title does not inherit shared credit. Missing historical identities are not inferred. Profile cards and a separate profile link remain available.
+
 ## Counting rules
 
 Only archived results are included. Team identity is name plus league, matching the Hall convention. Player identity is the stable player ID, so two people sharing a name remain separate. A player earns a title only when a phase roster records them on the champion team. Regional filters use the winning club's region at the event; subsequent transfers cannot move that title to a different region. Repeated phases of one event and duplicate archive IDs do not duplicate credits. The legacy Worlds headline is a fallback, never an extra trophy.

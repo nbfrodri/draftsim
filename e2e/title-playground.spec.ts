@@ -42,6 +42,7 @@ function historyFixture(): SeasonHistoryEntry[] {
               lane: "middle",
               tier: "S",
             },
+            {id: `buddy-${team.name}`, name: `${team.name} teammate`, lane: "support", tier: "A"},
           ],
         })),
       });
@@ -87,6 +88,7 @@ function historyFixture(): SeasonHistoryEntry[] {
       splitChampions,
       intlChampions,
       phaseRosters: phases,
+      playerCareers: [{playerId:"traveller",playerName:"Traveller",leagueId:"LCK",teamName:"T1",lane:"middle",games:1000000,kills:0,mvps:0,allPro:0,splitTitles:3,intlAppearances:2,intlTitles:2,champs:[{championId:1,games:1000000,wins:543210}]}],
     };
   });
 }
@@ -156,6 +158,28 @@ test("title playground filters teams, player winning regions, years and realitie
     path: "test-results/playwright/title-playground-desktop.png",
     fullPage: true,
   });
+  await playground.getByRole("button", {name:"Pie chart",exact:true}).click();
+  const pie = playground.getByRole("group", {name:"Team title share pie chart",exact:true});
+  await expect(pie.getByRole("button", {name:"T1: 17 titles (20.0%). View breakdown",exact:true})).toBeVisible();
+  await pie.getByRole("button", {name:"T1: 17 titles (20.0%). View breakdown",exact:true}).focus();
+  await page.keyboard.press("Enter");
+  await expect(playground.getByRole("region",{name:"Title breakdown",exact:true})).toBeVisible();
+  await expect(pie.locator("foreignObject")).toHaveCount(6);
+  const percentages = playground.getByRole("checkbox",{name:"Show percentages on chart",exact:true});
+  await expect(pie.locator("text")).toHaveCount(6);
+  await percentages.uncheck();
+  await expect(pie.locator("text")).toHaveCount(0);
+  await percentages.check();
+  expect(await pie.getByRole("button").first().evaluate(el => getComputedStyle(el).outlineStyle)).toBe("none");
+  await page.screenshot({path:"test-results/playwright/title-playground-pie.png",fullPage:true});
+  await playground.getByRole("group",{name:"Regions",exact:true}).getByRole("button",{name:"LCK",exact:true}).click();
+  await expect(pie.getByRole("button", {name:"T1: 17 titles (100.0%). View breakdown",exact:true})).toBeVisible();
+  await playground.getByRole("button",{name:"Domestic splits",exact:true}).click();
+  await expect(pie.getByRole("button", {name:"T1: 12 titles (100.0%). View breakdown",exact:true})).toBeVisible();
+  await playground.getByRole("button",{name:"Internationals",exact:true}).click();
+  await expect(pie.getByRole("button", {name:"T1: 5 titles (100.0%). View breakdown",exact:true})).toBeVisible();
+  await playground.getByRole("button",{name:"Reset filters",exact:true}).click();
+  await playground.getByRole("button",{name:"Bars",exact:true}).click();
   await playground.locator("summary").click();
   await playground
     .getByRole("checkbox", { name: "T1 · 17", exact: true })
@@ -347,6 +371,23 @@ test("title playground filters teams, player winning regions, years and realitie
   await playground.getByRole("button", {name:"Traveller: 21 titles. View breakdown",exact:true}).getByText("Traveller",{exact:true}).hover();
   await expect(page.getByRole("tooltip")).toBeVisible();
   await page.getByRole("tooltip").click();
+  const teammates = page.getByRole("region",{name:"Most frequent teammates",exact:true});
+  await expect(teammates.getByRole("listitem").first()).toContainText("T1 teammate");
+  await expect(teammates.getByRole("listitem").first()).toContainText("4 seasons");
+  await expect(teammates.getByRole("listitem").first()).toContainText("17 events");
+  await teammates.getByText("T1 teammate",{exact:true}).click();
+  const shared = teammates.getByRole("listitem").first();
+  for (const year of [1,2,3,4]) await expect(shared.getByText(`Alpha — Year ${year}`,{exact:true})).toBeVisible();
+  await expect(shared.getByRole("button",{name:"Open player profile",exact:true})).toBeVisible();
+  await expect(shared.getByText("Winter",{exact:true})).toHaveCount(4);
+  await expect(shared.getByText("Worlds",{exact:true})).toHaveCount(4);
+  await expect(shared.getByRole("img",{name:"Global Cup",exact:true})).toHaveCount(1);
+  await expect(shared.getByRole("button",{name:"View Alpha — Year 1 in timeline",exact:true})).toBeVisible();
+  const pool = page.getByText("Champion Pool · Career",{exact:true}).locator("..");
+  const gamesBox = await pool.getByText("4000000g",{exact:true}).boundingBox();
+  const winsBox = await pool.getByText("2172840W",{exact:true}).boundingBox();
+  expect(gamesBox!.x + gamesBox!.width).toBeLessThan(winsBox!.x);
+  await page.screenshot({path:"test-results/playwright/teammate-years-and-large-pool.png",fullPage:true});
   const career = page.getByText("Career History",{exact:true}).locator("..");
   await career.locator("summary").filter({hasText:"Winter"}).first().click();
   await expect(career.getByRole("region", {name:/Winter.*roster snapshot/}).first()).toContainText("Traveller");
