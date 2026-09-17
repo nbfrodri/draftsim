@@ -169,3 +169,24 @@ export async function backupBeforeDestructiveChange(): Promise<void> {
   if (typeof window === "undefined") return;
   await createBackup();
 }
+
+export async function deleteBackup(id: string): Promise<void> {
+  if (isDesktopOperationBlocking()) throw new Error("Wait for the current operation to finish.");
+  if (running) await running;
+  if (isDesktopOperationBlocking()) throw new Error("Wait for the current operation to finish.");
+  if (isDesktop()) await invoke("backup_delete", { id });
+  else {
+    if (!/^draftsim-backup-\d+$/.test(id) || !webCopies().some(copy => copy.id === id)) {
+      throw new Error("Backup is no longer available or is invalid.");
+    }
+    localStorage.removeItem(id);
+  }
+}
+export async function getBackupDestination(): Promise<string | null> {
+  return isDesktop() ? invoke("backup_destination_get") : null;
+}
+export async function disableBackupDestination(): Promise<void> {
+  if (isDesktopOperationBlocking()) throw new Error("Wait for the current operation to finish.");
+  if (running) await running;
+  await invoke("backup_destination_disable");
+}

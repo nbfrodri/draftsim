@@ -1,3 +1,4 @@
+import { repairNameRegistry } from "@/lib/season/nameRegistry";
 import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
 import {
@@ -75,7 +76,7 @@ importReality: async (json) => {
         id,
         name: r.name,
         year: typeof r.year === "number" ? r.year : (season.franchise?.year ?? 1),
-        season,
+        season: repairNameRegistry(season, r.history ?? []),
         history: Array.isArray(r.history) ? (r.history as SeasonHistoryEntry[]) : [],
       };
       advanceOperationProgress("save");

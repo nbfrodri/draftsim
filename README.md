@@ -57,6 +57,16 @@ Hover team and player names for profile cards. In the breakdown, click counts, c
 Player Career History and team Results History include expandable roster snapshots for each recorded event, with cards pinned to that event and a Close roster button. Newly archived seasons retain every champion played in each player's champion pool. Existing realities support these changes; champions discarded from older capped summaries cannot be recovered automatically.
 
 
+## Best Rosters of All Time
+
+The Hall ranks lineups of the same five player identities by international titles, then split titles. Filter by winning region and year range, inspect the five-player snapshot with profile cards, and filter each roster's title history by Winter, Spring, Summer, First Stand, MSI, Worlds or Global Cup. Timeline shortcuts open the winning year. Titles without a complete event roster are excluded with a coverage notice.
+
+## Live player search and backup controls
+
+Open **Find a player** in Live Results to search players, view their card and current team/status, and inspect movements retained in the live feed. Suggestions and movements use team icons and Academy, FA and Retired badges. Search indexing runs only while searching and reuses movement data across roster updates.
+
+The backups panel supports deleting individual local copies with confirmation and disabling an external backup destination without removing existing external files. Existing realities backfill their permanent name registry from retained history when opened or imported, preventing future reuse of those names; existing duplicate identities are not renamed.
+
 ## Gallery
 
 | Draft | Match simulation |

@@ -181,6 +181,49 @@ pub async fn backup_list<R: tauri::Runtime>(app: tauri::AppHandle<R>, window: ta
     }
     Ok(out)
 }
+// Only direct, regular snapshot files in the managed backup directory may be removed.
+fn delete_snapshot(dir: &Path, id: &str) -> Result<(), String> {
+    if !safe_id(id) { return Err("Invalid backup id".into()); }
+    let root = dir.canonicalize().map_err(err)?;
+    let path = root.join(id);
+    let metadata = std::fs::symlink_metadata(&path).map_err(err)?;
+    if !metadata.file_type().is_file() || path.canonicalize().map_err(err)?.parent() != Some(root.as_path()) {
+        return Err("Invalid backup file".into());
+    }
+    std::fs::remove_file(path).map_err(err)
+}
+#[tauri::command]
+pub async fn backup_delete<R: tauri::Runtime>(app: tauri::AppHandle<R>, window: tauri::WebviewWindow<R>, databases: tauri::State<'_, tauri_plugin_sql::DbInstances>, id: String) -> Result<(), String> {
+    if window.label() != "main" { return Err("Unsupported window".into()); }
+    // Serialize with snapshot creation and restore, including automatic backups.
+    let _guard = databases.0.write().await;
+    delete_snapshot(&app.path().app_data_dir().map_err(err)?.join("backups"), &id)
+}
+fn destination(root: &Path) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(root.join("backup-destination.txt")) {
+        Ok(value) => Ok(Some(value)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(err(e)),
+    }
+}
+fn disable_destination(root: &Path) -> Result<(), String> {
+    match std::fs::remove_file(root.join("backup-destination.txt")) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(err(e)),
+    }
+}
+#[tauri::command]
+pub fn backup_destination_get<R: tauri::Runtime>(app: tauri::AppHandle<R>, window: tauri::WebviewWindow<R>) -> Result<Option<String>, String> {
+    if window.label() != "main" { return Err("Unsupported window".into()); }
+    destination(&app.path().app_data_dir().map_err(err)?)
+}
+#[tauri::command]
+pub async fn backup_destination_disable<R: tauri::Runtime>(app: tauri::AppHandle<R>, window: tauri::WebviewWindow<R>, databases: tauri::State<'_, tauri_plugin_sql::DbInstances>) -> Result<(), String> {
+    if window.label() != "main" { return Err("Unsupported window".into()); }
+    let _guard = databases.0.write().await;
+    disable_destination(&app.path().app_data_dir().map_err(err)?)
+}
 #[tauri::command]
 pub async fn backup_create<R: tauri::Runtime>(app: tauri::AppHandle<R>, window: tauri::WebviewWindow<R>, databases: tauri::State<'_, tauri_plugin_sql::DbInstances>, on_progress: tauri::ipc::Channel<String>, name: Option<String>) -> Result<String, String> {
     let on_progress = Some(on_progress);
@@ -362,6 +405,32 @@ pub fn storage_size<R: tauri::Runtime>(app: tauri::AppHandle<R>, window: tauri::
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn delete_one_backup_and_disable_external_without_touching_saves() {
+        let root = std::env::temp_dir().join(format!("draftsim-delete-test-{}-{}", std::process::id(), now()));
+        let dir = root.join("backups");
+        let external = root.join("external");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&external).unwrap();
+        for path in [root.join("draftsim.db"), dir.join("backup-1.db"), dir.join("backup-2.db"), external.join("backup-1.db")] {
+            std::fs::write(path, b"fixture").unwrap();
+        }
+        assert!(delete_snapshot(&dir, "../draftsim.db").is_err());
+        assert!(delete_snapshot(&dir, "draftsim.db").is_err());
+        assert!(delete_snapshot(&dir, "backup-1.db/../backup-2.db").is_err());
+        delete_snapshot(&dir, "backup-1.db").unwrap();
+        assert!(!dir.join("backup-1.db").exists());
+        assert!(delete_snapshot(&dir, "backup-1.db").is_err());
+        assert_eq!(std::fs::read(root.join("draftsim.db")).unwrap(), b"fixture");
+        assert!(dir.join("backup-2.db").exists());
+        std::fs::write(root.join("backup-destination.txt"), external.to_string_lossy().as_bytes()).unwrap();
+        assert!(destination(&root).unwrap().is_some());
+        disable_destination(&root).unwrap();
+        disable_destination(&root).unwrap();
+        assert!(destination(&root).unwrap().is_none());
+        assert!(external.join("backup-1.db").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn retention_keeps_recent_daily_and_weekly() {
         assert_eq!(normalize_backup_name(Some("  Before finals  ".into())).unwrap().as_deref(), Some("Before finals"));

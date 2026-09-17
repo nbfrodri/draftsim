@@ -57,6 +57,16 @@ Los nombres de equipos y jugadores muestran sus cards. En el desglose, pulsa can
 Career History de jugadores y Results History de equipos incluyen snapshots desplegables del roster de cada evento registrado, con cards contextualizadas al evento y un botón Close roster. Las nuevas temporadas archivadas conservan todos los campeones jugados en los champion pools. Funciona en realidades existentes; los campeones descartados de resúmenes antiguos no se recuperan automáticamente.
 
 
+## Best Rosters of All Time
+
+El Hall clasifica combinaciones de los mismos cinco jugadores por títulos internacionales y, en caso de empate, por títulos de split. Permite filtrar por región al ganar y rango de años, consultar el snapshot de los cinco jugadores con sus cards y filtrar el historial de títulos por Winter, Spring, Summer, First Stand, MSI, Worlds o Global Cup. Los accesos a la timeline abren el año de la victoria. Los títulos sin un roster completo del evento quedan excluidos con un aviso.
+
+## Búsqueda de jugadores en el live y controles de backups
+
+Abre **Find a player** en Live Results para buscar jugadores, consultar su card y equipo/estado actual, y ver los movimientos conservados en el feed. Las sugerencias y los movimientos utilizan iconos de equipos y badges de Academy, FA y Retired. El índice se construye solo al buscar y reutiliza los movimientos cuando cambia el roster.
+
+El panel de backups permite borrar copias locales individualmente con confirmación y desactivar el destino externo sin eliminar sus archivos existentes. Al abrir o importar una realidad existente, su registro permanente de nombres se completa con el historial conservado para evitar reutilizarlos en futuros jugadores; los duplicados ya existentes no se renombran.
+
 ## Galería
 
 | Draft | Simulación de partida |

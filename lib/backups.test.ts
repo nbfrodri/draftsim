@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-vi.mock("./desktopStorage", () => ({ isDesktop: () => false, flushPendingPersistWrites: async () => {}, pausePersistWrites: () => () => {} }));
-import { createBackup, listBackups, retainedBackupIds, validWebBackup } from "./backups";
+vi.mock("./desktopStorage", () => ({ isDesktop: () => false, isDesktopOperationBlocking: () => false, flushPendingPersistWrites: async () => {}, pausePersistWrites: () => () => {} }));
+import { deleteBackup, createBackup, listBackups, retainedBackupIds, validWebBackup } from "./backups";
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("recovery retention", () => {
   it("rejects incompatible versions and malformed saved collections", () => {
@@ -55,4 +55,18 @@ describe("recovery retention", () => {
     await expect(createBackup()).rejects.toThrow("quota");
     expect(items.get("draftsim-store")).toBe(value); expect(await listBackups()).toHaveLength(1);
   });
+});
+
+it("deletes only the selected backup and rejects current-save keys", async () => {
+  const value = JSON.stringify({ version: 7, state: { realities: [] } });
+  const items = new Map([["draftsim-store", value], ["draftsim-backup-1", value], ["draftsim-backup-2", value]]);
+  vi.stubGlobal("localStorage", { get length() { return items.size; }, key: (i: number) => [...items.keys()][i],
+    getItem: (key: string) => items.get(key) ?? null, removeItem: (key: string) => items.delete(key) });
+  await expect(deleteBackup("draftsim-store")).rejects.toThrow();
+  await expect(deleteBackup("draftsim-backup-../store")).rejects.toThrow();
+  await deleteBackup("draftsim-backup-1");
+  expect(items.has("draftsim-backup-1")).toBe(false);
+  expect(items.get("draftsim-store")).toBe(value);
+  expect(items.get("draftsim-backup-2")).toBe(value);
+  await expect(deleteBackup("draftsim-backup-1")).rejects.toThrow();
 });

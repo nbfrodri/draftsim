@@ -127,6 +127,7 @@ import RosterSnapshotCards from "./hall/RosterSnapshotCards";
 import CareerTeammates from "./hall/CareerTeammates";
 import ChampionRecords from "./hall/ChampionRecords";
 import TeamSeasonResultsHistory from "./team/TeamSeasonResultsHistory";
+const BestRosters = dynamic(() => import("./hall/BestRosters"), { loading: () => <HallPanelLoading label="Loading best rosters..." /> });
 const TitlePlayground = dynamic(() => import("./hall/TitlePlayground"), { loading: () => <HallPanelLoading label="Loading title playground…" /> });
 
 type GoToSeasonFn = (seasonId: string) => void;
@@ -210,10 +211,11 @@ const NavCoachName = memo(function NavCoachName({
 // starting and final tier tables side by side (per lane) plus the drift
 // between them.
 
-type HallTab = "playground" | "timeline" | "records" | "dynasties" | "search" | "compare";
+type HallTab = "rosters" | "playground" | "timeline" | "records" | "dynasties" | "search" | "compare";
 type TimelineView = "seasons" | "overall";
 
 const HALL_TAB_LOADING: Record<HallTab, string> = {
+  rosters: "Loading best rosters...",
   playground: "Loading title playground…",
   timeline: "Loading timeline…",
   records: "Loading records & dynasties…",
@@ -5014,6 +5016,7 @@ export default function SeasonHistoryView({
                 { id: "timeline", label: "Timeline" },
                 { id: "records", label: "Records & Dynasties" },
                 { id: "playground", label: "Title Playground" },
+                { id: "rosters", label: "Best Rosters of All Time" },
                 { id: "dynasties", label: "Franchise Timeline" },
                 { id: "search", label: "Search" },
                 { id: "compare", label: "Compare" },
@@ -5048,6 +5051,8 @@ export default function SeasonHistoryView({
           <HallPanelLoading label={HALL_TAB_LOADING[tab]} />
         ) : deferredTab === "playground" ? (
           <TitlePlayground key={source} entries={seasonHistory} onGoToSeason={goToSeasonInTimeline} />
+        ) : deferredTab === "rosters" ? (
+          <BestRosters key={source} entries={seasonHistory} onGoToSeason={goToSeasonInTimeline} />
         ) : deferredTab === "records" ? (
           <RecordsPanel
             entries={seasonHistory}

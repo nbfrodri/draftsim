@@ -1,4 +1,5 @@
 "use client";
+import { repairNameRegistry } from "@/lib/season/nameRegistry";
 import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 import { reportPersistenceError } from "@/lib/persistenceStatus";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
@@ -1346,7 +1347,7 @@ export const useDraftStore = create<DraftStore>()(
       const s = get();
       const target = s.realities.find(r => r.id === id);
       if (!target || target !== initial) return;
-      const decodedSeason = decodeCompactSeason(target.season);
+      const decodedSeason = repairNameRegistry(decodeCompactSeason(target.season), history);
       if (isDesktop()) markRealityHistoryLoaded(id);
       set({
         realities: s.realities.map(r => {
@@ -3473,10 +3474,10 @@ export const useDraftStore = create<DraftStore>()(
         const decoded = decodeCompactSeason(
           ensureSeasonIdentities(state.season),
         );
-        state.season = decoded;
+        state.season = repairNameRegistry(decoded, state.realities?.find(r => r.id === state.activeRealityId)?.history ?? []);
         if (state.activeRealityId && state.realities?.length) {
           state.realities = state.realities.map((r) =>
-            r.id === state.activeRealityId ? { ...r, season: decoded } : r,
+            r.id === state.activeRealityId ? { ...r, season: state.season! } : r,
           );
         }
       }

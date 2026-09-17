@@ -39,6 +39,7 @@ import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
 import SplitIcon from "./SplitIcon";
 import TierChip from "./TierChip";
+import LivePlayerSearch from "./LivePlayerSearch";
 
 function isRosterMovesEntry(entry: SimResultEntry): entry is SimRosterMovesEntry {
   return entry.kind === "roster-moves";
@@ -132,7 +133,7 @@ function SimResultsFeedPanel({
 
   return (
     <div
-      className={`border-2 border-rift-gold/40 bg-rift-gold/[0.04] flex flex-col min-h-0 ${
+      className={`border-2 border-rift-gold/40 bg-rift-gold/[0.04] flex flex-col min-h-0 max-h-full ${
         loading && entries.length === 0 ? "border-rift-gold/55" : ""
       } ${dense ? "text-[9px]" : "text-[10px]"}`}
     >
@@ -207,6 +208,7 @@ function SimResultsFeedPanel({
         </div>
       </div>
 
+      <LivePlayerSearch entries={entries} loading={loading} />
       <div
         ref={scrollRef}
         className="overflow-y-auto overscroll-contain px-2 py-2 min-h-[8rem] max-h-[min(60vh,28rem)]"

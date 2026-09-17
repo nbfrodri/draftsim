@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { IconArchive, IconCheck, IconHistory, IconPlus, IconShieldCheck, IconX } from "@tabler/icons-react";
-import { createManualBackup, listBackups, restoreBackup, chooseBackupDestination, importExternalBackup, getBackupError, subscribeBackupError, type Backup } from "@/lib/backups";
+import { deleteBackup, getBackupDestination, disableBackupDestination, createManualBackup, listBackups, restoreBackup, chooseBackupDestination, importExternalBackup, getBackupError, subscribeBackupError, type Backup } from "@/lib/backups";
 import { isDesktop } from "@/lib/desktopStorage";
 import { useDraftStore } from "@/store/draftStore";
 
@@ -24,6 +24,8 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
   const [backupName, setBackupName] = useState("");
   const descriptionId = useId();
   const [copies, setCopies] = useState<Backup[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [externalFolder, setExternalFolder] = useState<string | null>(null);
   const [selected, setSelected] = useState<Backup | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +39,7 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
     const previous = document.activeElement as HTMLElement | null;
     panel?.showModal();
     let active = true;
-    void listBackups().then(value => { if (active) { setCopies(value); setError(null); } })
+    void Promise.all([listBackups(), getBackupDestination()]).then(([value, folder]) => { if (active) { setCopies(value); setExternalFolder(folder); setError(null); } })
       .catch(e => { if (active) setError(e instanceof Error ? e.message : String(e)); });
     return () => { active = false; panel?.close(); previous?.focus(); };
   }, [open]);
@@ -59,7 +61,7 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
   };
   const cancelRestore = () => { if (!operation.current) { setSelected(null); setError(null); } };
   if (!open) return null;
-  const restoring = busy === "Restoring saved data...";
+  const restoring = !!busy;
 
   return createPortal(<dialog ref={dialog} aria-labelledby={titleId} aria-describedby={descriptionId}
     onPointerDown={event => {
@@ -87,8 +89,8 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
         <span aria-hidden="true" className="hidden h-11 w-11 shrink-0 items-center justify-center border border-rift-gold/30 bg-rift-bg/50 text-rift-gold sm:flex"><IconArchive size={22} stroke={1.4} /></span>
         <div>
           <p className="mb-2 text-[9px] uppercase tracking-[0.3em] text-rift-gold">Saved data</p>
-          <h2 id={titleId} className="font-display text-xl tracking-[0.12em] text-rift-goldbright sm:text-2xl">{selected ? "Restore saved data" : "Backups"}</h2>
-          <p id={descriptionId} className="mt-2 max-w-sm text-xs leading-relaxed">{selected ? "Return all saved data to an earlier point." : "Keep your realities and their history within reach."}</p>
+          <h2 id={titleId} className="font-display text-xl tracking-[0.12em] text-rift-goldbright sm:text-2xl">{selected ? deleting ? "Delete backup" : "Restore saved data" : "Backups"}</h2>
+          <p id={descriptionId} className="mt-2 max-w-sm text-xs leading-relaxed">{selected ? deleting ? "Remove this saved copy permanently." : "Return all saved data to an earlier point." : "Keep your realities and their history within reach."}</p>
         </div>
       </div>
       {!selected && <button type="button" autoFocus disabled={!!busy} aria-label="Close" className={`${secondary} shrink-0 !px-2.5`} onClick={onClose}><IconX aria-hidden="true" size={16} stroke={1.5} /></button>}
@@ -100,13 +102,21 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
           <p className="font-medium text-rift-goldbright">{date(selected.createdAt)}</p>
           <p className="mt-2 break-words text-sm">{selected.realities.join(", ") || "Saved drafts, tournaments and seasons"}</p>
         </div>
+        {deleting ? <p className="text-sm leading-relaxed">Delete this local backup permanently? Your current saved data and other backups will be kept. Any copy in an external folder will remain there.</p> : <>
         <p className="text-sm leading-relaxed">The backup is fully checked before restoring. This replaces <strong className="text-rift-goldbright">all current saved data</strong>, including every reality and its history. Progress made after this copy will no longer be active.</p>
         <p className="text-sm leading-relaxed">Your current data will be kept separately before restoring. After a successful restore, only the latest pre-restore safety copy is kept. The app will reload when finished.</p>
-        {error && <div role="alert" className="border border-rift-red/30 bg-rift-red/5 p-4 text-xs leading-relaxed text-rift-redbright"><p>Could not restore this copy. You can retry or go back.</p><details className="mt-2"><summary className="cursor-pointer">Technical details</summary><p className="mt-2 break-words">{error}</p></details></div>}
+        </>}
+        {error && <div role="alert" className="border border-rift-red/30 bg-rift-red/5 p-4 text-xs leading-relaxed text-rift-redbright"><p>Could not complete this action. You can retry or go back.</p><details className="mt-2"><summary className="cursor-pointer">Technical details</summary><p className="mt-2 break-words">{error}</p></details></div>}
         {busy && <p role="status" className="text-sm text-rift-goldbright">{busy} Keep the app open.</p>}
         <div className="flex flex-wrap justify-end gap-3 border-t border-rift-line pt-5">
           <button ref={cancel} type="button" disabled={restoring} className={secondary} onClick={cancelRestore}>Cancel</button>
-          <button type="button" disabled={restoring || !!simulating} className="min-h-10 border border-rift-red bg-gradient-to-b from-rift-red to-rift-reddeep px-5 py-2 font-display text-[10px] uppercase tracking-[0.18em] text-white hover:brightness-110 disabled:opacity-50" onClick={() => void run("Restoring saved data...", () => restoreBackup(selected.id))}>Restore</button>
+          <button type="button" disabled={restoring || !!simulating} className="min-h-10 border border-rift-red bg-gradient-to-b from-rift-red to-rift-reddeep px-5 py-2 font-display text-[10px] uppercase tracking-[0.18em] text-white hover:brightness-110 disabled:opacity-50" onClick={() => void run(deleting ? "Deleting backup..." : "Restoring saved data...", async () => {
+            if (!deleting) return restoreBackup(selected.id);
+            await deleteBackup(selected.id);
+            setSelected(null);
+            setCopies(await listBackups());
+            setSuccess("Backup deleted.");
+          })}>{deleting ? "Delete permanently" : "Restore"}</button>
         </div>
       </> : <>
         <section className="relative overflow-hidden border border-rift-gold/25 bg-gradient-to-br from-rift-gold/[0.07] to-rift-bg/40 p-4 sm:p-5" aria-label="Latest backup">
@@ -155,7 +165,7 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
             <div className="min-w-0">{copy.name && <p className="mb-1 break-words font-display text-sm text-rift-goldbright">{copy.name}</p>}<div className="flex flex-wrap items-center gap-2"><time dateTime={new Date(copy.createdAt).toISOString()} className="text-sm text-rift-goldbright">{date(copy.createdAt)}</time>{index === 0 && <span className="border border-rift-gold/25 bg-rift-gold/10 px-1.5 py-0.5 text-[8px] uppercase tracking-[0.14em] text-rift-gold">Latest</span>}</div>
               <p className="mt-1 break-words text-xs leading-relaxed">{copy.realities.join(", ") || "Saved drafts, tournaments and seasons"}</p>
               <p className="mt-2 text-[10px] tabular-nums text-rift-mutedbright">{copy.bytes < 1024 * 1024 ? `${Math.max(1, Math.round(copy.bytes / 1024))} KB` : `${(copy.bytes / 1024 / 1024).toFixed(1)} MB`}</p></div>
-            <button type="button" disabled={!!busy || !!simulating} className={`${secondary} w-full shrink-0 sm:w-auto`} data-backup-id={copy.id} onClick={() => { restoreTrigger.current = copy.id; setError(null); setSelected(copy); }}>Review restore</button>
+            <div className="flex flex-wrap gap-2"><button type="button" disabled={!!busy || !!simulating} className={`${secondary} w-full shrink-0 sm:w-auto`} data-backup-id={copy.id} onClick={() => { restoreTrigger.current = copy.id; setError(null); setDeleting(false); setSelected(copy); }}>Review restore</button><button type="button" disabled={!!busy || !!simulating} className={secondary} aria-label={`Delete backup ${copy.name || date(copy.createdAt)}`} onClick={() => { restoreTrigger.current = copy.id; setError(null); setDeleting(true); setSelected(copy); }}>Delete</button></div>
           </li>)}</ul>}
           {simulating && <p className="mt-3 text-xs text-rift-gold">Pause simulation before restoring a backup.</p>}
         </section>
@@ -164,7 +174,7 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
           <div className="mt-3 space-y-3 text-xs leading-relaxed">
             <p>Automatic backups keep up to 5 recent, 7 daily and 4 weekly copies. The same copy can belong to more than one group.</p>
             <p>{isDesktop() ? "Local copies are stored on this device. Choose a folder on another device for extra protection, or import a copy you kept elsewhere." : "Copies are stored in this browser. Clearing browser data also removes these copies. Export important realities from the Realities screen to keep a separate file."}</p>
-            {isDesktop() && <div className="flex flex-wrap gap-2"><button type="button" disabled={!!busy} className={secondary} onClick={() => void run("Choosing backup folder...", chooseBackupDestination)}>Choose external folder</button><button type="button" disabled={!!busy} className={secondary} onClick={() => void run("Importing backup...", async () => { await importExternalBackup(); setCopies(await listBackups()); })}>Import backup file</button></div>}
+            {isDesktop() && <><p className="break-all">External backups: {externalFolder || "Disabled"}</p>{externalFolder && <button type="button" disabled={!!busy} className={secondary} onClick={() => void run("Disabling external backups...", async () => { await disableBackupDestination(); setExternalFolder(null); setSuccess("External backups disabled. Existing copies have been kept."); })}>Disable external backups</button>}<div className="flex flex-wrap gap-2"><button type="button" disabled={!!busy} className={secondary} onClick={() => void run("Choosing backup folder...", async () => { await chooseBackupDestination(); setExternalFolder(await getBackupDestination()); })}>Choose external folder</button><button type="button" disabled={!!busy} className={secondary} onClick={() => void run("Importing backup...", async () => { await importExternalBackup(); setCopies(await listBackups()); })}>Import backup file</button></div></>}
           </div>
         </details>
       </>}

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { CareerTeammate } from "@/lib/season/teammates";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import PlayerNameLink from "../player/PlayerNameLink";
@@ -17,6 +17,7 @@ export default function CareerTeammates({
   rows: CareerTeammate[];
   onGoToSeason?: (seasonId: string) => void;
 }) {
+  const listId = useId();
   const [all, setAll] = useState(false);
   const visible = all ? rows : rows.slice(0, 10);
   return (
@@ -24,7 +25,7 @@ export default function CareerTeammates({
       aria-label="Most frequent teammates"
       className="border border-rift-line/30 bg-rift-bg/20 p-3"
     >
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
           Most frequent teammates
         </h3>
@@ -32,8 +33,9 @@ export default function CareerTeammates({
           <button
             type="button"
             aria-expanded={all}
+            aria-controls={listId}
             onClick={() => setAll(!all)}
-            className="text-[10px] text-rift-goldbright hover:underline"
+            className="shrink-0 border border-rift-line bg-rift-bg/30 px-2.5 py-1.5 text-[10px] text-rift-mutedbright transition-colors hover:border-rift-gold/50 hover:text-rift-goldbright focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rift-gold"
           >
             {all ? "Show top 10" : `Show all ${rows.length}`}
           </button>
@@ -49,7 +51,10 @@ export default function CareerTeammates({
           No teammates with recorded player identities in this history.
         </p>
       ) : (
-        <ol className="max-h-80 space-y-1 overflow-y-auto pr-4 [scrollbar-gutter:stable]">
+        <ol
+          id={listId}
+          className="max-h-80 space-y-1 overflow-y-auto pr-4 [scrollbar-gutter:stable]"
+        >
           {visible.map((peer, i) => (
             <li key={peer.id} className="border-b border-rift-line/25 py-2">
               <details className="group">
