@@ -823,10 +823,18 @@ export async function loadPersistedStateFromDbExecutor(
     });
   }
 
-  return mergePersistedState(global, realities, {
+  const loaded = mergePersistedState(global, realities, {
     lazyHistoryForInactive: true,
     activeRealityId,
   });
+  // The first autosave already has a durable baseline. Without it, startup
+  // rewrites every reality and serializes the entire active Hall again.
+  // Seed only after every row has been read and parsed successfully.
+  savedRealities.set(db, new Map((loaded.realities ?? []).map(r => [r.id, {
+    name: r.name, year: r.year, season: r.season, history: r.history ?? [],
+    historySynced: loadedHistoryRealityIds.has(r.id),
+  }])));
+  return loaded;
 }
 
 /** Lazy-load a dormant reality's Hall history when switching franchises. */

@@ -14,6 +14,7 @@ import {
   type InternationalId,
   type LeagueId,
   type SeasonState,
+  type PhaseRosterSnapshot,
   type SplitId,
 } from "./types";
 import type { RosterNewsEvent } from "./playerLifecycle";
@@ -98,7 +99,7 @@ export interface SimSplitResultEntry {
   split: SplitId;
   label: string;
   leagues: SimSplitLeagueResult[];
-  /** Per-team roster captured at the end of this split (top-4 per league). */
+  /** Per-team roster captured for every placed team in this split. */
   rosterSnapshots?: SimRosterSnapshots;
 }
 
@@ -202,12 +203,27 @@ function teamRef(
 function buildRosterSnapshots(
   season: SeasonState,
   teamIds: readonly string[],
+  scope: { split: SplitId } | { event: InternationalId },
 ): SimRosterSnapshots {
+  const matches = (phase: { kind: string; split?: SplitId; event?: InternationalId }) =>
+    "split" in scope
+      ? phase.kind === "split" && phase.split === scope.split
+      : phase.kind === "international" && phase.event === scope.event;
+  const archived = season.phaseRosters?.find(matches);
+  const phase = season.phases.find(matches);
+  // Tournament entrants were fixed before play. They also recover snapshots
+  // for older saves without phaseRosters; never substitute today's lineup.
+  const entrants = new Map(
+    (phase?.tournamentIds ?? []).flatMap((id) =>
+      (season.tournaments[id]?.teams ?? []).map((team) => [team.id, team] as const),
+    ),
+  );
   const out: SimRosterSnapshots = {};
   for (const id of teamIds) {
-    const t = seasonTeam(season, id);
-    if (!t || !t.players.length) continue;
-    out[id] = t.players
+    const players = archived?.teams.find((team) => team.teamId === id)?.players
+      ?? entrants.get(id)?.players;
+    if (!players?.length) continue;
+    out[id] = players
       .filter((p) => p.lane)
       .map((p) => ({
         lane: p.lane,
@@ -217,6 +233,38 @@ function buildRosterSnapshots(
       }));
   }
   return out;
+}
+
+/** Correct existing feed cards from retained phase archives without rewriting saves. */
+export function restoreFeedRosters(
+  entries: SimResultEntry[],
+  sources: readonly { id: string; phaseRosters?: PhaseRosterSnapshot[] }[],
+): SimResultEntry[] {
+  const bySeason = new Map(sources.map(source => [source.id, source.phaseRosters]));
+  const restore = (entry: SimResultEntry): SimResultEntry => {
+    if (entry.kind === "roster-moves") return entry;
+    if (entry.kind === "year") return {
+      ...entry,
+      splits: entry.splits.map(item => restore(item) as SimSplitResultEntry),
+      intls: entry.intls.map(item => restore(item) as SimIntlResultEntry),
+    };
+    const phase = bySeason.get(entry.seasonId)?.find(snapshot =>
+      entry.kind === "split"
+        ? snapshot.kind === "split" && snapshot.split === entry.split
+        : snapshot.kind === "international" && snapshot.event === entry.event,
+    );
+    if (!phase) return entry;
+    const ids = entry.kind === "split"
+      ? entry.leagues.flatMap(league => league.placements.map(team => team.id))
+      : entry.placements.map(team => team.id);
+    const participants = new Set(ids);
+    const rosterSnapshots: SimRosterSnapshots = {};
+    for (const team of phase.teams) {
+      if (participants.has(team.teamId)) rosterSnapshots[team.teamId] = team.players.map(({ id, name, lane, tier }) => ({ id, name, lane, tier }));
+    }
+    return { ...entry, rosterSnapshots };
+  };
+  return entries.map(restore);
 }
 
 function splitComplete(season: SeasonState, split: SplitId): boolean {
@@ -239,11 +287,11 @@ export function buildSplitResultEntry(
       .filter((r): r is SimResultTeamRef => r != null);
     if (placements.length > 0) {
       leagues.push({ leagueId, placements });
-      // Snapshot top-4 per league for hover cards.
-      for (let i = 0; i < Math.min(4, ids.length); i++) snapshotIds.push(ids[i]);
+      // Expanded league rows need the same historical roster as the podium.
+      snapshotIds.push(...ids);
     }
   }
-  const rosterSnapshots = buildRosterSnapshots(season, snapshotIds);
+  const rosterSnapshots = buildRosterSnapshots(season, snapshotIds, { split });
   return {
     kind: "split",
     seasonId: season.id,
@@ -267,7 +315,7 @@ export function buildIntlResultEntry(
     })
     .filter((r): r is SimResultTeamRef & { rank: number } => r != null);
   // Snapshot all participating teams (≤24) so hover shows the winning roster.
-  const rosterSnapshots = buildRosterSnapshots(season, ids);
+  const rosterSnapshots = buildRosterSnapshots(season, ids, { event });
   const award = ids.length > 0
     ? computeSeasonIntlMvps(season, event).find((result) => result.event === event)?.mvp
     : undefined;

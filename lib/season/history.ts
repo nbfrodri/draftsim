@@ -683,7 +683,7 @@ export function buildSeasonHistoryEntry(
     ...(splitMvps.length > 0 ? { splitMvps } : {}),
     ...(rookieOfYear.length > 0 ? { rookieOfYear } : {}),
     ...(playerCareers.length > 0 ? { playerCareers } : {}),
-    ...(season.phaseRosters?.length ? { phaseRosters: season.phaseRosters } : {}),
+    ...(season.phaseRosters?.length ? { phaseRosters: structuredClone(season.phaseRosters) } : {}),
     ...(season.franchise?.aging
       ? {
           // Same year filter the Continue path uses, so a manual Archive can

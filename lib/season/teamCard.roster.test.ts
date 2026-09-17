@@ -123,7 +123,7 @@ describe("archivedTeamSnapshotForScope", () => {
     expect(worlds?.players.map((p) => p.id)).toEqual(LANES.map((_, i) => `worlds-${i}`));
   });
 
-  it("falls back to latest non-empty phase when scope phase is missing", () => {
+  it("does not substitute another phase when the requested event is missing", () => {
     const e = entry("Y1", 1, [
       {
         teamName: "T1",
@@ -140,8 +140,7 @@ describe("archivedTeamSnapshotForScope", () => {
       { name: "T1", leagueId: "LCK" },
       "msi",
     );
-    expect(snap?.stage).toBe("Summer Split");
-    expect(snap?.players.map((p) => p.id)).toEqual(LANES.map((_, i) => `p-${i}`));
+    expect(snap).toBeNull();
   });
 });
 

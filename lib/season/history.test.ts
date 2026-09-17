@@ -212,3 +212,25 @@ describe("diffMetaOverrides", () => {
     expect(diffMetaOverrides(null, null)).toEqual([]);
   });
 });
+
+
+it("archives independent event rosters rather than post-event replacements", () => {
+  const season = fabricate();
+  const events = ["winter", "spring", "summer", "first-stand", "msi", "worlds", "global-cup"] as const;
+  season.phaseRosters = events.map((event, phaseIndex) => ({
+    ...(event === "winter" || event === "spring" || event === "summer"
+      ? { kind: "split" as const, split: event }
+      : { kind: "international" as const, event }),
+    phaseIndex, label: event,
+    teams: [{ teamId: "t1", teamName: "T1", leagueId: "LCK", players: [{ id: event, name: `${event} winner`, lane: "top", tier: "S", goodChamps: ["Ahri"] }] }],
+  }));
+  season.teams[0].players = [{ id: "replacement", name: "Later signing", lane: "top", tier: "A", goodChamps: [], badChamps: [] }];
+  const archive = buildSeasonHistoryEntry(season, 123);
+  const saved = JSON.parse(JSON.stringify(archive));
+  for (const phase of season.phaseRosters) {
+    phase.teams[0].players[0].name = "Changed after archive";
+    phase.teams[0].players[0].goodChamps!.push("Lux");
+  }
+  expect(archive.phaseRosters).toEqual(saved.phaseRosters);
+  expect(archive.phaseRosters!.map(p => p.teams[0].players[0].name)).toEqual(events.map(e => `${e} winner`));
+});

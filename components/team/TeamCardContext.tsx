@@ -161,8 +161,8 @@ function resolveLive(
   // When the caller supplies snapshot players (e.g. from a Live Results feed
   // entry), prefer those over the live roster so hover shows the team as it
   // was at that specific event, not the current post-transfer lineup.
-  const snapshotPlayers = hint?.players?.length ? hint.players : null;
-  const snapshotCacheKey = snapshotPlayers?.length
+  const snapshotPlayers = hint?.players ?? null;
+  const snapshotCacheKey = snapshotPlayers
     ? snapshotResolveKey(resolved.id, snapshotPlayers)
     : null;
   if (snapshotCacheKey) {
@@ -182,7 +182,7 @@ function resolveLive(
     winRates: liveTeamWinRates(season, resolved.id),
     ...(h2h ? { h2h } : {}),
     scope: snapshotPlayers
-      ? `Snapshot · Year ${franchiseYear ?? "?"}`
+      ? "Event roster snapshot"
       : franchiseYear != null
         ? `Live · Year ${franchiseYear}`
         : "Live season",

@@ -505,7 +505,7 @@ function SeasonDetail({
           <div className="flex items-center gap-2.5 flex-wrap text-base md:text-xl font-display tracking-[0.1em] min-w-0">
             <span aria-hidden className="flex-shrink-0">🏆</span>
             <span className="min-w-0 max-w-full">
-              <TeamRef team={entry.champion} size={22} onNavigate={onNavigate} />
+              <TeamRef phaseScope="worlds" team={entry.champion} size={22} onNavigate={onNavigate} />
             </span>
             {entry.runnerUp && (
               <>
@@ -513,7 +513,7 @@ function SeasonDetail({
                   def.
                 </span>
                 <span className="min-w-0 max-w-full">
-                  <TeamRef team={entry.runnerUp} size={16} muted onNavigate={onNavigate} />
+                  <TeamRef phaseScope="worlds" team={entry.runnerUp} size={16} muted onNavigate={onNavigate} />
                 </span>
               </>
             )}
@@ -548,13 +548,13 @@ function SeasonDetail({
                     <LeagueIcon league={event} size={14} />
                     <span className="text-rift-muted/80 flex-shrink-0">{INTERNATIONAL_LABELS[event]}:</span>
                     <span className="min-w-0 max-w-full">
-                      <TeamRef team={entry.intlChampions[event]!} size={12} onNavigate={onNavigate} />
+                      <TeamRef phaseScope={event} team={entry.intlChampions[event]!} size={12} onNavigate={onNavigate} />
                     </span>
                     {entry.intlRunnersUp?.[event] && (
                       <>
                         <span className="text-rift-muted/50 text-[9px] uppercase tracking-[0.2em] flex-shrink-0">def.</span>
                         <span className="min-w-0 max-w-full">
-                          <TeamRef team={entry.intlRunnersUp[event]!} size={11} muted onNavigate={onNavigate} />
+                          <TeamRef phaseScope={event} team={entry.intlRunnersUp[event]!} size={11} muted onNavigate={onNavigate} />
                         </span>
                       </>
                     )}
@@ -574,6 +574,7 @@ function SeasonDetail({
                             {p.tier}
                           </span>
                           <NavPlayerName
+                            phaseScope={event}
                             name={p.name ?? "—"}
                             playerId={p.id}
                             onNavigate={onNavigate}
@@ -616,12 +617,12 @@ function SeasonDetail({
                           {league}
                         </span>
                         <span className="min-w-0 flex-1 overflow-hidden">
-                          <TeamRef team={team} size={11} onNavigate={onNavigate} />
+                          <TeamRef phaseScope={split} team={team} size={11} onNavigate={onNavigate} />
                         </span>
                         {ru && (
                           <span className="inline-flex items-center gap-1 text-rift-muted/50 min-w-0 max-w-[42%] overflow-hidden">
                             <span className="text-[8px] uppercase tracking-[0.15em] flex-shrink-0">def.</span>
-                            <TeamRef team={ru} size={9} muted onNavigate={onNavigate} />
+                            <TeamRef phaseScope={split} team={ru} size={9} muted onNavigate={onNavigate} />
                           </span>
                         )}
                       </div>
@@ -1256,6 +1257,7 @@ function StageRosters({
                   name={t.teamName}
                   leagueId={t.leagueId}
                   seasonId={entry.id}
+                  phaseScope={phase.split ?? phase.event}
                   teamId={t.teamId}
                   iconKey="shield"
                   logoUrl={resolveTeamLogo(t.teamName, t.logoUrl)}
@@ -2700,7 +2702,7 @@ function OverallTimeline({
                           </span>
                           {row.team ? (
                             <span className="min-w-0 flex-1 overflow-hidden">
-                              <TeamRef team={row.team} size={12} onNavigate={onNavigate} />
+                              <TeamRef phaseScope={row.key} team={row.team} size={12} onNavigate={onNavigate} />
                             </span>
                           ) : (
                             <span className="italic text-rift-muted/60">—</span>
@@ -2712,6 +2714,7 @@ function OverallTimeline({
                               <span key={i} className="inline-flex items-center gap-0.5 text-[8px]">
                                 <LaneIcon lane={p.lane} size="xs" />
                                 <NavPlayerName
+                                  phaseScope={row.key}
                                   name={p.name ?? "—"}
                                   playerId={p.id}
                                   onNavigate={onNavigate}
@@ -5164,6 +5167,7 @@ export default function SeasonHistoryView({
                           >
                             <TeamNameLink
                               seasonId={entry.id}
+                              phaseScope="worlds"
                               name={entry.champion.name}
                               leagueId={entry.champion.leagueId}
                               iconKey={entry.champion.iconKey}
@@ -5199,6 +5203,7 @@ export default function SeasonHistoryView({
                           >
                             <TeamNameLink
                               seasonId={entry.id}
+                              phaseScope="global-cup"
                               name={entry.intlChampions["global-cup"]!.name}
                               leagueId={entry.intlChampions["global-cup"]!.leagueId}
                               iconKey={entry.intlChampions["global-cup"]!.iconKey}

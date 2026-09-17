@@ -934,3 +934,22 @@ describe("lazy-history safety and write budget", () => {
     expect(execute.mock.calls[0][0]).toContain("global_state");
   });
 });
+
+
+it("does not rewrite loaded history on the first startup save, but persists subsequent changes", async () => {
+  const { db, historyRows } = createMockPersistDb();
+  setDesktopDatabaseForTests(db);
+  const reality = { ...makeReality("startup", "Startup"), history: Array.from({ length: 100 }, (_, i) => makeEntry(`year-${i}`, `Year ${i}`)) };
+  await savePersistedStateToDbExecutor(db, STORE_KEY, { activeRealityId: reality.id, realities: [reality] }, { forceAllHistory: true });
+  resetSqliteStorageForTests();
+  setDesktopDatabaseForTests(db);
+  const loaded = (await loadPersistedStateFromDb(STORE_KEY))!;
+  const execute = vi.spyOn(db, "execute");
+  await savePersistedStateToDbExecutor(db, STORE_KEY, { ...loaded, soundEnabled: false });
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(execute.mock.calls[0][0]).toContain("global_state");
+  expect(historyRows.size).toBe(100);
+  const active = loaded.realities![0];
+  await savePersistedStateToDbExecutor(db, STORE_KEY, { ...loaded, realities: [{ ...active, history: [...(active.history ?? []), makeEntry("next", "Next")] }] });
+  expect(historyRows.size).toBe(101);
+});

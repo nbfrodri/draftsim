@@ -207,6 +207,29 @@ describe("season lifecycle", () => {
     },
   });
 
+  it.each(["winter", "first-stand"] as const)("archives the roster registered for %s even if the live team changes", (event) => {
+    let season = structuredClone(base);
+    const rng = rngFrom(88);
+    if (event === "first-stand") {
+      for (let i = 0; i < 6; i++) season = applyTournamentUpdate(season, resolveTournament(nextPendingTournament(season)!, rng), champions);
+    }
+    const phase = currentPhase(season)!;
+    const tournament = nextPendingTournament(season)!;
+    const participant = tournament.teams[0];
+    const original = structuredClone(participant.players!);
+    const live = season.teams.find(t => t.id === participant.id)!;
+    expect(live.players).not.toBe(participant.players);
+    live.players[0].name = "Later replacement";
+    live.players[0].goodChamps.push("later-champion");
+    expect(participant.players).toEqual(original);
+    while (currentPhase(season)?.label === phase.label) {
+      season = applyTournamentUpdate(season, resolveTournament(nextPendingTournament(season)!, rng), champions);
+    }
+    const snapshot = season.phaseRosters!.find(s => s.label === phase.label)!.teams.find(t => t.teamId === participant.id)!;
+    expect(snapshot.players[0].name).toBe(original[0].name);
+    expect(snapshot.players[0].goodChamps ?? []).toEqual(original[0].goodChamps);
+  });
+
   it("starts in Winter with one tournament per league, all season-tagged", () => {
     const phase = currentPhase(base)!;
     expect(phase.split).toBe("winter");

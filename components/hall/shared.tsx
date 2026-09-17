@@ -15,7 +15,7 @@ FREE_AGENT_YEARS
 } from "@/lib/season/playerLifecycle";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import {
-type LeagueId
+type LeagueId, type SplitId, type InternationalId
 } from "@/lib/season/types";
 import type { Lane } from "@/lib/types";
 import {
@@ -142,7 +142,9 @@ export const NavPlayerName = memo(function NavPlayerName({
   className = "",
   nested = false,
   hint,
+  phaseScope,
 }: {
+  phaseScope?: SplitId | InternationalId;
   name: string;
   playerId?: string;
   onNavigate?: NavFn;
@@ -161,6 +163,7 @@ export const NavPlayerName = memo(function NavPlayerName({
       playerId={playerId}
       name={name}
       seasonId={seasonId}
+      phaseScope={phaseScope}
       hint={hint}
       className={className}
       renderAs={nested ? "span" : "button"}
@@ -183,6 +186,7 @@ export const TeamRef = memo(function TeamRef({
   onNavigate: _onNavigate,
   nested = false,
   seasonId: seasonIdProp,
+  phaseScope,
 }: {
   team: SeasonHistoryTeamRef;
   size?: number;
@@ -195,6 +199,7 @@ export const TeamRef = memo(function TeamRef({
    * if present; otherwise career / latest-roster resolution.
    */
   seasonId?: string;
+  phaseScope?: SplitId | InternationalId;
 }) {
   const scopeSeasonId = useContext(SeasonScope);
   const seasonId = seasonIdProp ?? scopeSeasonId;
@@ -204,6 +209,7 @@ export const TeamRef = memo(function TeamRef({
       name={team.name}
       leagueId={team.leagueId}
       seasonId={seasonId}
+      phaseScope={phaseScope}
       iconKey={team.iconKey}
       logoUrl={logoUrl}
       color={team.color}

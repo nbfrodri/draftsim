@@ -169,7 +169,7 @@ function toTournamentTeam(team: SeasonTeam, seed: number): TournamentTeam {
     iconKey: team.iconKey,
     color: team.color,
     logoUrl: team.logoUrl,
-    players: team.players,
+    players: structuredClone(team.players),
     // The coach drives the team's draft: their rating sets how strongly the AI
     // plays for this side, and their playstyle is the draft personality.
     personalityId: team.coach?.personalityId ?? team.personalityId,
@@ -2063,6 +2063,13 @@ export function applyTournamentUpdate(
   if (phase.kind === "split" || phase.kind === "international") {
     // Same instant, the other side of the league: who sat in an academy or on
     // the FA board while this was played. Career timelines read both halves.
+    // Use the actual tournament entrants, captured before play, for participants.
+    // Non-participants still need a phase stamp for their career timeline.
+    const eventPlayers = new Map(
+      phase.tournamentIds.flatMap((id) =>
+        (next.tournaments[id]?.teams ?? []).map((team) => [team.id, team.players] as const),
+      ),
+    );
     const inactive: PhaseInactiveSnapshot[] = [];
     for (const entry of next.franchise?.inactivePool ?? []) {
       if (entry.status === "retired" || !entry.player.id) continue;
@@ -2098,7 +2105,7 @@ export function applyTournamentUpdate(
                   },
                 }
               : {}),
-            players: t.players.map((p) => ({
+            players: (eventPlayers.get(t.id) ?? t.players).map((p) => ({
               ...(p.id ? { id: p.id } : {}),
               ...(p.name ? { name: p.name } : {}),
               tier: p.tier,

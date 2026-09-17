@@ -105,3 +105,31 @@ test("external backup folder can be disabled in the recovery panel", async ({ pa
   await expect(panel.getByRole("button", { name: "Disable external backups" })).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "Choose external folder" })).toBeEnabled();
 });
+
+
+test("live result cards recover the roster that played instead of a saved post-transfer lineup", async ({ page }) => {
+  const season = makeAuditSeason("Roster snapshot recovery");
+  const team = season.teams[0];
+  team.name = "Snapshot Team";
+  const historical = structuredClone(team.players);
+  historical[0].name = "Actual Tournament Player";
+  historical[0].id = "played-event";
+  team.players[0].name = "Post Event Replacement";
+  team.players[0].id = "signed-later";
+  season.phaseRosters = [{ phaseIndex: 1, label: "First Stand", kind: "international", event: "first-stand", teams: [{ teamId: team.id, teamName: team.name, leagueId: team.leagueId, players: historical }] }];
+  const entry = { kind: "intl", seasonId: season.id, year: 1, event: "first-stand", label: "First Stand", placements: [{ ...team, rank: 1 }], rosterSnapshots: { [team.id]: team.players } };
+  await page.addInitScript(({ season, entry }) => {
+    localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state: { season, seasonViewOpen: true, activeRealityId: season.franchise.id, realities: [{ id: season.franchise.id, name: season.franchise.name, year: 1, season, history: [] }], simResultsFeed: [entry] } }));
+  }, { season, entry });
+  await page.goto("/");
+  const year = page.getByRole("button", { name: /Year 1 1 event/ });
+  await expect(year).toBeVisible();
+  await year.click();
+  await page.evaluate(() => Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true }));
+  await year.click();
+  await page.getByText("Snapshot Team", { exact: true }).last().hover();
+  const card = page.getByRole("tooltip");
+  await expect(card).toContainText("Actual Tournament Player");
+  await expect(card).not.toContainText("Post Event Replacement");
+  await expect(card).toContainText("Event roster snapshot");
+});

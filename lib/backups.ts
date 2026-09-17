@@ -151,16 +151,21 @@ export async function restoreBackup(id: string): Promise<void> {
 export async function importExternalBackup(): Promise<void> { await invoke("backup_import"); }
 export async function chooseBackupDestination(): Promise<void> { await invoke("backup_destination"); }
 export function startAutomaticBackups(): () => void {
+  const startupReadyAt = Date.now() + 30_000;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const eligible = () => getPersistenceSnapshot().phase === "saved"
+    && !running && Date.now() - lastBackup >= 15 * 60_000;
   const check = () => {
-    const state = getPersistenceSnapshot();
-    if (state.phase !== "saved" || running || timer || Date.now()-lastBackup < 15*60_000) return;
+    if (timer || !eligible()) return;
+    // Keep the first snapshot out of the initial menu / Hall navigation.
+    // Saving itself is never delayed; only this extra recovery copy is.
     timer = setTimeout(() => {
       timer = undefined;
-      if (getPersistenceSnapshot().phase === "saved") void createBackup(false).catch(() => {});
-    }, 1000);
+      if (eligible()) void createBackup(false).catch(() => {});
+    }, Math.max(1000, startupReadyAt - Date.now()));
   };
   const unsubscribe = subscribePersistenceStatus(check);
+  check();
   return () => { unsubscribe(); if (timer) clearTimeout(timer); };
 }
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  restoreFeedRosters,
+  buildSplitResultEntry,
+  buildIntlResultEntry,
   buildPostWorldsMovesEntry,
   buildPreIntlMovesEntry,
   buildRosterMovesEntry,
@@ -17,7 +20,7 @@ import {
   type SimSplitResultEntry,
   type SimIntlResultEntry,
 } from "./simResultsSummary";
-import type { SeasonState } from "./types";
+import { LEAGUE_IDS, type InternationalId, type SeasonState } from "./types";
 
 function fabricate(
   parts: Partial<SeasonState> & Pick<SeasonState, "id">,
@@ -512,6 +515,7 @@ describe("roster-moves entries", () => {
         },
       },
     });
+    season.phaseRosters = [{ phaseIndex: 0, kind: "split", split: "winter", label: "Winter", teams: season.teams.map(t => ({ teamId: t.id, teamName: t.name, leagueId: t.leagueId, players: structuredClone(t.players) })) }];
     const seen = new Set<string>();
     const updates = collectSimResultUpdates(season, seen);
     const split = updates.find((u) => u.kind === "split");
@@ -558,6 +562,7 @@ describe("roster-moves entries", () => {
     const seen = new Set<string>();
     const entryCache: SimResultEntryCache = new Map();
 
+    splitSeason.phaseRosters = [{ phaseIndex: 0, kind: "split", split: "winter", label: "Winter", teams: splitSeason.teams.map(t => ({ teamId: t.id, teamName: t.name, leagueId: t.leagueId, players: structuredClone(t.players) })) }];
     // Call 1: capture winter split with original roster.
     const firstUpdates = collectSimResultUpdates(splitSeason, seen, entryCache);
     expect(firstUpdates.find((u) => u.kind === "split")).toBeDefined();
@@ -1622,4 +1627,53 @@ describe("stamp-aware transfer attribution (feed ↔ digest parity)", () => {
     );
     expect(postWorlds?.kind === "roster-moves" && postWorlds.year).toBe(2);
   });
+});
+
+
+describe("event-time feed rosters", () => {
+  it.each(["winter", "spring", "summer", "first-stand", "msi", "worlds", "global-cup"] as const)("uses %s participants even when the first feed update follows transfers", (event) => {
+    const split = event === "winter" || event === "spring" || event === "summer" ? event : undefined;
+    const scope = split ? { kind: "split" as const, split } : { kind: "international" as const, event: event as InternationalId };
+    const season = fabricate({ id: "frozen", status: "complete" });
+    const played = { id: "original", name: "PlayedTheEvent", lane: "top" as const, tier: "S" as const };
+    season.teams[0].players = [{ ...played, id: "replacement", name: "SignedAfterwards", goodChamps: [], badChamps: [] }];
+    season.phaseRosters = [{ ...scope, phaseIndex: 0, label: event, teams: [{ teamId: "t1", teamName: "Alpha", leagueId: "LCK", players: [played] }] }];
+    season.phases = [{ ...scope, status: "complete", label: event, tournamentIds: [] }];
+    if (split) season.splitResults[split] = Object.fromEntries(LEAGUE_IDS.map(league => [league, ["t2", "t2", "t2", "t2", "t1"]]));
+    else season.intlResults[event as InternationalId] = ["t1"];
+    const entry = split ? buildSplitResultEntry(season, split) : buildIntlResultEntry(season, event as InternationalId);
+    expect(entry.rosterSnapshots?.t1).toEqual([played]);
+    const year = buildYearResultEntry(season);
+    expect((split ? year.splits.find(s => s.split === split) : year.intls.find(s => s.event === event))?.rosterSnapshots?.t1).toEqual([played]);
+    played.name = "Changed after capture";
+    expect(entry.rosterSnapshots?.t1[0].name).toBe("PlayedTheEvent");
+  });
+
+  it("recovers legacy play-in and main-event entrants without borrowing another phase or the live roster", () => {
+    const season = fabricate({ id: "legacy" });
+    const player = { id: "original", name: "Played", lane: "top" as const, tier: "S" as const, goodChamps: [], badChamps: [] };
+    season.teams[0].players = [{ ...player, name: "Replacement" }];
+    season.phases = [{ kind: "international", event: "worlds", label: "Worlds", status: "complete", tournamentIds: ["play-in", "main"] }];
+    season.tournaments = Object.fromEntries(["play-in", "main"].map((id, i) => [id, { id, teams: [{ ...season.teams[i], players: [player] }], matches: [] }])) as SeasonState["tournaments"];
+    season.intlResults.worlds = ["t2", "t1"];
+    expect(Object.keys(buildIntlResultEntry(season, "worlds").rosterSnapshots!)).toEqual(["t2", "t1"]);
+    expect(buildIntlResultEntry(season, "worlds").rosterSnapshots?.t1[0].name).toBe("Played");
+    season.intlResults.msi = ["t1"];
+    expect(buildIntlResultEntry(season, "msi").rosterSnapshots).toBeUndefined();
+  });
+});
+
+
+it("repairs saved feed cards and year summaries from retained archives without mutating saved data", () => {
+  const season = fabricate({ id: "saved", splitResults: { winter: { LCK: ["t1"] } } });
+  const entry = buildSplitResultEntry(season, "winter");
+  entry.rosterSnapshots = { t1: [{ id: "wrong", name: "Replacement", lane: "top", tier: "B" }] };
+  const correct = { id: "winner", name: "Winner", lane: "top" as const, tier: "S" as const };
+  const archive = { id: "saved", phaseRosters: [{ phaseIndex: 0, kind: "split" as const, split: "winter" as const, label: "Winter", teams: [{ teamId: "t1", teamName: "Alpha", leagueId: "LCK" as const, players: [correct] }] }] };
+  const year = { ...buildYearResultEntry(season), splits: [entry] };
+  const repaired = restoreFeedRosters([entry, year], [archive]);
+  expect((repaired[0] as SimSplitResultEntry).rosterSnapshots?.t1).toEqual([correct]);
+  expect(repaired[1].kind === "year" && repaired[1].splits[0].rosterSnapshots?.t1).toEqual([correct]);
+  expect(entry.rosterSnapshots.t1[0].name).toBe("Replacement");
+  expect(restoreFeedRosters([entry], [])[0]).toBe(entry);
 });

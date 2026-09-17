@@ -1,9 +1,11 @@
 "use client";
+import MainMenuSections from "./MainMenuSections";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
 import { parseSeasonImport } from "@/lib/importPreview";
 import { decodeTournament } from "@/lib/tournamentShare";
 
 import dynamic from "next/dynamic";
+import Image from "next/image";
 
 import {
 getAppClosePhase,
@@ -454,152 +456,40 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
     }
   };
 
+  const latestSave = [
+    ...savedSeasons.map((entry) => ({ savedAt: entry.savedAt, name: entry.season.name, detail: "Saved season", onClick: () => loadSavedSeason(entry.id) })),
+    ...savedTournaments.map((entry) => ({ savedAt: entry.savedAt, name: entry.tournament.name, detail: "Saved tournament", onClick: () => loadSavedTournament(entry.id) })),
+  ].sort((a, b) => b.savedAt - a.savedAt)[0];
+
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-2xl text-center">
-        <div className="text-[10px] md:text-xs uppercase tracking-[0.5em] text-rift-gold/70 mb-2">
-          DraftSim
-        </div>
-        <h1 className="font-display text-4xl md:text-6xl tracking-[0.15em] text-rift-goldbright mb-1">
-          <span className="bg-gold-sheen bg-clip-text text-transparent">
-            CHOOSE
-          </span>
-          <span className="text-rift-gold/90 ml-3">A MODE</span>
-        </h1>
-        <div className="ornament mb-8 md:mb-10">
-          <span className="text-[10px] tracking-[0.3em] text-rift-gold/50 uppercase">
-            How would you like to draft today?
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-          <button
-            type="button"
-            onClick={() => onChoose("single-setup")}
-            className="group relative border-2 border-rift-line hover:border-rift-gold/70 hover:bg-rift-gold/5 transition-all p-6 md:p-8 text-left"
-          >
-            <div className="text-[9px] uppercase tracking-[0.4em] text-rift-gold/60 mb-2">
-              Solo
-            </div>
-            <div className="font-display text-2xl md:text-3xl tracking-wider text-rift-goldbright group-hover:text-rift-goldbright mb-2">
-              Single Series
-            </div>
-            <div className="text-[11px] md:text-xs text-rift-mutedbright leading-snug">
-              Quick draft + match. Bo1, Bo3, or Bo5 between two teams.
-              Optional fearless. Solo PvP, vs AI, or AI vs AI.
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => onChoose("tournament-setup")}
-            className="group relative border-2 border-rift-gold/40 bg-rift-gold/[0.03] hover:border-rift-gold hover:bg-rift-gold/10 transition-all p-6 md:p-8 text-left"
-          >
-            <div className="text-[9px] uppercase tracking-[0.4em] text-rift-goldbright/80 mb-2">
-              Bracket
-            </div>
-            <div className="font-display text-2xl md:text-3xl tracking-wider text-rift-goldbright mb-2">
-              Tournament
-            </div>
-            <div className="text-[11px] md:text-xs text-rift-mutedbright leading-snug">
-              Single-elim or round-robin with team ratings, cross-match
-              fearless, and per-match overrides. Champion crowned at the
-              end with MVP and champion-stats recap.
-            </div>
-          </button>
-        </div>
-
-        {/* Season mode — a full competitive year (6 leagues, 3 splits,
-            First Stand / MSI / Worlds). One active season at a time:
-            continue it if it exists, otherwise create one. */}
-        <button
-          type="button"
-          onClick={() => {
-            if (season) openSeason();
-            else onChoose("season-setup");
-          }}
-          className="w-full mt-3 md:mt-4 group relative border-2 border-rift-blue/40 bg-rift-blue/[0.04] hover:border-rift-bluebright/70 hover:bg-rift-blue/10 transition-all p-5 md:p-6 text-left"
-        >
-          <div className="text-[9px] uppercase tracking-[0.4em] text-rift-bluebright/80 mb-2">
-            {season ? "In Progress" : "New"}
-          </div>
-          <div className="font-display text-2xl md:text-3xl tracking-wider text-rift-goldbright mb-2 flex items-baseline gap-3 flex-wrap">
-            Season Mode
-            {season && (
-              <span className="text-sm md:text-base text-rift-bluebright">
-                Continue “{season.name}”
-                {season.status === "complete" ? " · Complete" : ""}
-              </span>
-            )}
-          </div>
-          <div className="text-[11px] md:text-xs text-rift-mutedbright leading-snug">
-            Simulate a whole year: LCK, LPL, LEC, LCS, CBLOL & LCP play
-            Winter, Spring and Summer splits, with First Stand, MSI and
-            Worlds in between. Shifting meta, seeded internationals, and
-            a world champion at the end.
-          </div>
-        </button>
-
-        {/* Realities — franchise mode: a continuous, persistent timeline where
-            teams + players carry across seasons (offseason transfers + aging
-            between years). Multiple independent saves. */}
-        <button
-          type="button"
-          onClick={() => onChoose("realities-hub")}
-          className="w-full mt-3 md:mt-4 group relative border-2 border-rift-gold/40 bg-rift-gold/[0.04] hover:border-rift-goldbright/70 hover:bg-rift-gold/10 transition-all p-5 md:p-6 text-left"
-        >
-          <div className="text-[9px] uppercase tracking-[0.4em] text-rift-gold/80 mb-2">
-            {realitiesCount > 0 ? `${realitiesCount} saved` : "New"}
-          </div>
-          <div className="font-display text-2xl md:text-3xl tracking-wider text-rift-goldbright mb-2">
-            Realities
-          </div>
-          <div className="text-[11px] md:text-xs text-rift-mutedbright leading-snug">
-            A continuous franchise: the same teams and players carry from one
-            season to the next, with a post-Worlds transfer window and optional
-            player aging, retirements and rookies between years. Careers and
-            records accumulate across the whole timeline. Multiple saves.
-          </div>
-        </button>
-
-        {/* Library sections — custom meta tier lists and synergy/counter
-            sets. Saved presets can be applied before starting a series
-            or tournament (pickers also appear in both setup forms). */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mt-3 md:mt-4">
-          <button
-            type="button"
-            onClick={() => onChoose("meta-library")}
-            className="group border border-rift-line hover:border-rift-gold/60 hover:bg-rift-gold/5 transition-all px-5 py-4 text-left"
-          >
-            <div className="text-[9px] uppercase tracking-[0.4em] text-rift-gold/60 mb-1">
-              Library
-            </div>
-            <div className="font-display text-lg md:text-xl tracking-wider text-rift-goldbright mb-1">
-              Meta Tier Lists
-            </div>
-            <div className="text-[10px] md:text-[11px] text-rift-mutedbright leading-snug">
-              Create, edit, and save your own tier lists. Import, export,
-              and apply them to series and tournaments.
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => onChoose("pairings-library")}
-            className="group border border-rift-line hover:border-rift-gold/60 hover:bg-rift-gold/5 transition-all px-5 py-4 text-left"
-          >
-            <div className="text-[9px] uppercase tracking-[0.4em] text-rift-gold/60 mb-1">
-              Library
-            </div>
-            <div className="font-display text-lg md:text-xl tracking-wider text-rift-goldbright mb-1">
-              Synergies &amp; Counters
-            </div>
-            <div className="text-[10px] md:text-[11px] text-rift-mutedbright leading-snug">
-              Build custom synergy pairs and counterpicks the AI and
-              simulator use. Save, duplicate, import, and export sets.
-            </div>
-          </button>
-        </div>
-
-        <div className="mt-6 flex items-center justify-center gap-5 flex-wrap">
+    <div className="min-h-screen flex items-center justify-center px-5 py-8 md:py-10">
+      <div className="w-full max-w-6xl">
+        <header className="mb-6 border-b border-rift-line pb-5">
+          <div className="text-[10px] uppercase tracking-[0.35em] text-rift-mutedbright mb-2">League of Legends simulator</div>
+          <div className="flex items-center gap-4"><Image src="/icon.svg" alt="DraftSim logo" width={64} height={64} priority className="h-14 w-14 md:h-16 md:w-16 shrink-0" /><h1 className="font-display text-4xl md:text-5xl tracking-[0.12em] text-rift-goldbright">DRAFTSIM</h1></div>
+          <p className="mt-3 text-sm text-rift-mutedbright">Your next draft. Your next champion. Your own history.</p>
+        </header>
+        <MainMenuSections
+          onChoose={onChoose}
+          onSeason={() => season ? openSeason() : onChoose("season-setup")}
+          hasSeason={!!season}
+          realitiesCount={realitiesCount}
+          resume={season ? {
+            name: season.franchise?.name ?? season.name,
+            detail: `${season.franchise ? `Reality / Year ${season.franchise.year}` : "Season"} / ${season.status === "complete" ? "Season complete" : season.phases[season.phaseIndex]?.label ?? "In progress"}`,
+            onClick: openSeason,
+          } : latestSave ? {
+            name: latestSave.name,
+            detail: latestSave.detail,
+            onClick: latestSave.onClick,
+          } : realitiesCount > 0 ? {
+            name: "Your realities",
+            detail: "Choose a saved reality to continue your timeline.",
+            onClick: () => onChoose("realities-hub"),
+          } : undefined}
+        />
+        <h2 className="mt-8 mb-3 text-xs uppercase tracking-[0.25em] text-rift-gold">Saves & history</h2>
+        <div className="flex items-center gap-x-6 gap-y-4 flex-wrap border-t border-rift-line pt-5">
           <button
             type="button"
             onClick={() => {

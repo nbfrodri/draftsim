@@ -205,7 +205,7 @@ function snapFromPhase(
 
 /**
  * Phase roster for a team within one archived season, preferring the split or
- * international stage that matches `scope`. Falls back to {@link archivedTeamSnapshot}.
+ * international stage that matches `scope`. Missing phases must not borrow another roster.
  */
 export function archivedTeamSnapshotForScope(
   entry: SeasonHistoryEntry,
@@ -225,7 +225,7 @@ export function archivedTeamSnapshotForScope(
     scoped = snap;
     if (snap.players.length > 0) scopedNonEmpty = snap;
   }
-  return scopedNonEmpty ?? scoped ?? archivedTeamSnapshot(entry, team);
+  return scopedNonEmpty ?? scoped;
 }
 
 /** Live academy size: inactive pool rows with status academy for this org. */

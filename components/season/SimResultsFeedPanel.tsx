@@ -8,6 +8,7 @@ IconTrophy,
 import { memo,useCallback,useEffect,useMemo,useRef,useState,type ReactNode } from "react";
 
 import {
+restoreFeedRosters,
 PRE_INTL_LABEL,
 SIM_RESULTS_FULL_DETAIL_YEARS,
 countSummarizedYears,
@@ -37,16 +38,27 @@ import LaneIcon from "../LaneIcon";
 import LeagueIcon from "../LeagueIcon";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
+import TeamIcon from "../TeamIcon";
 import SplitIcon from "./SplitIcon";
 import TierChip from "./TierChip";
 import LivePlayerSearch from "./LivePlayerSearch";
+import { useDraftStore } from "@/store/draftStore";
 
 function isRosterMovesEntry(entry: SimResultEntry): entry is SimRosterMovesEntry {
   return entry.kind === "roster-moves";
 }
 
 function useGroupedFeedEntries(entries: SimResultEntry[], showRosterMoves: boolean): SimResultYearGroup[] {
-  return useMemo(() => groupSimResultFeedEntries(entries, showRosterMoves), [entries, showRosterMoves]);
+  const seasonId = useDraftStore(s => s.season?.id);
+  const phaseRosters = useDraftStore(s => s.season?.phaseRosters);
+  const history = useDraftStore(s => s.activeRealityId
+    ? s.realities.find(reality => reality.id === s.activeRealityId)?.history
+    : s.seasonHistory);
+  const restored = useMemo(() => restoreFeedRosters(entries, [
+    ...(history ?? []),
+    ...(seasonId ? [{ id: seasonId, phaseRosters }] : []),
+  ]), [entries, history, seasonId, phaseRosters]);
+  return useMemo(() => groupSimResultFeedEntries(restored, showRosterMoves), [restored, showRosterMoves]);
 }
 
 function SimResultsFeedPanel({
@@ -401,7 +413,7 @@ const SimTeamName = memo(function SimTeamName({
       iconKey: team.iconKey,
       logoUrl: team.logoUrl,
       color: team.color,
-      ...(rosterSnap?.length
+      ...(rosterSnap !== undefined
         ? { players: rosterSnap as unknown as Roster }
         : {}),
     }),
@@ -414,6 +426,13 @@ const SimTeamName = memo(function SimTeamName({
       rosterSnap,
     ],
   );
+
+  if (rosterSnap !== undefined && rosterSnap.length === 0) {
+    return <span title="Historical roster unavailable" className={`min-w-0 truncate inline-flex items-center gap-1 ${className}`}>
+      <TeamIcon iconKey={team.iconKey} logoUrl={team.logoUrl} color={team.color} size={logoSize} />
+      {team.name}
+    </span>;
+  }
 
   return (
     <TeamNameLink
@@ -482,7 +501,7 @@ function PlacementRow({
         team={team}
         logoSize={logoSize}
         className={highlight ? "text-rift-goldbright font-display tracking-wide" : ""}
-        rosterSnap={snapshots?.[team.id]}
+        rosterSnap={snapshots?.[team.id] ?? []}
       />
       {rank === 1 && (
         <IconTrophy size={10} stroke={1.6} className="text-rift-gold/70 flex-shrink-0" aria-hidden />
@@ -612,7 +631,7 @@ const IntlCard = memo(function IntlCard({
               team={p}
               logoSize={logoSize}
               className={p.rank === 1 ? "text-rift-goldbright" : ""}
-              rosterSnap={entry.rosterSnapshots?.[p.id]}
+              rosterSnap={entry.rosterSnapshots?.[p.id] ?? []}
             />
             {p.rank === 1 && (
               <IconTrophy size={10} stroke={1.6} className="text-rift-gold/70 flex-shrink-0" aria-hidden />
@@ -683,7 +702,7 @@ function SplitWinnersGrid({
                           team={champ}
                           logoSize={logoSize}
                           className="text-rift-goldbright/90"
-                          rosterSnap={splitEntry.rosterSnapshots?.[champ.id]}
+                          rosterSnap={splitEntry.rosterSnapshots?.[champ.id] ?? []}
                         />
                       ) : (
                         <span className="text-rift-muted/40">—</span>
@@ -792,7 +811,7 @@ const YearCard = memo(function YearCard({
             team={entry.worldsChampion}
             logoSize={logoSize}
             className="text-rift-goldbright"
-            rosterSnap={worldsRosterSnap}
+            rosterSnap={worldsRosterSnap ?? []}
           />
           <span className="text-rift-muted/60 flex-shrink-0 inline-flex items-center gap-0.5">
             (<LeagueIcon league={entry.worldsChampion.leagueId} size={10} />
@@ -827,7 +846,7 @@ const YearCard = memo(function YearCard({
                   <SimTeamName
                     team={intl.placements[0]}
                     logoSize={logoSize}
-                    rosterSnap={intl.rosterSnapshots?.[intl.placements[0].id]}
+                    rosterSnap={intl.rosterSnapshots?.[intl.placements[0].id] ?? []}
                   />
                 ) : (
                   "—"
