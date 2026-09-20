@@ -34,6 +34,9 @@ function Open-And-Close {
   $startInfo.UseShellExecute = $false
   $startInfo.CreateNoWindow = $true
   $startInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+  # WebView2 processes this host switch after the environment options Wry sets.
+  # https://learn.microsoft.com/en-us/dotnet/api/microsoft.web.webview2.core.corewebview2environmentoptions.additionalbrowserarguments
+  $startInfo.ArgumentList.Add('--edge-webview-switches=--remote-debugging-port=9333')
   $startInfo.Environment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--remote-debugging-port=9333'
   $process = [Diagnostics.Process]::Start($startInfo)
   $deadline = [DateTime]::UtcNow.AddSeconds(60)
