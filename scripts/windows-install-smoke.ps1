@@ -28,7 +28,14 @@ function Install-TestBuild([string]$path) {
 function Open-And-Close {
   $binary = Join-Path $installRoot 'app.exe'
   if (-not (Test-Path -LiteralPath $binary)) { throw 'Installed executable missing.' }
-  $process = Start-Process -FilePath $binary -WindowStyle Hidden -PassThru
+  # Start directly so the test-only WebView environment reaches the app even
+  # when Windows shell execution would broker the process through Explorer.
+  $startInfo = [Diagnostics.ProcessStartInfo]::new($binary)
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+  $startInfo.Environment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--remote-debugging-port=9333'
+  $process = [Diagnostics.Process]::Start($startInfo)
   $deadline = [DateTime]::UtcNow.AddSeconds(60)
   do {
     Start-Sleep -Milliseconds 500
@@ -37,7 +44,12 @@ function Open-And-Close {
   } while ($process.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
   if ($process.MainWindowHandle -eq 0) { throw 'Application window did not initialize.' }
   & node "$PSScriptRoot/desktop-navigation-smoke.mjs" $smokeRoot
-  if ($LASTEXITCODE -ne 0) { throw 'Native Escape/navigation smoke failed.' }
+  if ($LASTEXITCODE -ne 0) {
+    Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('app.exe', 'msedgewebview2.exe') } |
+      Select-Object Name, ProcessId, ParentProcessId, CommandLine |
+      ConvertTo-Json | Set-Content -LiteralPath (Join-Path $smokeRoot 'native-processes.json')
+    throw 'Native Escape/navigation smoke failed.'
+  }
   if (-not $process.CloseMainWindow()) { throw 'Unable to request normal application close.' }
   if (-not $process.WaitForExit(45000)) { throw 'Application did not complete its save/close lifecycle.' }
   if ($process.ExitCode -ne 0) { throw "Application failed: $($process.ExitCode)" }

@@ -10,11 +10,15 @@ const output = process.argv[2];
 if (!output) throw new Error("Expected diagnostic output directory");
 await mkdir(output, { recursive: true });
 let browser;
+let connectionError;
 for (let attempt = 0; attempt < 60; attempt++) {
   try { browser = await chromium.connectOverCDP("http://127.0.0.1:9333"); break; }
-  catch { await new Promise(resolve => setTimeout(resolve, 500)); }
+  catch (error) { connectionError = error; await new Promise(resolve => setTimeout(resolve, 500)); }
 }
-if (!browser) throw new Error("Native WebView debugging endpoint did not start");
+if (!browser) {
+  await writeFile(path.join(output, "native-navigation-error.txt"), String(connectionError?.stack));
+  throw new Error("Native WebView debugging connection failed", { cause: connectionError });
+}
 const page = browser.contexts()[0].pages()[0];
 page.setDefaultTimeout(20_000);
 const errors = [];
