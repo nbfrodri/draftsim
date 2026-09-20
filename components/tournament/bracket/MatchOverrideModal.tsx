@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { useState } from "react";
 import { getTeam } from "@/lib/tournament";
@@ -72,6 +73,7 @@ export function MatchOverrideModal({
   onStart: (overrides: Partial<MatchOverride>) => void;
   onCancel: () => void;
 }) {
+  useEscapeLayer(true, onCancel);
   const blueTeam = getTeam(tournament, match.blueTeamId);
   const redTeam = getTeam(tournament, match.redTeamId);
   const [format, setFormat] = useState<SeriesFormat>(match.format);

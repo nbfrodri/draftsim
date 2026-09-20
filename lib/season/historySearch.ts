@@ -1,3 +1,4 @@
+import { archivedAllProCounts } from "./allProScopes";
 import { careerTeammates, type CareerTeammate } from "./teammates";
 // Liquipedia-style search over the Hall of Seasons archive: build player, team,
 // and coach PROFILES by scanning the archived season entries (champions, split
@@ -920,8 +921,10 @@ export interface PlayerSeasonStat {
   season: string;
   archivedAt: number;
   age?: number;
-  allPro: number; // total per-tournament All-Pro picks that season
+  allPro: number; // known scoped selections; allProIncomplete marks partial history
   allProSplit: number;
+  allProGlobalSplit?: number;
+  allProIncomplete?: boolean;
   allProSeason: number;
   intlMvpEvents: InternationalId[]; // international events this player was finals MVP
   splitMvps: SplitId[]; // domestic splits this player was finals MVP
@@ -1223,13 +1226,16 @@ export function playerProfile(
   for (const e of ordered) {
     const r = e.playerCareers?.find((pc) => pc.playerId === playerId);
     if (!r) continue;
+    const ap = archivedAllProCounts(e, r);
     seasons.push({
       season: yearOf(e),
       archivedAt: e.archivedAt,
       ...(r.age != null ? { age: r.age } : {}),
-      allPro: r.allPro,
-      allProSplit: r.allProSplit ?? 0,
-      allProSeason: r.allProSeason ?? 0,
+      allPro: ap.total,
+      allProSplit: ap.split,
+      allProGlobalSplit: ap.global,
+      allProSeason: ap.season,
+      allProIncomplete: !ap.complete,
       intlMvpEvents: (e.intlMvps ?? [])
         .filter((m) => m.playerId === playerId)
         .map((m) => m.event),

@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import MainMenuSections from "./MainMenuSections";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
 import { parseSeasonImport } from "@/lib/importPreview";
@@ -180,6 +181,12 @@ export default function DraftApp({ champions }: Props) {
     setHallCoachName(null);
     setEntryView("menu");
   }, []);
+
+  useEscapeLayer(persistReady && !tournament && !series && !seasonViewOpen && entryView !== "menu", () => {
+    if (entryView === "season-history") leaveHall();
+    else setEntryView("menu");
+  }, 0);
+  useEscapeLayer(closePhase !== "idle" || desktopOperationPhase !== "idle", () => {}, 1000, false);
 
   if (!persistReady) {
     return <AppStartupLoading />;

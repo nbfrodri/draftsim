@@ -469,3 +469,15 @@ describe("computeTournamentAwards", () => {
     });
   });
 });
+
+
+describe("international award scope", () => {
+  it("keeps MVP/special awards but grants no international All-Pro selections", () => {
+    const tournament = buildTestTournament();
+    expect(computeTournamentAwards(tournament).allPro.length).toBeGreaterThan(0);
+    const awards = computeTournamentAwards({ ...tournament, seasonStageKind: "international" });
+    expect(awards.allPro).toEqual([]);
+    expect(awards.mvp).not.toBeNull();
+    expect(awards.awards).toEqual(computeTournamentAwards(tournament).awards);
+  });
+});

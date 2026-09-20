@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
@@ -27,6 +28,7 @@ export default function SeriesCompleteView({ champions }: Props) {
   const tournament = useDraftStore((s) => s.tournament);
   const finishMatch = useDraftStore((s) => s.finishMatch);
   const inTournament = tournament != null && tournament.activeMatchId != null;
+  useEscapeLayer(true, () => { if (inTournament) finishMatch(); else resetAll(); }, 0);
   const swapPickSlots = useDraftStore((s) => s.swapPickSlots);
 
   const byId = useMemo(

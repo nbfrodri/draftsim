@@ -1,4 +1,5 @@
 "use client";
+import { currentOffseasonRosterNews } from "@/lib/season/rosterNews";
 
 import { useMemo,useState } from "react";
 
@@ -355,7 +356,8 @@ export default function TransferWindowPanel() {
   );
   const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
   const [teamFilter, setTeamFilter] = useState<string | null>(null);
-  const [splitFilter, setSplitFilter] = useState<RosterTimeSplit | null>(null);
+  const [chosenSplitFilter, setSplitFilter] = useState<RosterTimeSplit | null | undefined>(undefined);
+  const splitFilter = chosenSplitFilter === undefined ? (season?.status === "complete" ? "offseason" : null) : chosenSplitFilter;
   /** Whole panel disclosure — expanded by default (decisions + recap). */
   const [panelOpen, setPanelOpen] = useState(true);
   /** Demotions & roster entries disclosure — expanded by default. */
@@ -512,7 +514,8 @@ export default function TransferWindowPanel() {
 
   // Retirements + demotions + roster entries from mid-split checkpoints and
   // the post-Worlds offseason (aging on), league-wide.
-  const rosterNews = season.rosterNews ?? [];
+  const currentOffseasonNews = new Set(currentOffseasonRosterNews(season));
+  const rosterNews = (season.rosterNews ?? []).filter(n => season.status !== "complete" || n.timeMark !== "Offseason" || currentOffseasonNews.has(n));
 
   const filterTeams: FilterTeam[] = season.teams.map((t) => ({
     id: t.id,

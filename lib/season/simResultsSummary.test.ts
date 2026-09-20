@@ -1677,3 +1677,11 @@ it("repairs saved feed cards and year summaries from retained archives without m
   expect(entry.rosterSnapshots.t1[0].name).toBe("Replacement");
   expect(restoreFeedRosters([entry], [])[0]).toBe(entry);
 });
+
+
+it("does not re-emit current offseason news as previous-year carry when the transfer baseline is zero", () => {
+  const season = fabricate({ id: "zero-baseline", status: "complete", franchise: { id: "r1", name: "R", year: 2 }, worldsOffseasonBaseline: 0,
+    rosterNews: [{ teamId: "t1", lane: "top", entrantName: "New signing", entrantTier: "A", entrantPotential: "A", entrantSource: "academy", marketNote: "academy-recall", timeMark: "Offseason" }],
+  });
+  expect(buildPostWorldsMovesEntry(season)).toBeNull();
+});

@@ -42,6 +42,16 @@ export type SqlExecutor = {
 type SqlStatement = { query: string; bindValues: unknown[] };
 let dbPromise: Promise<SqlExecutor> | null = null;
 const writeTails = new WeakMap<SqlExecutor, Promise<unknown>>();
+const savedGlobals = new WeakMap<SqlExecutor, { storeKey: string; value: Record<string, unknown> }>();
+
+function sameGlobalSnapshot(previous: Record<string, unknown> | undefined, next: Record<string, unknown>): boolean {
+  if (!previous) return false;
+  // splitPersistedState always creates an empty realities placeholder; actual
+  // reality rows are reconciled independently below.
+  const keys = Object.keys(next).filter(key => key !== "realities");
+  return keys.length === Object.keys(previous).filter(key => key !== "realities").length
+    && keys.every(key => Object.hasOwn(previous, key) && previous[key] === next[key]);
+}
 const savedRealities = new WeakMap<SqlExecutor, Map<string, {
   name: string; year: number; season: unknown; history: unknown[]; historySynced: boolean;
 }>>();
@@ -71,6 +81,7 @@ async function atomicWrite(db: SqlExecutor, operation: (writer: SqlExecutor) => 
     loadedHistoryRealityIds.clear();
     for (const id of loadedBefore) loadedHistoryRealityIds.add(id);
     savedRealities.delete(db);
+    savedGlobals.delete(db);
     throw error;
   }
 }
@@ -678,7 +689,14 @@ export async function savePersistedStateToDbExecutor(
 ): Promise<void> {
   return serializeDbWrite(db, async () => {
     const previous = savedRealities.get(db);
-    await atomicWrite(db, (writer) => reconcilePersistedState(writer, storeKey, state, options, previous));
+    const savedGlobal = savedGlobals.get(db);
+    let committedGlobal: Record<string, unknown> | undefined;
+    await atomicWrite(db, async (writer) => {
+      committedGlobal = await reconcilePersistedState(writer, storeKey, state, options, previous,
+        savedGlobal?.storeKey === storeKey ? savedGlobal.value : undefined);
+    });
+    if (!committedGlobal) return;
+    savedGlobals.set(db, { storeKey, value: committedGlobal });
     savedRealities.set(db, new Map((state.realities ?? []).map((r) => [r.id, {
       name: r.name, year: r.year, season: r.season, history: r.history ?? [],
       historySynced: !!options?.forceAllHistory || loadedHistoryRealityIds.has(r.id),
@@ -690,7 +708,8 @@ async function reconcilePersistedState(
   db: SqlExecutor, storeKey: string, state: PersistedStoreState,
   options?: { forceAllHistory?: boolean },
   previous?: Map<string, { name: string; year: number; season: unknown; history: unknown[]; historySynced: boolean }>,
-): Promise<void> {
+  previousGlobal?: Record<string, unknown>,
+): Promise<Record<string, unknown> | undefined> {
   const { global, realities } = splitPersistedState(state);
 
   // ── Empty-state wipe guard ─────────────────────────────────────────────────
@@ -719,7 +738,7 @@ async function reconcilePersistedState(
   }
   // ──────────────────────────────────────────────────────────────────────────
 
-  await upsertGlobalState(db, storeKey, global);
+  if (!sameGlobalSnapshot(previousGlobal, global)) await upsertGlobalState(db, storeKey, global);
 
   for (const r of realities) {
     const prev = previous?.get(r.id);
@@ -742,6 +761,7 @@ async function reconcilePersistedState(
     db,
     realities.map((r) => r.id),
   );
+  return global;
 }
 
 export async function loadPersistedStateFromDb(
@@ -830,6 +850,7 @@ export async function loadPersistedStateFromDbExecutor(
   // The first autosave already has a durable baseline. Without it, startup
   // rewrites every reality and serializes the entire active Hall again.
   // Seed only after every row has been read and parsed successfully.
+  savedGlobals.delete(db);
   savedRealities.set(db, new Map((loaded.realities ?? []).map(r => [r.id, {
     name: r.name, year: r.year, season: r.season, history: r.history ?? [],
     historySynced: loadedHistoryRealityIds.has(r.id),
@@ -907,6 +928,7 @@ export async function clearDesktopStoreFromDb(storeKey: string): Promise<void> {
     await writer.execute("DELETE FROM realities");
     loadedHistoryRealityIds.clear();
     savedRealities.delete(db);
+    savedGlobals.delete(db);
   }));
 }
 

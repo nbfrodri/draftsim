@@ -851,7 +851,7 @@ export function simResultKey(entry: SimResultEntry): string {
 /**
  * Build a roster-moves feed entry for the post-Worlds offseason between years.
  * Covers bilateral swaps from `transfersByEvent.worlds` (prior-year carry when
- * `worldsOffseasonBaseline` is 0 / unset) PLUS academy call-ups and FA signings
+ * `worldsOffseasonBaseline` is unset) PLUS academy call-ups and FA signings
  * tagged with `timeMark === "Offseason"` in `rosterNews`. Returns null when
  * there is nothing to show, or when this is year 1 (no prior Worlds).
  */
@@ -862,11 +862,11 @@ export function buildPostWorldsMovesEntry(
 ): SimRosterMovesEntry | null {
   const year = season.franchise?.year ?? 1;
   if (year <= 1) return null;
-  // worldsOffseasonBaseline > 0 means the current year's offseason has already
+  // A defined worldsOffseasonBaseline (including zero) means the current year's offseason has already
   // opened — the worlds bucket now mixes prior-year carry AND new moves, so we
   // can no longer safely attribute everything to "prior year". At that point the
   // entry should already be in `seen` from an earlier call.
-  if ((season.worldsOffseasonBaseline ?? 0) > 0) return null;
+  if (season.status === "complete" || season.worldsOffseasonBaseline != null) return null;
 
   const out: SimRosterMoveSummary[] = [];
 
@@ -978,7 +978,7 @@ export function collectSimResultUpdates(
 
   // Post-Worlds offseason carry: emit once at the very start of a new franchise
   // year, attributed to the closing year (year N-1). Guarded by year > 1 and
-  // worldsOffseasonBaseline === 0 (this year's offseason hasn't opened yet).
+  // worldsOffseasonBaseline is absent (this year's offseason has not opened yet).
   const postWorldsKey = `roster-moves:${season.id}:worlds`;
   if (!seen.has(postWorldsKey)) {
     const pwEntry = buildPostWorldsMovesEntry(season, fillsByWindow, exitsByWindow);

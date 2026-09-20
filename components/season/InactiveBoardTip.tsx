@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
 
 import {
@@ -76,18 +77,7 @@ export default function InactiveBoardTip({
 
   useEffect(() => () => clearHide(), []);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        hideNow();
-        triggerRef.current?.blur();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [open, hideNow]);
+  useEscapeLayer(open, () => { hideNow(); triggerRef.current?.blur(); }, 200, false);
 
   useLayoutEffect(() => {
     if (!open || !triggerRef.current || !tipRef.current) {

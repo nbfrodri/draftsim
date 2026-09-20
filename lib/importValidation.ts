@@ -136,7 +136,7 @@ export function validTournament(v: unknown): v is TournamentState {
     !defaults(v.defaults) || !record(v.fearlessConfig) ||
     !["perSeries", "perTeam", "global"].every(k => typeof (v.fearlessConfig as Obj)[k] === "boolean") ||
     !record(v.teamPickHistory) || !Object.values(v.teamPickHistory).every(numbers) ||
-    !numbers(v.globalPickHistory) || !optional(v.metaSnapshot, meta)) return false;
+    !numbers(v.globalPickHistory) || !optional(v.seasonStageKind, x => enumeration(x, ["split", "international"])) || !optional(v.metaSnapshot, meta)) return false;
   const teamIds = new Set(v.teams.map(t => t.id));
   const matchIds = new Set(v.matches.map(m => m.id));
   const teamRef = (id: unknown) => id === null || (text(id) && teamIds.has(id));
@@ -182,7 +182,8 @@ export function validSeason(v: unknown): v is SeasonState {
     (p.kind !== "split" || enumeration(p.split, ["winter", "spring", "summer"])) &&
     (p.kind === "split" || enumeration(p.event, ["first-stand", "msi", "worlds", "global-cup"])) &&
     (p.status === "pending" || p.tournamentIds.every(id => Object.hasOwn(v.tournaments as Obj, id))))) return false;
-  return nullableText(v.champion) && (v.champion === null || teamIds.has(v.champion)) &&
+  return optional(v.offseasonRosterNewsBaseline, integer) &&
+    nullableText(v.champion) && (v.champion === null || teamIds.has(v.champion)) &&
     optional(v.phaseRosters, x => arrayOf(x, phaseRoster)) &&
     (v.franchise === undefined || (record(v.franchise) && text(v.franchise.id) && text(v.franchise.name) && integer(v.franchise.year) &&
       typeof v.franchise.aging === "boolean" && optional(v.franchise.inactivePool, x => arrayOf(x, inactive)) &&
@@ -203,7 +204,7 @@ const phaseRoster = (row: unknown): boolean => record(row) && integer(row.phaseI
 const playerCareer = (p: unknown): boolean => record(p) && text(p.playerId) && typeof p.playerName === "string" &&
   (p.leagueId === null || enumeration(p.leagueId, LEAGUE_IDS)) &&
   ["games", "kills", "mvps", "allPro", "splitTitles", "intlAppearances", "intlTitles"].every(k => integer(p[k])) &&
-  ["wins", "deaths", "assists", "pentakills", "ratingGames", "goldDiffGames", "allProSplit", "allProSeason", "intlMvps", "splitMvps", "age"].every(k => optional(p[k], integer)) &&
+  ["wins", "deaths", "assists", "pentakills", "ratingGames", "goldDiffGames", "allProSplit", "allProGlobalSplit", "allProSeason", "intlMvps", "splitMvps", "age"].every(k => optional(p[k], integer)) &&
   ["ratingSum", "goldDiffSum"].every(k => optional(p[k], finite)) &&
   optional(p.lane, x => enumeration(x, lanes)) && optional(p.teamName, x => typeof x === "string") &&
   optional(p.champs, v => arrayOf(v, c => record(c) && integer(c.championId) && integer(c.games) && integer(c.wins)));
@@ -226,7 +227,10 @@ export function validHistoryEntry(v: unknown): boolean {
     !optional(v.awardTally, rows => arrayOf(rows, a => record(a) && requiredTeam(a.team) &&
       enumeration(a.lane, lanes) && integer(a.mvp) && integer(a.allPro))) ||
     !["intlMvps", "splitMvps", "rookieOfYear"].every(k => optional(v[k], rows => arrayOf(rows, ratingAward))) ||
-    !optional(v.allProTeams, rows => arrayOf(rows, a => record(a) && arrayOf(a.members, ratingAward))) ||
+    !optional(v.allProTeams, rows => arrayOf(rows, a => record(a) &&
+      enumeration(a.scope, ["split-league", "split-global", "season-global"]) &&
+      optional(a.split, x => enumeration(x, ["winter", "spring", "summer"])) &&
+      optional(a.leagueId, x => enumeration(x, LEAGUE_IDS)) && arrayOf(a.members, ratingAward))) ||
     !optional(v.intlRunnersUp, teamMap) ||
     !optional(v.splitRunnersUp, x => record(x) && Object.values(x).every(teamMap)) ||
     !optional(v.intlPlacements, placementMap) ||

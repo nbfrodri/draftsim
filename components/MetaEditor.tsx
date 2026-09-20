@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
 
 import {
@@ -296,17 +297,7 @@ export default function MetaEditor({
     setAddSearch("");
   }
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useEscapeLayer(open, onClose);
 
   // Champions to show in the active role, grouped by their current edited
   // tier in that role. The displayed list IS the role's tier list being

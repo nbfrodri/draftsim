@@ -953,3 +953,27 @@ it("does not rewrite loaded history on the first startup save, but persists subs
   await savePersistedStateToDbExecutor(db, STORE_KEY, { ...loaded, realities: [{ ...active, history: [...(active.history ?? []), makeEntry("next", "Next")] }] });
   expect(historyRows.size).toBe(101);
 });
+
+
+it("skips unchanged global snapshots but commits changed fields and retries failed batches", async () => {
+  const { db } = createMockPersistDb();
+  const reality = makeReality("manual", "Manual save");
+  const season = { tournaments: {}, largePayload: "x".repeat(100_000) };
+  const state = { realities: [reality], season, volume: 0.5 };
+  const execute = vi.spyOn(db, "execute");
+  await savePersistedStateToDbExecutor(db, STORE_KEY, state);
+  execute.mockClear();
+  await savePersistedStateToDbExecutor(db, STORE_KEY, { ...state, realities: [{ ...reality }] });
+  expect(execute).not.toHaveBeenCalled();
+  await savePersistedStateToDbExecutor(db, STORE_KEY, { ...state, volume: 0.7 });
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(execute.mock.calls[0][1]![1] as string).volume).toBe(0.7);
+
+  const batch = vi.fn().mockRejectedValueOnce(new Error("disk full")).mockResolvedValue(undefined);
+  db.batch = batch;
+  const changed = { ...state, volume: 0.9 };
+  await expect(savePersistedStateToDbExecutor(db, STORE_KEY, changed)).rejects.toThrow("disk full");
+  await savePersistedStateToDbExecutor(db, STORE_KEY, changed);
+  expect(batch).toHaveBeenCalledTimes(2);
+  expect(batch.mock.calls[1][0].some((s: { query: string }) => s.query.includes("global_state"))).toBe(true);
+});

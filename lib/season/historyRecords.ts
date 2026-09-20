@@ -1,3 +1,4 @@
+import { archivedAllProCounts } from "./allProScopes";
 // Cross-season records ("Records & Dynasties") aggregated from the Hall
 // of Seasons archive. Teams are matched across seasons by NAME + LEAGUE:
 // a "T1" in the LCK of Season 1 and a "T1" in the LCK of Season 3 are
@@ -1064,6 +1065,8 @@ export interface PlayerCareerLine {
   // Split (per-league) and season-of-the-year All-Pro selections, summed across
   // seasons. 0 on careers built only from pre-expansion archives.
   allProSplit: number;
+  allProGlobalSplit?: number;
+  allProIncomplete?: boolean;
   allProSeason: number;
   // International-event finals MVPs (First Stand / MSI / Worlds), summed.
   intlMvps: number;
@@ -1113,6 +1116,7 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
   };
   for (const e of ordered) {
     for (const r of e.playerCareers ?? []) {
+      const ap = archivedAllProCounts(e, r);
       mergeChamps(r.playerId, r.champs);
       const cur = byId.get(r.playerId);
       if (cur) {
@@ -1122,9 +1126,11 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
         cur.winsGames += r.wins != null ? r.games : 0;
         cur.kills += r.kills;
         cur.mvps += r.mvps;
-        cur.allPro += r.allPro;
-        cur.allProSplit += r.allProSplit ?? 0;
-        cur.allProSeason += r.allProSeason ?? 0;
+        cur.allPro += ap.total;
+        cur.allProSplit += ap.split;
+        cur.allProGlobalSplit = (cur.allProGlobalSplit ?? 0) + ap.global;
+        cur.allProSeason += ap.season;
+        cur.allProIncomplete ||= !ap.complete;
         cur.intlMvps += r.intlMvps ?? 0;
         cur.splitMvps += r.splitMvps ?? 0;
         cur.splitTitles += r.splitTitles;
@@ -1152,9 +1158,11 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
           winsGames: r.wins != null ? r.games : 0,
           kills: r.kills,
           mvps: r.mvps,
-          allPro: r.allPro,
-          allProSplit: r.allProSplit ?? 0,
-          allProSeason: r.allProSeason ?? 0,
+          allPro: ap.total,
+          allProSplit: ap.split,
+          allProGlobalSplit: ap.global,
+          allProSeason: ap.season,
+          allProIncomplete: !ap.complete,
           intlMvps: r.intlMvps ?? 0,
           splitMvps: r.splitMvps ?? 0,
           champs: [],

@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
 
 import {
@@ -617,18 +618,11 @@ export default function PlayerHoverCard({
 
   // Escape always dismisses, and the trigger gives up focus so it can't
   // immediately re-open from the focus ring.
-  useEffect(() => {
-    if (!data) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      clearTimers();
-      setData(null);
-      triggerRef.current?.blur();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [data]);
+  useEscapeLayer(!!data, () => {
+    clearTimers();
+    setData(null);
+    triggerRef.current?.blur();
+  }, 200, false);
 
   useLayoutEffect(() => {
     if (!data) {

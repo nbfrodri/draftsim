@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import {
   memo,
   useCallback,
@@ -129,6 +130,7 @@ function SearchPanel({
   panelId,
   onClose,
 }: Props & { panelId: string; onClose: () => void }) {
+  useEscapeLayer(true, onClose, 20);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   return (
@@ -136,12 +138,6 @@ function SearchPanel({
       id={panelId}
       aria-label="Find a player"
       onWheel={event => event.stopPropagation()}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.stopPropagation();
-          onClose();
-        }
-      }}
       className="max-h-[45vh] overflow-y-auto overscroll-contain px-3 pb-3 text-xs"
     >
       <div className="flex gap-2">

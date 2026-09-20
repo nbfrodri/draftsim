@@ -1,4 +1,6 @@
 "use client";
+import { ALL_PRO_LABELS } from "@/lib/season/allProScopes";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import {
 lazy,
@@ -10,7 +12,7 @@ type ReactNode,
 } from "react";
 
 import { computeChampionTeamTournamentMvp,computeFinalsMvp } from "@/lib/awards";
-import { isDesktop,saveFileNative } from "@/lib/desktopStorage";
+import { flushPendingPersistWrites,isDesktop,saveFileNative } from "@/lib/desktopStorage";
 import {
 computeAllProTeams,
 type RawAllProTeam,
@@ -126,6 +128,7 @@ export default function SeasonDashboard() {
   const simSeasonMatchday = useDraftStore((s) => s.simSeasonMatchday);
   const seasonMatchday = useDraftStore((s) => s.seasonMatchday);
   const exitSeasonView = useDraftStore((s) => s.exitSeasonView);
+  useEscapeLayer(true, () => { void exitSeasonView(); }, 0);
   const abandonSeason = useDraftStore((s) => s.abandonSeason);
   const saveCurrentSeason = useDraftStore((s) => s.saveCurrentSeason);
   const exportCurrentSeason = useDraftStore((s) => s.exportCurrentSeason);
@@ -136,6 +139,7 @@ export default function SeasonDashboard() {
   );
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [matchReplay, setMatchReplay] = useState<{
     tournamentId: string;
     matchId: string;
@@ -256,15 +260,23 @@ export default function SeasonDashboard() {
       <div className="fixed top-3 right-3 md:top-4 md:right-4 flex w-28 flex-col items-stretch gap-2 z-30">
         <button
           type="button"
-          onClick={() => {
-            const ok = saveCurrentSeason();
-            setSaveFeedback(
-              ok
-                ? season.franchise
-                  ? "Saved to reality"
-                  : "Season saved"
-                : "Save failed",
-            );
+          disabled={saving}
+          aria-busy={saving}
+          onClick={async () => {
+            setSaving(true);
+            setSaveFeedback(null);
+            try {
+              if (!saveCurrentSeason()) throw new Error("No season to save");
+              // A store snapshot only queues persistence. Confirm after SQLite
+              // (or browser storage) has committed, bypassing the autosave delay.
+              await flushPendingPersistWrites();
+              setSaveFeedback(season.franchise ? "Saved to reality" : "Season saved");
+            } catch (error) {
+              console.warn("[draftsim] manual season save failed:", error);
+              setSaveFeedback("Save failed - retry or export before closing");
+            } finally {
+              setSaving(false);
+            }
           }}
           className="inline-flex items-center justify-center gap-1.5 px-2.5 md:px-3 py-1.5 border border-rift-line text-rift-mutedbright hover:text-rift-goldbright hover:border-rift-gold/50 hover:bg-rift-gold/5 transition-all text-[9px] md:text-[10px] uppercase tracking-[0.3em]"
           title={
@@ -278,7 +290,7 @@ export default function SeasonDashboard() {
             <path d="M5 3v3h5V3" strokeLinejoin="round" />
             <rect x="5" y="9" width="6" height="4" />
           </svg>
-          Save
+          {saving ? "Saving..." : "Save"}
         </button>
         <button
           type="button"
@@ -1944,7 +1956,7 @@ function PastResults({
                         <AllProTeamStrip
                           season={season}
                           team={g}
-                          label={`${p.label} · All-Pro (Global)`}
+                          label={`${p.label} · Global Split All-Pro`}
                         />
                       ) : null;
                     })()}
@@ -2241,7 +2253,7 @@ function StageStatsRow({
     : null;
   const allProByLane = new Map(stats.allPro.map((p) => [p.lane, p]));
   return (
-    <div className="border border-rift-line/40 bg-rift-bg/40">
+    <div role="region" aria-label={`${tournament.name} statistics`} className="border border-rift-line/40 bg-rift-bg/40">
       {/* Result header */}
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2 border-b border-rift-line/30 bg-rift-gold/[0.04]">
         <span className="font-display text-sm tracking-wider text-rift-gold/80">
@@ -2284,7 +2296,7 @@ function StageStatsRow({
       </div>
 
       {/* Award cells */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-rift-line/20">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-rift-line/20">
         {mvp && (
           <StageStatCell
             label="MVP"
@@ -2302,13 +2314,14 @@ function StageStatsRow({
                   : `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} in the final`
                 : `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} rating`
             }
-            icon={<AwardTeamIcon season={season} teamId={mvp.teamId} />}
+            icon={<><LaneIcon lane={mvp.lane} size="xs" /><AwardTeamIcon season={season} teamId={mvp.teamId} /></>}
           />
         )}
         {contested && (
           <StageStatCell
             label="Most Contested"
             value={contested.name}
+            icon={<img key={contested.iconUrl} src={contested.iconUrl} alt="" width={20} height={20} className="shrink-0" onError={e => { e.currentTarget.style.display = "none"; }} />}
             sub={`${s.mostContestedPresence} picks+bans`}
           />
         )}
@@ -2316,22 +2329,17 @@ function StageStatsRow({
           <StageStatCell
             label="Best Win Rate"
             value={bestWR.name}
+            icon={<img key={bestWR.iconUrl} src={bestWR.iconUrl} alt="" width={20} height={20} className="shrink-0" onError={e => { e.currentTarget.style.display = "none"; }} />}
             sub={`${Math.round(s.bestWR * 100)}% over ${s.bestWRGames} games`}
-          />
-        )}
-        {s.longestSeriesGames > 1 && (
-          <StageStatCell
-            label="Longest Series"
-            value={`${s.longestSeriesGames} games`}
           />
         )}
       </div>
 
       {/* All-Pro lane strip */}
-      {stats.allPro.length > 0 && (
+      {!isIntl && stats.allPro.length > 0 && (
         <div className="px-3 py-1.5 border-t border-rift-line/30 flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <span className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60">
-            All-Pro
+            {ALL_PRO_LABELS["split-league"]}
           </span>
           {LANE_ORDER.map((lane) => {
             const p = allProByLane.get(lane);
@@ -2445,6 +2453,7 @@ function SeasonRecapPanel({
           <RecapChip
             label="Face of the Season"
             value={contested.name}
+            icon={<img key={contested.iconUrl} src={contested.iconUrl} alt="" width={20} height={20} className="shrink-0" onError={e => { e.currentTarget.style.display = "none"; }} />}
             sub={`${stats.mostContested.presence} picks+bans`}
           />
         )}
@@ -2452,6 +2461,7 @@ function SeasonRecapPanel({
           <RecapChip
             label="Best Win Rate"
             value={bestWR.name}
+            icon={<img key={bestWR.iconUrl} src={bestWR.iconUrl} alt="" width={20} height={20} className="shrink-0" onError={e => { e.currentTarget.style.display = "none"; }} />}
             sub={`${Math.round(stats.bestWR.winRate * 100)}% over ${stats.bestWR.wins + stats.bestWR.losses} games`}
           />
         )}

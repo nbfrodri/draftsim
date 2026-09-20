@@ -731,6 +731,8 @@ export interface TournamentState {
   // Season tournaments skip history archiving and post-completion meta
   // restore — the season engine owns their lifecycle.
   seasonId?: string;
+  /** Award scope retained when opening a season tournament directly. */
+  seasonStageKind?: "split" | "international";
   // Season mode only: per-team SIGNED streak carried in from the team's
   // most recent tournament of the same season (+N = N-series win streak,
   // -N = loss streak). teamStreak() extends its walk with this seed when

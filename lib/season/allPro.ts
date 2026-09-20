@@ -116,16 +116,16 @@ export function computeAllProTeams(season: SeasonState): RawAllProTeam[] {
 }
 
 /** Per-player All-Pro selection counts this season: `split` = number of
- *  per-league split All-Pro teams the player made; `season` = 1 if they made
+ *  domestic league teams; `global` = cross-region split teams; `season` = 1 if they made
  *  the season-of-the-year team. Used to enrich the archived career records. */
 export function computeAllProCounts(
   season: SeasonState,
-): Map<string, { split: number; season: number }> {
-  const out = new Map<string, { split: number; season: number }>();
+): Map<string, { split: number; global: number; season: number }> {
+  const out = new Map<string, { split: number; global: number; season: number }>();
   const ensure = (id: string) => {
     let r = out.get(id);
     if (!r) {
-      r = { split: 0, season: 0 };
+      r = { split: 0, global: 0, season: 0 };
       out.set(id, r);
     }
     return r;
@@ -134,6 +134,7 @@ export function computeAllProCounts(
     for (const m of team.members) {
       if (!m.playerId) continue;
       if (team.scope === "split-league") ensure(m.playerId).split += 1;
+      else if (team.scope === "split-global") ensure(m.playerId).global += 1;
       else if (team.scope === "season-global") ensure(m.playerId).season = 1;
     }
   }

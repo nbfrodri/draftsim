@@ -87,6 +87,8 @@ describe("parseHistoryWorkbook — embedded data sheet (lossless)", () => {
         LCK: { team: team("T1"), wins: 40, losses: 8, titles: 3 },
         LPL: { team: team("BLG", "LPL", "#0ac8b9"), wins: 35, losses: 12, titles: 1 },
       },
+      playerCareers: [{ playerId: "scoped", playerName: "Scoped", leagueId: "LCK", games: 12, kills: 5, mvps: 1, allPro: 3, allProSplit: 1, allProGlobalSplit: 1, allProSeason: 1, splitTitles: 1, intlAppearances: 1, intlTitles: 0 }],
+      allProTeams: (["split-league", "split-global", "season-global"] as const).map(scope => ({ scope, ...(scope !== "season-global" ? { split: "winter" as const } : {}), members: [{ playerId: "scoped", playerName: "Scoped", team: team("T1"), lane: "middle", avgRating: 8, games: 12 }] })),
       awardTally: [
         { team: team("T1"), lane: "middle", mvp: 3, allPro: 5 },
         { team: team("GEN"), lane: "top", mvp: 0, allPro: 2 },

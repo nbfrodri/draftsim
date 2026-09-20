@@ -15,6 +15,7 @@
 // ExcelJS is dynamic-imported for the same reason as the exporter: the
 // ~1MB library only loads when the user actually imports.
 
+import { validHistoryEntry, validateImportTree } from "../importValidation";
 import { TIER_ORDER,type MetaOverride,type MetaTier } from "../championMeta";
 import type { Lane } from "../types";
 import type { SeasonHistoryEntry,SeasonHistoryTeamRef } from "./history";
@@ -188,7 +189,7 @@ function sanitizeEntry(v: unknown, now: number): SeasonHistoryEntry | null {
   const final = sanitizeMetaOverride(o.finalMetaOverride);
   const leagueBestTeams = sanitizeLeagueBestTeams(o.leagueBestTeams);
   const awardTally = sanitizeAwardTally(o.awardTally);
-  return {
+  const entry: SeasonHistoryEntry = {
     id:
       typeof o.id === "string" && o.id.trim() !== "" ? o.id.trim() : slugId(name),
     archivedAt:
@@ -206,6 +207,16 @@ function sanitizeEntry(v: unknown, now: number): SeasonHistoryEntry | null {
     ...(leagueBestTeams ? { leagueBestTeams } : {}),
     ...(awardTally ? { awardTally } : {}),
   };
+  // Preserve validated award/career detail from newer embedded exports.
+  // Validate each optional field separately so a malformed field cannot erase
+  // otherwise usable legacy history or inject unchecked rows into the store.
+  for (const key of ["playerCareers", "allProTeams", "intlMvps", "splitMvps", "rookieOfYear"] as const) {
+    if (o[key] !== undefined && validHistoryEntry({ ...entry, [key]: o[key] })) {
+      Object.assign(entry, { [key]: o[key] });
+    }
+  }
+  return entry;
+
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +239,7 @@ function readEmbeddedEntries(
   }
   try {
     const parsed: unknown = JSON.parse(json);
+    validateImportTree(parsed);
     if (!Array.isArray(parsed)) return null;
     return parsed
       .map((e) => sanitizeEntry(e, now))

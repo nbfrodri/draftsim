@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { useEffect, useRef, useState } from "react";
 
@@ -16,6 +17,7 @@ export default function TeamPicker({
   onChange: (teamId: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  useEscapeLayer(open, () => setOpen(false), 200);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -25,14 +27,9 @@ export default function TeamPicker({
         setOpen(false);
       }
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
     };
   }, [open]);
 

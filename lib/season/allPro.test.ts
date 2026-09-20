@@ -83,3 +83,17 @@ describe("computeAllPro on a sparse season", () => {
     expect(computeAllProCounts(s).size).toBe(0);
   });
 });
+
+
+it("international games can contribute to Team of the Year without granting event All-Pro", () => {
+  const season = seasonWithGame();
+  const series = season.tournaments.t.matches[0].series!;
+  const game = series.games[0];
+  series.games = Array.from({ length: 8 }, () => ({ ...game, recap: { ...game.recap!, ratings: { blue: [8, 8, 8, 8, 8], red: [6, 6, 6, 6, 6] } } }));
+  season.phases = [{ kind: "international", event: "worlds", label: "Worlds", status: "complete", tournamentIds: ["t"] }];
+  const teams = computeAllProTeams(season);
+  expect(teams).toHaveLength(1);
+  expect(teams[0].scope).toBe("season-global");
+  expect(teams[0].members).toHaveLength(5);
+  expect(computeAllProCounts(season).get("a0")).toEqual({ split: 0, global: 0, season: 1 });
+});

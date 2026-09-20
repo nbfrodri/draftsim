@@ -485,7 +485,7 @@ export function buildSeasonHistoryEntry(
         ),
       );
     }
-    // Aggregate every stage's MVP + All-Pro into per-team-position tallies.
+    // Aggregate stage MVPs; scoped All-Pro tallies are added below.
     const tallyKey = (ref: SeasonHistoryTeamRef, lane: Lane) =>
       `${ref.leagueId}:${ref.name}:${lane}`;
     for (const t of tournaments) {
@@ -508,26 +508,8 @@ export function buildSeasonHistoryEntry(
             });
         }
       }
-      for (const ap of stage.allPro) {
-        const ref = teamRef(season, ap.teamId);
-        if (!ref) continue;
-        const key = tallyKey(ref, ap.lane);
-        const cur = tallyMap.get(key);
-        if (cur) {
-          cur.allPro += 1;
-          if (ap.playerName) cur.playerName = ap.playerName;
-        } else
-          tallyMap.set(key, {
-            team: ref,
-            lane: ap.lane,
-            mvp: 0,
-            allPro: 1,
-            ...(ap.playerName ? { playerName: ap.playerName } : {}),
-          });
-      }
     }
   }
-  const awardTally = [...tallyMap.values()];
   // All-Pro teams (split per-league, split global, season-of-the-year), with
   // each member's team frozen as a ref. Drop members whose team can't be
   // resolved, and teams that end up empty.
@@ -558,6 +540,16 @@ export function buildSeasonHistoryEntry(
       }
     }
   }
+  // Derive the team-position tally from the same three scopes as player careers.
+  for (const team of allProTeams) {
+    for (const member of team.members) {
+      const key = `${member.team.leagueId}:${member.team.name}:${member.lane}`;
+      const current = tallyMap.get(key);
+      if (current) current.allPro += 1;
+      else tallyMap.set(key, { team: member.team, lane: member.lane, mvp: 0, allPro: 1, ...(member.playerName ? { playerName: member.playerName } : {}) });
+    }
+  }
+  const awardTally = [...tallyMap.values()];
   // International finals MVPs (a player from each event's champion team), frozen
   // with team refs, plus a per-player tally to merge onto the career records.
   const intlMvps: SeasonHistoryIntlMvp[] = [];
@@ -601,12 +593,11 @@ export function buildSeasonHistoryEntry(
         splitMvpCount.set(mvp.playerId, (splitMvpCount.get(mvp.playerId) ?? 0) + 1);
     }
   }
-  // Per-player split / season All-Pro selection counts, merged onto the career
-  // records (which already carry the per-tournament `allPro` total).
+  // Freeze all three scoped selection counts, including explicit zeros.
   const allProCounts =
     tournaments.length > 0
       ? computeAllProCounts(season)
-      : new Map<string, { split: number; season: number }>();
+      : new Map<string, { split: number; global: number; season: number }>();
   const playerCareers = (
     tournaments.length > 0 ? computePlayerCareerRecords(season) : []
   ).map((r) => {
@@ -615,8 +606,10 @@ export function buildSeasonHistoryEntry(
     const sm = splitMvpCount.get(r.playerId) ?? 0;
     return {
       ...r,
-      ...(c && c.split > 0 ? { allProSplit: c.split } : {}),
-      ...(c && c.season > 0 ? { allProSeason: c.season } : {}),
+      allPro: (c?.split ?? 0) + (c?.global ?? 0) + (c?.season ?? 0),
+      allProSplit: c?.split ?? 0,
+      allProGlobalSplit: c?.global ?? 0,
+      allProSeason: c?.season ?? 0,
       ...(im > 0 ? { intlMvps: im } : {}),
       ...(sm > 0 ? { splitMvps: sm } : {}),
     };

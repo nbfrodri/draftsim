@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { useEffect,useMemo,useState } from "react";
 
@@ -465,16 +466,7 @@ function PairingsEditor({
   const [ctrSeverity, setCtrSeverity] = useState(4);
   const [formError, setFormError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeLayer(true, onClose);
 
   const byAlias = useMemo(() => {
     const map = new Map<string, Champion>();

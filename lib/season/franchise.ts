@@ -1,3 +1,4 @@
+import { currentOffseasonRosterNews, initializeOffseasonRosterNewsBoundary } from "./rosterNews";
 // Franchise / "reality" mode — a continuous timeline where the SAME teams
 // (names, logos, rosters, careers) carry across many seasons. Each year is a
 // normal SeasonState; between years an OFFSEASON ages every player (growth,
@@ -58,6 +59,8 @@ import {
   offseasonTransferPass,
   transferValue,
   transfersForDigestEvent,
+  transfersForHistoryArchive,
+  rebucketTransfersByStamp,
 } from "./transfers";
 import { reassignCoaches } from "./coach";
 import { assignRoleElites } from "./teamGen";
@@ -134,8 +137,8 @@ export const TRANSFER_DIGEST_SECTION_ORDER: readonly InternationalId[] = [
  *
  * Shows completed current-year windows only (no phantom First Stand / MSI /
  * before those internationals finish). Worlds is special:
- * - Season complete (offseason shop): include `worlds` only when the bucket
- *   has moves (empty Worlds is omitted — no "0 moves" section). Completion
+ * - Season complete (offseason shop): include `worlds` only when this offseason
+ *   has moves after the boundary (empty Worlds is omitted — no "0 moves" section). Completion
  *   preserves prior-year carry via `worldsOffseasonBaseline` instead of wiping.
  * - Next year: `startNextSeason` carries this offseason's post-Worlds moves
  *   into `transfersByEvent.worlds`; surface those until this year's Worlds ends.
@@ -584,10 +587,10 @@ export function startNextSeason(
   const aging = prev.franchise?.aging ?? false;
   const closingYear = prev.franchise?.year ?? 1;
   const nextYear = closingYear + 1;
-  let working = prev;
+  let working = initializeOffseasonRosterNewsBoundary(prev);
   const usedNames = reservedRealityNames(prev);
   let evolvedTeams: SeasonTeam[] = working.teams;
-  const rosterNews: Array<RosterNewsEvent & { teamId: string }> = [];
+  let rosterNews: Array<RosterNewsEvent & { teamId: string }> = [...currentOffseasonRosterNews(working)];
   let nextInactivePool = working.franchise?.inactivePool ?? [];
 
   if (aging) {
@@ -604,13 +607,12 @@ export function startNextSeason(
         },
       };
     }
-    // Capture only news created during this advance. Prior-year Winter /
+    // Carry only this offseason's shop and newly generated news. Earlier Winter /
     // Spring / Summer / MSI / First Stand rows stay on `prev` for Hall archive
     // via buildSeasonHistoryEntry, but the live Transfer Window digest must
     // reset to Offseason (+ subsequent windows of the new year).
-    const newsBeforeAdvance = working.rosterNews?.length ?? 0;
     working = fillRosterVacancies(working, champions, rng);
-    rosterNews.push(...(working.rosterNews ?? []).slice(newsBeforeAdvance));
+    rosterNews = [...currentOffseasonRosterNews(working)];
 
     const taken = usedNames;
     for (const name of reservedRealityNames(working)) taken.add(name);
@@ -680,9 +682,7 @@ export function startNextSeason(
   const byId = new Map(champions.map((c) => [c.id, c]));
   // Only this offseason's Worlds rows (after the completion baseline) carry
   // forward — prior-year digest carry must not re-archive or stack forever.
-  const allWorlds = prev.transfersByEvent?.worlds ?? [];
-  const baseline = prev.worldsOffseasonBaseline ?? 0;
-  const userMoves = baseline > 0 ? allWorlds.slice(baseline) : allWorlds;
+  const userMoves = transfersForHistoryArchive(prev).filter(move => move.event === "worlds");
   const movedKey = new Set<string>();
   for (const m of userMoves) {
     movedKey.add(`${m.fromTeamId}:${m.lane}`);
@@ -715,10 +715,11 @@ export function startNextSeason(
 
   // History archives this year's FS/MSI + this offseason's Worlds only (not
   // the prior-year carry still sitting below the baseline for digest UI).
-  const historyEvents = { ...(prev.transfersByEvent ?? {}) };
+  const historyEvents = rebucketTransfersByStamp(prev.transfersByEvent);
   if (offseasonMoves.length > 0) historyEvents.worlds = offseasonMoves;
   else delete historyEvents.worlds;
-  const prevForHistory = { ...prev, transfersByEvent: historyEvents };
+  // These rows already exclude old carry. Do not apply the old boundary again.
+  const prevForHistory = { ...prev, transfersByEvent: historyEvents, worldsOffseasonBaseline: 0 };
   const prior =
     prev.status === "complete" ? buildSeasonHistoryEntry(prevForHistory, Date.now()) : undefined;
   const year = nextYear;
@@ -1460,10 +1461,12 @@ export function fillRosterVacancies(
     >
   >();
   const priorNews: Array<RosterNewsEvent & { teamId: string }> = [];
-  for (const n of season.rosterNews ?? []) {
+  for (const [newsIndex, n] of (season.rosterNews ?? []).entries()) {
     const key = `${n.teamId}:${n.lane}`;
     if (
+      (season.status !== "complete" || newsIndex >= (season.offseasonRosterNewsBaseline ?? 0)) &&
       n.marketNote === "agency-leave" &&
+      n.timeMark === rosterTimeMarkForSeason(season) &&
       !n.entrantName &&
       filledKeys.has(key)
     ) {

@@ -1107,7 +1107,7 @@ describe("post-Worlds transfer digest carry", () => {
       transfersByEvent: { worlds: [sampleMove] },
       worldsOffseasonBaseline: 1,
     };
-    expect(visibleTransferDigestEvents(offseason)).toEqual(["worlds"]);
+    expect(visibleTransferDigestEvents(offseason)).toEqual([]);
     expect(transferDigestSectionTitle("worlds", offseason)).toBe("Post Worlds · Year 1");
   });
 
@@ -1267,11 +1267,10 @@ describe("post-Worlds transfer digest carry", () => {
       },
       worldsOffseasonBaseline: 3,
     };
-    expect(transfersForDigestEvent(polluted, "worlds")).toEqual([worldsCarry]);
+    expect(transfersForDigestEvent(polluted, "worlds")).toEqual([]);
     expect(transfersForDigestEvent(polluted, "first-stand")).toEqual([fs]);
     expect(transfersForDigestEvent(polluted, "msi")).toEqual([msi]);
     expect(visibleTransferDigestEvents(polluted)).toEqual([
-      "worlds",
       "first-stand",
       "msi",
     ]);
@@ -1631,4 +1630,44 @@ describe("permanent reality name reservations", () => {
     season = startNextSeason(season, champions, rngFrom(544));
     expect(season.franchise!.usedNames).toContain(retired.name);
   });
+});
+
+
+it("carries only newly created offseason news across consecutive year rollovers", () => {
+  const season = makeReality(false);
+  const row = (name: string, timeMark: string) => ({ teamId: season.teams[0].id, lane: "top" as const, entrantName: name, entrantTier: "A" as const, entrantPotential: "A" as const, entrantSource: "rookie" as const, timeMark });
+  season.status = "complete";
+  season.rosterNews = [row("Prior carry", "Offseason"), row("Winter rookie", "Winter"), row("Current signing", "Offseason")];
+  season.offseasonRosterNewsBaseline = 2;
+  const next = startNextSeason(season, champPool(), rngFrom(42));
+  expect(next.rosterNews?.map(n => n.entrantName)).toEqual(["Current signing"]);
+  next.status = "complete";
+  next.offseasonRosterNewsBaseline = next.rosterNews?.length ?? 0;
+  const third = startNextSeason(next, champPool(), rngFrom(43));
+  expect(third.rosterNews ?? []).toEqual([]);
+  expect(season.rosterNews.map(n => n.timeMark)).toEqual(["Offseason", "Winter", "Offseason"]);
+});
+
+
+it("does not carry mis-bucketed midseason swaps into the next offseason", () => {
+  const season = makeReality(false);
+  season.status = "complete";
+  season.config.playerTransfers = false;
+  const move = (event: "worlds" | "msi" | "first-stand", name: string) => ({
+    event, lane: "top" as const, fromTeamId: season.teams[0].id, toTeamId: season.teams[1].id,
+    star: { name, tier: "A" as const, grade: null, goodChamps: [] },
+    swap: { name: `swap-${name}`, tier: "B" as const, grade: null, goodChamps: [] },
+  });
+  const current = move("worlds", "Current offseason");
+  season.transfersByEvent = { worlds: [move("worlds", "Old carry"), move("msi", "Spring move"), current, move("first-stand", "Winter move")] };
+  season.worldsOffseasonBaseline = 1;
+  const reloaded = JSON.parse(JSON.stringify(season));
+  expect(transfersForDigestEvent(reloaded, "worlds")).toEqual([current]);
+  const next = startNextSeason(reloaded, champions, rngFrom(55));
+  expect(next.transfersByEvent?.worlds).toEqual([current]);
+  next.status = "complete";
+  next.worldsOffseasonBaseline = 1;
+  expect(transfersForDigestEvent(next, "worlds")).toEqual([]);
+  const third = startNextSeason(next, champions, rngFrom(56));
+  expect(third.transfersByEvent?.worlds ?? []).toEqual([]);
 });

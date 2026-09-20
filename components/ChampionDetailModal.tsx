@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
 
 import { getAbilityProfile } from "@/lib/championAbilities";
@@ -165,17 +166,7 @@ export default function ChampionDetailModal({
   }, [open, champion?.id]);
 
   // Escape-to-close.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useEscapeLayer(open, onClose);
 
   const byAlias = useMemo(() => indexByAlias(champions), [champions]);
   // Subscribe to override versions so a randomize/reset re-renders the

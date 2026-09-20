@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
 
 import {
@@ -128,17 +129,7 @@ export default function TierListView({ open, champions, overrideVersion = 0, onC
 
 
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useEscapeLayer(open, onClose);
 
   const [previousRole, setPreviousRole] = useState(activeRole);
   if (previousRole !== activeRole) {

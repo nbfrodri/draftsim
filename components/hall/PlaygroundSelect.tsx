@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { useEffect, useId, useRef, useState } from "react";
 
@@ -19,6 +20,7 @@ export default function PlaygroundSelect({
   const list = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  useEscapeLayer(open, () => setOpen(false), 200);
   const [above, setAbove] = useState(false);
   const selected = Math.max(
     0,
@@ -73,7 +75,7 @@ export default function PlaygroundSelect({
         className={`flex min-h-8 items-center justify-between gap-4 border bg-rift-bg px-2.5 py-1.5 text-left text-[11px] text-rift-goldbright focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold ${open ? "border-rift-gold/70" : "border-rift-line/60 hover:border-rift-gold/40"}`}
         onClick={() => (open ? setOpen(false) : show())}
         onKeyDown={(event) => {
-          if (event.key === "Escape") {
+          if (event.key === "Escape" && open) {
             event.preventDefault();
             setOpen(false);
             return;

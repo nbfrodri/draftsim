@@ -572,7 +572,7 @@ export function transferEventStamp(
  * were appended to the worlds array (carry / offseason write bugs).
  */
 export function transfersForDigestEvent(
-  season: Pick<SeasonState, "transfersByEvent" | "worldsOffseasonBaseline">,
+  season: Pick<SeasonState, "transfersByEvent" | "worldsOffseasonBaseline"> & Partial<Pick<SeasonState, "status">>,
   event: InternationalId,
 ): PlayerTransfer[] {
   const byEvent = season.transfersByEvent ?? {};
@@ -581,8 +581,10 @@ export function transfersForDigestEvent(
   for (const [bucket, moves] of Object.entries(byEvent) as Array<
     [InternationalId, PlayerTransfer[] | undefined]
   >) {
-    for (const m of moves ?? []) {
+    for (const [index, m] of (moves ?? []).entries()) {
       if (transferEventStamp(m, bucket) !== event) continue;
+      if (season.status === "complete" && event === "worlds" && bucket === "worlds"
+        && index < (season.worldsOffseasonBaseline ?? 0)) continue;
       const key = transferDedupeKey({ ...m, event });
       if (seen.has(key)) continue;
       seen.add(key);

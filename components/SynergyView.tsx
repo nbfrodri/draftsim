@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
 
 import { getActiveSynergies } from "@/lib/championMeta";
@@ -28,17 +29,7 @@ export default function SynergyView({ open, champions, onClose }: Props) {
 
 
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useEscapeLayer(open, onClose);
 
   const [previousOpen, setPreviousOpen] = useState(open);
   if (previousOpen !== open) {

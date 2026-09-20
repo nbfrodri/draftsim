@@ -183,6 +183,7 @@ export const TeamRef = memo(function TeamRef({
   team,
   size = 13,
   muted = false,
+  showRegion = true,
   onNavigate: _onNavigate,
   nested = false,
   seasonId: seasonIdProp,
@@ -191,6 +192,7 @@ export const TeamRef = memo(function TeamRef({
   team: SeasonHistoryTeamRef;
   size?: number;
   muted?: boolean;
+  showRegion?: boolean;
   onNavigate?: NavFn;
   /** When true, renders as span — safe inside outer nav buttons. */
   nested?: boolean;
@@ -231,10 +233,10 @@ export const TeamRef = memo(function TeamRef({
       <span className={`min-w-0 truncate ${muted ? "text-rift-mutedbright" : "text-rift-goldbright"}`}>
         {team.name}
       </span>
-      <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.15em] text-rift-muted/70 flex-shrink-0">
+      {showRegion && <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.15em] text-rift-muted/70 flex-shrink-0">
         <LeagueIcon league={team.leagueId} size={12} />
         {team.leagueId}
-      </span>
+      </span>}
     </TeamNameLink>
   );
 });

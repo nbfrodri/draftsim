@@ -1,4 +1,5 @@
 "use client";
+import { initializeOffseasonRosterNewsBoundary } from "@/lib/season/rosterNews";
 import { repairNameRegistry } from "@/lib/season/nameRegistry";
 import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 import { reportPersistenceError } from "@/lib/persistenceStatus";
@@ -23,7 +24,7 @@ type CounterPair,
 type MetaOverride,
 type Synergy,
 } from "@/lib/championMeta";
-import { PERSIST_VERSION,deleteRealityFromDb,isRealityHistoryLoaded,loadRealityHistoryFromDb,markRealityHistoryLoaded,shouldSuggestCompactAfterDelete,upsertRealityInDb } from "@/lib/desktopSqlite";
+import { PERSIST_VERSION,deleteRealityFromDb,isRealityHistoryLoaded,loadRealityHistoryFromDb,markRealityHistoryLoaded,shouldSuggestCompactAfterDelete } from "@/lib/desktopSqlite";
 import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
 import { clearDesktopOperation,createWebLazyStorage,enablePersistWrites,flushPendingPersistWrites,gatePersistWritesUntilReady,isDesktop,isDesktopOperationBlocking,resolveWebStringStorage,signalBackingUpReality,signalDeletingReality,signalLeavingSeason,signalOpeningReality,waitForDesktopOverlayPaint } from "@/lib/desktopStorage";
 import {
@@ -650,6 +651,7 @@ export async function runFranchiseSeasonSim(
 // (tournaments snapshot it at creation). No-op (same reference) for
 // healthy seasons.
 export function ensureSeasonIdentities(season: SeasonState): SeasonState {
+  season = initializeOffseasonRosterNewsBoundary(season);
   const teams = ensureTeamIdentities(season.teams);
   const byId = new Map(teams.map((t) => [t.id, t]));
   // Tournament copies are checked even when the season teams are already
@@ -1079,9 +1081,9 @@ export const useDraftStore = create<DraftStore>()(
   },
 
   exitSeasonView: async () => {
-    // Snapshot the live season into the reality slot. On desktop, upsert ONLY
-    // that reality row (compact encode happens inside seasonJsonForDb) so leave
-    // isn't blocked on rewriting every franchise + history in the DB.
+    // Snapshot once, then flush through the normal transactional save queue.
+    // A separate upsert here invalidates the reality cache and makes the flush
+    // rewrite every reality and loaded history, including unchanged seasons.
     signalLeavingSeason();
     await waitForDesktopOverlayPaint();
     try {
@@ -1113,18 +1115,6 @@ export const useDraftStore = create<DraftStore>()(
       }));
 
       advanceOperationProgress("save");
-      if (isDesktop() && activeId) {
-        const slot = get().realities.find((r) => r.id === activeId);
-        if (slot) {
-          await upsertRealityInDb({
-            id: slot.id,
-            name: slot.name,
-            year: slot.year,
-            season: slot.season,
-          });
-        }
-
-      }
       await flushPendingPersistWrites();
       recordOperationSuccess();
     } finally {

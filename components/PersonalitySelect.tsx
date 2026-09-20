@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 /**
  * PersonalitySelect — shared AI draft-personality picker.
@@ -56,17 +57,7 @@ export function PersonalityChipSelect({ value, onChange }: ChipProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Close on Escape.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [open]);
+  useEscapeLayer(open, () => setOpen(false), 200);
 
   const selected = PERSONALITY_LIST.find((p) => p.id === value);
   const isSet = value != null;

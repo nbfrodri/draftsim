@@ -33,7 +33,13 @@ function mkSeason(): SeasonState {
         ],
       },
     ],
-    tournaments: {},
+    tournaments: {
+      game: { matches: [{ blueTeamId: "t1", redTeamId: "t2", series: { games: [{
+        status: "complete", winner: "blue", blueTeam: "Alpha",
+        bluePicks: [], redPicks: [], blueRoles: [], redRoles: [],
+        recap: { perPickIds: { blue: ["p-top", "p-vet"], red: [] }, ratings: { blue: [7, 9], red: [] } },
+      }] } }] },
+    },
     phases: [],
     splitResults: { summer: { LCK: ["t1"] } },
     intlResults: {},
@@ -59,6 +65,20 @@ function mkSeason(): SeasonState {
 }
 
 describe("computeSeasonRookiesOfYear", () => {
+  it("does not award unused rookies even on a championship roster", () => {
+    const s = mkSeason(); s.tournaments = {};
+    expect(computeSeasonRookiesOfYear(s)).toEqual([]);
+  });
+  it("requires a finite rated sample", () => {
+    const s = mkSeason();
+    s.tournaments.game.matches[0].series!.games[0].recap!.ratings!.blue[0] = NaN;
+    expect(computeSeasonRookiesOfYear(s)).toEqual([]);
+  });
+  it("does not fill an empty role with a zero-game rookie", () => {
+    const s = mkSeason();
+    s.teams[0].players.push({ id: "unused", name: "Unused", lane: "support", tier: "A", debutYear: 3 });
+    expect(computeSeasonRookiesOfYear(s).map(p => p.playerId)).toEqual(["p-top"]);
+  });
   it("awards only debut-year players, one per lane", () => {
     const out = computeSeasonRookiesOfYear(mkSeason());
     expect(out).toHaveLength(1);

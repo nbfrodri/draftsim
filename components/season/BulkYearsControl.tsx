@@ -45,6 +45,7 @@ export default function BulkYearsControl() {
   const simulateRealityYears = useDraftStore((s) => s.simulateRealityYears);
   const cancelBulkYears = useDraftStore((s) => s.cancelBulkYears);
 
+  const [expanded, setExpanded] = useState(false);
   const [yearsInput, setYearsInput] = useState("5");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saveAfterEachYear, setSaveAfterEachYear] = useState(false);
@@ -65,6 +66,7 @@ export default function BulkYearsControl() {
   if (!season?.franchise) return null;
 
   const fr = season.franchise;
+  const controlsOpen = expanded || !!bulkYearsProgress || !!jobs[fr.id];
   const busy = !!simulating || !!bulkYearsProgress || exportPickBusy;
   const parsed = clampBulkYearCount(Number(yearsInput));
   const inputError = bulkInputError(yearsInput);
@@ -136,7 +138,9 @@ export default function BulkYearsControl() {
             id="bulk-sim-heading"
             className="font-display text-base tracking-wider text-rift-goldbright"
           >
-            Bulk Simulation
+            <button type="button" aria-expanded={controlsOpen} aria-controls="bulk-sim-controls" onClick={() => setExpanded(v => !v)}>
+              Bulk Simulation {controlsOpen ? "-" : "+"}
+            </button>
           </h2>
           <span className="text-[9px] uppercase tracking-[0.3em] text-rift-muted/60">
             {fr.name} · Year {fr.year}
@@ -152,6 +156,7 @@ export default function BulkYearsControl() {
           )}
         </div>
 
+        <div id="bulk-sim-controls" hidden={!controlsOpen}>
         {!busy && jobs[fr.id] && <div className="p-3 text-sm text-rift-goldbright" role="status">
           <p>Paused job: Continue through year {jobs[fr.id].targetYear - 1}. Completed seasons are preserved.</p>
           {jobs[fr.id].error && <p className="text-red-300">{jobs[fr.id].error}</p>}
@@ -363,6 +368,7 @@ export default function BulkYearsControl() {
             )}
           </div>
         )}
+        </div>
       </section>
 
       <Modal

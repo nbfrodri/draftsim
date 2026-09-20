@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { lazy,Suspense,useEffect,useMemo,useState } from "react";
 
@@ -59,6 +60,7 @@ export default function TournamentDashboard() {
   const simulateAllRemaining = useDraftStore((s) => s.simulateAllRemaining);
   const simulating = useDraftStore((s) => s.simulating);
   const [exitOpen, setExitOpen] = useState(false);
+  useEscapeLayer(true, () => setExitOpen(true), 0);
   // Match the user is configuring before launching. null = no modal open.
   const [pendingMatchId, setPendingMatchId] = useState<string | null>(null);
   // Match the user is reviewing post-tournament. null = no modal open.

@@ -905,9 +905,8 @@ export function seasonGoldenRoadTeamId(season: SeasonState): string | null {
 // Stamp the season id onto a freshly-created tournament and, when the
 // realism features are on, attach each team's current form / clutch trait
 // so they flow into the match sim (tournamentSeriesContext → starRatingBias).
-// With both features off this returns the classic `{ ...t, seasonId }`
-// shape unchanged, so default seasons serialize identically.
-function tagSeason(t: TournamentState, season: SeasonState): TournamentState {
+// Retain stage kind so directly opened/exported internationals keep their award scope.
+function tagSeason(t: TournamentState, season: SeasonState, seasonStageKind: "split" | "international" = "international"): TournamentState {
   const { config } = season;
   const enrich = formEnabled(config) || config.clutchFactor === true;
   const teams = enrich
@@ -931,7 +930,7 @@ function tagSeason(t: TournamentState, season: SeasonState): TournamentState {
         return Object.keys(extra).length > 0 ? { ...tt, ...extra } : tt;
       })
     : t.teams;
-  return { ...t, teams, seasonId: season.id };
+  return { ...t, teams, seasonId: season.id, seasonStageKind };
 }
 
 function createSplitTournament(
@@ -986,7 +985,7 @@ function createSplitTournament(
     fearlessConfig: { perSeries: season.config.fearless },
     streakSeeds: streakSeedsFor(season, ordered),
   });
-  return tagSeason(t, season);
+  return tagSeason(t, season, "split");
 }
 
 function createFirstStand(season: SeasonState): TournamentState {
@@ -2137,6 +2136,7 @@ export function applyTournamentUpdate(
       champion: next.intlResults.worlds?.[0] ?? null,
       transfersByEvent: rebucketed,
       worldsOffseasonBaseline: worldsLen,
+      offseasonRosterNewsBaseline: next.rosterNews?.length ?? 0,
       // Fresh FA-sign / manual-demote / same-window-rookie quota for the
       // post-Worlds offseason browse window.
       ...(next.franchise?.aging

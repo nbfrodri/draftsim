@@ -71,5 +71,8 @@ jobs:
         if: always()
         with:
           name: windows-install-smoke
-          path: ${{ runner.temp }}/draftsim-install-smoke/result.json
+          path: |
+            ${{ runner.temp }}/draftsim-install-smoke/*.json
+            ${{ runner.temp }}/draftsim-install-smoke/*.png
+            ${{ runner.temp }}/draftsim-install-smoke/*.txt
           retention-days: 7

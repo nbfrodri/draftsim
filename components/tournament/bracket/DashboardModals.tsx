@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { memo, useEffect } from "react";
 import { useDraftStore } from "@/store/draftStore";
@@ -22,6 +23,7 @@ export function SaveTournamentModal({
   onCopy: () => void;
   onClose: () => void;
 }) {
+  useEscapeLayer(true, onClose);
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm"
@@ -89,6 +91,7 @@ export function SaveTournamentModal({
 // Lightweight shell shown while the replay modal chunk loads. Keeps the
 // backdrop + dismiss affordance instant so "View recap" feels responsive.
 export function ReplayLoadingOverlay({ onClose }: { onClose: () => void }) {
+  useEscapeLayer(true, onClose);
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-2 py-4 bg-black/75 backdrop-blur-sm"
@@ -193,6 +196,7 @@ function OverlayLiveResultsFeed({
 }
 
 export function SimulatingOverlay({ scope }: { scope: "match" | "all" }) {
+  useEscapeLayer(true, () => {}, 900, false);
   const progress = useDraftStore((s) => s.simProgress);
   const bulkYearsProgress = useDraftStore((s) => s.bulkYearsProgress);
   const simStartedAt = useDraftStore((s) => s.simStartedAt);

@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
@@ -28,6 +29,7 @@ export default function DraftHeader() {
 
   const timerRef = useRef<HTMLDivElement | null>(null);
   const [exitOpen, setExitOpen] = useState(false);
+  useEscapeLayer(true, () => setExitOpen(true), 0);
   const [tierListOpen, setTierListOpen] = useState(false);
   const [synergyOpen, setSynergyOpen] = useState(false);
 

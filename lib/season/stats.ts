@@ -182,11 +182,13 @@ export function computeSeasonRookiesOfYear(
     for (const p of t.players) {
       if (!p.id || p.debutYear !== year) continue;
       const rec = recordById.get(p.id);
+      if (!rec || rec.games <= 0 || (rec.ratingGames ?? 0) <= 0) continue;
       const a = achv.get(p.id) ?? { split: 0, intlTitles: 0, intlApps: 0 };
       const avg =
         rec && (rec.ratingGames ?? 0) > 0
           ? (rec.ratingSum ?? 0) / (rec.ratingGames ?? 1)
           : 0;
+      if (!Number.isFinite(avg)) continue;
       const splitTitles = a.split;
       const intlTitles = a.intlTitles;
       const score = rookieScore(splitTitles, intlTitles, avg);
@@ -621,12 +623,14 @@ export interface PlayerSeasonRecord {
   wins?: number;
   kills: number;
   mvps: number;
-  // Total per-tournament All-Pro selections this season (splits + internationals).
+  // Scoped total on new archives; older archives may contain an unscoped
+  // tournament total. Read history through archivedAllProCounts.
   allPro: number;
-  // Per-league split All-Pro selections this season (a subset of `allPro`,
-  // counting only the domestic-split team picks). Optional — only on seasons
+  // Per-league domestic split All-Pro selections this season. Optional — only on seasons
   // archived after the All-Pro-team expansion.
   allProSplit?: number;
+  /** Cross-region split selections; absent in legacy archives. */
+  allProGlobalSplit?: number;
   // 1 if the player made this season's GLOBAL All-Pro Team of the Year, else 0.
   // Optional, as above.
   allProSeason?: number;
@@ -721,6 +725,7 @@ export function computePlayerCareerRecords(season: SeasonState): PlayerSeasonRec
   const achv = computePlayerTitleCounts(season);
   const allProById = new Map<string, number>();
   for (const t of Object.values(season.tournaments)) {
+    if (!season.phases?.some(p => p.kind === "split" && p.tournamentIds.includes(t.id))) continue;
     for (const ap of computeStageStats(t).allPro) {
       if (ap.playerId) allProById.set(ap.playerId, (allProById.get(ap.playerId) ?? 0) + 1);
     }

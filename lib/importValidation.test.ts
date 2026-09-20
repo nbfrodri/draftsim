@@ -96,3 +96,19 @@ it("enforces node, depth, number and unsafe-key bounds with bounded traversal", 
   expect(() => validateImportTree(nested)).not.toThrow();
   expect(() => validateImportTree([nested])).toThrow("complex");
 });
+
+
+it("preserves an international tournament's award scope through export and import", async () => {
+  const tournament = { ...makeTournament(), seasonStageKind: "international" as const };
+  const result = await decodeTournament(await encodeTournament(tournament));
+  expect(result.error).toBeNull();
+  expect(result.tournament?.seasonStageKind).toBe("international");
+});
+
+it("accepts optional offseason provenance and rejects malformed boundaries", () => {
+  const season = makeAuditSeason("Boundary");
+  expect(validSeason(season)).toBe(true);
+  expect(validSeason({ ...season, offseasonRosterNewsBaseline: 0 })).toBe(true);
+  expect(validSeason({ ...season, offseasonRosterNewsBaseline: -1 })).toBe(false);
+  expect(validSeason({ ...season, offseasonRosterNewsBaseline: "old" })).toBe(false);
+});

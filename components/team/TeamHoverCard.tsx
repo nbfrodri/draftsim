@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
 
 import {
@@ -452,18 +453,11 @@ export default function TeamHoverCard({
     setPos(computePlacement(trigger, card, pointerRef.current));
   }, []);
 
-  useEffect(() => {
-    if (!data) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      clearTimers();
-      setData(null);
-      triggerRef.current?.blur();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [data]);
+  useEscapeLayer(!!data, () => {
+    clearTimers();
+    setData(null);
+    triggerRef.current?.blur();
+  }, 200, false);
 
   useLayoutEffect(() => {
     if (!data) {

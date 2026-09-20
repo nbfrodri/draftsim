@@ -1,4 +1,6 @@
 "use client";
+import { ALL_PRO_LABELS } from "@/lib/season/allProScopes";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
 import dynamic from "next/dynamic";
 import { ComparePanel } from "./hall/ComparePanel";
@@ -613,16 +615,17 @@ function SeasonDetail({
                         key={league}
                         className="flex items-center gap-1.5 text-[10px] min-w-0"
                       >
-                        <span className="w-10 text-rift-muted/70 uppercase text-[8px] tracking-[0.2em] flex-shrink-0">
+                        <span className="inline-flex items-center gap-1 w-16 text-rift-muted/70 uppercase text-[8px] tracking-[0.2em] flex-shrink-0">
+                          <LeagueIcon league={league} size={12} />
                           {league}
                         </span>
                         <span className="min-w-0 flex-1 overflow-hidden">
-                          <TeamRef phaseScope={split} team={team} size={11} onNavigate={onNavigate} />
+                          <TeamRef showRegion={false} phaseScope={split} team={team} size={11} onNavigate={onNavigate} />
                         </span>
                         {ru && (
                           <span className="inline-flex items-center gap-1 text-rift-muted/50 min-w-0 max-w-[42%] overflow-hidden">
                             <span className="text-[8px] uppercase tracking-[0.15em] flex-shrink-0">def.</span>
-                            <TeamRef phaseScope={split} team={ru} size={9} muted onNavigate={onNavigate} />
+                            <TeamRef showRegion={false} phaseScope={split} team={ru} size={9} muted onNavigate={onNavigate} />
                           </span>
                         )}
                       </div>
@@ -768,7 +771,7 @@ function AllProTeamsPanel({
               {global && (
                 <div className="mb-1.5">
                   <div className="text-[7px] uppercase tracking-[0.25em] text-rift-mutedbright/60 mb-0.5">
-                    Global
+                    Global Split All-Pro
                   </div>
                   <AllProMembers members={global.members} onNavigate={onNavigate} />
                 </div>
@@ -776,7 +779,7 @@ function AllProTeamsPanel({
               {leagues.length > 0 && (
                 <details className="group">
                   <summary className="cursor-pointer text-[7px] uppercase tracking-[0.25em] text-rift-blue/70 hover:text-rift-bluebright">
-                    Per-league ({leagues.length})
+                    Domestic Split All-Pro ({leagues.length})
                   </summary>
                   <div className="space-y-1 mt-1">
                     {leagues.map((t, i) => (
@@ -868,7 +871,7 @@ function SplitMvpsPanel({
             <div className="space-y-0.5">
               {mvps
                 .filter((m) => m.split === split)
-                .sort((a, b) => a.leagueId.localeCompare(b.leagueId))
+                .sort((a, b) => LEAGUE_IDS.indexOf(a.leagueId) - LEAGUE_IDS.indexOf(b.leagueId))
                 .map((m, i) => (
                   <div key={i} className="flex items-center gap-1.5 text-[10px]">
                     <LeagueIcon league={m.leagueId} size={11} />
@@ -906,7 +909,7 @@ function RookieOfYearPanel({
         Rookie of the Year
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
-        {rookies.map((r) => (
+        {rookies.filter(r => r.games > 0 && Number.isFinite(r.avgRating)).map((r) => (
           <div
             key={r.lane}
             className="border border-rift-blue/30 bg-rift-blue/[0.04] px-2.5 py-2 text-[10px]"
@@ -1549,7 +1552,7 @@ function RecordsPanel({
       { label: "Most Intl MVPs", rows: top((p) => p.intlMvps), val: (p: PlayerCareerLine) => `${p.intlMvps}` },
       { label: "Most Split MVPs", rows: top((p) => p.splitMvps), val: (p: PlayerCareerLine) => `${p.splitMvps}` },
       { label: "Most Kills", rows: top((p) => p.kills), val: (p: PlayerCareerLine) => `${p.kills}` },
-      { label: "Most All-Pro", rows: top((p) => p.allPro), val: (p: PlayerCareerLine) => `${p.allPro}` },
+      { label: "Total All-Pro Selections", rows: top((p) => p.allProIncomplete ? 0 : p.allPro), val: (p: PlayerCareerLine) => `${p.allPro}` },
       { label: "Region Titles", rows: top((p) => p.splitTitles), val: (p: PlayerCareerLine) => `${p.splitTitles}` },
       { label: "Intl Appearances", rows: top((p) => p.intlAppearances), val: (p: PlayerCareerLine) => `${p.intlAppearances}` },
       { label: "Intl Titles", rows: top((p) => p.intlTitles), val: (p: PlayerCareerLine) => `${p.intlTitles}` },
@@ -1892,8 +1895,9 @@ function RecordsPanel({
                 className="grid grid-cols-[1.6fr_repeat(5,0.7fr)] gap-2 px-3 py-1.5 text-[11px] items-center"
               >
                 <span
-                  className={`uppercase tracking-[0.15em] ${i === 0 ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright"}`}
+                  className={`inline-flex items-center gap-1.5 uppercase tracking-[0.15em] ${i === 0 ? "text-rift-goldbright font-semibold" : "text-rift-mutedbright"}`}
                 >
+                  <LeagueIcon league={row.league} size={16} />
                   {row.league}
                 </span>
                 <span className="text-right tabular-nums text-rift-goldbright">
@@ -3255,14 +3259,15 @@ const PlayerProfileView = memo(function PlayerProfileView({
             <StatChip label="Kills" value={c.kills} />
             <StatChip label="Pentas" value={c.pentakills} />
             <StatChip label="MVPs" value={c.mvps} />
-            <StatChip label="All-Pro" value={c.allPro} />
-            <StatChip label="All-Pro Split" value={c.allProSplit} />
-            <StatChip label="All-Pro Season" value={c.allProSeason} />
+            <StatChip label={ALL_PRO_LABELS["split-global"]} value={c.allProIncomplete ? `${c.allProGlobalSplit ?? 0}+` : c.allProGlobalSplit ?? 0} />
+            <StatChip label={ALL_PRO_LABELS["split-league"]} value={c.allProIncomplete ? `${c.allProSplit}+` : c.allProSplit} />
+            <StatChip label={ALL_PRO_LABELS["season-global"]} value={c.allProIncomplete ? `${c.allProSeason}+` : c.allProSeason} />
             <StatChip label="Intl MVPs" value={c.intlMvps} />
             <StatChip label="Split MVPs" value={c.splitMvps} />
           </div>
         </>
       )}
+      {c?.allProIncomplete && <p className="text-[10px] text-rift-muted">All-Pro history is incomplete: + indicates recorded selections only; older unscoped tournament awards are excluded.</p>}
       <IntlTitleChips splitTitles={p.splitTitles} intl={p.intlTitles} />
       <IntlFinalsReachedChips intlFinalsReached={p.intlFinalsReached} />
       <SplitFinalsReachedChips splitFinalsReached={p.splitFinalsReached} />
@@ -3300,10 +3305,11 @@ const PlayerProfileView = memo(function PlayerProfileView({
                     </span>
                   ))}
                   {s.allProSplit > 0 && (
-                    <span className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/80">{s.allProSplit}× Split All-Pro</span>
+                    <span className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/80">{s.allProSplit}× Domestic Split All-Pro</span>
                   )}
+                  {(s.allProGlobalSplit ?? 0) > 0 && <span className="text-[8px] uppercase tracking-[0.15em] text-rift-blue/80">{s.allProGlobalSplit} Global Split All-Pro</span>}
                   {s.allPro > 0 && (
-                    <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">{s.allPro} All-Pro picks</span>
+                    <span className="text-[8px] uppercase tracking-[0.15em] text-rift-muted/60">{s.allPro} Total All-Pro Selections{s.allProIncomplete ? " (partial history)" : ""}</span>
                   )}
                   <span className="ml-auto text-rift-muted/40 text-[8px]">{s.champs.length} champs</span>
                 </summary>
@@ -3944,7 +3950,7 @@ const SORT_OPTIONS: Record<
     { key: "titles", label: "Titles" },
     { key: "intlTitles", label: "International Titles" },
     { key: "mvps", label: "MVPs" },
-    { key: "allPro", label: "All-Pro" },
+    { key: "allPro", label: "Total All-Pro Selections" },
     { key: "pentakills", label: "Pentakills" },
     { key: "kills", label: "Kills" },
     { key: "games", label: "Games" },
@@ -4155,7 +4161,7 @@ const SearchResultRow = memo(function SearchResultRow({
               ? `${Math.round((r.sortVals[sortKey] ?? 0) * 100)}%`
               : sortKey === "goldAdv"
                 ? formatGoldAdvAvg(r.sortVals[sortKey])
-                : (r.sortVals[sortKey] ?? 0)}
+                : sortKey === "allPro" && !Number.isFinite(r.sortVals[sortKey]) ? "Unavailable" : (r.sortVals[sortKey] ?? 0)}
         </span>
       )}
     </button>
@@ -4181,6 +4187,7 @@ function SearchPanel({
   const [kind, setKind] = useState<"players" | "teams" | "coaches">("players");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  useEscapeLayer(selected != null, () => setSelected(null), 10);
   const [laneFilter, setLaneFilter] = useState<Lane | null>(null); // players
   const [regionFilter, setRegionFilter] = useState<LeagueId | null>(null); // teams
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "academy" | "free-agent" | "retired">("all"); // players
@@ -4312,7 +4319,7 @@ function SearchPanel({
             titles: p.titles,
             intlTitles: playerCareersById.get(p.id)?.intlTitles ?? 0,
             mvps: p.mvps,
-            allPro: p.allPro,
+            allPro: playerCareersById.get(p.id)?.allProIncomplete ? -Infinity : p.allPro,
             pentakills: p.pentakills,
             kills: p.kills,
             games: p.games,
@@ -4699,6 +4706,7 @@ export default function SeasonHistoryView({
   const [tab, setTab] = useState<HallTab>(
     initialPlayerId || initialTeamKey || initialCoachName ? "search" : "timeline",
   );
+  useEscapeLayer(tab === "timeline" && selectedId != null, () => setSelectedId(null), 5);
   const [isTabPending, startTabTransition] = useTransition();
   const deferredTab = useDeferredValue(tab);
   const tabLoading = isTabPending || tab !== deferredTab;

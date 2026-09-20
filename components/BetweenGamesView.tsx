@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import gsap from "gsap";
 import { useEffect,useMemo,useRef,useState } from "react";
@@ -44,6 +45,7 @@ export default function BetweenGamesView({ champions }: Props) {
   // Main-menu confirm modal — abandoning a series mid-flow loses all
   // progress, so a confirmation guard is appropriate.
   const [exitOpen, setExitOpen] = useState(false);
+  useEscapeLayer(true, () => setExitOpen(true), 0);
 
   const game = currentGame(series);
   const gameIndex = series.games.length - 1;

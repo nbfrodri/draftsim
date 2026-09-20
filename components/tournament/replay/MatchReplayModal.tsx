@@ -1,9 +1,11 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
 import GoldLeadChart from "@/components/charts/GoldLeadChart";
 import WinProbChart from "@/components/charts/WinProbChart";
 import LaneIcon from "@/components/LaneIcon";
+import TeamIcon from "@/components/TeamIcon";
 import PlayerNameLink from "@/components/player/PlayerNameLink";
 import TeamLogoLink from "@/components/team/TeamLogoLink";
 import TeamNameLink from "@/components/team/TeamNameLink";
@@ -239,14 +241,12 @@ export function MatchReplayModal({
     setActiveGameIdx(initialGameIdx);
   }
 
+  useEscapeLayer(true, onClose);
+
   // Esc-to-close, arrow keys for game tabs, body-scroll-lock.
   useEffect(() => {
     const gameCount = series?.games.length ?? 0;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
       if (gameCount <= 1) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
@@ -442,13 +442,20 @@ export function MatchReplayModal({
             {games.map((g, i) => {
               const isActive = i === activeGameIdx;
               const winnerSide = g.winner;
+              const winnerName = winnerSide === "blue"
+                ? g.blueTeam || matchBlueName
+                : winnerSide === "red" ? g.redTeam || matchRedName : null;
+              const winnerTeam = winnerName
+                ? resolveReplayTeam(tournament, winnerName, blueTeam, redTeam, matchBlueName, matchRedName)
+                : null;
               const kills = g.recap ? gameKillTotals(g.recap) : null;
               return (
                 <button
                   key={g.id}
                   type="button"
                   onClick={() => setActiveGameIdx(i)}
-                  className={`px-3 py-1 text-[10px] uppercase tracking-[0.3em] border transition-all ${
+                  aria-label={`Game ${i + 1}${winnerName ? `, won by ${winnerName}` : ""}`}
+                  className={`inline-flex items-center px-3 py-1 text-[10px] uppercase tracking-[0.3em] border transition-all ${
                     isActive
                       ? "border-rift-gold bg-rift-gold/10 text-rift-goldbright"
                       : "border-rift-line text-rift-mutedbright hover:border-rift-gold/50 hover:bg-rift-gold/5"
@@ -460,15 +467,9 @@ export function MatchReplayModal({
                       {kills.blue}–{kills.red}
                     </span>
                   )}
-                  {winnerSide && (
-                    <span
-                      className={`ml-1.5 ${
-                        winnerSide === "blue"
-                          ? "text-rift-bluebright"
-                          : "text-rift-redbright"
-                      }`}
-                    >
-                      ({winnerSide === "blue" ? "B" : "R"})
+                  {winnerName && (
+                    <span className="ml-1.5 inline-flex" title={`Winner: ${winnerName}`}>
+                      <TeamIcon iconKey={winnerTeam?.iconKey} logoUrl={winnerTeam?.logoUrl} color={winnerTeam?.color} size={16} />
                     </span>
                   )}
                 </button>

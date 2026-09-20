@@ -577,7 +577,7 @@ export function computeTournamentAwards(
     }
   }
 
-  return { mvp, allPro, awards };
+  return { mvp, allPro: tournament.seasonStageKind === "international" ? [] : allPro, awards };
 }
 
 // ─── Finals MVP (splits & international events) ──────────────────────────────

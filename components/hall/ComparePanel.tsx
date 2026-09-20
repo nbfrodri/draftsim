@@ -981,7 +981,7 @@ export function PlayerComparePanel({
               compare.playerA.intlMvps,
               compare.playerB.intlMvps,
             )}
-            {statRow("All-Pro", compare.playerA.allPro, compare.playerB.allPro)}
+            {statRow("Total All-Pro Selections", compare.playerA.allProIncomplete ? "Unavailable" : compare.playerA.allPro, compare.playerB.allProIncomplete ? "Unavailable" : compare.playerB.allPro)}
             {statRow(
               "Split titles",
               compare.playerA.splitTitles,

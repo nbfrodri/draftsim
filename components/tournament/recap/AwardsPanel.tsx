@@ -59,7 +59,7 @@ function MVPCard({ mvp }: { mvp: PlayerAward }) {
 
 // ─── All-Pro strip ────────────────────────────────────────────────────────────
 
-function AllProStrip({ allPro }: { allPro: TournamentAwards["allPro"] }) {
+function AllProStrip({ allPro, label }: { allPro: TournamentAwards["allPro"]; label: string }) {
   if (allPro.length === 0) return null;
   const laneOrder: Lane[] = ["top", "jungle", "middle", "bottom", "support"];
   const byLane = new Map(allPro.map((p) => [p.lane, p]));
@@ -68,7 +68,7 @@ function AllProStrip({ allPro }: { allPro: TournamentAwards["allPro"] }) {
     <div className="border border-rift-line/50 bg-rift-panel/40">
       <div className="px-3 py-2 border-b border-rift-line/40">
         <span className="text-[10px] uppercase tracking-[0.4em] text-rift-gold/70">
-          All-Pro Team
+          {label}
         </span>
       </div>
       <div className="divide-y divide-rift-line/20">
@@ -156,6 +156,8 @@ function AwardsList({ awards }: { awards: SpecialAward[] }) {
 export function AwardsPanel({ tournament }: { tournament: TournamentState }) {
   // Read playerForms from the store so "Hottest Streak" can be included.
   const playerForms = useDraftStore((s) => s.playerForms);
+  const phaseKind = useDraftStore(s => s.season?.phases.find(p => p.tournamentIds.includes(tournament.id))?.kind);
+  const showAllPro = (phaseKind ?? tournament.seasonStageKind) !== "international";
 
   const awards = useMemo(
     () => computeTournamentAwards(tournament, playerForms),
@@ -172,7 +174,7 @@ export function AwardsPanel({ tournament }: { tournament: TournamentState }) {
     <div className="space-y-3">
       {awards.mvp && <MVPCard mvp={awards.mvp} />}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <AllProStrip allPro={awards.allPro} />
+        {showAllPro && <AllProStrip allPro={awards.allPro} label={(phaseKind ?? tournament.seasonStageKind) === "split" ? "Domestic Split All-Pro" : "All-Pro Team"} />}
         <AwardsList awards={awards.awards} />
       </div>
     </div>

@@ -14,6 +14,8 @@ $runnerRoot = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
 if (-not $smokeRoot.StartsWith($runnerRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test directory.' }
 $installRoot = Join-Path $smokeRoot 'application'
 $testData = Join-Path $env:APPDATA 'app.draftsim.desktop'
+# Local-loopback CDP drives the installed WebView on this disposable runner.
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9333'
 if (Test-Path -LiteralPath $testData) { throw 'Existing application data detected; refusing to modify it.' }
 New-Item -ItemType Directory -Path $smokeRoot, $testData -Force | Out-Null
 Copy-Item -LiteralPath (Resolve-Path -LiteralPath $Fixture).Path -Destination (Join-Path $testData 'draftsim-store.json')
@@ -34,7 +36,8 @@ function Open-And-Close {
     if ($process.HasExited) { throw 'Application exited during startup.' }
   } while ($process.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
   if ($process.MainWindowHandle -eq 0) { throw 'Application window did not initialize.' }
-  Start-Sleep -Seconds 8
+  & node "$PSScriptRoot/desktop-navigation-smoke.mjs" $smokeRoot
+  if ($LASTEXITCODE -ne 0) { throw 'Native Escape/navigation smoke failed.' }
   if (-not $process.CloseMainWindow()) { throw 'Unable to request normal application close.' }
   if (-not $process.WaitForExit(45000)) { throw 'Application did not complete its save/close lifecycle.' }
   if ($process.ExitCode -ne 0) { throw "Application failed: $($process.ExitCode)" }

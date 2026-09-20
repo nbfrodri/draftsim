@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
@@ -52,6 +53,7 @@ export default function StrategyView({ champions }: Props) {
   const confirmStrategies = useDraftStore((s) => s.confirmStrategies);
   const resetAll = useDraftStore((s) => s.resetAll);
   const [exitOpen, setExitOpen] = useState(false);
+  useEscapeLayer(true, () => setExitOpen(true), 0);
 
   const game = currentGame(series);
   const score = seriesScore(series);

@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
 
 import gsap from "gsap";
@@ -66,6 +67,7 @@ export default function Modal({
     onCancelRef.current = () => { if (!confirmingRef.current) { setConfirmError(null); onCancel(); } };
     onConfirmRef.current = onConfirm;
   });
+  useEscapeLayer(open, () => onCancelRef.current(), 100, false);
 
 
 
@@ -95,11 +97,6 @@ export default function Modal({
     }, 0);
 
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCancelRef.current();
-        return;
-      }
       if (e.key === "Tab" && panelRef.current) {
         // Basic focus trap — cycle focus inside the panel.
         const focusables = Array.from(

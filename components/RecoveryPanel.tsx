@@ -1,4 +1,5 @@
 "use client";
+import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
@@ -47,10 +48,10 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
   useEffect(() => {
     if (selected) cancel.current?.focus();
     else if (restoreTrigger.current) {
-      const button = Array.from(dialog.current?.querySelectorAll<HTMLButtonElement>("[data-backup-id]") ?? []).find(element => element.dataset.backupId === restoreTrigger.current);
+      const button = Array.from(dialog.current?.querySelectorAll<HTMLButtonElement>("[data-backup-id]") ?? []).find(element => element.dataset.backupId === restoreTrigger.current && element.dataset.backupAction === (deleting ? "delete" : "restore"));
       button?.focus();
     }
-  }, [selected]);
+  }, [selected, deleting]);
 
   const run = async (label: string, action: () => Promise<void>) => {
     if (operation.current) return;
@@ -60,6 +61,11 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
     finally { operation.current = false; setBusy(null); }
   };
   const cancelRestore = () => { if (!operation.current) { setSelected(null); setError(null); } };
+  useEscapeLayer(open, () => {
+    if (operation.current) return;
+    if (selected) cancelRestore();
+    else onClose();
+  }, 100, false);
   if (!open) return null;
   const restoring = !!busy;
 
@@ -165,7 +171,7 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
             <div className="min-w-0">{copy.name && <p className="mb-1 break-words font-display text-sm text-rift-goldbright">{copy.name}</p>}<div className="flex flex-wrap items-center gap-2"><time dateTime={new Date(copy.createdAt).toISOString()} className="text-sm text-rift-goldbright">{date(copy.createdAt)}</time>{index === 0 && <span className="border border-rift-gold/25 bg-rift-gold/10 px-1.5 py-0.5 text-[8px] uppercase tracking-[0.14em] text-rift-gold">Latest</span>}</div>
               <p className="mt-1 break-words text-xs leading-relaxed">{copy.realities.join(", ") || "Saved drafts, tournaments and seasons"}</p>
               <p className="mt-2 text-[10px] tabular-nums text-rift-mutedbright">{copy.bytes < 1024 * 1024 ? `${Math.max(1, Math.round(copy.bytes / 1024))} KB` : `${(copy.bytes / 1024 / 1024).toFixed(1)} MB`}</p></div>
-            <div className="flex flex-wrap gap-2"><button type="button" disabled={!!busy || !!simulating} className={`${secondary} w-full shrink-0 sm:w-auto`} data-backup-id={copy.id} onClick={() => { restoreTrigger.current = copy.id; setError(null); setDeleting(false); setSelected(copy); }}>Review restore</button><button type="button" disabled={!!busy || !!simulating} className={secondary} aria-label={`Delete backup ${copy.name || date(copy.createdAt)}`} onClick={() => { restoreTrigger.current = copy.id; setError(null); setDeleting(true); setSelected(copy); }}>Delete</button></div>
+            <div className="flex flex-wrap gap-2"><button type="button" disabled={!!busy || !!simulating} className={`${secondary} w-full shrink-0 sm:w-auto`} data-backup-id={copy.id} data-backup-action="restore" onClick={() => { restoreTrigger.current = copy.id; setError(null); setDeleting(false); setSelected(copy); }}>Review restore</button><button type="button" disabled={!!busy || !!simulating} className={secondary} aria-label={`Delete backup ${copy.name || date(copy.createdAt)}`} data-backup-id={copy.id} data-backup-action="delete" onClick={() => { restoreTrigger.current = copy.id; setError(null); setDeleting(true); setSelected(copy); }}>Delete</button></div>
           </li>)}</ul>}
           {simulating && <p className="mt-3 text-xs text-rift-gold">Pause simulation before restoring a backup.</p>}
         </section>
