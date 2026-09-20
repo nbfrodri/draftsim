@@ -229,3 +229,12 @@ Se ha utilizado IA como apoyo en el desarrollo y la documentación de este proye
 ## Atribución
 
 Proyecto no oficial de fans, sin afiliación con Riot Games. Los nombres de League of Legends, las ilustraciones de campeones, los iconos y los sonidos pertenecen a Riot Games. CommunityDragon y Meraki Analytics proporcionan datos de la comunidad; los datos de rosters también utilizan Leaguepedia. Los recursos de terceros conservan los derechos de sus propietarios.
+
+## Documentación técnica del proyecto
+
+- [Índice de documentación](docs/README.md).
+- [Diseño técnico y arquitectura](docs/technical-design.md).
+- [Dominio, premios y offseason](docs/domain-contracts.md).
+- [Persistencia y recuperación](docs/persistence-and-recovery.md).
+- [Interacción y ejecución asíncrona](docs/interaction-and-execution.md).
+- [Desarrollo, diagnóstico, pruebas y releases](docs/development-and-release.md).

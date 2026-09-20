@@ -216,6 +216,11 @@ Generated outputs (`out/`, `.next/`, `src-tauri/target/`, test reports) are giti
 
 ## Further documentation
 
+- [Technical documentation index (ES)](docs/README.md)
+- [Architecture](docs/technical-design.md) · [Domain contracts](docs/domain-contracts.md)
+- [Persistence and recovery](docs/persistence-and-recovery.md) · [Interaction and execution](docs/interaction-and-execution.md)
+- [Development, diagnostics and releases](docs/development-and-release.md)
+
 - [Game systems (EN)](docs/systems.md) · [Sistemas (ES)](docs/systems.es.md)
 - [Tournament formats](docs/tournament-mode.md) · [Player rosters](docs/players-feature.md)
 - [Player identity and franchises](docs/player-identity-and-franchise.md)

@@ -2,6 +2,8 @@
 
 DraftSim desktop (`app.draftsim.desktop`) persists game state in an embedded **SQLite** database instead of a monolithic JSON file. The web build continues to use `localStorage` unchanged.
 
+For current write-queue, transaction, failure and recovery contracts, see the [persistence and recovery guide](persistence-and-recovery.md).
+
 ## Location
 
 | Artifact | Path |
@@ -55,7 +57,7 @@ When the user calls `switchReality(id)` on desktop, if the target slot has empty
 ### Save (every Zustand `set`)
 
 - Debounced **500 ms** (same as the old file adapter).
-- Writes `global_state` + upserts each reality row.
+- Computes changes to `global_state`, reality rows and loaded history. Reference caches avoid serializing and rewriting unchanged aggregates; caches advance only after commit.
 - History rows are written only for realities whose history is **loaded in memory** (active reality, or one the user switched to). This prevents wiping dormant franchise halls when their history was not hydrated.
 
 ### Flush
@@ -72,7 +74,7 @@ Zustand persist **version 7** marks the desktop storage backend change. State sh
 
 ## Tests
 
-Pure helpers (`splitPersistedState`, `mergePersistedState`, `parseMetaConfigJson`) are covered in `lib/desktopSqliteSchema.test.ts`. Full Tauri/SQL integration is validated manually via desktop build + migration from a copy of `draftsim-store.json`.
+Pure schema helpers, write queues, SQL planning, save failures and season-exit persistence have automated unit coverage. Rust tests cover native transaction and backup behavior. CI also runs installer, migration, native navigation, reopen and reinstall checks on disposable Windows runners; consult the result of the specific run before claiming validation. See the [development and release guide](development-and-release.md).
 
 ## Follow-ups (optional)
 
