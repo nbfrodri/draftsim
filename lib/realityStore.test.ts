@@ -10,8 +10,9 @@ vi.mock("./desktopStorage", async (original) => ({
 vi.mock("./desktopSqlite", async (original) => ({
   ...await original<typeof import("./desktopSqlite")>(),
   loadRealityHistoryFromDb: vi.fn(),
+  loadRealitySeasonFromDb: vi.fn(),
 }));
-import { loadRealityHistoryFromDb, resetSqliteStorageForTests } from "./desktopSqlite";
+import { loadRealitySeasonFromDb, loadRealityHistoryFromDb, resetSqliteStorageForTests } from "./desktopSqlite";
 import { useDraftStore } from "../store/draftStore";
 const entry: SeasonHistoryEntry = { id: "past", name: "Past", archivedAt: 1, complete: true, champion: null, runnerUp: null, intlChampions: {}, splitChampions: {} };
 function slot(id: string) { return { id, name: id, year: 1, season: makeAuditSeason(id), history: [] as SeasonHistoryEntry[] }; }
@@ -19,6 +20,7 @@ beforeEach(() => {
   desktop.enabled = false;
   resetSqliteStorageForTests();
   vi.mocked(loadRealityHistoryFromDb).mockReset();
+  vi.mocked(loadRealitySeasonFromDb).mockReset();
   const a = slot("A"), b = slot("B"), c = slot("C");
   useDraftStore.setState({ realities: [a,b,c], activeRealityId: "A", season: a.season });
 });
@@ -74,4 +76,42 @@ it("refuses a silently incomplete backup when the history read fails", async () 
   desktop.enabled = true;
   vi.mocked(loadRealityHistoryFromDb).mockRejectedValue(new Error("locked"));
   expect(await useDraftStore.getState().exportReality("B")).toBeNull();
+});
+
+
+describe("lazy season bodies", () => {
+  function unloadB() {
+    desktop.enabled = true;
+    useDraftStore.setState(s => ({ realities: s.realities.map(r => r.id === "B" ? { ...r, season: null } : r) }));
+    vi.mocked(loadRealityHistoryFromDb).mockResolvedValue([entry]);
+  }
+  it("exports an unloaded body and full history without activating it", async () => {
+    unloadB();
+    const body = makeAuditSeason("B");
+    vi.mocked(loadRealitySeasonFromDb).mockResolvedValue(body);
+    const exported = JSON.parse((await useDraftStore.getState().exportReality("B"))!);
+    expect(exported.reality.season.id).toBe(body.id);
+    expect(exported.reality.season.teams).toEqual(JSON.parse(JSON.stringify(body.teams)));
+    expect(exported.reality.history).toEqual([entry]);
+    expect(useDraftStore.getState().activeRealityId).toBe("A");
+    expect(useDraftStore.getState().realities.find(r => r.id === "B")!.season).toBeNull();
+  });
+  it("failed body loading keeps current state and refuses incomplete export", async () => {
+    unloadB();
+    vi.mocked(loadRealitySeasonFromDb).mockRejectedValue(new Error("corrupt season"));
+    await expect(useDraftStore.getState().switchReality("B")).rejects.toThrow("corrupt season");
+    expect(useDraftStore.getState().activeRealityId).toBe("A");
+    expect(await useDraftStore.getState().exportReality("B")).toBeNull();
+  });
+  it("a delayed inactive body cannot replace a more recently opened reality", async () => {
+    unloadB();
+    let resolve!: (season: ReturnType<typeof makeAuditSeason>) => void;
+    vi.mocked(loadRealitySeasonFromDb).mockReturnValue(new Promise(r => { resolve = r; }));
+    const first = useDraftStore.getState().switchReality("B");
+    await vi.waitFor(() => expect(loadRealitySeasonFromDb).toHaveBeenCalledWith("B"));
+    await useDraftStore.getState().switchReality("C");
+    resolve(makeAuditSeason("B")); await first;
+    expect(useDraftStore.getState().activeRealityId).toBe("C");
+    expect(useDraftStore.getState().realities.find(r => r.id === "B")!.season).toBeNull();
+  });
 });

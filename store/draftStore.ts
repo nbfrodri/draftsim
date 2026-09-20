@@ -24,7 +24,7 @@ type CounterPair,
 type MetaOverride,
 type Synergy,
 } from "@/lib/championMeta";
-import { PERSIST_VERSION,deleteRealityFromDb,isRealityHistoryLoaded,loadRealityHistoryFromDb,markRealityHistoryLoaded,shouldSuggestCompactAfterDelete } from "@/lib/desktopSqlite";
+import { PERSIST_VERSION,deleteRealityFromDb,isRealityHistoryLoaded,loadRealityHistoryFromDb,loadRealitySeasonFromDb,markRealityHistoryLoaded,shouldSuggestCompactAfterDelete } from "@/lib/desktopSqlite";
 import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
 import { clearDesktopOperation,createWebLazyStorage,enablePersistWrites,flushPendingPersistWrites,gatePersistWritesUntilReady,isDesktop,isDesktopOperationBlocking,resolveWebStringStorage,signalBackingUpReality,signalDeletingReality,signalLeavingSeason,signalOpeningReality,waitForDesktopOverlayPaint } from "@/lib/desktopStorage";
 import {
@@ -1328,8 +1328,10 @@ export const useDraftStore = create<DraftStore>()(
       const initial = get().realities.find(r => r.id === id);
       if (!initial) return;
       advanceOperationProgress("history");
-      const history = isDesktop() && !isRealityHistoryLoaded(id)
-        ? await loadRealityHistoryFromDb(id) : initial.history;
+      const [seasonBody, history] = await Promise.all([
+        initial.season ? Promise.resolve(initial.season) : loadRealitySeasonFromDb(id),
+        isDesktop() && !isRealityHistoryLoaded(id) ? loadRealityHistoryFromDb(id) : Promise.resolve(initial.history),
+      ]);
       advanceOperationProgress("open");
       // Drain snapshots captured before the history was available.
       await flushPendingPersistWrites();
@@ -1337,7 +1339,7 @@ export const useDraftStore = create<DraftStore>()(
       const s = get();
       const target = s.realities.find(r => r.id === id);
       if (!target || target !== initial) return;
-      const decodedSeason = repairNameRegistry(decodeCompactSeason(target.season), history);
+      const decodedSeason = repairNameRegistry(decodeCompactSeason(ensureSeasonIdentities(seasonBody)), history);
       if (isDesktop()) markRealityHistoryLoaded(id);
       set({
         realities: s.realities.map(r => {
@@ -1406,7 +1408,12 @@ export const useDraftStore = create<DraftStore>()(
         return null;
       }
     }
-    const season = decodeCompactSeason(live ?? r.season);
+    let body = live ?? r.season;
+    if (!body) {
+      try { await flushPendingPersistWrites(); body = await loadRealitySeasonFromDb(id); }
+      catch { return null; }
+    }
+    const season = decodeCompactSeason(body);
     const payload = {
       kind: "reality" as const,
       version: 1,

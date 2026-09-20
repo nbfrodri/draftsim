@@ -53,7 +53,7 @@ async fn read_summary(path: &Path, verify_contents: bool) -> Result<(Vec<String>
         let version: Option<(String,)> = sqlx::query_as("SELECT value FROM schema_meta WHERE key = 'persist_version'")
             .fetch_optional(&mut db).await.map_err(err)?;
         // Legacy DraftSim databases predate the marker and use this same schema.
-        if version.is_some_and(|(v,)| v != "7") { return Err("Unsupported saved database version".into()); }
+        if version.as_ref().is_some_and(|(v,)| v != "7" && v != "8") { return Err("Unsupported saved database version".into()); }
         if verify_contents {
             let violations = sqlx::query("PRAGMA foreign_key_check").fetch_all(&mut db).await.map_err(err)?;
             if !violations.is_empty() { return Err("Backup contains broken references".into()); }
@@ -62,6 +62,36 @@ async fn read_summary(path: &Path, verify_contents: bool) -> Result<(Vec<String>
                     let value: String = row.get("value");
                     let parsed: serde_json::Value = serde_json::from_str(&value).map_err(err)?;
                     if !parsed.is_object() { return Err("Invalid saved data in backup".into()); }
+                }
+            }
+        }
+        if version.as_ref().is_some_and(|(v,)| v == "8") {
+            // A valid root must have all referenced fragments; never restore a
+            // superficially valid database whose competitive payload is missing.
+            let (tables,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('global_fragments','reality_catalog')")
+                .fetch_one(&mut db).await.map_err(err)?;
+            if tables != 2 { return Err("Missing storage format 8 tables".into()); }
+            if verify_contents {
+                let fragments = sqlx::query("SELECT store_key, fragment_key, value_json FROM global_fragments")
+                    .fetch_all(&mut db).await.map_err(err)?;
+                for row in &fragments {
+                    let value: String = row.get("value_json");
+                    serde_json::from_str::<serde_json::Value>(&value).map_err(err)?;
+                }
+                for row in sqlx::query("SELECT store_key, state_json FROM global_state").fetch_all(&mut db).await.map_err(err)? {
+                    let store_key: String = row.get("store_key");
+                    let root: serde_json::Value = serde_json::from_str(&row.get::<String, _>("state_json")).map_err(err)?;
+                    let keys = root.get("_draftsimFragments").and_then(|v| v.as_array()).ok_or("Missing global fragment manifest")?;
+                    let mut seen = HashSet::new();
+                    for key in keys {
+                        let key = key.as_str().ok_or("Invalid global fragment manifest")?;
+                        if !["series", "tournament", "season", "savedSeasons", "savedTournaments", "tournamentHistory", "seasonHistory", "aiRationaleHistory", "playerForms"].contains(&key) || !seen.insert(key) {
+                            return Err("Invalid global fragment manifest".into());
+                        }
+                        if !fragments.iter().any(|f| f.get::<String, _>("store_key") == store_key && f.get::<String, _>("fragment_key") == key) {
+                            return Err("Missing global fragment in backup".into());
+                        }
+                    }
                 }
             }
         }
@@ -530,6 +560,28 @@ mod tests {
         assert_eq!(std::fs::read(latest.join("draftsim.db")).unwrap(), b"latest original");
         assert!(unknown.join("personal.txt").exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn format_eight_snapshot_requires_complete_fragments() {
+        tauri::async_runtime::block_on(async {
+            let root = std::env::temp_dir().join(format!("draftsim-fragment-test-{}", now()));
+            std::fs::create_dir(&root).unwrap();
+            let path = root.join("test.db");
+            let options = sqlx::sqlite::SqliteConnectOptions::new().filename(&path).create_if_missing(true);
+            let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+            sqlx::query("CREATE TABLE schema_meta (key TEXT, value TEXT); INSERT INTO schema_meta VALUES ('persist_version','8'); CREATE TABLE meta_config (value TEXT); CREATE TABLE global_state (store_key TEXT, state_json TEXT); CREATE TABLE realities (name TEXT, year INTEGER, season_json TEXT); CREATE TABLE reality_history (entry_json TEXT); CREATE TABLE reality_catalog (reality_id TEXT, summary_json TEXT); CREATE TABLE global_fragments (store_key TEXT, fragment_key TEXT, value_json TEXT)").execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO global_state VALUES ('test', '{\"_draftsimFragments\":[\"season\"]}')").execute(&pool).await.unwrap();
+            assert!(inspect(&path).await.is_err());
+            // Listing metadata stays light; deep validation is required for restore.
+            assert!(read_summary(&path, false).await.is_ok());
+            sqlx::query("INSERT INTO global_fragments VALUES ('test','season','{broken')").execute(&pool).await.unwrap();
+            assert!(snapshot(&pool, &root.join("backups")).await.is_err());
+            sqlx::query("UPDATE global_fragments SET value_json = '{\"status\":\"in_progress\"}'").execute(&pool).await.unwrap();
+            let copy = snapshot(&pool, &root.join("backups")).await.unwrap();
+            assert!(inspect(&copy).await.is_ok());
+            pool.close().await;
+            std::fs::remove_dir_all(root).unwrap();
+        });
     }
     #[test]
     fn snapshot_captures_wal_and_rejects_corruption() {

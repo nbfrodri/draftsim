@@ -1,3 +1,4 @@
+import { marketOrigin } from "./marketOrigin";
 import { currentOffseasonRosterNews, initializeOffseasonRosterNewsBoundary } from "./rosterNews";
 // Franchise / "reality" mode — a continuous timeline where the SAME teams
 // (names, logos, rosters, careers) carry across many seasons. Each year is a
@@ -412,7 +413,7 @@ export function applyMidSplitDemotions(
   const mark = rosterTimeMarkForSeason(season, { split });
   const rosterNews = [
     ...(season.rosterNews ?? []),
-    ...withRosterTimeMark(result.news, mark),
+    ...withRosterTimeMark(result.news, mark, season),
   ];
   return {
     ...season,
@@ -667,7 +668,7 @@ export function startNextSeason(
       players: byId.get(t.id) ?? t.players,
     }));
     nextInactivePool = result.inactivePool;
-    rosterNews.push(...withRosterTimeMark(result.news, "Offseason"));
+    rosterNews.push(...withRosterTimeMark(result.news, "Offseason", working));
   }
 
   evolvedTeams = evolvedTeams.map((t) => {
@@ -701,7 +702,7 @@ export function startNextSeason(
       userMoves,
     );
     evolvedTeams = shuffledTeams;
-    offseasonMoves = [...userMoves, ...autoMoves];
+    offseasonMoves = [...userMoves, ...autoMoves.map(move => ({ ...move, origin: marketOrigin(prev, "worlds") }))];
   }
 
   evolvedTeams = reassignCoaches(evolvedTeams, rng, 5, prev.config.controlledTeamId ?? undefined);
@@ -852,7 +853,7 @@ export function applyUserFaToAcademy(
     },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season)),
+      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season),
     ],
     updatedAt: Date.now(),
   };
@@ -892,7 +893,7 @@ export function applyUserAcademyRelease(
     },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season)),
+      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season),
     ],
     updatedAt: Date.now(),
   };
@@ -954,7 +955,7 @@ export function applyUserAcademyRookie(
     },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season)),
+      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season),
     ],
     updatedAt: Date.now(),
   };
@@ -1045,7 +1046,7 @@ function applyUserInactiveSign(
     },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season)),
+      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season),
     ],
     updatedAt: Date.now(),
   };
@@ -1140,7 +1141,7 @@ export function applyUserManualDemote(
     },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark([...bumpNews, news], mark),
+      ...withRosterTimeMark([...bumpNews, news], mark, season),
     ],
     updatedAt: Date.now(),
   };
@@ -1235,7 +1236,7 @@ export function applyUserRookieSign(
       usedNames: [...taken],
       sameWindowRookieIds,
     },
-    rosterNews: [...(season.rosterNews ?? []), news],
+    rosterNews: [...(season.rosterNews ?? []), { ...news, origin: marketOrigin(season, news.timeMark ?? rosterTimeMarkForSeason(season)) }],
     updatedAt: Date.now(),
   };
 }
@@ -1513,7 +1514,7 @@ export function fillRosterVacancies(
     },
     rosterNews: [
       ...priorNews,
-      ...withRosterTimeMark(mergedNews, rosterTimeMarkForSeason(season)),
+      ...withRosterTimeMark(mergedNews, rosterTimeMarkForSeason(season), season),
     ],
     updatedAt: Date.now(),
   };

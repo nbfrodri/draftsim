@@ -64,6 +64,13 @@ Open-And-Close
 Open-And-Close
 Install-TestBuild $Installer
 Open-And-Close
+& python "$PSScriptRoot/verify-install-save.py" (Join-Path $testData 'draftsim.db') --require-format8
+if ($LASTEXITCODE -ne 0) { throw 'Storage format 8 verification failed.' }
+if ($PreviousInstaller) {
+  & python "$PSScriptRoot/verify-install-save.py" (Join-Path $testData 'draftsim.db') --require-migration-backup
+  if ($LASTEXITCODE -ne 0) { throw 'Recoverable pre-migration backup verification failed.' }
+}
+Open-And-Close
 @{
   install = 'passed'; reopen = 'passed'; legacyJsonMigration = 'passed'; persistenceAfterReinstall = 'passed'
   previousVersionUpgrade = $(if ($PreviousInstaller) { 'passed' } else { 'not run: previous installer not supplied' })

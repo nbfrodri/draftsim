@@ -234,3 +234,5 @@ AI has been used to assist with the development and documentation of this projec
 ## Attribution
 
 Unofficial fan-made project, not affiliated with Riot Games. League of Legends names, champion artwork, icons and sound effects belong to Riot Games. CommunityDragon and Meraki Analytics provide community data mirrors; roster reference data also uses Leaguepedia. Third-party assets retain their owners' rights.
+
+Desktop saves include unfinished seasons. Inactive realities load on demand; Backups offers optional local save diagnostics. See the [persistence guide](docs/persistence-and-recovery.md) for storage format 8 migration and recovery.

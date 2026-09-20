@@ -12,6 +12,8 @@ export const JSON_MIGRATION_FLAG = "json_migrated_v1";
  * migration (6→7) on every startup due to the stale hardcoded "6".
  */
 export const PERSIST_VERSION = 7;
+/** Physical DB format; distinct from the Zustand state envelope. */
+export const DATABASE_VERSION = 8;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -27,12 +29,25 @@ CREATE TABLE IF NOT EXISTS global_state (
   updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS global_fragments (
+  store_key TEXT NOT NULL,
+  fragment_key TEXT NOT NULL,
+  value_json TEXT NOT NULL,
+  PRIMARY KEY (store_key, fragment_key)
+);
+
 CREATE TABLE IF NOT EXISTS realities (
   id TEXT PRIMARY KEY NOT NULL,
   name TEXT NOT NULL,
   year INTEGER NOT NULL,
   season_json TEXT NOT NULL,
   updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reality_catalog (
+  reality_id TEXT PRIMARY KEY NOT NULL,
+  summary_json TEXT NOT NULL,
+  FOREIGN KEY (reality_id) REFERENCES realities(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS reality_history (
@@ -67,6 +82,7 @@ export type PersistedStoreState = Record<string, unknown> & {
     name: string;
     year: number;
     season: unknown;
+    seasonSummary?: { status: string | null };
     history?: unknown[];
   }>;
   activeRealityId?: string | null;
@@ -80,6 +96,7 @@ export function splitPersistedState(state: PersistedStoreState): {
     name: string;
     year: number;
     season: unknown;
+    seasonSummary?: { status: string | null };
     history: unknown[];
   }>;
   activeRealityId: string | null;
@@ -95,6 +112,7 @@ export function splitPersistedState(state: PersistedStoreState): {
     name: r.name,
     year: r.year,
     season: r.season,
+    ...(r.seasonSummary ? { seasonSummary: r.seasonSummary } : {}),
     history: Array.isArray(r.history) ? r.history : [],
   }));
   return { global, realities, activeRealityId: activeRealityId ?? null };
@@ -108,6 +126,7 @@ export function mergePersistedState(
     name: string;
     year: number;
     season: unknown;
+    seasonSummary?: { status: string | null };
     history: unknown[];
   }>,
   options?: { lazyHistoryForInactive?: boolean; activeRealityId?: string | null },
@@ -120,6 +139,7 @@ export function mergePersistedState(
     name: r.name,
     year: r.year,
     season: r.season,
+    ...(r.seasonSummary ? { seasonSummary: r.seasonSummary } : {}),
     history:
       options?.lazyHistoryForInactive && activeId && r.id !== activeId
         ? []

@@ -15,7 +15,7 @@ export function compactEncodeRealitiesForPersist(
   const result = realities.map((r) => {
     const cached = encodedRealityCache.get(r);
     if (cached) return cached;
-    const encoded = { ...r, season: compactEncodeSeasonForPersist(r.season) };
+    const encoded = { ...r, season: r.season ? compactEncodeSeasonForPersist(r.season) : null };
     encodedRealityCache.set(r, encoded);
     return encoded;
   });

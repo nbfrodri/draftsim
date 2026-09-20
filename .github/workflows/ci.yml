@@ -47,19 +47,35 @@ jobs:
           node-version: 22
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+      # Dependency compilation only; installers are rebuilt and tested below.
+      # Keys include rustc, manifests, lockfiles and compiler environment.
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: windows-desktop
+          cache-workspace-crates: "false"
+          cache-on-failure: "false"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: npm ci
       - run: npm run check:version
       # Tauri's beforeBuildCommand builds the frontend exactly once.
       - run: npm run desktop:build -- --ci
       - run: npm run test:desktop
       - run: npx tsx scripts/create-install-fixture.mts install-fixture.json
+      - name: Download pinned previous installer for storage upgrade verification
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://github.com/nbfrodri/draftsim/releases/download/v0.6.0/DraftSim_0.6.0_x64-setup.exe' -OutFile previous-installer.exe
+          $hash = (Get-FileHash -LiteralPath previous-installer.exe -Algorithm SHA256).Hash
+          if ($hash -ne '50669f871917464ec563fab3ff99ab47810f00c1d947dc7d2fd4305f3988d9ee') { throw 'Previous installer checksum mismatch.' }
       - name: Installer, reopen, legacy migration and reinstall smoke
         shell: pwsh
         run: |
           $installers = @(Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe)
           $msi = @(Get-ChildItem src-tauri/target/release/bundle/msi/*.msi)
           if ($installers.Count -ne 1 -or $msi.Count -ne 1) { throw 'Expected one NSIS installer and one MSI installer.' }
-          ./scripts/windows-install-smoke.ps1 -Installer $installers[0].FullName -Fixture install-fixture.json
+          ./scripts/windows-install-smoke.ps1 -Installer $installers[0].FullName -Fixture install-fixture.json -PreviousInstaller previous-installer.exe
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installers

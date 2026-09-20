@@ -1,10 +1,12 @@
+import { belongsToMarketWindow } from "./marketOrigin";
 import type { SeasonState } from "./types";
 
 /** Old carry retains its origin; only rows created after the shop opens belong here. */
-export function currentOffseasonRosterNews(season: Pick<SeasonState, "rosterNews" | "offseasonRosterNewsBaseline">) {
-  if (season.offseasonRosterNewsBaseline == null) return [];
-  return (season.rosterNews ?? []).slice(season.offseasonRosterNewsBaseline)
-    .filter(news => news.timeMark === "Offseason");
+export function currentOffseasonRosterNews(season: Pick<SeasonState, "rosterNews" | "offseasonRosterNewsBaseline"> & Partial<Pick<SeasonState, "id" | "franchise">>) {
+  return (season.rosterNews ?? []).filter((news, index) => {
+    if (news.origin) return !!season.id && belongsToMarketWindow(news.origin, { id: season.id, franchise: season.franchise }, "Offseason");
+    return season.offseasonRosterNewsBaseline != null && index >= season.offseasonRosterNewsBaseline && news.timeMark === "Offseason";
+  });
 }
 
 

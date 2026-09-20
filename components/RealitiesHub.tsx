@@ -41,6 +41,7 @@ type RealityListSource = ReadonlyArray<{
   name: string;
   year: number;
   season?: { status?: string } | null;
+  seasonSummary?: { status?: string | null };
 }>;
 
 function buildRealityList(realities: RealityListSource): RealityListItem[] {
@@ -48,7 +49,7 @@ function buildRealityList(realities: RealityListSource): RealityListItem[] {
     id: r.id,
     name: r.name,
     year: r.year,
-    complete: r.season?.status === "complete",
+    complete: (r.season?.status ?? r.seasonSummary?.status) === "complete",
   }));
 }
 

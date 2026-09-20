@@ -238,3 +238,5 @@ Proyecto no oficial de fans, sin afiliación con Riot Games. Los nombres de Leag
 - [Persistencia y recuperación](docs/persistence-and-recovery.md).
 - [Interacción y ejecución asíncrona](docs/interaction-and-execution.md).
 - [Desarrollo, diagnóstico, pruebas y releases](docs/development-and-release.md).
+
+El guardado de escritorio incluye temporadas sin terminar. Las realidades inactivas se cargan bajo demanda; Backups ofrece diagnósticos locales optativos. Consulta la [guía de persistencia](docs/persistence-and-recovery.md) para la migración al formato 8 y su recuperación.

@@ -1,3 +1,5 @@
+import { FRAGMENT_MANIFEST, GLOBAL_FRAGMENT_KEYS, joinGlobalState, partitionGlobalState } from "./globalStateFragments";
+import { beginSaveDiagnostic, encodeWithSaveDiagnostic } from "./saveDiagnostics";
 import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 /**
  * desktopSqlite.ts — SQLite persistence for DraftSim desktop (Tauri).
@@ -13,6 +15,7 @@ import type { SeasonState } from "@/lib/season/types";
 import type { SavedReality } from "@/store/draftStore";
 import type { StorageValue } from "zustand/middleware";
 import {
+DATABASE_VERSION,
 DESKTOP_DB_FILENAME,
 JSON_MIGRATION_FLAG,
 META_CONFIG_KEY,
@@ -75,8 +78,13 @@ async function atomicWrite(db: SqlExecutor, operation: (writer: SqlExecutor) => 
     },
   } : db;
   try {
-    await operation(writer);
-    if (db.batch && statements.length) await db.batch(statements);
+    const planDone = beginSaveDiagnostic("plan");
+    try { await operation(writer); planDone(); } catch (error) { planDone(false); throw error; }
+    if (db.batch && statements.length) {
+      const commitDone = beginSaveDiagnostic("commit");
+      try { await db.batch(statements); commitDone(true, 0, statements.length); }
+      catch (error) { commitDone(false, 0, statements.length); throw error; }
+    }
   } catch (error) {
     loadedHistoryRealityIds.clear();
     for (const id of loadedBefore) loadedHistoryRealityIds.add(id);
@@ -129,8 +137,15 @@ async function loadDatabase(): Promise<SqlExecutor> {
       await db.execute("PRAGMA foreign_keys = ON");
       await db.execute(SCHEMA_SQL);
       const versions = await db.select<{ value: string }[]>("SELECT value FROM schema_meta WHERE key = 'persist_version'");
-      if (versions[0]?.value !== String(PERSIST_VERSION)) throw new Error("Unsupported saved database version. Update DraftSim before opening it.");
-      const { invoke } = await import("@tauri-apps/api/core");
+      if (!["7", String(DATABASE_VERSION)].includes(versions[0]?.value)) throw new Error("Unsupported saved database version. Update DraftSim before opening it.");
+      const { invoke, Channel } = await import("@tauri-apps/api/core");
+      if (versions[0]?.value === "7") {
+        const existing = await db.select<{ c: number }[]>("SELECT COUNT(*) AS c FROM global_state");
+        if (existing[0]?.c) {
+          // Preserve a coherent v7 database before any partitioned writes.
+          await invoke("backup_create", { name: "Before storage format 8", onProgress: new Channel<string>() });
+        }
+      }
       return {
         execute: (query: string, values?: unknown[]) => db.execute(query, values),
         select: <T>(query: string, values?: unknown[]) => db.select<T[]>(query, values),
@@ -262,16 +277,33 @@ async function upsertGlobalState(
   db: SqlExecutor,
   storeKey: string,
   global: Record<string, unknown>,
+  previous?: Record<string, unknown>,
 ): Promise<void> {
   const now = Date.now();
+  const { root, fragments } = partitionGlobalState(global);
+  const before = previous ? partitionGlobalState(previous) : undefined;
+  for (const key of GLOBAL_FRAGMENT_KEYS) {
+    if (fragments.has(key)) {
+      if (before?.fragments.has(key) && before.fragments.get(key) === fragments.get(key)) continue;
+      const json = encodeWithSaveDiagnostic("global-encode", () => JSON.stringify(fragments.get(key)));
+      await db.execute("INSERT INTO global_fragments (store_key, fragment_key, value_json) VALUES (?, ?, ?) ON CONFLICT(store_key, fragment_key) DO UPDATE SET value_json = excluded.value_json", [storeKey, key, json]);
+    } else if (!before || before.fragments.has(key)) {
+      await db.execute("DELETE FROM global_fragments WHERE store_key = ? AND fragment_key = ?", [storeKey, key]);
+    }
+  }
+  const manifestSame = before && JSON.stringify(before.root[FRAGMENT_MANIFEST]) === JSON.stringify(root[FRAGMENT_MANIFEST]);
+  const smallBefore = before ? { ...before.root, [FRAGMENT_MANIFEST]: null } : undefined;
+  const smallNext = { ...root, [FRAGMENT_MANIFEST]: null };
+  if (manifestSame && sameGlobalSnapshot(smallBefore, smallNext)) return;
   await db.execute(
     `INSERT INTO global_state (store_key, state_json, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(store_key) DO UPDATE SET
        state_json = excluded.state_json,
        updated_at = excluded.updated_at`,
-    [storeKey, JSON.stringify(global), now],
+    [storeKey, encodeWithSaveDiagnostic("global-encode", () => JSON.stringify(root)), now],
   );
+  if (!previous) await db.execute("INSERT INTO schema_meta (key, value) VALUES ('persist_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(DATABASE_VERSION)]);
 }
 
 /** Persist seasons: slim completed stages, compact-encode live ones. */
@@ -279,7 +311,7 @@ function seasonJsonForDb(season: SeasonState): string {
   if (!season?.tournaments || typeof season.tournaments !== "object") {
     return JSON.stringify(season ?? {});
   }
-  return JSON.stringify(encodeSeasonForDesktopDb(season));
+  return encodeWithSaveDiagnostic("season-encode", () => JSON.stringify(encodeSeasonForDesktopDb(season)));
 }
 
 /**
@@ -322,6 +354,7 @@ async function upsertRealityRow(
   db: SqlExecutor,
   reality: Pick<SavedReality, "id" | "name" | "year" | "season">,
 ): Promise<void> {
+  if (!reality.season) throw new Error("Cannot replace a saved reality with an unloaded season.");
   const now = Date.now();
   await db.execute(
     `INSERT INTO realities (id, name, year, season_json, updated_at)
@@ -335,10 +368,12 @@ async function upsertRealityRow(
       reality.id,
       reality.name,
       reality.year,
-      seasonJsonForDb(reality.season),
+      seasonJsonForDb(reality.season!),
       now,
     ],
   );
+  await db.execute("INSERT INTO reality_catalog (reality_id, summary_json) VALUES (?, ?) ON CONFLICT(reality_id) DO UPDATE SET summary_json = excluded.summary_json",
+    [reality.id, JSON.stringify({ status: reality.season?.status ?? null })]);
 }
 
 /** Immediate upsert of one reality row (+ optional history sync). */
@@ -452,7 +487,7 @@ export async function measureDesktopDbFootprint(
   db: SqlExecutor,
 ): Promise<DesktopDbFootprint> {
   const globalRows = await db.select<{ bytes: number }>(
-    "SELECT COALESCE(SUM(LENGTH(state_json)), 0) AS bytes FROM global_state",
+    "SELECT (SELECT COALESCE(SUM(LENGTH(state_json)), 0) FROM global_state) + (SELECT COALESCE(SUM(LENGTH(value_json)), 0) FROM global_fragments) AS bytes",
   );
   const globalBytes = Number(globalRows[0]?.bytes ?? 0);
 
@@ -629,7 +664,7 @@ export async function syncRealityHistory(
     await db.execute(UPSERT_REALITY_HISTORY_SQL, [
       realityId,
       entry.id,
-      JSON.stringify(entry),
+      encodeWithSaveDiagnostic("history-encode", () => JSON.stringify(entry)),
       i,
     ]);
   }
@@ -738,11 +773,19 @@ async function reconcilePersistedState(
   }
   // ──────────────────────────────────────────────────────────────────────────
 
-  if (!sameGlobalSnapshot(previousGlobal, global)) await upsertGlobalState(db, storeKey, global);
+  if (!sameGlobalSnapshot(previousGlobal, global)) await upsertGlobalState(db, storeKey, global, previousGlobal);
 
   for (const r of realities) {
     const prev = previous?.get(r.id);
-    if (!prev || prev.name !== r.name || prev.year !== r.year || prev.season !== r.season) await upsertRealityRow(db, {
+    if (r.season == null) {
+      if (!prev) {
+        const stored = await db.select<{ id: string }>("SELECT id FROM realities WHERE id = ?", [r.id]);
+        if (!stored.length) throw new Error("Unloaded reality is missing from storage; refusing incomplete save.");
+      }
+      if (!prev || prev.name !== r.name || prev.year !== r.year) {
+        await db.execute("UPDATE realities SET name = ?, year = ? WHERE id = ?", [r.name, r.year, r.id]);
+      }
+    } else if (!prev || prev.name !== r.name || prev.year !== r.year || prev.season !== r.season) await upsertRealityRow(db, {
       id: r.id,
       name: r.name,
       year: r.year,
@@ -789,6 +832,11 @@ export async function loadPersistedStateFromDbExecutor(
     throw new Error("Saved global state is invalid; refusing to overwrite it.");
   }
 
+  const partitioned = Object.hasOwn(global, FRAGMENT_MANIFEST);
+  if (partitioned) {
+    const fragments = await db.select<{ fragment_key: string; value_json: string }>("SELECT fragment_key, value_json FROM global_fragments WHERE store_key = ?", [storeKey]);
+    global = joinGlobalState(global, fragments);
+  }
   const activeRealityId =
     typeof global.activeRealityId === "string" ? global.activeRealityId : null;
 
@@ -796,8 +844,15 @@ export async function loadPersistedStateFromDbExecutor(
     id: string;
     name: string;
     year: number;
-    season_json: string;
-  }>("SELECT id, name, year, season_json FROM realities ORDER BY name");
+    season_json: string | null;
+    summary_json: string;
+  }>(`SELECT realities.id, realities.name, realities.year,
+      CASE WHEN realities.id = ? THEN realities.season_json ELSE NULL END AS season_json,
+      COALESCE(reality_catalog.summary_json,
+        CASE WHEN json_valid(realities.season_json)
+          THEN json_object('status', json_extract(realities.season_json, '$.status')) ELSE '{}' END) AS summary_json
+      FROM realities LEFT JOIN reality_catalog ON reality_catalog.reality_id = realities.id
+      ORDER BY realities.name`, [activeRealityId]);
 
   loadedHistoryRealityIds.clear();
   const realities: Array<{
@@ -805,13 +860,14 @@ export async function loadPersistedStateFromDbExecutor(
     name: string;
     year: number;
     season: unknown;
+    seasonSummary?: { status: string | null };
     history: unknown[];
   }> = [];
 
   for (const row of realityRows) {
     let season: unknown;
     try {
-      season = JSON.parse(row.season_json);
+      season = row.season_json == null ? null : JSON.parse(row.season_json);
     } catch {
       throw new Error("Saved reality is invalid; refusing to overwrite it.");
     }
@@ -839,6 +895,12 @@ export async function loadPersistedStateFromDbExecutor(
       name: row.name,
       year: row.year,
       season,
+      seasonSummary: (() => {
+        try {
+          const summary = JSON.parse(row.summary_json ?? "{}");
+          return { status: ["in-progress", "complete"].includes(summary.status) ? summary.status : null };
+        } catch { return { status: null }; }
+      })(),
       history,
     });
   }
@@ -850,12 +912,25 @@ export async function loadPersistedStateFromDbExecutor(
   // The first autosave already has a durable baseline. Without it, startup
   // rewrites every reality and serializes the entire active Hall again.
   // Seed only after every row has been read and parsed successfully.
-  savedGlobals.delete(db);
+  if (partitioned) savedGlobals.set(db, { storeKey, value: global });
+  else savedGlobals.delete(db);
   savedRealities.set(db, new Map((loaded.realities ?? []).map(r => [r.id, {
     name: r.name, year: r.year, season: r.season, history: r.history ?? [],
     historySynced: loadedHistoryRealityIds.has(r.id),
   }])));
   return loaded;
+}
+
+/** Load an inactive season without activating it or changing write ownership. */
+export async function loadRealitySeasonFromDb(realityId: string): Promise<SeasonState> {
+  const db = await loadDatabase();
+  const rows = await db.select<{ season_json: string }>("SELECT season_json FROM realities WHERE id = ?", [realityId]);
+  if (!rows[0]) throw new Error("Saved reality is missing; refusing to open an empty season.");
+  try {
+    const season = JSON.parse(rows[0].season_json);
+    if (!season || typeof season !== "object" || Array.isArray(season)) throw new Error("Invalid season");
+    return season as SeasonState;
+  } catch { throw new Error("Saved reality is invalid; existing data has been preserved."); }
 }
 
 /** Lazy-load a dormant reality's Hall history when switching franchises. */
@@ -923,6 +998,7 @@ export async function syncMetaConfigToSqlite(
 export async function clearDesktopStoreFromDb(storeKey: string): Promise<void> {
   const db = await loadDatabase();
   await serializeDbWrite(db, () => atomicWrite(db, async (writer) => {
+    await writer.execute("DELETE FROM global_fragments WHERE store_key = ?", [storeKey]);
     await writer.execute("DELETE FROM global_state WHERE store_key = ?", [storeKey]);
     await writer.execute("DELETE FROM reality_history");
     await writer.execute("DELETE FROM realities");

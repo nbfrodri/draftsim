@@ -1,7 +1,7 @@
 import { assertRealityJsonSize, decodeRealityShareCode, MAX_REALITY_IMPORT_NODES } from "./realityShare";
 import { record, validSeason, validHistoryEntry, validTournament, validSeries, validateImportTree } from "./importValidation";
 import { assertShareInputSize } from "./shareCodec";
-import type { SavedReality, SavedSeasonEntry } from "@/store/types";
+import type { LoadedReality, SavedReality, SavedSeasonEntry } from "@/store/types";
 export interface RealityImportPreview {
   json: string; id: string; name: string; year: number; archivedYears: number;
   teams: string[]; replaces: string | null;
@@ -18,7 +18,7 @@ export function parseRealityImport(json: string) {
   if (!validSeason(r.season)) throw new Error("The season contains invalid teams, tournaments or settings.");
   if (r.year !== undefined && (!Number.isSafeInteger(r.year) || typeof r.year !== "number" || r.year < 1)) throw new Error("The reality year must be a positive integer.");
   if (r.history !== undefined && (!Array.isArray(r.history) || !r.history.every(validHistoryEntry))) throw new Error("The season history contains invalid entries.");
-  return r as unknown as SavedReality;
+  return r as unknown as LoadedReality;
 }
 export async function previewRealityImport(input: string, existing: Pick<SavedReality, "id" | "name">[], onStage?: (stage: "decode" | "validate" | "summary") => Promise<void>): Promise<RealityImportPreview> {
   await onStage?.("decode");

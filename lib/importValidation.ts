@@ -1,3 +1,4 @@
+import { validMarketOrigin } from "./season/marketOrigin";
 import { TOTAL_ACTIONS } from "./draftOrder";
 import type { SeasonState } from "./season/types";
 import { LEAGUE_IDS } from "./season/types";
@@ -182,6 +183,8 @@ export function validSeason(v: unknown): v is SeasonState {
     (p.kind !== "split" || enumeration(p.split, ["winter", "spring", "summer"])) &&
     (p.kind === "split" || enumeration(p.event, ["first-stand", "msi", "worlds", "global-cup"])) &&
     (p.status === "pending" || p.tournamentIds.every(id => Object.hasOwn(v.tournaments as Obj, id))))) return false;
+  const originRows = (rows: unknown) => Array.isArray(rows) && rows.every(row => record(row) && optional(row.origin, validMarketOrigin));
+  if (!optional(v.rosterNews, originRows) || !optional(v.transfersByEvent, value => record(value) && Object.values(value).every(originRows))) return false;
   return optional(v.offseasonRosterNewsBaseline, integer) &&
     nullableText(v.champion) && (v.champion === null || teamIds.has(v.champion)) &&
     optional(v.phaseRosters, x => arrayOf(x, phaseRoster)) &&
@@ -242,7 +245,7 @@ export function validHistoryEntry(v: unknown): boolean {
       optional(r.byScope, scopes => arrayOf(scopes, q => record(q) && text(q.scope) &&
         ["meetings", "aWins", "bWins"].every(k => integer(q[k]))))))) ||
     !optional(v.transfers, rows => arrayOf(rows, t => record(t) && team(t.from) && team(t.to) &&
-      enumeration(t.lane, lanes) && enumeration(t.inTier, tiers) && enumeration(t.outTier, tiers))) ||
+      optional(t.origin, validMarketOrigin) && enumeration(t.lane, lanes) && enumeration(t.inTier, tiers) && enumeration(t.outTier, tiers))) ||
     !optional(v.inactivePlayers, rows => arrayOf(rows, p => record(p) && text(p.playerId) &&
       enumeration(p.lane, lanes) && enumeration(p.tier, tiers) &&
       enumeration(p.status, ["academy", "free-agent", "retired"]) && integer(p.inactiveYears) && integer(p.demotedYear)))) return false;

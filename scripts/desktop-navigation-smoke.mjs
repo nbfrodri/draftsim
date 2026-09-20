@@ -69,6 +69,10 @@ try {
     const root = await invoke("plugin:path|resolve_directory", { directory: 14, path: "" });
     const rows = await invoke("plugin:sql|select", { db: `sqlite:${root}draftsim.db`, query: "SELECT state_json FROM global_state WHERE store_key = ?", values: ["draftsim-store"] });
     const state = JSON.parse(rows[0].state_json);
+    if (state._draftsimFragments?.includes("season")) {
+      const parts = await invoke("plugin:sql|select", { db: `sqlite:${root}draftsim.db`, query: "SELECT value_json FROM global_fragments WHERE store_key = ? AND fragment_key = ?", values: ["draftsim-store", "season"] });
+      state.season = JSON.parse(parts[0].value_json);
+    }
     return { seasonViewOpen: state.seasonViewOpen, activeRealityId: state.activeRealityId, teams: state.season.teams.length };
   });
   expect(stored).toEqual({ seasonViewOpen: false, activeRealityId: "Install-smoke-fixture", teams: 60 });

@@ -139,3 +139,12 @@ El [índice](README.md) organiza documentos de referencia. Los planes y auditor�
 Al cambiar un contrato, actualizar código, tests y la sección correspondiente. Revisar enlaces relativos, ejemplos de comandos y diferencias web/desktop. Evitar duplicar detalles que cambian con frecuencia en muchos documentos: el código y el lockfile siguen siendo la autoridad sobre versiones exactas.
 
 Una mejora propuesta debe estar identificada como propuesta y tener criterios de aceptación. La documentación no debe presentar una intención como una característica ya entregada.
+
+
+## Caché y actualización desde 0.6.0
+
+El job Windows utiliza `Swatinem/rust-cache` fijado a un commit, con `cache-workspace-crates: false`. Guarda caché en `main`; los tags pueden restaurarla. Un acierto ahorra compilación de dependencias, pero el build normal, tests Rust y pruebas del instalador siguen siendo obligatorios. Un fallo o un miss no autoriza reutilizar instaladores de otra revisión.
+
+CI descarga el NSIS público 0.6.0 y verifica su SHA-256 fijado antes de ejecutarlo. El runner desechable prueba JSON legado → SQLite 7 → formato 8, reapertura y copia previa a la migración. El MSI se genera como artefacto; la instalación ejercitada usa NSIS. Esta cobertura prueba esa ruta concreta, no todas las versiones antiguas posibles.
+
+Para perfilar sin partidas personales: `npx tsx scripts/benchmark-save-pipeline.mts current`. El informe en `.benchmarks/` mide el frontend con commit simulado; no atribuirlo a latencia nativa. Para medir IPC y disco reales, activar Save diagnostics en Backups y exportar el buffer local.

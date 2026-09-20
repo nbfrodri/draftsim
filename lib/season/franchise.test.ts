@@ -1,3 +1,4 @@
+import { marketOrigin } from "./marketOrigin";
 import { describe, it, expect } from "vitest";
 
 import type { Champion, Lane } from "../types";
@@ -1670,4 +1671,32 @@ it("does not carry mis-bucketed midseason swaps into the next offseason", () => 
   expect(transfersForDigestEvent(next, "worlds")).toEqual([]);
   const third = startNextSeason(next, champions, rngFrom(56));
   expect(third.transfersByEvent?.worlds ?? []).toEqual([]);
+});
+
+
+it("preserves explicit origin across import and two rollovers even when current moves precede legacy boundaries", () => {
+  const season = makeReality(false);
+  season.status = "complete";
+  season.config.playerTransfers = false;
+  const origin = marketOrigin(season, "worlds");
+  const move = { origin, event: "worlds" as const, lane: "top" as const,
+    fromTeamId: season.teams[0].id, toTeamId: season.teams[1].id,
+    star: { name: "Current", tier: "A" as const, grade: null, goodChamps: [] },
+    swap: { name: "Swap", tier: "B" as const, grade: null, goodChamps: [] } };
+  const news = { origin, teamId: season.teams[0].id, lane: "top" as const,
+    entrantName: "New rookie", entrantTier: "A" as const, entrantPotential: "A" as const,
+    entrantSource: "rookie" as const, timeMark: "Offseason" };
+  season.transfersByEvent = { worlds: [move, { ...move, origin: marketOrigin(season, "msi") }] };
+  season.rosterNews = [news, { ...news, origin: marketOrigin(season, "Winter") }];
+  season.worldsOffseasonBaseline = 2;
+  season.offseasonRosterNewsBaseline = 2;
+  const imported = JSON.parse(JSON.stringify(season));
+  expect(transfersForDigestEvent(imported, "worlds")).toEqual([move]);
+  const next = startNextSeason(imported, champions, rngFrom(60));
+  expect(next.transfersByEvent?.worlds).toEqual([move]);
+  expect(next.rosterNews).toEqual([news]);
+  next.status = "complete";
+  const third = startNextSeason(JSON.parse(JSON.stringify(next)), champions, rngFrom(61));
+  expect(third.transfersByEvent?.worlds ?? []).toEqual([]);
+  expect(third.rosterNews ?? []).toEqual([]);
 });

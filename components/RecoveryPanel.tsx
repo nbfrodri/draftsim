@@ -1,4 +1,5 @@
 "use client";
+import SaveDiagnosticsPanel from "./SaveDiagnosticsPanel";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
@@ -183,6 +184,7 @@ export default function RecoveryPanel({ open, onClose, saveUnavailable = false }
             {isDesktop() && <><p className="break-all">External backups: {externalFolder || "Disabled"}</p>{externalFolder && <button type="button" disabled={!!busy} className={secondary} onClick={() => void run("Disabling external backups...", async () => { await disableBackupDestination(); setExternalFolder(null); setSuccess("External backups disabled. Existing copies have been kept."); })}>Disable external backups</button>}<div className="flex flex-wrap gap-2"><button type="button" disabled={!!busy} className={secondary} onClick={() => void run("Choosing backup folder...", async () => { await chooseBackupDestination(); setExternalFolder(await getBackupDestination()); })}>Choose external folder</button><button type="button" disabled={!!busy} className={secondary} onClick={() => void run("Importing backup...", async () => { await importExternalBackup(); setCopies(await listBackups()); })}>Import backup file</button></div></>}
           </div>
         </details>
+        <SaveDiagnosticsPanel disabled={!!busy || !!simulating} />
       </>}
     </div>
   </dialog>, document.body);

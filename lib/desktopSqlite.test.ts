@@ -1,4 +1,4 @@
-import { loadRealityHistoryFromDb, savePersistedStateToDbExecutor } from "./desktopSqlite";
+import { loadRealitySeasonFromDb, loadRealityHistoryFromDb, savePersistedStateToDbExecutor } from "./desktopSqlite";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 
@@ -111,6 +111,8 @@ function createMockHistoryDb() {
 }
 
 function createMockPersistDb() {
+  const catalog = new Map<string, string>();
+  const fragments = new Map<string, { store_key: string; fragment_key: string; value_json: string }>();
   const globalState = new Map<string, { state_json: string; updated_at: number }>();
   const realities = new Map<
     string,
@@ -123,6 +125,24 @@ function createMockPersistDb() {
 
   const db: SqlExecutor = {
     async execute(query, bindValues = []) {
+      if (query.startsWith("INSERT INTO reality_catalog")) {
+        catalog.set(bindValues[0] as string, bindValues[1] as string); return { rowsAffected: 1 };
+      }
+      if (query.startsWith("UPDATE realities SET name")) {
+        const row = realities.get(bindValues[2] as string);
+        if (row) { row.name = bindValues[0] as string; row.year = bindValues[1] as number; }
+        return { rowsAffected: row ? 1 : 0 };
+      }
+      if (query.startsWith("INSERT INTO global_fragments")) {
+        const [store_key, fragment_key, value_json] = bindValues as string[];
+        fragments.set(`${store_key}:${fragment_key}`, { store_key, fragment_key, value_json });
+        return { rowsAffected: 1 };
+      }
+      if (query.startsWith("DELETE FROM global_fragments")) {
+        for (const [key, row] of fragments) if (row.store_key === bindValues[0] && (!bindValues[1] || row.fragment_key === bindValues[1])) fragments.delete(key);
+        return { rowsAffected: 1 };
+      }
+      if (query.startsWith("INSERT INTO schema_meta")) return { rowsAffected: 1 };
       if (query.includes("INSERT INTO global_state")) {
         const [storeKey, stateJson, updatedAt] = bindValues as [string, string, number];
         globalState.set(storeKey, { state_json: stateJson, updated_at: updatedAt });
@@ -223,24 +243,28 @@ function createMockPersistDb() {
     },
 
     async select<T>(query: string, bindValues: unknown[] = []): Promise<T[]> {
+      if (query.includes("FROM global_fragments")) return [...fragments.values()].filter(row => row.store_key === bindValues[0]) as T[];
       if (query.includes("FROM global_state")) {
         const [storeKey] = bindValues as [string];
         const row = globalState.get(storeKey);
         return (row ? [{ state_json: row.state_json }] : []) as T[];
       }
 
+      if (query === "SELECT id FROM realities WHERE id = ?") return (realities.has(bindValues[0] as string) ? [{ id: bindValues[0] }] : []) as T[];
+      if (query === "SELECT season_json FROM realities WHERE id = ?") return (realities.has(bindValues[0] as string) ? [{ season_json: realities.get(bindValues[0] as string)!.season_json }] : []) as T[];
       if (query === "SELECT id FROM realities") {
         return [...realities.values()].map((r) => ({ id: r.id })) as T[];
       }
 
-      if (query.includes("FROM realities ORDER BY name")) {
+      if (query.includes("FROM realities LEFT JOIN reality_catalog")) {
         return [...realities.values()]
           .sort((a, b) => a.name.localeCompare(b.name))
           .map((r) => ({
             id: r.id,
             name: r.name,
             year: r.year,
-            season_json: r.season_json,
+            season_json: r.id === bindValues[0] ? r.season_json : null,
+            summary_json: catalog.get(r.id) ?? "{}",
           })) as T[];
       }
 
@@ -256,7 +280,7 @@ function createMockPersistDb() {
     },
   };
 
-  return { db, globalState, realities, historyRows };
+  return { db, globalState, realities, historyRows, fragments };
 }
 
 function makeReality(id: string, name: string) {
@@ -544,7 +568,7 @@ describe("savePersistedStateToDb reality CRUD", () => {
             id: "r1",
             name: "LCK",
             year: 1,
-            season: { franchise: { id: "r1", year: 1 }, status: "in_progress" },
+            season: { franchise: { id: "r1", year: 1 }, status: "in-progress" },
             history: [],
           },
         ],
@@ -926,10 +950,10 @@ describe("lazy-history safety and write budget", () => {
     }));
     const execute = vi.spyOn(db, "execute");
     await savePersistedStateToDbExecutor(db, STORE_KEY, { realities }, { forceAllHistory: true });
-    const initialWrites = execute.mock.calls.length;
+    const initialHistoryWrites = execute.mock.calls.filter(([query]) => query === UPSERT_REALITY_HISTORY_SQL).length;
     execute.mockClear();
     await savePersistedStateToDbExecutor(db, STORE_KEY, { realities, soundEnabled: false });
-    expect(initialWrites).toBe(10201);
+    expect(initialHistoryWrites).toBe(10000);
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0][0]).toContain("global_state");
   });
@@ -976,4 +1000,41 @@ it("skips unchanged global snapshots but commits changed fields and retries fail
   await savePersistedStateToDbExecutor(db, STORE_KEY, changed);
   expect(batch).toHaveBeenCalledTimes(2);
   expect(batch.mock.calls[1][0].some((s: { query: string }) => s.query.includes("global_state"))).toBe(true);
+});
+
+
+describe("inactive season persistence", () => {
+  beforeEach(() => resetSqliteStorageForTests());
+  it("preserves an unfinished season without Hall entries through lazy startup and settings saves", async () => {
+    const { db, realities } = createMockPersistDb();
+    setDesktopDatabaseForTests(db);
+    const active = makeReality("active", "Active");
+    const dormant = { ...makeReality("dormant", "Dormant"), history: [], season: {
+      status: "in-progress", tournaments: {}, franchise: { year: 2 },
+      fixtureProgress: { split: "winter", played: 12, wins: 7 },
+    } };
+    await savePersistedStateToDbExecutor(db, STORE_KEY, { activeRealityId: active.id, realities: [active, dormant] }, { forceAllHistory: true });
+    const original = realities.get(dormant.id)!.season_json;
+    resetSqliteStorageForTests(); setDesktopDatabaseForTests(db);
+    const loaded = (await loadPersistedStateFromDb(STORE_KEY))!;
+    expect(loaded.realities!.find(r => r.id === dormant.id)!.season).toBeNull();
+    expect(loaded.realities!.find(r => r.id === active.id)!.season).not.toBeNull();
+    await savePersistedStateToDbExecutor(db, STORE_KEY, { ...loaded, soundEnabled: false });
+    expect(realities.get(dormant.id)!.season_json).toBe(original);
+    expect(await loadRealitySeasonFromDb(dormant.id)).toEqual(JSON.parse(original));
+    expect(await loadRealityHistoryFromDb(dormant.id)).toEqual([]);
+  });
+  it("refuses to replace a missing inactive body with an empty season", async () => {
+    const { db } = createMockPersistDb();
+    setDesktopDatabaseForTests(db);
+    await expect(savePersistedStateToDbExecutor(db, STORE_KEY, { realities: [{ ...makeReality("missing", "Missing"), season: null }] })).rejects.toThrow();
+    await expect(loadRealitySeasonFromDb("missing")).rejects.toThrow();
+  });
+  it("fails hydration when a required competitive fragment is missing", async () => {
+    const { db, fragments } = createMockPersistDb();
+    setDesktopDatabaseForTests(db);
+    await savePersistedStateToDbExecutor(db, STORE_KEY, { realities: [], season: { status: "in-progress" } });
+    fragments.clear();
+    await expect(loadPersistedStateFromDb(STORE_KEY)).rejects.toThrow();
+  });
 });

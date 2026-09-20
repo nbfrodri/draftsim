@@ -117,23 +117,25 @@ La ausencia de datos tiene semántica propia. Historial no cargado no es histori
 | SQLite con agregados JSON | Atomicidad y separación del historial | Algunos blobs crecen con la temporada |
 | Historial perezoso | Reduce el coste inicial | Necesita metadatos explícitos de carga |
 | Cachés por referencia | Reduce codificación y escrituras | Exige inmutabilidad e invalidación correcta |
-| Fronteras de offseason por índice | Compatible con archivos existentes | Sensible a reordenación y procedencia legado |
+| Origen explícito y fronteras legado | Propiedad estable para eventos nuevos | Los registros antiguos conservan incertidumbre |
 | Dispatcher único de Esc | Una sola capa por pulsación | Todas las superficies deben integrarse |
 | Pruebas del instalador | Validan integración nativa | CI más lento y dependiente de WebView2 |
 
-## 9. Evolución propuesta
+## 9. Evolución implementada en 0.7.0
 
-Estas propuestas no están implementadas por este documento.
+**Propiedad temporal explícita.** Los productores de noticias y transferencias añaden `origin: { seasonId, year, windowId }`. Los filtros, límites de mercado y archivo conservan la propiedad original al guardar, importar y avanzar de año. Las filas antiguas sin origen siguen usando sus sellos y fronteras de índice; no se inventa información histórica.
 
-**Propiedad temporal explícita de mercado.** Incorporar `seasonId`, año y `windowId` a noticias y movimientos. Mantener lectura compatible y no inventar procedencia de datos antiguos. Debe superar importación y varios rollovers sin duplicados.
+**Estado global dividido.** El formato físico SQLite 8 separa ajustes y manifiesto de los agregados competitivos en `global_fragments`. Las referencias intactas evitan recodificar fragmentos. Raíz, fragmentos, realidades e historial modificado entran en la misma transacción nativa. Antes de convertir una base 7 existente se crea una copia coherente recuperable.
 
-**División adicional del estado global.** Medir primero volumen serializado y tiempo de commit. Separar ajustes de blobs competitivos solo si el perfil lo justifica y manteniendo atomicidad y recuperación.
+**Temporadas inactivas bajo demanda.** Al arrancar, los cuerpos de realidades inactivas quedan como `season: null`, con nombre, año y resumen de estado disponibles. Cambiar de realidad o exportarla carga el cuerpo completo; guardar ajustes conserva las filas descargadas. La temporada actual se guarda aunque no tenga ninguna entrada en el Hall. Las temporadas abiertas permanecen en memoria durante la sesión: no hay expulsión automática.
 
-**Carga perezosa de temporadas inactivas.** Requiere metadata suficiente para el selector y un estado explícito de carga. Exportar o guardar otra realidad nunca debe interpretar ausencia en memoria como borrado.
+**Diagnósticos optativos.** Backups incluye controles de instrumentación local, desactivados al arrancar. El buffer conserva hasta 200 muestras de fase, duración, bytes, sentencias y éxito. El commit mide la llamada nativa completa (IPC y transacción), sin aislar sus costes internos. No guarda payloads, nombres, rutas ni mensajes de error. Exportar genera un JSON de métricas; no envía telemetría.
 
-**Instrumentación local optativa.** Medir codificación, tamaño, sentencias e IPC por operación. Evitar incluir nombres, partidas completas o rutas personales en diagnósticos públicos.
+**Caché de CI.** Windows reutiliza dependencias Rust mediante una revisión de `Swatinem/rust-cache` fijada a commit. Toolchain, manifests, lockfile y entorno de compilación participan en sus claves. Se recompila la aplicación y se generan los dos instaladores para el commit evaluado. La prueba instala primero v0.6.0, comprueba la actualización al formato 8 y verifica la copia anterior.
 
-**Optimización de CI.** Evaluar cachés Rust y reutilización controlada de compilación, sin mezclar artefactos de distintos commits ni publicar builds diagnósticos en lugar de los instaladores validados.
+### Medición y límites
+
+`scripts/benchmark-save-pipeline.mts` compara no-op, cambio de ajuste y cambio de temporada con tres realidades, 300 entradas históricas y un split parcialmente simulado. En el fixture medido, cambiar un ajuste pasó de codificar unos 338 KB a 83 bytes; un no-op no emite sentencias. Es una medición de planificación frontend con commit simulado, no una promesa de latencia de disco ni de velocidad para cualquier partida. Guardar una temporada modificada sigue requiriendo codificar su agregado.
 
 ## 10. Reglas para extender la arquitectura
 

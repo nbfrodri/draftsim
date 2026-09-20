@@ -1,3 +1,4 @@
+import { beginSaveDiagnostic } from "./saveDiagnostics";
 /**
  * Zustand PersistStorage backed by SQLite on desktop.
  */
@@ -77,11 +78,13 @@ export async function flushPendingSqliteWrites(): Promise<void> {
       }
     }
   };
+  const finish = beginSaveDiagnostic("flush");
   const operation = drain();
   inFlight = operation;
   try {
     await operation;
-  } finally {
+    finish();
+  } catch (error) { finish(false); throw error; } finally {
     if (inFlight === operation) inFlight = null;
   }
 }

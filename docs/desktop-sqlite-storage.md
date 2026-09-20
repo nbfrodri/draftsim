@@ -19,12 +19,14 @@ The DB is created automatically on first launch after updating to a build that i
 ```sql
 schema_meta       (key, value)           -- migration flags
 global_state      (store_key, state_json, updated_at)
+global_fragments  (store_key, fragment_key, value_json)
+reality_catalog   (reality_id, summary_json)
 realities         (id, name, year, season_json, updated_at)
 reality_history   (reality_id, entry_id, entry_json, sort_order)
 meta_config       (config_key, value)    -- champion meta mirror
 ```
 
-- **global_state** — everything from Zustand `partialize` except per-reality bodies (`series`, `tournament`, presets, active season mirror, etc.). The `realities` array in this blob is always empty; reality data lives in normalized tables.
+- **global_state** — settings and a manifest pointing to competitive payloads in **global_fragments**. The `realities` array in this blob is always empty; reality data lives in normalized tables.
 - **realities** — one row per franchise slot; `season_json` is the compact-encoded active year.
 - **reality_history** — one row per Hall-of-Seasons entry for a franchise (69+ years → 69+ small rows instead of one giant JSON array rewrite).
 - **meta_config** — replaces `draftsim-meta-config.json` on desktop.
@@ -46,13 +48,13 @@ If migration fails, the app keeps the JSON file and logs a warning; the user can
 
 ### Load (startup)
 
-- Read `global_state` + all `realities` rows (metadata + compact season per slot).
+- Join `global_state` with its required fragments. Read reality metadata and only the active reality season body; inactive bodies use `season: null`.
 - Load **Hall history only for the active reality**; inactive franchises get `history: []` in memory.
 - `onRehydrateStorage` still decodes only the active season (unchanged).
 
 ### Lazy history
 
-When the user calls `switchReality(id)` on desktop, if the target slot has empty in-memory history, `loadRealityHistoryFromDb(id)` fetches rows asynchronously and patches the store.
+When the user calls `switchReality(id)` on desktop, if the target history is not marked loaded, `loadRealityHistoryFromDb(id)` fetches rows asynchronously. `loadRealitySeasonFromDb` also loads a missing body. The store installs both only while the switch request remains current.
 
 ### Save (every Zustand `set`)
 
@@ -76,8 +78,6 @@ Zustand persist **version 7** marks the desktop storage backend change. State sh
 
 Pure schema helpers, write queues, SQL planning, save failures and season-exit persistence have automated unit coverage. Rust tests cover native transaction and backup behavior. CI also runs installer, migration, native navigation, reopen and reinstall checks on disposable Windows runners; consult the result of the specific run before claiming validation. See the [development and release guide](development-and-release.md).
 
-## Follow-ups (optional)
+## Format 8
 
-- Lazy-load inactive reality **season** blobs (hub currently loads compact seasons for all slots; history was the main win).
-- Rust-side migrations via `tauri_plugin_sql::Migration` instead of `CREATE TABLE IF NOT EXISTS` from JS.
-- Incremental `global_state` columns (settings vs tournament) to shrink the remaining global JSON blob.
+SQLite format 8 separates global fragments and reality summaries. Zustand envelope version stays 7. Existing format 7 databases receive a native pre-migration snapshot; fragment writes and the new format marker commit atomically. Older binaries need the pre-migration copy to downgrade. Inactive exports load complete bodies/history; autosaves preserve unloaded records. See the persistence guide for recovery and diagnostic limits.

@@ -40,13 +40,21 @@ Side,
 SimulationSettings
 } from "@/lib/types";
 
+export interface RealitySeasonSummary {
+  status: SeasonState["status"] | null;
+}
+
 export interface SavedReality {
   id: string;
   name: string;
   year: number;
-  season: SeasonState;
+  /** null means a dormant desktop season has not been loaded, never an empty save. */
+  season: SeasonState | null;
+  seasonSummary?: RealitySeasonSummary;
   history: SeasonHistoryEntry[];
 }
+
+export type LoadedReality = SavedReality & { season: SeasonState };
 
 export type MetaSource = "default" | "randomized" | "custom";
 

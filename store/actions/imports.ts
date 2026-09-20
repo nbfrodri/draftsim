@@ -33,7 +33,7 @@ decodeTournament
 import type {
 SeriesState
 } from "@/lib/types";
-import type { DraftStore,MetaSource,SavedReality,SavedSeasonEntry,StoreGet,StoreSet } from "../types";
+import type { DraftStore,MetaSource,LoadedReality,SavedSeasonEntry,StoreGet,StoreSet } from "../types";
 type Helpers = { ensureSeasonIdentities: typeof import("../draftStore").ensureSeasonIdentities; applyMetaSnapshotPatch: typeof import("../draftStore").applyMetaSnapshotPatch; savedSeasonsCap: typeof import("../draftStore").savedSeasonsCap; seasonHistoryCap: typeof import("../draftStore").seasonHistoryCap; ACTION_SECONDS: typeof import("../draftStore").ACTION_SECONDS };
 export function createImportsActions(get: StoreGet, set: StoreSet, helpers: Helpers): Pick<DraftStore, "importReality" | "importRealityShareCode" | "importSeason" | "importSeasonHistory" | "importTournament"> {
 const { ensureSeasonIdentities, applyMetaSnapshotPatch, savedSeasonsCap, seasonHistoryCap, ACTION_SECONDS } = helpers;
@@ -46,7 +46,7 @@ importReality: async (json) => {
     signalImportingReality();
     await waitForDesktopOverlayPaint();
     try {
-      let r: SavedReality;
+      let r: LoadedReality;
       try { r = parseRealityImport(json); }
       catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Invalid reality export." }; }
       const rs = r.season;
@@ -72,7 +72,7 @@ importReality: async (json) => {
       const season: SeasonState = decoded.franchise
         ? { ...decoded, franchise: { ...decoded.franchise, id, name: r.name } }
         : decoded;
-      const slot: SavedReality = {
+      const slot: LoadedReality = {
         id,
         name: r.name,
         year: typeof r.year === "number" ? r.year : (season.franchise?.year ?? 1),

@@ -186,7 +186,7 @@ function agencyHonorCallUp(
       ...(season.rosterNews ?? []),
       ...withRosterTimeMark(
         result.news.map((n) => ({ ...n, marketNote: "agency-callup" as const })),
-        rosterTimeMarkForSeason(season),
+        rosterTimeMarkForSeason(season), season
       ),
     ],
     updatedAt: Date.now(),
@@ -238,7 +238,7 @@ function agencyHonorDepart(
           franchise: { ...season.franchise, inactivePool: pool },
           rosterNews: [
             ...(season.rosterNews ?? []),
-            ...withRosterTimeMark(news, rosterTimeMarkForSeason(season)),
+            ...withRosterTimeMark(news, rosterTimeMarkForSeason(season), season),
           ],
           updatedAt: Date.now(),
         };
@@ -262,7 +262,7 @@ function agencyHonorDepart(
     franchise: { ...season.franchise, inactivePool: released.pool },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark(news, rosterTimeMarkForSeason(season)),
+      ...withRosterTimeMark(news, rosterTimeMarkForSeason(season), season),
     ],
     updatedAt: Date.now(),
   };
@@ -295,7 +295,7 @@ export function honorAgencyDemand(
           ...(walked.season.rosterNews ?? []),
           ...withRosterTimeMark(
             [agencyLeaveNews(walked.vacated, demand)],
-            rosterTimeMarkForSeason(season),
+            rosterTimeMarkForSeason(season), season
           ),
         ],
       };
@@ -368,7 +368,7 @@ export function overrideAgencyDemand(
     },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark([news], rosterTimeMarkForSeason(season)),
+      ...withRosterTimeMark([news], rosterTimeMarkForSeason(season), season),
     ],
     updatedAt: Date.now(),
   };

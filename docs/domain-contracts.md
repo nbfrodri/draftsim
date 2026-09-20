@@ -49,14 +49,14 @@ La plantilla actual no sirve para deducir cuándo ocurrió un movimiento. Tampoc
 
 ## 4. Fronteras del offseason
 
-Al completarse el calendario anual se capturan dos longitudes:
+Los eventos nuevos incluyen `origin: { seasonId, year, windowId }`, construido por `marketOrigin`. Ese origen se conserva al importar, guardar, archivar y avanzar de año. Los filtros prefieren esa propiedad explícita. Para compatibilidad con filas antiguas, al completarse el calendario anual se capturan dos longitudes:
 
 | Campo | Qué separa |
 |---|---|
 | `worldsOffseasonBaseline` | Carry previo dentro del bucket Worlds frente a movimientos nuevos |
 | `offseasonRosterNewsBaseline` | Noticias ya presentes frente a noticias añadidas tras abrir el mercado |
 
-`currentOffseasonRosterNews` selecciona noticias posteriores a la frontera cuyo `timeMark` es `Offseason`. La combinación importa: una condición temporal no sustituye a la otra.
+`currentOffseasonRosterNews` selecciona el origen del offseason actual. Para filas sin origen, selecciona noticias posteriores a la frontera cuyo `timeMark` es `Offseason`. La combinación importa: una condición temporal no sustituye a la otra.
 
 `transfersForDigestEvent` respeta el sello del movimiento y excluye carry anterior en el offseason de una temporada completa. `transfersForHistoryArchive` prepara los movimientos del archivo. `rebucketTransfersByStamp` reconstruye la agrupación según procedencia.
 
@@ -72,7 +72,7 @@ Guardar, recargar y abrir otra vista no debe cambiar estas respuestas. El filtro
 
 ### Restricciones del modelo por índices
 
-Las fronteras suponen que el array mantiene su orden de inserción. Ordenar la tabla debe hacerse sobre una copia. Eliminar o reordenar filas anteriores a la frontera exige actualizarla o migrar a otro modelo de propiedad.
+Las fronteras de filas antiguas suponen que el array mantiene su orden de inserción. Los eventos con origen explícito no dependen de la posición. Ordenar la tabla debe hacerse sobre una copia. Eliminar o reordenar filas anteriores a la frontera exige actualizarla o migrar a otro modelo de propiedad.
 
 La reparación de noticias de agencia al cubrir vacantes debe respetar el momento y la ventana. Encontrar el mismo equipo y rol en una noticia antigua no autoriza a reescribirla como si acabara de producirse.
 
@@ -143,3 +143,6 @@ Los equipos se identifican dentro del contexto de competición. Azul y rojo pued
 | Intercambio de lados | Logo y victoria atribuidos al equipo correcto |
 
 Fuentes: [engine](../lib/season/engine.ts), [franchise](../lib/season/franchise.ts), [transfers](../lib/season/transfers.ts), [rosterNews](../lib/season/rosterNews.ts), [history](../lib/season/history.ts), [allProScopes](../lib/season/allProScopes.ts). Los tests próximos a estos archivos y las pruebas [E2E](../e2e/season-ui-navigation.spec.ts) verifican capas distintas del contrato.
+
+
+Las importaciones validan un origen opcional tanto en noticias como en transferencias y archivo anual. Un origen mal formado se rechaza; su ausencia no se rellena con el año actual. Las pruebas incluyen dos rollovers tras serializar y recargar, con movimientos anteriores en el mismo bucket y fronteras que ya no coinciden con el orden de las filas nuevas.

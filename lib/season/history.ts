@@ -1,3 +1,4 @@
+import type { MarketOrigin } from "./marketOrigin";
 // Season history ("Hall of Seasons") — lightweight résumé snapshots of
 // completed seasons the user chooses to archive. Unlike saved seasons
 // (full SeasonState save slots for resuming play), a history entry is a
@@ -45,6 +46,7 @@ import { transfersForHistoryArchive } from "./transfers";
 /** A roster move frozen for the Hall: team names (not ids — teams regenerate)
  *  plus the two players who swapped lanes between the two clubs. */
 export interface HistoryTransfer {
+  origin?: MarketOrigin;
   event: InternationalId;
   lane: Lane;
   from: SeasonHistoryTeamRef | null;
@@ -638,6 +640,7 @@ export function buildSeasonHistoryEntry(
   for (const m of transfersForHistoryArchive(season)) {
     transfers.push({
       event: m.event,
+      ...(m.origin ? { origin: { ...m.origin } } : {}),
       lane: m.lane,
       from: teamRef(season, m.fromTeamId),
       to: teamRef(season, m.toTeamId),

@@ -1,3 +1,4 @@
+import { marketOrigin, type MarketOrigin, type MarketSeason } from "./marketOrigin";
 // Player careers for franchise/reality mode: stable ids, ageing, growth and
 // decline, performance-based demotion (academy → free agency → retired), and
 // slot fills (returnees preferred over rookies). Pure and deterministic given
@@ -426,6 +427,7 @@ export type MarketNote = FaMarketNote;
 
 /** Offseason roster news: demotion + who entered (rookie vs returnee). */
 export interface RosterNewsEvent {
+  origin?: MarketOrigin;
   lane: Lane;
   departedName?: string;
   departedTier?: PlayerTier;
@@ -449,12 +451,13 @@ export interface RosterNewsEvent {
 }
 
 /** Stamp `timeMark` on news rows that lack one (additive; preserves existing). */
-export function withRosterTimeMark<T extends { timeMark?: string }>(
+export function withRosterTimeMark<T extends { timeMark?: string; origin?: MarketOrigin }>(
   items: readonly T[],
   mark: string,
+  season?: MarketSeason,
 ): T[] {
   if (!mark) return [...items];
-  return items.map((n) => (n.timeMark ? n : { ...n, timeMark: mark }));
+  return items.map(n => ({ ...n, timeMark: n.timeMark || mark, ...(season && !n.origin ? { origin: marketOrigin(season, n.timeMark || mark) } : {}) }));
 }
 
 /** @deprecated Alias kept for older imports — prefer RosterNewsEvent. */

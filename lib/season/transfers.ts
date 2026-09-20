@@ -1,3 +1,4 @@
+import { belongsToMarketWindow, marketOrigin } from "./marketOrigin";
 // Between-splits player transfers — a light, fully automatic free-agency
 // window. After a split wraps (and player development has run), standout
 // players move up and weak links move down. A player's TRANSFER VALUE blends
@@ -418,7 +419,7 @@ export function applyTransfers(
       }
       a.players[li] = settle(pb, b.leagueId, a.leagueId);
       b.players[li] = settle(pa, a.leagueId, b.leagueId);
-      transfers.push({ event, lane, fromTeamId: aTeamId, toTeamId: bTeamId, star: starSnap, swap: swapSnap });
+      transfers.push({ origin: marketOrigin(season, event), event, lane, fromTeamId: aTeamId, toTeamId: bTeamId, star: starSnap, swap: swapSnap });
       bump(aTeamId);
       bump(bTeamId);
     }
@@ -505,6 +506,7 @@ export function resolveTransfer(
   // Log into the window recap, oriented star (up) → swap (down).
   const incoming = prop.kind === "incoming";
   const record: PlayerTransfer = {
+    origin: marketOrigin(season, prop.event),
     event: prop.event,
     lane: prop.lane,
     fromTeamId: incoming ? prop.otherTeamId : prop.controlledTeamId,
@@ -544,13 +546,14 @@ function openWindowEvent(season: SeasonState): InternationalId | null {
  * `worldsOffseasonBaseline` so the fresh window starts at zero.
  */
 export function activeWindowTransfers(
-  season: Pick<SeasonState, "transfersByEvent" | "worldsOffseasonBaseline">,
+  season: Pick<SeasonState, "transfersByEvent" | "worldsOffseasonBaseline"> & Partial<Pick<SeasonState, "id" | "franchise">>,
   event: InternationalId,
 ): PlayerTransfer[] {
   const moves = season.transfersByEvent?.[event] ?? [];
-  if (event !== "worlds") return moves;
-  const baseline = season.worldsOffseasonBaseline ?? 0;
-  return baseline > 0 ? moves.slice(baseline) : moves;
+  const baseline = event === "worlds" ? season.worldsOffseasonBaseline ?? 0 : 0;
+  return moves.filter((move, index) => move.origin && season.id
+    ? belongsToMarketWindow(move.origin, { id: season.id, franchise: season.franchise }, event)
+    : index >= baseline && transferEventStamp(move, event) === event);
 }
 
 /**
@@ -572,7 +575,7 @@ export function transferEventStamp(
  * were appended to the worlds array (carry / offseason write bugs).
  */
 export function transfersForDigestEvent(
-  season: Pick<SeasonState, "transfersByEvent" | "worldsOffseasonBaseline"> & Partial<Pick<SeasonState, "status">>,
+  season: Pick<SeasonState, "transfersByEvent" | "worldsOffseasonBaseline"> & Partial<Pick<SeasonState, "status" | "id" | "franchise">>,
   event: InternationalId,
 ): PlayerTransfer[] {
   const byEvent = season.transfersByEvent ?? {};
@@ -583,7 +586,15 @@ export function transfersForDigestEvent(
   >) {
     for (const [index, m] of (moves ?? []).entries()) {
       if (transferEventStamp(m, bucket) !== event) continue;
-      if (season.status === "complete" && event === "worlds" && bucket === "worlds"
+      if (m.origin && season.id) {
+        const context = { id: season.id, franchise: season.franchise };
+        const current = belongsToMarketWindow(m.origin, context, event);
+        const carry = event === "worlds" && season.status !== "complete"
+          && m.origin.year === (season.franchise?.year ?? 1) - 1
+          && m.origin.windowId === `${m.origin.seasonId}:Offseason`;
+        if (!current && !carry) continue;
+      }
+      if (!m.origin && season.status === "complete" && event === "worlds" && bucket === "worlds"
         && index < (season.worldsOffseasonBaseline ?? 0)) continue;
       const key = transferDedupeKey({ ...m, event });
       if (seen.has(key)) continue;
@@ -601,7 +612,7 @@ export function transfersForDigestEvent(
  * Post First Stand / Post MSI section.
  */
 export function transfersForHistoryArchive(
-  season: Pick<SeasonState, "transfersByEvent" | "worldsOffseasonBaseline">,
+  season: Pick<SeasonState, "transfersByEvent" | "worldsOffseasonBaseline"> & Partial<Pick<SeasonState, "id" | "franchise">>,
 ): PlayerTransfer[] {
   const byEvent = season.transfersByEvent ?? {};
   const baseline = season.worldsOffseasonBaseline ?? 0;
@@ -613,8 +624,9 @@ export function transfersForHistoryArchive(
     for (let i = 0; i < list.length; i++) {
       const m = list[i]!;
       const stamp = transferEventStamp(m, bucket);
+      if (m.origin && season.id && !belongsToMarketWindow(m.origin, { id: season.id, franchise: season.franchise }, stamp)) continue;
       if (
-        bucket === "worlds" &&
+        !m.origin && bucket === "worlds" &&
         baseline > 0 &&
         i < baseline &&
         stamp === "worlds"
@@ -630,6 +642,7 @@ export function transfersForHistoryArchive(
 
 function transferDedupeKey(m: PlayerTransfer): string {
   return [
+    m.origin?.seasonId ?? "", m.origin?.year ?? "", m.origin?.windowId ?? "",
     m.event,
     m.lane,
     m.fromTeamId,
@@ -820,6 +833,7 @@ export function executeUserTransfer(
   const themSnap = snapshot(pThem, theirGrade);
   const themBetter = vThem >= vMine;
   const record: PlayerTransfer = {
+    origin: marketOrigin(season, event),
     event,
     lane,
     fromTeamId: themBetter ? otherTeamId : controlledId,
@@ -1008,6 +1022,7 @@ export function executeOffseasonUserTransfer(
   const themSnap = snapshot(pThem, theirGrade);
   const themBetter = vThem >= vMine;
   const record: PlayerTransfer = {
+    origin: marketOrigin(season, OFFSEASON),
     event: OFFSEASON,
     lane,
     fromTeamId: themBetter ? otherTeamId : controlledId,

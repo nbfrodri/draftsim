@@ -12,19 +12,21 @@ Hay cuatro estados distintos: modificación en memoria, snapshot pendiente, escr
 
 ## 2. Modelo físico
 
-`lib/desktopSqliteSchema.ts` define el esquema y `PERSIST_VERSION`, actualmente 7. La versión del formato persistido es independiente de la versión comercial de la aplicación.
+`lib/desktopSqliteSchema.ts` define `DATABASE_VERSION = 8` para SQLite y `PERSIST_VERSION = 7` para el envelope de Zustand. La versión del formato persistido es independiente de la versión comercial de la aplicación.
 
 | Tabla | Clave | Datos |
 |---|---|---|
 | `schema_meta` | `key` | Flags de migración y metadatos |
-| `global_state` | `store_key` | JSON global y fecha de actualización |
+| `global_state` | `store_key` | Ajustes, manifiesto de fragmentos y fecha |
+| `global_fragments` | `(store_key, fragment_key)` | Agregados competitivos independientes |
+| `reality_catalog` | `reality_id` | Resumen de estado del año para el selector |
 | `realities` | `id` | Nombre, año, temporada compacta y actualización |
 | `reality_history` | `(reality_id, entry_id)` | Entrada anual y orden |
 | `meta_config` | `config_key` | Ajustes del meta |
 
 El historial tiene relación con la realidad y un índice por realidad y orden. No se normaliza cada partida o jugador en una tabla independiente: se separan agregados grandes y se preservan estructuras complejas dentro de JSON.
 
-El blob global conserva `realities: []` como placeholder. Los cuerpos de las realidades se guardan en filas propias. El estado global puede mantener el espejo de temporada activa, por lo que separar realidades no elimina todos los blobs grandes.
+El blob global conserva `realities: []` como placeholder. Los cuerpos de las realidades se guardan en filas propias. El espejo de temporada activa vive en un fragmento separado; modificar ajustes no lo vuelve a serializar.
 
 ## 3. Hidratación y protección del arranque
 
@@ -146,3 +148,18 @@ Estos límites son techos de aceptación, no garantías de memoria o velocidad. 
 | Guardado manual fallido | No confirmar éxito; permitir reintento |
 
 Tests principales: `desktopSqlite.test.ts`, `desktopSqliteStorage.test.ts`, `desktopStorage.flush.test.ts`, `persistenceLifecycle.test.ts`, `seasonExitPersistence.test.ts`, pruebas nativas de `storage.rs` y `backups.rs`, y pruebas de instalación/reapertura.
+
+
+## 12. Formato 8, carga de cuerpos y diagnósticos
+
+Antes del primer cambio de una base SQLite 7 existente, `loadDatabase` solicita una copia nativa llamada **Before storage format 8**. Si falla, la apertura falla sin habilitar escrituras. La creación aditiva de tablas mantiene el marcador 7; el manifiesto, sus fragmentos y el marcador 8 se confirman juntos en la primera transacción de guardado. El envelope Zustand sigue en 7 porque no es la versión del esquema físico.
+
+Un manifiesto con claves desconocidas, duplicadas, fragmentos ausentes o JSON corrupto provoca error de carga. La verificación profunda de copias también comprueba las referencias; listar copias solo lee metadatos. Las versiones anteriores no pueden leer el formato 8: para volver atrás hay que recuperar la copia anterior a la migración. Esa copia no incluye cambios posteriores.
+
+`SavedReality.season === null` significa cuerpo aún no cargado, nunca temporada vacía. El arranque consulta solo el cuerpo de la realidad activa y los resúmenes del resto. Una fila antigua sin catálogo obtiene el estado mediante extracción JSON en SQLite; no transfiere ese blob al frontend. Al guardar un cuerpo se actualiza su catálogo en la misma transacción.
+
+El cambio de realidad carga temporada e historial, drena escrituras pendientes y comprueba que la solicitud sigue vigente antes de activarla. Una respuesta tardía no puede sustituir otra realidad abierta después. Exportar una realidad inactiva carga su contenido sin activarla; si alguna lectura falla, rechaza una exportación incompleta. Guardar otra realidad o los ajustes no borra cuerpos ausentes de memoria.
+
+El guardado del año en curso no depende de su archivo anual: partidos y plantillas actuales viven en `realities.season_json` y en el fragmento activo, aunque el Hall esté vacío. Tras abrir una temporada queda en memoria hasta finalizar la sesión; esta implementación no aplica una política de expulsión.
+
+La sección de diagnósticos en Backups habilita métricas solo durante la sesión. `global-encode`, `season-encode`, `history-encode`, `plan`, `commit` y `flush` son fases anidadas: sus tiempos no deben sumarse como si fueran independientes. `commit` incluye IPC y transacción. El buffer de 200 registros puede descartar muestras antiguas en operaciones grandes. Desactivar o limpiar invalida también mediciones en vuelo. Los JSON exportados contienen únicamente métricas; no incluyen datos competitivos ni rutas.
