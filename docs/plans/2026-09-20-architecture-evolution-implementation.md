@@ -62,10 +62,12 @@ Use fixture databases and disposable GitHub-hosted installer tests. Do not open 
 
 Implemented all five proposals for 0.7.0. The fixture benchmark (three realities, 300 history entries, 12 simulated matches) reduced settings serialization from 337,738 bytes to 83 bytes; unchanged saves emit no statements. The benchmark uses a mock commit and does not measure native disk latency.
 
-Local validation: lint, typecheck, 1,333 unit tests, six release-tool tests and static production build passed. Eleven Rust tests passed, including format-8 backup rejection for missing/corrupt fragments and a valid native snapshot. Focused schema/persistence tests passed after preserving version 7 until the migration transaction commits. Browser E2E runs use the installed Edge channel; default Chromium is not installed locally.
+Local validation: lint, typecheck, 1,334 unit tests, six release-tool tests and static production build passed. Eleven Rust tests passed, including format-8 backup rejection for missing/corrupt fragments and a valid native snapshot. Focused schema/persistence tests passed after preserving version 7 until the migration transaction commits. All 34 browser E2E tests passed using the installed Edge channel; default Chromium is not installed locally.
 
 New regression coverage verifies unfinished seasons with empty Hall history, inactive exports, missing-body refusal, late switch responses, and explicit market origin across serialization plus two rollovers. The CI upgrade fixture includes active and dormant unfinished realities. Existing user data is untouched.
 
 Design limits: inactive bodies are lazy at startup but retained after opening; diagnostic commit time combines IPC and transaction; legacy missing metadata is not fabricated. Legacy inactive summaries can be extracted within SQLite until their catalog is written.
 
-Publication validation pending: run Windows NSIS upgrade from checksum-pinned 0.6.0, verify the pre-migration snapshot, build MSI, then tag and publish only after CI succeeds. The release workflow repeats checks for the tag.
+Windows preflight [35533598227](https://github.com/nbfrodri/draftsim/actions/runs/35533598227) built NSIS and MSI and passed installation, JSON migration, upgrade from checksum-pinned 0.6.0, format-8 verification, pre-migration snapshot verification and reopening. Native Escape checks passed for root, modal, held key, nested focus and season-exit SQLite commit with no page errors (57 ms exit in this fixture; not a general latency guarantee).
+
+The final hydration hardening additionally rejects a missing manifest in a format-8 root instead of reinterpreting it as legacy. Its regression and the complete 1,334-test suite passed locally. The v0.7.0 release workflow repeats all checks for the exact tagged commit before publishing both installers. Publication status and assets are recorded on the [release page](https://github.com/nbfrodri/draftsim/releases/tag/v0.7.0).

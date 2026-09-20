@@ -148,3 +148,6 @@ El job Windows utiliza `Swatinem/rust-cache` fijado a un commit, con `cache-work
 CI descarga el NSIS público 0.6.0 y verifica su SHA-256 fijado antes de ejecutarlo. El runner desechable prueba JSON legado → SQLite 7 → formato 8, reapertura y copia previa a la migración. El MSI se genera como artefacto; la instalación ejercitada usa NSIS. Esta cobertura prueba esa ruta concreta, no todas las versiones antiguas posibles.
 
 Para perfilar sin partidas personales: `npx tsx scripts/benchmark-save-pipeline.mts current`. El informe en `.benchmarks/` mide el frontend con commit simulado; no atribuirlo a latencia nativa. Para medir IPC y disco reales, activar Save diagnostics en Backups y exportar el buffer local.
+
+
+La validación previa de 0.7.0 está registrada en [CI 35533598227](https://github.com/nbfrodri/draftsim/actions/runs/35533598227): instalación NSIS, actualización desde 0.6.0, migración y copia anterior verificadas, reapertura y navegación nativa sin errores. El tag vuelve a ejecutar el workflow completo antes de publicar sus propios artefactos.

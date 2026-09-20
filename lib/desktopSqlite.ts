@@ -828,11 +828,16 @@ export async function loadPersistedStateFromDbExecutor(
   let global: Record<string, unknown>;
   try {
     global = JSON.parse(globalRows[0].state_json) as Record<string, unknown>;
+    if (!global || typeof global !== "object" || Array.isArray(global)) throw new Error("Invalid global root");
   } catch {
     throw new Error("Saved global state is invalid; refusing to overwrite it.");
   }
 
   const partitioned = Object.hasOwn(global, FRAGMENT_MANIFEST);
+  if (!partitioned) {
+    const version = await db.select<{ value: string }>("SELECT value FROM schema_meta WHERE key = 'persist_version'");
+    if (version[0]?.value === String(DATABASE_VERSION)) throw new Error("Saved global fragment manifest is missing; refusing to overwrite it.");
+  }
   if (partitioned) {
     const fragments = await db.select<{ fragment_key: string; value_json: string }>("SELECT fragment_key, value_json FROM global_fragments WHERE store_key = ?", [storeKey]);
     global = joinGlobalState(global, fragments);

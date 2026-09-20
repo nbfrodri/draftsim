@@ -111,6 +111,7 @@ function createMockHistoryDb() {
 }
 
 function createMockPersistDb() {
+  let schemaVersion = "7";
   const catalog = new Map<string, string>();
   const fragments = new Map<string, { store_key: string; fragment_key: string; value_json: string }>();
   const globalState = new Map<string, { state_json: string; updated_at: number }>();
@@ -142,7 +143,7 @@ function createMockPersistDb() {
         for (const [key, row] of fragments) if (row.store_key === bindValues[0] && (!bindValues[1] || row.fragment_key === bindValues[1])) fragments.delete(key);
         return { rowsAffected: 1 };
       }
-      if (query.startsWith("INSERT INTO schema_meta")) return { rowsAffected: 1 };
+      if (query.startsWith("INSERT INTO schema_meta")) { schemaVersion = bindValues[0] as string; return { rowsAffected: 1 }; }
       if (query.includes("INSERT INTO global_state")) {
         const [storeKey, stateJson, updatedAt] = bindValues as [string, string, number];
         globalState.set(storeKey, { state_json: stateJson, updated_at: updatedAt });
@@ -243,6 +244,7 @@ function createMockPersistDb() {
     },
 
     async select<T>(query: string, bindValues: unknown[] = []): Promise<T[]> {
+      if (query.includes("FROM schema_meta")) return [{ value: schemaVersion }] as T[];
       if (query.includes("FROM global_fragments")) return [...fragments.values()].filter(row => row.store_key === bindValues[0]) as T[];
       if (query.includes("FROM global_state")) {
         const [storeKey] = bindValues as [string];
@@ -1037,4 +1039,17 @@ describe("inactive season persistence", () => {
     fragments.clear();
     await expect(loadPersistedStateFromDb(STORE_KEY)).rejects.toThrow();
   });
+});
+
+
+it("does not reinterpret a damaged format-8 root as a legacy save", async () => {
+  const { db, globalState, fragments } = createMockPersistDb();
+  setDesktopDatabaseForTests(db);
+  await savePersistedStateToDbExecutor(db, STORE_KEY, { realities: [], season: { status: "in-progress" } });
+  const row = globalState.get(STORE_KEY)!;
+  const root = JSON.parse(row.state_json);
+  delete root._draftsimFragments;
+  row.state_json = JSON.stringify(root);
+  await expect(loadPersistedStateFromDb(STORE_KEY)).rejects.toThrow("manifest is missing");
+  expect(fragments.size).toBe(1);
 });
