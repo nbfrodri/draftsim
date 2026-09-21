@@ -177,8 +177,8 @@ export default function BestRosters({
         </p>
       )}
       <p className="text-[10px] uppercase tracking-[0.15em] text-rift-mutedbright">
-        {rows.length} winning roster{rows.length === 1 ? "" : "s"}
-        {limit !== "all" ? ` · capped to top ${capped.length}` : ""}
+        {rows.length} winning roster{rows.length === 1 ? "" : "s"} /{" "}
+        {capped.length} shown
       </p>
       {!rows.length && (
         <p className="border border-dashed border-rift-line p-6 text-center text-sm text-rift-mutedbright">

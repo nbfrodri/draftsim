@@ -1,6 +1,6 @@
 {
   "name": "draftsim",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "private": true,
   "scripts": {
     "build:worker": "node scripts/build-bulk-sim-worker.mjs",

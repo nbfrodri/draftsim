@@ -31,7 +31,7 @@ export function HallPager({
 }) {
   if (pageCount <= 1) return null;
   const start = page * pageSize;
-  const range = `${start + 1}–${Math.min(start + pageSize, total)} of ${total}`;
+  const range = `${start + 1}-${Math.min(start + pageSize, total)} of ${total}`;
   return (
     <nav
       aria-label={label}
