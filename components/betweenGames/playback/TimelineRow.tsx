@@ -1,9 +1,10 @@
 "use client";
 
+import { MatchTeamMark, MatchEventDescription } from "@/components/MatchPresentation";
 import { memo } from "react";
 import type { MatchEvent } from "@/lib/matchSimulator";
 import EventIcon from "@/components/EventIcon";
-import { EVENT_LABEL, EMPHASIS_EVENTS, applyChampHandles } from "../shared";
+import { EVENT_LABEL, EMPHASIS_EVENTS } from "../shared";
 
 // Memoized: the event log re-renders every playback state update, but each
 // already-revealed row's props (stable event object, team name strings, the
@@ -16,7 +17,6 @@ export const TimelineRow = memo(function TimelineRow({
   redTeam,
   isNew,
   link,
-  champToHandle,
 }: {
   event: MatchEvent;
   blueTeam: string;
@@ -24,15 +24,11 @@ export const TimelineRow = memo(function TimelineRow({
   isNew?: boolean;
   // "off the …" causal tag when this objective came off a recent setup play.
   link?: string | null;
-  // Champion name → player handle for all champions in this game.
-  champToHandle?: Map<string, string>;
 }) {
   const isBlue = event.side === "blue";
-  const accentText = isBlue ? "text-rift-bluebright" : "text-rift-redbright";
-  const description = champToHandle ? applyChampHandles(event.description, champToHandle) : event.description;
-  const sideTintBg = isBlue
-    ? "bg-gradient-to-r from-rift-blue/10 via-rift-blue/[0.03] to-transparent"
-    : "bg-gradient-to-l from-rift-red/10 via-rift-red/[0.03] to-transparent";
+  const accentText = "text-rift-mutedbright";
+  const description = event.description;
+  const sideTintBg = "bg-rift-panel/30";
   const isEmphasis = EMPHASIS_EVENTS.has(event.type);
   const teamLabel = isBlue ? blueTeam : redTeam;
   const totalKills = event.kills.blue + event.kills.red;
@@ -45,7 +41,7 @@ export const TimelineRow = memo(function TimelineRow({
         isEmphasis
           ? "border border-rift-gold/40 bg-rift-gold/5"
           : "border-l-2 border-r border-r-transparent " +
-            (isBlue ? "border-l-rift-blue" : "border-l-rift-red")
+            "border-l-rift-line"
       } ${isNew ? "animate-[fadeSlide_400ms_ease-out]" : ""} transition-all`}
     >
       {/* Time + event-type capsule */}
@@ -61,9 +57,7 @@ export const TimelineRow = memo(function TimelineRow({
           className={`flex items-center justify-center w-7 h-7 md:w-8 md:h-8 border ${
             isEmphasis
               ? "border-rift-gold/60 bg-rift-gold/15 text-rift-goldbright"
-              : isBlue
-              ? "border-rift-blue/40 bg-rift-blue/10 text-rift-bluebright"
-              : "border-rift-red/40 bg-rift-red/10 text-rift-redbright"
+              : "border-rift-line/40 bg-rift-panel/30 text-rift-mutedbright"
           }`}
         >
           <EventIcon type={event.type} size={16} />
@@ -81,15 +75,17 @@ export const TimelineRow = memo(function TimelineRow({
             {EVENT_LABEL[event.type]}
           </span>
           {totalKills > 0 && (
-            <span className="text-[9px] md:text-[10px] tabular-nums">
+            <span className="inline-flex items-center gap-1 text-[9px] md:text-[10px] tabular-nums">
               {/* Kill counts no longer tinted by side; use a single
                   fixed palette so K/D/A reads consistently regardless
                   of who scored. Active kills = emerald (good thing
                   happening), zeros stay muted. */}
+              <MatchTeamMark side="blue" />
               <span className={event.kills.blue > 0 ? "text-emerald-300" : "text-rift-muted/60"}>
                 {event.kills.blue}K
               </span>
               <span className="text-rift-muted/50 mx-1">·</span>
+              <MatchTeamMark side="red" />
               <span className={event.kills.red > 0 ? "text-emerald-300" : "text-rift-muted/60"}>
                 {event.kills.red}K
               </span>
@@ -102,11 +98,11 @@ export const TimelineRow = memo(function TimelineRow({
             isEmphasis ? "text-rift-goldbright/95" : "text-rift-mutedbright"
           }`}
         >
-          {description}
+          <MatchEventDescription text={description} />
         </div>
         {link && (
           <div className="text-[9px] md:text-[10px] mt-0.5 italic text-rift-muted/70">
-            ↳ off {link}
+            ↳ off <MatchEventDescription text={link} />
           </div>
         )}
       </div>
@@ -116,7 +112,7 @@ export const TimelineRow = memo(function TimelineRow({
         className={`text-[9px] md:text-[10px] font-display uppercase tracking-[0.2em] ${accentText} flex-shrink-0 hidden sm:inline truncate max-w-[6rem]`}
         title={teamLabel}
       >
-        {teamLabel}
+        <MatchTeamMark side={event.side} name />
       </span>
     </div>
   );

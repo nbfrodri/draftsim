@@ -25,7 +25,10 @@ function tournamentFixture() {
       return { ...series.games[0], id: `${m.id}-game-${n}`, gameNumber: n + 1, status: "complete" as const,
         blueTeam: b.name, redTeam: r.name, winner: n === 0 ? "blue" as const : "red" as const,
         bluePicks: [266, 103, 84, 22, 12], redPicks: [1, 2, 3, 4, 5], blueRoles: [...lanes], redRoles: [...lanes],
-        recap: { durationMinutes: 25 + n * 10, mvp: null, biggestSwing: null,
+        recap: { durationMinutes: 25 + n * 10,
+          mvp: { side: n === 0 ? "blue" as const : "red" as const, lane: "top" as const, championId: n === 0 ? 266 : 1, kills: 8, deaths: 0, assists: 12, laneGoldDiff: 1000, playerName: blue.players![0].name, playerId: blue.players![0].id }, biggestSwing: null,
+          winProbTimeline: [{ minute: 0, blueProb: .5 }, { minute: 10, blueProb: .7 }],
+          notableEvents: [{ minute: 10, side: "blue" as const, type: "teamfight", description: "Aatrox wins the fight", probDelta: .2 }],
           goldLeadTimeline: [{ minute: 10, goldLead: n === 0 ? -9000 : 7000 }],
           ratings: { blue: [9, 8, 7, 7, 7], red: [8, 7, 7, 7, 7] },
           perPickKDA: { blue: lanes.map(() => ({ k: 8, d: 0, a: 12 })), red: lanes.map(() => ({ k: 0, d: 0, a: 0 })) },
@@ -81,7 +84,25 @@ test("tournament identities, meta tiers and perfect KDA remain visible through r
   await fastest.locator("..").screenshot({ path: "test-results/playwright/notable-games-layout.png" });
   await fastest.getByRole("button", { name: /^Fastest: replay/ }).click();
   await expect(page.getByText("Perfect KDA", { exact: true }).first()).toBeVisible();
+  const keyEvents = page.getByText("Key Events", { exact: true }).locator("..");
+  await expect(keyEvents.getByText("Player 1 1", { exact: true })).toBeVisible();
+  await expect(keyEvents.locator('img[src*="icon-position-"]')).toHaveCount(1);
+  await expect(keyEvents.locator('img[src="/league-logos/LCK.png"]')).toHaveCount(1);
+  const damage = page.getByText("Damage Dealt", { exact: true }).locator("../..");
+  await expect(damage.getByText("Player 1 1", { exact: true })).toBeVisible();
+  await expect(damage.locator('img[src*="icon-position-"]')).toHaveCount(10);
+  const gameMvp = page.getByText("Game MVP", { exact: true }).locator("..");
+  await expect(gameMvp.getByText("Player 1 1", { exact: true })).toBeVisible();
+  for (const panel of [damage, gameMvp]) {
+    const player = panel.getByText("Player 1 1", { exact: true });
+    const logo = panel.locator('img[src*="league-logos"]').first();
+    const a = await player.boundingBox(), b = await logo.boundingBox();
+    expect(Math.abs(a!.y + a!.height / 2 - b!.y - b!.height / 2)).toBeLessThan(2);
+  }
   await page.getByRole("button", { name: /^Game 2, won by/ }).click();
+  await expect(keyEvents.getByText("Player 8 1", { exact: true })).toBeVisible();
+  await damage.screenshot({ path: "test-results/playwright/replay-damage-identities.png" });
+  await gameMvp.screenshot({ path: "test-results/playwright/replay-mvp-identity.png" });
   await expect(page.getByText("Perfect KDA", { exact: true }).first()).toBeVisible();
   await page.screenshot({ path: "test-results/playwright/tournament-perfect-kda.png" });
   await page.keyboard.press("Escape");
@@ -272,4 +293,60 @@ test("Latest Matchday keeps reverse sweeps beside phase badges above teams", asy
   const teamBox = await row.getByText("Winner Team", { exact: true }).boundingBox();
   expect(badgeBox!.y + badgeBox!.height).toBeLessThanOrEqual(teamBox!.y);
   await row.screenshot({ path: "test-results/playwright/latest-matchday-reverse-sweep.png" });
+});
+
+for (const event of ["first-stand", "worlds"] as const) {
+test(`${event} play-in and main-event cards keep their right borders within the viewport`, async ({ page }) => {
+  const season = makeAuditSeason("First Stand layout");
+  const ids = season.phases[0].tournamentIds.slice(0, 2);
+  season.phases[0] = { ...season.phases[0], kind: "international", event, label: event, tournamentIds: ids };
+  ids.forEach((id, i) => { season.tournaments[id].name = i ? (event === "worlds" ? "Worlds Championship" : "First Stand") : `${event} Play-In`; });
+  const main = season.tournaments[ids[1]];
+  season.tournaments[ids[1]] = { ...createTournament({ name: main.name, format: "single-elim", teams: main.teams, defaults: main.defaults }), id: main.id, seasonId: season.id, seasonStageKind: "international" };
+  await seed(page, { season, seasonViewOpen: true });
+  await page.goto("/");
+  for (const width of [1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const cards = page.getByTestId("season-tournament-card");
+    await expect(cards).toHaveCount(2);
+    for (const card of await cards.all()) {
+      await card.scrollIntoViewIfNeeded();
+      await page.mouse.move(0, 0);
+      await card.screenshot({ path: `test-results/playwright/card-${event}-${width}-${await card.innerText().then(t => t.includes("Play-In") ? "playin" : "main")}.png` });
+      await card.hover();
+      await card.screenshot({ path: `test-results/playwright/card-${event}-${width}-${await card.innerText().then(t => t.includes("Play-In") ? "playin" : "main")}-hover.png` });
+      const border = await card.evaluate(el => {
+        const frame = getComputedStyle(el, "::after");
+        return { right: frame.right, width: frame.borderRightWidth, content: frame.content };
+      });
+      expect(border.right).toBe("0px");
+      expect(border.width).toBe("1px");
+      expect(border.content).not.toBe("none");
+      const box = await card.boundingBox();
+      expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+      expect(await card.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    }
+  }
+});
+
+}
+
+test("live simulation event logs show team artwork and player roles", async ({ page }) => {
+  const t = tournamentFixture();
+  const a = t.teams[0], b = t.teams[1];
+  const series = createSeries({ ...t.defaults, blueTeam: a.name, redTeam: b.name, bluePlayers: a.players, redPlayers: b.players });
+  series.status = "between-games";
+  series.games[0] = { ...series.games[0], status: "complete", bluePicks: [266, 103, 84, 22, 12], redPicks: [1, 2, 3, 4, 5], blueRoles: [...lanes], redRoles: [...lanes] };
+  t.activeMatchId = t.matches[0].id;
+  await seed(page, { tournament: t, series, season: null });
+  await page.goto("/");
+  await page.getByRole("button", { name: /Simulate Match/ }).click();
+  await page.getByRole("button", { name: "Skip", exact: true }).click();
+  const log = page.getByText("Event Log", { exact: true }).locator("../..");
+  await expect(log.locator('img[src*="league-logos"]').first()).toBeVisible();
+  expect(await log.locator('img[src*="icon-position-"]').count()).toBeGreaterThan(0);
+  await expect(log.getByText(/Player [12] [1-5]/).first()).toBeVisible();
+  const eventRow = log.getByText(/Player [12] [1-5]/).first().locator("../../..");
+  await eventRow.scrollIntoViewIfNeeded();
+  await eventRow.screenshot({ path: "test-results/playwright/live-event-identities.png" });
 });

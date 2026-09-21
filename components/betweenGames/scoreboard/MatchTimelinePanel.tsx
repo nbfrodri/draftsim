@@ -1,4 +1,5 @@
 "use client";
+import { MatchTeamMark, MatchEventDescription } from "@/components/MatchPresentation";
 
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { MatchEvent, MatchTimeline } from "@/lib/matchSimulator";
@@ -13,7 +14,6 @@ import {
   computeGold,
   formatClock,
   EMPHASIS_EVENTS,
-  applyChampHandles,
 } from "../shared";
 import EventIcon from "@/components/EventIcon";
 import { ScoreboardHeader } from "./ScoreboardHeader";
@@ -138,25 +138,6 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
   // below in the Lane Gold strip — no off-by-N gold inconsistencies.
   const gold = useMemo(() => computeGold(laneGold, currentMin), [laneGold, currentMin]);
 
-  // Build champion-name → player-handle map for description substitution.
-  // Stable across playback: only recomputes if picks or player names change.
-  const champToHandle = useMemo(() => {
-    const map = new Map<string, string>();
-    bluePicks.forEach((id, i) => {
-      const handle = bluePlayerNames?.[i];
-      if (!handle || id == null) return;
-      const champ = byId.get(id);
-      if (champ) map.set(champ.name, handle);
-    });
-    redPicks.forEach((id, i) => {
-      const handle = redPlayerNames?.[i];
-      if (!handle || id == null) return;
-      const champ = byId.get(id);
-      if (champ) map.set(champ.name, handle);
-    });
-    return map;
-  }, [bluePicks, redPicks, byId, bluePlayerNames, redPlayerNames]);
-
   // Keep the newest event in view while the log is a bounded scroll column
   // (large screens). During live playback we pin to the bottom as events
   // reveal; once finished we leave it so the user can read from the top.
@@ -187,26 +168,24 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
           </div>
           <div className="flex gap-2 overflow-x-auto custom-scroll pb-1">
             {keyMoments.map((e, i) => {
-              const isBlue = e.side === "blue";
               return (
                 <div
                   key={`${e.type}-${e.minutes}-${i}`}
                   className={`flex items-center gap-1.5 shrink-0 border px-2 py-1.5 ${
-                    isBlue
-                      ? "border-rift-blue/40 bg-rift-blue/10"
-                      : "border-rift-red/40 bg-rift-red/10"
+                    "border-rift-line/40 bg-rift-panel/30"
                   }`}
                 >
                   <span className="text-[9px] tabular-nums text-rift-mutedbright/70 shrink-0">
                     {e.time}
                   </span>
+                  <MatchTeamMark side={e.side} />
                   <EventIcon
                     type={e.type}
                     size={13}
-                    className={isBlue ? "text-rift-bluebright" : "text-rift-redbright"}
+                    className="text-rift-goldbright"
                   />
                   <span className="text-[10px] text-rift-goldbright max-w-[200px] truncate">
-                    {applyChampHandles(e.description, champToHandle)}
+                    <MatchEventDescription text={e.description} />
                   </span>
                 </div>
               );
@@ -302,7 +281,6 @@ export const MatchTimelinePanel = memo(function MatchTimelinePanel({
                   redTeam={redTeam}
                   isNew={i === latestEventIdx}
                   link={causalLinks[i]}
-                  champToHandle={champToHandle.size > 0 ? champToHandle : undefined}
                 />
               ))}
               {placeholderCount > 0 && (

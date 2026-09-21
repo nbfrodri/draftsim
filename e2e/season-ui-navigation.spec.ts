@@ -73,6 +73,11 @@ test("recap tabs show the winner logo even after the teams swap sides", async ({
 
 test("live split and international stats show role/champion icons without longest series", async ({ page }) => {
   const { season, tournament } = playedSeason();
+  // A completed MVP fixture needs a decided final, not just a regular match
+  // in an otherwise unfinished bracket.
+  const final = tournament.matches.find(match => match.series && match.winner)!;
+  tournament.matches = [{ ...final, round: 1, feedsInto: null, bracket: undefined }];
+  tournament.format = "single-elim";
   tournament.status = "complete";
   season.phases[0].status = "complete";
   season.phases[0].tournamentIds = [tournament.id];

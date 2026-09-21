@@ -483,7 +483,11 @@ export function computeTournamentAwards(
     depthWeight: true,
     laneBias: TOURNAMENT_MVP_LANE_BIAS,
   });
-  const mvp: PlayerAward | null = bestMvp ? makePlayerAward(bestMvp) : null;
+  const mvp: PlayerAward | null = tournament.seasonStageKind === "split"
+    ? computeFinalsMvp(tournament)
+    : tournament.seasonStageKind === "international"
+    ? computeChampionTeamTournamentMvp(tournament)
+    : bestMvp ? makePlayerAward(bestMvp) : null;
 
   // ─── All-Pro team ────────────────────────────────────────────────────────
   const allPro: AllProPlayer[] = [];

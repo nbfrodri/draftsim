@@ -111,7 +111,7 @@ export function computeSeasonIntlMvps(
 
 // ─── Split MVPs (per region league) ─────────────────────────────────────────
 // The finals MVP of each domestic split, per league — a player from the split
-// CHAMPION, judged on the split final. Same rule as the international MVP.
+// CHAMPION, judged on the split final. International MVPs instead use the whole event.
 
 export interface SeasonSplitMvp {
   split: SplitId;

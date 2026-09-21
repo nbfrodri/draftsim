@@ -179,3 +179,18 @@ Biggest Momentum Swing explains `pp` inline as percentage points: a change from 
 Latest Matchday competition headings pair their text with bundled league artwork for domestic splits and event artwork for internationals (First Stand, MSI, Worlds and Global Cup). Event identity is captured from the simulated phase before advancement, so a completed qualifier keeps its event logo and an international never borrows its first participant’s region logo.
 
 Latest Matchday result tags, including Reverse Sweep, share the centered, wrapping phase/round badge row above the score. They do not consume space in the team/score row.
+
+### Match replay and live event identity
+
+Replay Key Events, live Key Moments/event logs, replay damage rows and game MVP details reuse the match's team artwork, recorded player names and role icons. Event descriptions substitute only unambiguous whole champion/player names; legacy descriptions remain readable when no identity is available. Side-swapped games use their own blue/red mapping. Damage remains a KDA-based estimate, not measured damage. Team logos also identify live contribution rows and event kill totals.
+
+First Stand play-in/main-event preview cards constrain their grid width; horizontal bracket scrollers reserve space at the trailing edge so the rightmost border stays reachable.
+
+Season tournament MVP panels now use the same selectors as reality summaries: domestic splits use the champion's finals MVP, and internationals use the champion team's whole-event MVP. Legacy tournament views recover scope only from their owning season. Standalone tournaments retain their separate tournament-performance award. No archived award records are rewritten.
+
+
+### Replay alignment and season card frames
+
+Damage Dealt and Game MVP use a shared vertical center for player labels and team marks, including wrapping MVP rows. Season tournament cards clip overflowing content and paint an inset frame above it, with the same border color in normal/hover states as the surrounding card. These cards no longer use `content-visibility: auto`; their small per-phase grid keeps an explicit frame visible, including the rightmost First Stand and Worlds main-event cards. Other dashboard visibility optimizations remain in place.
+
+Regression checks compare logo/text centers and inspect play-in/main-event cards at 1024 and 1440 px in both normal and hover states. The main-event fixture renders an elimination bracket rather than simply renaming a domestic standings table.

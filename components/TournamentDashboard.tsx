@@ -416,7 +416,7 @@ export default function TournamentDashboard() {
             onViewMatch={handleViewMatch}
           />
         ) : (
-          <div className="overflow-x-auto pb-4" style={{ scrollbarWidth: "thin" }}>
+          <div className="min-w-0 max-w-full overflow-x-auto pb-4 pr-1" style={{ scrollbarWidth: "thin" }}>
             <BracketConnectorRoot
               matches={tournament.matches}
               className="inline-flex items-stretch gap-4 md:gap-6"

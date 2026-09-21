@@ -162,13 +162,13 @@ function AwardsList({ awards, teams }: { awards: SpecialAward[]; teams: Map<stri
 export function AwardsPanel({ tournament }: { tournament: TournamentState }) {
   // Read playerForms from the store so "Hottest Streak" can be included.
   const playerForms = useDraftStore((s) => s.playerForms);
-  const phaseKind = useDraftStore(s => s.season?.phases.find(p => p.tournamentIds.includes(tournament.id))?.kind);
+  const phaseKind = useDraftStore(s => s.season?.id === tournament.seasonId ? s.season?.phases.find(p => p.tournamentIds.includes(tournament.id))?.kind : undefined);
   const teams = useMemo(() => new Map(tournament.teams.map(team => [team.id, team])), [tournament.teams]);
   const showAllPro = (phaseKind ?? tournament.seasonStageKind) !== "international";
 
   const awards = useMemo(
-    () => computeTournamentAwards(tournament, playerForms),
-    [tournament, playerForms],
+    () => computeTournamentAwards(phaseKind === "split" || phaseKind === "international" ? { ...tournament, seasonStageKind: phaseKind } : tournament, playerForms),
+    [tournament, playerForms, phaseKind],
   );
 
   // Hide the whole panel when there is no data (all-manual tournament or

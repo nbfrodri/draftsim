@@ -1,5 +1,8 @@
 "use client";
 
+import { MatchPresentationProvider, MatchTeamMark, MatchPlayerLabel, MatchEventDescription } from "@/components/MatchPresentation";
+import { buildMatchPresentation } from "@/lib/matchPresentation";
+
 import { formatKda } from "@/lib/formatKda";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
@@ -30,10 +33,13 @@ function resolveReplayTeam(
   matchBlueName: string,
   matchRedName: string,
 ): TournamentTeam | null {
-  const direct = tournament.teams.find((t) => t.name === name);
-  if (direct) return direct;
-  if (name === matchBlueName) return bracketBlue;
-  if (name === matchRedName) return bracketRed;
+  const participants = [bracketBlue, bracketRed].filter(t => t?.name === name);
+  if (participants.length === 1) return participants[0];
+  if (participants.length > 1) return null;
+  const direct = tournament.teams.filter(t => t.name === name);
+  if (direct.length === 1) return direct[0];
+  if (matchBlueName !== matchRedName && name === matchBlueName) return bracketBlue;
+  if (matchBlueName !== matchRedName && name === matchRedName) return bracketRed;
   return null;
 }
 
@@ -620,6 +626,10 @@ function ReplayGamePanel({
   byId: Map<number, Champion>;
   perGameRatings: { blue: number[]; red: number[] } | null;
 }) {
+  const presentation = useMemo(() => buildMatchPresentation({ blue: blueTeam ?? { name: blueTeamName }, red: redTeam ?? { name: redTeamName } }, byId, {
+    blue: { picks: game.bluePicks, roles: game.blueRoles, names: game.recap?.perPickNames?.blue, ids: game.recap?.perPickIds?.blue },
+    red: { picks: game.redPicks, roles: game.redRoles, names: game.recap?.perPickNames?.red, ids: game.recap?.perPickIds?.red },
+  }), [game, blueTeam, redTeam, blueTeamName, redTeamName, byId]);
   const winnerSide = game.winner;
   const winnerTeam =
     winnerSide === "blue" ? blueTeam : winnerSide === "red" ? redTeam : null;
@@ -630,7 +640,7 @@ function ReplayGamePanel({
   const mvp = recap?.mvp;
   const mvpChampion = mvp ? byId.get(mvp.championId) ?? null : null;
   return (
-    <div className="space-y-4">
+    <MatchPresentationProvider value={presentation}><div className="space-y-4">
       {/* Game-level header (winner + duration) */}
       <div className="flex items-baseline justify-between flex-wrap gap-2">
         <div className="text-[10px] uppercase tracking-[0.35em] text-rift-mutedbright/65 flex items-baseline gap-2">
@@ -762,20 +772,22 @@ function ReplayGamePanel({
           winner declarations leave recap unset. */}
       {recap && (
         <div className="border border-rift-line/40 bg-rift-bg/40 px-3 py-2.5 space-y-2">
-          {mvp && mvpChampion && (
+          {mvp && (
             <div className="flex items-center gap-2 text-[11px]">
-              <img
+              {mvpChampion && <img
                 src={mvpChampion.iconUrl}
                 alt={mvpChampion.name}
                 className="w-7 h-7 border border-rift-gold/60"
-              />
+              />}
               <div className="min-w-0">
                 <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/70">
                   Game MVP
                 </div>
-                <div className="font-display tracking-wider text-rift-goldbright">
-                  {mvpChampion.name}
-                  <span className="ml-2 text-rift-mutedbright/70 font-sans tabular-nums">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-display tracking-wider text-rift-goldbright">
+                  <MatchPlayerLabel side={mvp.side} lane={mvp.lane} playerName={mvp.playerName} playerId={mvp.playerId} fallback={mvpChampion?.name} />
+                  <MatchTeamMark side={mvp.side} name />
+                  {mvpChampion && <span className="text-rift-mutedbright/60">{mvpChampion.name}</span>}
+                  <span className="text-rift-mutedbright/70 font-sans tabular-nums">
                     {mvp.kills}/{mvp.deaths}/{mvp.assists}
                   </span>
                 </div>
@@ -788,13 +800,13 @@ function ReplayGamePanel({
                 Biggest Swing · @ {Math.round(recap.biggestSwing.minute)} min
               </div>
               <div className="text-rift-mutedbright">
-                {recap.biggestSwing.description}
+                <MatchTeamMark side={recap.biggestSwing.side} /> <MatchEventDescription text={recap.biggestSwing.description} />
               </div>
             </div>
           )}
         </div>
       )}
-    </div>
+    </div></MatchPresentationProvider>
   );
 }
 
@@ -924,7 +936,7 @@ const DamageBars = memo(function DamageBars({
         {rows.map((r) => {
           const pct = (r.damage / maxDamage) * 100;
           const accentBar =
-            r.side === "blue" ? "bg-rift-blue" : "bg-rift-red";
+            "bg-rift-gold/70";
           return (
             <div key={`${r.side}-${r.laneIdx}`} className="flex items-center gap-2">
               {r.champion && (
@@ -935,9 +947,9 @@ const DamageBars = memo(function DamageBars({
                 />
               )}
               <div className="flex-1 min-w-0">
-                <div className="flex items-baseline justify-between gap-1">
-                  <span className="text-[10px] font-display tracking-wider text-rift-mutedbright truncate">
-                    {r.champion?.name ?? "—"}
+                <div className="flex items-center justify-between gap-1">
+                  <span className="flex min-w-0 items-center gap-1 text-[10px] font-display tracking-wider text-rift-mutedbright">
+                    <MatchTeamMark side={r.side} /> <MatchPlayerLabel side={r.side} lane={(r.side === "blue" ? game.blueRoles : game.redRoles)?.[r.laneIdx] ?? LANES[r.laneIdx].key} fallback={r.champion?.name} />
                   </span>
                   <span className="text-[9px] tabular-nums text-rift-mutedbright/65">
                     {Math.round(r.damage)}

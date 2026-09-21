@@ -3,7 +3,7 @@
 import { formatKda } from "@/lib/formatKda";
 
 import LaneIcon from "@/components/LaneIcon";
-import TeamName from "@/components/TeamName";
+import { MatchTeamMark } from "@/components/MatchPresentation";
 import PlayerNameLink from "@/components/player/PlayerNameLink";
 import type { LaneKDA,MatchTimeline } from "@/lib/matchSimulator";
 import type { Champion,Lane,Side } from "@/lib/types";
@@ -130,7 +130,6 @@ export function MVPCard({
   if (!mvp) return null;
   const champ = byId.get(mvp.championId);
   if (!champ) return null;
-  const sideName = mvp.side === "blue" ? blueTeam : redTeam;
   const mvpHandle =
     (mvp.side === "blue" ? bluePlayerNames : redPlayerNames)?.[
       LANE_ORDER.indexOf(mvp.lane)
@@ -188,7 +187,7 @@ export function MVPCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className={`text-[10px] md:text-[11px] font-display uppercase tracking-[0.35em] ${sideAccentText}`}>
-              <TeamName name={sideName} size={13} />
+              <MatchTeamMark side={mvp.side} name />
             </span>
             <span className="text-rift-mutedbright/40">·</span>
             <span className="flex items-center gap-1 text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright/70">

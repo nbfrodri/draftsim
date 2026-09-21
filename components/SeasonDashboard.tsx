@@ -1495,7 +1495,7 @@ function TournamentCard({
         ? Math.round((100 * done) / total)
         : 0;
   return (
-    <div className="border border-rift-line/50 bg-rift-bg/40 hover:border-rift-gold/40 transition-colors flex flex-col cv-auto">
+    <div data-testid="season-tournament-card" className="relative min-w-0 max-w-full overflow-hidden border border-rift-line/50 bg-rift-bg/40 hover:border-rift-gold/40 transition-colors flex flex-col after:pointer-events-none after:absolute after:inset-0 after:border after:border-inherit">
       {/* Completion strip — quick visual read of how far this stage is. */}
       <div className="h-1 bg-rift-line/25 overflow-hidden">
         <div
@@ -1522,7 +1522,7 @@ function TournamentCard({
             : `${done}/${tournament.matches.length}`}
         </span>
       </div>
-      <div className="px-3 py-2 flex-1">
+      <div className="px-3 py-2 flex-1 min-w-0">
         {playInQualified ? (
           <div>
             <div className="text-[8px] uppercase tracking-[0.3em] text-rift-bluebright/80 mb-1">

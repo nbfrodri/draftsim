@@ -1,4 +1,5 @@
 "use client";
+import { MatchTeamMark, MatchEventDescription } from "@/components/MatchPresentation";
 
 import { memo, useMemo } from "react";
 import {
@@ -621,21 +622,14 @@ function WinProbReplay({ timeline, events, biggestSwing }: ReplayProps) {
             {events.map((e, i) => (
               <div
                 key={i}
-                className="grid grid-cols-[2.5rem_0.6rem_1fr_3rem] items-center gap-2 px-1 py-1 border-b border-rift-line/15 last:border-b-0"
+                className="grid grid-cols-[2.5rem_1rem_1fr_3rem] items-center gap-2 px-1 py-1 border-b border-rift-line/15 last:border-b-0"
               >
                 <span className="tabular-nums text-rift-mutedbright/55 text-right">
                   {Math.round(e.minute)}&prime;
                 </span>
-                <span
-                  className={`block w-2 h-2 rounded-full ${
-                    e.side === "blue"
-                      ? "bg-rift-bluebright"
-                      : "bg-rift-redbright"
-                  }`}
-                  aria-hidden
-                />
+                <MatchTeamMark side={e.side} />
                 <span className="truncate text-rift-mutedbright/90">
-                  {e.description}
+                  <MatchEventDescription text={e.description} />
                 </span>
                 <span
                   className={`text-right tabular-nums font-display ${

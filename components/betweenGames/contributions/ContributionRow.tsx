@@ -1,4 +1,5 @@
 "use client";
+import { MatchTeamMark } from "@/components/MatchPresentation";
 
 import type { LaneKDA } from "@/lib/matchSimulator";
 import type { Archetype, CC, ChampionMeta, Phase } from "@/lib/championMeta";
@@ -146,6 +147,7 @@ export function ContributionRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2 mb-0.5">
           <div className="flex items-center gap-1.5 min-w-0">
+            <MatchTeamMark side={side} />
             {lane && <LaneIcon lane={lane} size="xs" />}
             <span
               className={`${accent} text-xs md:text-sm font-display tracking-wider truncate`}

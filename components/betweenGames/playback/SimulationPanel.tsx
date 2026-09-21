@@ -1,5 +1,9 @@
 "use client";
 
+import { MatchPresentationProvider } from "@/components/MatchPresentation";
+import { buildMatchPresentation } from "@/lib/matchPresentation";
+import { useDraftStore } from "@/store/draftStore";
+import { logoForTeamName } from "@/lib/season/realTeams";
 import TeamName from "@/components/TeamName";
 import type { SimulationResult } from "@/lib/matchSimulator";
 import { computeGameRatings } from "@/lib/matchSimulator";
@@ -70,6 +74,19 @@ export function SimulationPanel({
   bluePlayerIds?: (string | null)[];
   redPlayerIds?: (string | null)[];
 }) {
+  const tournamentTeams = useDraftStore(s => s.tournament?.teams);
+  const seasonTeams = useDraftStore(s => s.season?.teams);
+  const presentation = useMemo(() => {
+    const resolve = (name: string) => {
+      const tournamentMatches = tournamentTeams?.filter(t => t.name === name) ?? [];
+      const matches = tournamentMatches.length ? tournamentMatches : seasonTeams?.filter(t => t.name === name) ?? [];
+      return matches.length === 1 ? matches[0] : { name, logoUrl: logoForTeamName(name) ?? undefined };
+    };
+    return buildMatchPresentation({ blue: resolve(blueTeam), red: resolve(redTeam) }, byId, {
+      blue: { picks: bluePicks, roles: blueRoles, names: bluePlayerNames, ids: bluePlayerIds },
+      red: { picks: redPicks, roles: redRoles, names: redPlayerNames, ids: redPlayerIds },
+    });
+  }, [tournamentTeams, seasonTeams, blueTeam, redTeam, byId, bluePicks, redPicks, blueRoles, redRoles, bluePlayerNames, redPlayerNames, bluePlayerIds, redPlayerIds]);
   const duration = result.timeline.durationMinutes;
   const winnerIsBlue = result.winner === "blue";
 
@@ -238,6 +255,7 @@ export function SimulationPanel({
   };
 
   return (
+    <MatchPresentationProvider value={presentation}>
     <div className="border border-rift-gold/40 bg-rift-panel/60 p-4 md:p-6 space-y-4 md:space-y-5">
       {/* Header — predicted winner reveals only after the simulation finishes;
           during play we show "Simulating..." to preserve the live feel. */}
@@ -414,6 +432,6 @@ export function SimulationPanel({
           Apply
         </button>
       </div>
-    </div>
+    </div></MatchPresentationProvider>
   );
 }

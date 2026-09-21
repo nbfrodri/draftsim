@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeChampionTeamTournamentMvp,
   computeFinalsMvp,
+  computeTournamentAwards,
 } from "./awards";
 import type { TournamentState } from "./tournament";
 
@@ -152,5 +153,21 @@ describe("computeChampionTeamTournamentMvp", () => {
   it("returns null when nothing is decided", () => {
     const t = { teams: [], matches: [] } as unknown as TournamentState;
     expect(computeChampionTeamTournamentMvp(t)).toBeNull();
+  });
+});
+
+describe("season tournament MVP agreement", () => {
+  it("uses the season international champion MVP instead of the general rating leader", () => {
+    const t = { ...tournamentWithGroupAndFinal(), seasonStageKind: "international" as const };
+    expect(computeTournamentAwards(t).mvp).toEqual(computeChampionTeamTournamentMvp(t));
+    expect(computeTournamentAwards(t).mvp?.teamId).toBe("W");
+  });
+  it("uses finals MVP for domestic splits", () => {
+    const t = { ...tournamentWithGroupAndFinal(), seasonStageKind: "split" as const };
+    expect(computeTournamentAwards(t).mvp).toEqual(computeFinalsMvp(t));
+  });
+  it("does not award a season tournament MVP before a champion exists", () => {
+    const t = { ...finalOnly(), status: "in-progress" as const, seasonStageKind: "international" as const };
+    expect(computeTournamentAwards(t).mvp).toBeNull();
   });
 });

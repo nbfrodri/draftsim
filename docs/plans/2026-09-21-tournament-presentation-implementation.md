@@ -230,3 +230,28 @@ Build local final completado con `npm run desktop:build -- --ci`. Paquetes 0.8.0
 
 - `src-tauri/target/release/bundle/nsis/DraftSim_0.8.0_x64-setup.exe` (24,566,520 bytes).
 - `src-tauri/target/release/bundle/msi/DraftSim_0.8.0_x64_en-US.msi` (25,894,912 bytes).
+
+
+## 12. Identidad en partidos, MVP coherente y borde de First Stand
+
+Replay y simulación comparten la presentación de equipos y participantes: logos de equipo, nombres de jugadores y roles en eventos, contribuciones/daño y Game MVP. Se respetan los lados de cada juego y las identidades registradas; una plantilla actual no sustituye a un jugador histórico conocido. Las referencias ambiguas mantienen su texto original. El daño del replay sigue siendo una estimación derivada de KDA, señalada en la interfaz.
+
+El MVP mostrado dentro de los torneos de una realidad utiliza la misma selección que la temporada: MVP de la final para splits y MVP del campeón durante todo el evento para internacionales. Los torneos independientes conservan su criterio existente. No se reescriben premios archivados ni se modifica la persistencia.
+
+First Stand limita el ancho de las cards y permite desplazamiento dentro del bracket, evitando que el main event recorte su borde derecho después de los play-ins. La prueba de layout usa una fixture con ambos paneles a 1024 y 1440 px.
+
+Validación final: 1411 pruebas unitarias en 117 archivos; suite completa de 63 pruebas de navegador correcta; lint, TypeScript y export estático correctos. Las pruebas cubren identidades históricas, cambios de lado, MVP por ámbito, eventos en vivo y límites del bracket. Revisadas capturas de daño y Game MVP. Contratos y comportamiento documentados en `docs/domain-contracts.md` y `docs/interaction-and-execution.md`.
+
+Build local completado con `npm run desktop:build -- --ci`, manteniendo 0.9.1:
+
+- `src-tauri/target/release/bundle/nsis/DraftSim_0.9.1_x64-setup.exe` (24,564,688 bytes).
+- `src-tauri/target/release/bundle/msi/DraftSim_0.9.1_x64_en-US.msi` (25,903,104 bytes).
+
+Las interacciones se verificaron en navegador; no se instalaron los paquetes sobre los datos personales ni se verificó esta iteración en el WebView nativo. Este build local no publica un nuevo release.
+
+
+## 13. Follow-up: alignment and visible right-hand frames
+
+The earlier viewport-only assertion did not establish that the frame was visibly painted. Season cards now paint an inset overlay frame, constrain content overflow and omit content-visibility on the card itself. Added Worlds alongside First Stand, elimination-bracket fixtures and normal/hover screenshots. Replay player/team rows share flex center alignment.
+
+Validation: three focused browser tests pass in installed Microsoft Edge; screenshots of the main-event frame in both states and replay identities inspected. Lint, TypeScript and the Windows desktop build pass. NSIS and MSI local 0.9.1 installers regenerated. This is browser verification and successful packaging, not a native WebView interaction test or a new published release.
