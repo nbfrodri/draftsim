@@ -46,4 +46,6 @@ Hall list surfaces share the Records & Dynasties pager chrome via `HallPager` / 
 
 Timeline → By Season pads the season-list scrollport so archived-year card borders are not clipped. Season Recap Most MVPs drops the unused champion icon and aligns MVP/Rookie cards. Season Mode Rookie Class starts collapsed behind an explicit Show/Hide control.
 
+Timeline year résumés also render **Split Placements** (Winter / Spring / Summer × every region) from archived `splitPlacements`, with region icons and team logos. Legacy archives without full tables fall back to champion and runner-up.
+
 Presentation and DOM bounding only; no save, award or simulation rule changes.

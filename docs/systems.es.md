@@ -307,7 +307,7 @@ Todos mapean vía `tagSeason` → `TournamentTeam.form` / `.clutch` → `tournam
 
 - **Standings en vivo** — `computeStandings`, vidas triple-elim, records Swiss en motor torneo.
 - **Placements temporada** — `splitResults`, `intlResults` en `SeasonState`; etiquetas derivadas en `lib/season/placements.ts` (play-ins-exit vs playoffs-exit vs finalist).
-- **Hall of Seasons** — résumés `SeasonHistoryEntry`: campeones, arrays placement completos, All-Pro, `playerCareers`, logs transferencias, rosters por fase, meta inicio vs fin, matrices H2H, dynasty tiers, rivalidades.
+- **Hall of Seasons** — résumés `SeasonHistoryEntry`: campeones, arrays placement completos, All-Pro, `playerCareers`, logs transferencias, rosters por fase, meta inicio vs fin, matrices H2H, dynasty tiers, rivalidades. Timeline → By Season muestra Split Placements de cada año archivado: tablas de Winter, Spring y Summer para todas las regiones (`LEAGUE_IDS`), con logos de región y de equipo resueltos desde el archivo / catálogo embebido. Archivos antiguos sin `splitPlacements` caen a campeón y subcampeón.
 - **Tablas de carrera** — kills cross-season, MVPs, títulos regionales, apariciones/títulos internacionales por `playerId`.
 - **Exports** — XLSX (`historyExport.ts`), `.draftsim-reality.json`, códigos `REAL1:` ([`reality-sharing.md`](reality-sharing.md)).
 

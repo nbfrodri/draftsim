@@ -135,7 +135,7 @@ Records & Dynasties uses 20-row pages inside long boards. Previous/Next controls
 
 Records pagination buttons use bordered gold controls, directional chevrons and explicit hover/focus/disabled states. The Before/After strength indicator shows five filled/dimmed stars with an accessible rating label; it uses the shared half-step deriveStar result. A 4.5 rating displays four complete stars, a half-filled fifth star and an accessible numeric label. Season and tournament setup use a keyboard-accessible range from 1 to 5 in increments of 0.5.
 
-Timeline → By Season keeps a scrollable season list beside the selected résumé. The list scrollport pads its edges so card borders are not clipped when only one year is archived or when the list is shorter than the viewport height.
+Timeline → By Season keeps a scrollable season list beside the selected résumé. The list scrollport pads its edges so card borders are not clipped when only one year is archived or when the list is shorter than the viewport height. Each year résumé includes **Split Placements**: for Winter, Spring and Summer, every region lists its full finishing order with region artwork and team logos (`resolveTeamLogo`). Prefer archived `splitPlacements`; older seasons without that field show champion and runner-up only.
 
 
 ## Consistent typography, Swiss strength and rookie filters

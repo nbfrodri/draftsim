@@ -109,6 +109,34 @@ export function intlMainBracketSize(
   return full.length;
 }
 
+/** Full ordered placement list for one split × league (best first).
+ * Prefer archived `splitPlacements`; fall back to champion / runner-up only. */
+export function archivedSplitPlacements(
+  entry: SeasonHistoryEntry,
+  split: SplitId,
+  league: LeagueId,
+): SeasonHistoryTeamRef[] {
+  const full = entry.splitPlacements?.[split]?.[league];
+  if (full?.length) return full;
+  const out: SeasonHistoryTeamRef[] = [];
+  const champ = entry.splitChampions[split]?.[league];
+  if (champ) out.push(champ);
+  const runner = entry.splitRunnersUp?.[split]?.[league];
+  if (runner) out.push(runner);
+  return out;
+}
+
+/** Splits that have any domestic placement evidence for the Timeline résumé. */
+export function archivedSplitsWithPlacements(
+  entry: SeasonHistoryEntry,
+): SplitId[] {
+  return SPLIT_IDS.filter((split) =>
+    LEAGUE_IDS.some(
+      (league) => archivedSplitPlacements(entry, split, league).length > 0,
+    ),
+  );
+}
+
 /** 1-based domestic split finish, or null when unplaced / unknown. */
 export function teamSplitPlacement(
   entry: SeasonHistoryEntry,

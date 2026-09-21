@@ -46,6 +46,10 @@ type SeasonHistorySplitMvp,
 type SeasonHistoryTeamRef
 } from "@/lib/season/history";
 import {
+archivedSplitPlacements,
+archivedSplitsWithPlacements,
+} from "@/lib/season/placements";
+import {
 exportAllSeasonsXlsx,
 exportSeasonXlsx,
 } from "@/lib/season/historyExport";
@@ -492,6 +496,108 @@ function splitChampRoster(entry: SeasonHistoryEntry, split: SplitId, league: Lea
   };
 }
 
+/** Timeline résumé: full Winter / Spring / Summer tables for every region. */
+function SplitPlacementsPanel({
+  entry,
+  onNavigate,
+}: {
+  entry: SeasonHistoryEntry;
+  onNavigate?: NavFn;
+}) {
+  const splits = archivedSplitsWithPlacements(entry);
+  if (splits.length === 0) return null;
+  const legacyOnly = !entry.splitPlacements;
+  return (
+    <div className="cv-section" role="region" aria-label="Split placements">
+      <div className="flex items-baseline justify-between gap-3 mb-1.5 min-w-0">
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60">
+          Split Placements
+        </div>
+        {legacyOnly && (
+          <div className="text-[9px] italic text-rift-muted/60 truncate">
+            Full tables unavailable — champion and runner-up only
+          </div>
+        )}
+      </div>
+      <div className="space-y-3">
+        {splits.map((split) => (
+          <div
+            key={split}
+            className="border border-rift-line/40 bg-rift-bg/30 px-3 py-2"
+          >
+            <div className="text-[8px] uppercase tracking-[0.3em] text-rift-gold/60 mb-2">
+              {SPLIT_LABELS[split]}
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-3">
+              {LEAGUE_IDS.map((league) => {
+                const teams = archivedSplitPlacements(entry, split, league);
+                if (teams.length === 0) return null;
+                return (
+                  <div key={league} className="min-w-0">
+                    <div className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
+                      <LeagueIcon league={league} size={16} />
+                      {league}
+                    </div>
+                    <ol className="space-y-1">
+                      {teams.map((team, idx) => {
+                        const rank = idx + 1;
+                        const logoUrl = resolveTeamLogo(team.name, team.logoUrl);
+                        return (
+                          <li
+                            key={`${team.leagueId}:${team.name}:${rank}`}
+                            className={`flex items-center gap-1.5 text-[10px] min-w-0 ${
+                              rank === 1
+                                ? "text-rift-goldbright"
+                                : rank === 2
+                                  ? "text-rift-mutedbright"
+                                  : "text-rift-muted/80"
+                            }`}
+                          >
+                            <span className="w-4 tabular-nums text-rift-muted/70 flex-shrink-0">
+                              {rank}.
+                            </span>
+                            <TeamNameLink
+                              name={team.name}
+                              leagueId={team.leagueId}
+                              seasonId={entry.id}
+                              phaseScope={split}
+                              iconKey={team.iconKey}
+                              logoUrl={logoUrl}
+                              color={team.color}
+                              showLogo
+                              logoSize={14}
+                              className={`min-w-0 flex-1 truncate text-[10px] ${
+                                rank === 1
+                                  ? "text-rift-goldbright"
+                                  : rank === 2
+                                    ? "text-rift-mutedbright"
+                                    : "text-rift-muted/80"
+                              }`}
+                              hint={{
+                                name: team.name,
+                                leagueId: team.leagueId,
+                                iconKey: team.iconKey,
+                                logoUrl: team.logoUrl,
+                                color: team.color,
+                              }}
+                              noNavigate={!onNavigate}
+                              renderAs={onNavigate ? "button" : "span"}
+                            />
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // One season's full résumé panel.
 function SeasonDetail({
   entry,
@@ -644,6 +750,9 @@ function SeasonDetail({
           </div>
         </div>
       )}
+
+      {/* Full domestic tables — every region, Winter / Spring / Summer */}
+      <SplitPlacementsPanel entry={entry} onNavigate={onNavigate} />
 
       {/* International event MVPs — a player from each event's champion team */}
       {entry.intlMvps && entry.intlMvps.length > 0 && (

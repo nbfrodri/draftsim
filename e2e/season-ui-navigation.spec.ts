@@ -115,6 +115,15 @@ test("timeline region order matches for champions and MVPs and region strength h
     await expect(champions.getByText(league, { exact: true })).toHaveCount(1);
   }
   await champions.screenshot({ path: "test-results/playwright/split-champions.png" });
+  const placements = page.getByRole("region", { name: "Split placements", exact: true });
+  await expect(placements).toBeVisible();
+  await expect(placements.getByText("Winter Split", { exact: true })).toBeVisible();
+  for (const league of LEAGUE_IDS) {
+    await expect(placements.getByText(league, { exact: true })).toHaveCount(1);
+  }
+  await expect(placements.locator('img[src*="league-logos"]')).toHaveCount(LEAGUE_IDS.length);
+  await expect(placements.getByText("1.", { exact: true })).toHaveCount(LEAGUE_IDS.length);
+  await placements.screenshot({ path: "test-results/playwright/split-placements.png" });
   const mvps = page.getByText("Split MVPs", { exact: true }).locator("..");
   const logos = await mvps.locator('img[src*="league-logos"]').evaluateAll(nodes => nodes.map(n => n.getAttribute("src")));
   expect(logos).toEqual(LEAGUE_IDS.map(id => `/league-logos/${id}.png`));

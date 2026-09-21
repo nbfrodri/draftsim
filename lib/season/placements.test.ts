@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { SeasonHistoryEntry } from "./history";
 import {
+  archivedSplitPlacements,
+  archivedSplitsWithPlacements,
   intlOutcomeLabel,
   teamIntlOutcome,
   teamIntlPlacement,
@@ -32,6 +34,35 @@ function entry(parts: Partial<SeasonHistoryEntry>): SeasonHistoryEntry {
     ...parts,
   } as SeasonHistoryEntry;
 }
+
+describe("archivedSplitPlacements", () => {
+  it("returns the full league table when archived", () => {
+    const e = entry({
+      splitPlacements: {
+        winter: { LCK: [teamRef("T1"), teamRef("Gen.G"), teamRef("HLE")] },
+      },
+    });
+    expect(archivedSplitPlacements(e, "winter", "LCK").map((t) => t.name)).toEqual([
+      "T1",
+      "Gen.G",
+      "HLE",
+    ]);
+    expect(archivedSplitsWithPlacements(e)).toEqual(["winter"]);
+  });
+
+  it("falls back to champion and runner-up when full tables are missing", () => {
+    const e = entry({
+      splitChampions: { spring: { LEC: teamRef("G2", "LEC") } },
+      splitRunnersUp: { spring: { LEC: teamRef("FNC", "LEC") } },
+    });
+    expect(archivedSplitPlacements(e, "spring", "LEC").map((t) => t.name)).toEqual([
+      "G2",
+      "FNC",
+    ]);
+    expect(archivedSplitPlacements(e, "spring", "LCK")).toEqual([]);
+    expect(archivedSplitsWithPlacements(e)).toEqual(["spring"]);
+  });
+});
 
 describe("teamSplitPlacement", () => {
   it("reads full placement arrays when archived", () => {
