@@ -38,6 +38,17 @@ La carga de historiales es perezosa para realidades inactivas. `history: []` pue
 
 Antes de exportar una realidad completa o trabajar con su Hall puede ser necesario cargar sus filas históricas. Validar el JSON exportado no detecta que faltan años si se construyó sobre un array perezoso vacío.
 
+
+### Carga lenta y restauración durante la recuperación
+
+El límite de 45 segundos abre la pantalla de recuperación y mantiene las escrituras bloqueadas; no acredita corrupción de la copia. El diagnóstico incluye el último paso de carga (conexión, esquema, copia preventiva de actualización, fragmentos, realidad activa o preparación de recaps), sin nombres ni rutas personales. El mensaje de consola ya no describe este estado como una puerta de escritura abierta.
+
+Restaurar incrementa la generación de lectura y mantiene una pausa independiente del resultado de hidratación. Una lectura asíncrona anterior se rechaza antes de que Zustand pueda instalarla. La finalización tardía de una hidratación no levanta la pausa de restauración; al fallar una carga, cancelar la restauración tampoco habilita escrituras por accidente.
+
+La validación nativa de copias comprueba JSON y tipo objeto dentro de SQLite para estado, temporadas e historiales. Los fragmentos admiten cualquier valor JSON válido, pero conservan la comprobación de manifiesto y referencias. Se mantienen `integrity_check`, claves foráneas, validación de versiones y retención de copias; los grandes árboles competitivos ya no se materializan como `serde_json::Value` para validarlos. Esto reduce el coste de la copia preventiva de formato 8 y del paso «Preserve current data» al restaurar.
+
+Comprobación local en perfil debug con un fixture sintético de 32 MB: lectura y construcción del árbol Rust, 1.920 ms; validación de JSON/tipo dentro de SQLite, 91 ms. Es una medida de esa fase, no del tiempo total de restauración ni de una partida personal. Las pruebas cubren JSON malformado, valores de tipo incorrecto, fragmentos ausentes, WAL, rollback y lecturas tardías durante recuperación.
+
 ## 4. Cola de escritura
 
 `lib/desktopSqliteStorage.ts` recibe snapshots del middleware de Zustand. Agrupa cambios con un debounce de 500 ms y mantiene una operación en vuelo. El flush drena también los snapshots que llegan mientras se espera una escritura anterior.
@@ -163,3 +174,10 @@ El cambio de realidad carga temporada e historial, drena escrituras pendientes y
 El guardado del año en curso no depende de su archivo anual: partidos y plantillas actuales viven en `realities.season_json` y en el fragmento activo, aunque el Hall esté vacío. Tras abrir una temporada queda en memoria hasta finalizar la sesión; esta implementación no aplica una política de expulsión.
 
 La sección de diagnósticos en Backups habilita métricas solo durante la sesión. `global-encode`, `season-encode`, `history-encode`, `plan`, `commit` y `flush` son fases anidadas: sus tiempos no deben sumarse como si fueran independientes. `commit` incluye IPC y transacción. El buffer de 200 registros puede descartar muestras antiguas en operaciones grandes. Desactivar o limpiar invalida también mediciones en vuelo. Los JSON exportados contienen únicamente métricas; no incluyen datos competitivos ni rutas.
+
+
+### Hall history load flags and dev reloads
+
+Lazy dormant histories are represented by empty placeholders. Populated history arrays are complete archives and must be persisted even when a module reload has lost its transient loaded-ID set. The Hall loader preserves populated store history instead of replacing it with a possibly empty/older DB read. Explicitly unloaded empty arrays remain protected from delete reconciliation. A regression clears load flags between five real rollovers and SQLite save/load boundaries.
+
+Concurrent requests for the same reality object share one read and write-drain sequence. A fully read SQLite history can be registered as already synchronized when it is installed after older queued snapshots are drained. This avoids re-encoding/upserting unchanged history solely because the Hall was opened. Later immutable edits still trigger normal transactional reconciliation; failed reads or changed/cancelled targets are not installed. The unchanged-history regression verifies zero write statements, and separately checks that a later deletion is persisted.

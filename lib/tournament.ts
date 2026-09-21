@@ -1,3 +1,4 @@
+import { normalizeTeamStars } from "./teamStars";
 // Tournament / league mode — pure data + bracket math.
 //
 // Phase 1 ships single-elimination only with power-of-2 team counts (2/4/8).
@@ -366,7 +367,7 @@ export function teamStarRating(team: TournamentTeam | null): number {
   }
   const r = team.starRating;
   if (typeof r !== "number" || !Number.isFinite(r)) return 3;
-  return Math.max(1, Math.min(5, Math.round(r)));
+  return normalizeTeamStars(r);
 }
 
 // Per-team chronological ordering of matches. Sorting by `round` alone

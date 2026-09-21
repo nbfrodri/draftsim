@@ -16,6 +16,7 @@ import { createPortal } from "react-dom";
 
 import { isDesktop } from "@/lib/desktopStorage";
 import type { TeamCardData } from "@/lib/season/teamCard";
+import MarketTeamRosterCard from "./MarketTeamRosterCard";
 import LaneIcon from "../LaneIcon";
 import LeagueIcon from "../LeagueIcon";
 import TeamIcon from "../TeamIcon";
@@ -539,7 +540,7 @@ export default function TeamHoverCard({
               canOpenProfile ? " cursor-pointer" : ""
             }`}
           >
-            <TeamCardBody data={data} clickable={canOpenProfile} />
+            {hint?.marketSnapshot !== undefined ? <MarketTeamRosterCard snapshot={hint.marketSnapshot} data={data} /> : <TeamCardBody data={data} clickable={canOpenProfile} />}
           </div>,
           document.body,
         )

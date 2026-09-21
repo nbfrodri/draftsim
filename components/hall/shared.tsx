@@ -188,7 +188,9 @@ export const TeamRef = memo(function TeamRef({
   nested = false,
   seasonId: seasonIdProp,
   phaseScope,
+  marketSnapshot,
 }: {
+  marketSnapshot?: import("@/lib/season/marketSnapshots").MarketTeamSnapshot | null;
   team: SeasonHistoryTeamRef;
   size?: number;
   muted?: boolean;
@@ -223,6 +225,7 @@ export const TeamRef = memo(function TeamRef({
         muted ? "text-rift-mutedbright" : "text-rift-goldbright"
       }`}
       hint={{
+        ...(marketSnapshot !== undefined ? { marketSnapshot } : {}),
         name: team.name,
         leagueId: team.leagueId,
         iconKey: team.iconKey,

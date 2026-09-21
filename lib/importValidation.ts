@@ -89,12 +89,20 @@ const player = (p: unknown): boolean => record(p) && enumeration(p.lane, lanes) 
   enumeration(p.tier, tiers) && numbers(p.goodChamps) && numbers(p.badChamps) &&
   ["id", "name"].every(k => optional(p[k], x => typeof x === "string")) &&
   ["age", "debutYear"].every(k => optional(p[k], integer)) && optional(p.potential, x => enumeration(x, tiers));
+const marketSnapshots = (value: unknown): boolean => arrayOf(value, snapshot => record(snapshot) &&
+  text(snapshot.teamId) && text(snapshot.name) && enumeration(snapshot.leagueId, LEAGUE_IDS) &&
+  typeof snapshot.color === "string" && typeof snapshot.iconKey === "string" && optional(snapshot.logoUrl, text) &&
+  ["academyBefore", "academyAfter"].every(key => optional(snapshot[key], entries => arrayOf(entries, player))) &&
+  [snapshot.before, snapshot.after].every(roster => Array.isArray(roster) && roster.length <= 5 && roster.every(player)));
 const coach = (c: unknown): boolean => record(c) && text(c.id) && text(c.name) &&
   text(c.personalityId) && finite(c.rating) && c.rating >= 1 && c.rating <= 5 &&
   ["adaptability", "motivation"].every(k => finite(c[k]) && (c[k] as number) >= 0 && (c[k] as number) <= 1);
+const inactiveTenure = (v: unknown): boolean => record(v) && integer(v.academyYears) && integer(v.freeAgentYears);
+const retirement = (v: unknown): boolean => record(v) && enumeration(v.from, ["academy", "free-agent"]) &&
+  ["age", "academyYears", "freeAgentYears"].every(k => optional(v[k], integer));
 const inactive = (p: unknown): boolean => record(p) && player(p.player) &&
   enumeration(p.status, ["academy", "free-agent", "retired"]) && integer(p.inactiveYears) &&
-  integer(p.demotedYear) && typeof p.lastTeamId === "string";
+  integer(p.demotedYear) && optional(p.inactiveTenure, inactiveTenure) && typeof p.lastTeamId === "string";
 const demand = (d: unknown): boolean => record(d) &&
   ["id", "playerId", "fromTeamId"].every(k => text(d[k])) && enumeration(d.lane, lanes) &&
   enumeration(d.playerTier, tiers) && enumeration(d.kind, ["leave", "call-up", "depart-academy"]) &&
@@ -183,7 +191,7 @@ export function validSeason(v: unknown): v is SeasonState {
     (p.kind !== "split" || enumeration(p.split, ["winter", "spring", "summer"])) &&
     (p.kind === "split" || enumeration(p.event, ["first-stand", "msi", "worlds", "global-cup"])) &&
     (p.status === "pending" || p.tournamentIds.every(id => Object.hasOwn(v.tournaments as Obj, id))))) return false;
-  const originRows = (rows: unknown) => Array.isArray(rows) && rows.every(row => record(row) && optional(row.origin, validMarketOrigin));
+  const originRows = (rows: unknown) => Array.isArray(rows) && rows.every(row => record(row) && optional(row.origin, validMarketOrigin) && optional(row.retirement, retirement) && optional(row.departedDestination, x => x === "academy") && optional(row.teamSnapshots, marketSnapshots));
   if (!optional(v.rosterNews, originRows) || !optional(v.transfersByEvent, value => record(value) && Object.values(value).every(originRows))) return false;
   return optional(v.offseasonRosterNewsBaseline, integer) &&
     nullableText(v.champion) && (v.champion === null || teamIds.has(v.champion)) &&
@@ -244,11 +252,18 @@ export function validHistoryEntry(v: unknown): boolean {
       requiredTeam(r.teamA) && requiredTeam(r.teamB) && ["meetings", "aWins", "bWins"].every(k => integer(r[k])) &&
       optional(r.byScope, scopes => arrayOf(scopes, q => record(q) && text(q.scope) &&
         ["meetings", "aWins", "bWins"].every(k => integer(q[k]))))))) ||
-    !optional(v.transfers, rows => arrayOf(rows, t => record(t) && team(t.from) && team(t.to) &&
-      optional(t.origin, validMarketOrigin) && enumeration(t.lane, lanes) && enumeration(t.inTier, tiers) && enumeration(t.outTier, tiers))) ||
+    !optional(v.franchiseYear, x => integer(x) && (x as number) >= 1) ||
+    !optional(v.marketNews, rows => arrayOf(rows, n => record(n) && optional(n.teamSnapshots, marketSnapshots) && team(n.team) &&
+      enumeration(n.lane, lanes) && typeof n.entrantName === "string" &&
+      enumeration(n.entrantSource, ["rookie", "academy", "free-agent"]) &&
+      enumeration(n.entrantTier, tiers) && enumeration(n.entrantPotential, tiers) &&
+      optional(n.origin, validMarketOrigin) && optional(n.retirement, retirement) && optional(n.departedDestination, x => x === "academy") &&
+      ["entrantId", "departedId", "departedName", "timeMark", "marketNote"].every(k => optional(n[k], x => typeof x === "string")))) ||
+    !optional(v.transfers, rows => arrayOf(rows, t => record(t) && optional(t.teamSnapshots, marketSnapshots) && team(t.from) && team(t.to) &&
+      optional(t.inId, text) && optional(t.outId, text) && optional(t.origin, validMarketOrigin) && enumeration(t.lane, lanes) && enumeration(t.inTier, tiers) && enumeration(t.outTier, tiers))) ||
     !optional(v.inactivePlayers, rows => arrayOf(rows, p => record(p) && text(p.playerId) &&
       enumeration(p.lane, lanes) && enumeration(p.tier, tiers) &&
-      enumeration(p.status, ["academy", "free-agent", "retired"]) && integer(p.inactiveYears) && integer(p.demotedYear)))) return false;
+      enumeration(p.status, ["academy", "free-agent", "retired"]) && integer(p.inactiveYears) && integer(p.demotedYear) && optional(p.inactiveTenure, inactiveTenure)))) return false;
   if (!optional(v.initialMetaOverride, tierMap) || !optional(v.finalMetaOverride, tierMap)) return false;
   return team(v.champion) && team(v.runnerUp) && Object.values(v.intlChampions).every(team) &&
     Object.values(v.splitChampions).every(x => record(x) && Object.values(x).every(team));

@@ -21,6 +21,8 @@ import {
   type SeasonPlayerOutcome,
 } from "./playerLifecycle";
 import {
+  makeRetiredNews,
+  toFreeAgentFromAcademy,
   NEUTRAL_META,
   bumpOldestAcademyToFa,
   releaseAcademyToFa,
@@ -1239,4 +1241,18 @@ describe("rookie name reservations", () => {
     const rookie = makeRookie("top", champions, rng(123), taken);
     expect(rookie.name!.toLowerCase()).not.toBe(original.name!.toLowerCase());
   });
+});
+
+it("counts observed inactive years across academy/FA transitions and freezes retirement provenance", () => {
+  const entry: InactivePlayer = { player: player({ id: "tracked", age: 20 }), status: "academy", inactiveYears: 1, demotedYear: 1, clockYear: 1, lastTeamId: "team", inactiveTenure: { academyYears: 0, freeAgentYears: 0 } };
+  const academy = advanceInactivePool([entry], rng(71), champions, 1)[0];
+  expect(academy.inactiveTenure).toEqual({ academyYears: 1, freeAgentYears: 0 });
+  const fa = toFreeAgentFromAcademy(academy, 2);
+  const advanced = advanceInactivePool([fa], rng(72), champions, 2)[0];
+  expect(advanced.inactiveTenure).toEqual({ academyYears: 1, freeAgentYears: 1 });
+  expect(entry.inactiveTenure).toEqual({ academyYears: 0, freeAgentYears: 0 });
+  expect(makeRetiredNews({ ...advanced, status: "retired" }, fa).retirement).toEqual({ from: "free-agent", age: advanced.player.age, academyYears: 1, freeAgentYears: 1 });
+  const legacy = { ...entry, inactiveTenure: undefined };
+  const oldAdvanced = advanceInactivePool([legacy], rng(73), champions, 1)[0];
+  expect(makeRetiredNews({ ...oldAdvanced, status: "retired" }, legacy).retirement).toEqual({ from: "academy", age: oldAdvanced.player.age });
 });

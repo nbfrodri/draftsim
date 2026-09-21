@@ -1,3 +1,5 @@
+import type { MarketInactive } from "./faMarket";
+import { captureMarketTeamSnapshots } from "./marketSnapshots";
 import { belongsToMarketWindow, marketOrigin } from "./marketOrigin";
 // Between-splits player transfers — a light, fully automatic free-agency
 // window. After a split wraps (and player development has run), standout
@@ -417,9 +419,10 @@ export function applyTransfers(
         });
         continue;
       }
+      const rosterBefore = structuredClone([a, b]);
       a.players[li] = settle(pb, b.leagueId, a.leagueId);
       b.players[li] = settle(pa, a.leagueId, b.leagueId);
-      transfers.push({ origin: marketOrigin(season, event), event, lane, fromTeamId: aTeamId, toTeamId: bTeamId, star: starSnap, swap: swapSnap });
+      transfers.push({ teamSnapshots: captureMarketTeamSnapshots(rosterBefore, [a, b], [a.id, b.id], { before: season.franchise?.inactivePool ?? [], after: season.franchise?.inactivePool ?? [] }), origin: marketOrigin(season, event), event, lane, fromTeamId: aTeamId, toTeamId: bTeamId, star: starSnap, swap: swapSnap });
       bump(aTeamId);
       bump(bTeamId);
     }
@@ -506,6 +509,7 @@ export function resolveTransfer(
   // Log into the window recap, oriented star (up) → swap (down).
   const incoming = prop.kind === "incoming";
   const record: PlayerTransfer = {
+    teamSnapshots: captureMarketTeamSnapshots(season.teams, teams, [a.id, b.id], { before: season.franchise?.inactivePool ?? [], after: season.franchise?.inactivePool ?? [] }),
     origin: marketOrigin(season, prop.event),
     event: prop.event,
     lane: prop.lane,
@@ -833,6 +837,7 @@ export function executeUserTransfer(
   const themSnap = snapshot(pThem, theirGrade);
   const themBetter = vThem >= vMine;
   const record: PlayerTransfer = {
+    teamSnapshots: captureMarketTeamSnapshots(season.teams, teams, [m2.id, o2.id], { before: season.franchise?.inactivePool ?? [], after: season.franchise?.inactivePool ?? [] }),
     origin: marketOrigin(season, event),
     event,
     lane,
@@ -870,6 +875,7 @@ export function offseasonTransferPass(
   // seed each involved team's count so the auto market respects the per-team
   // cap including swaps the user already triggered with them.
   priorMoves: readonly PlayerTransfer[] = [],
+  inactivePool: readonly MarketInactive[] = [],
 ): { teams: SeasonTeam[]; moves: PlayerTransfer[] } {
   const map = new Map(teams.map((t) => [t.id, { ...t, players: [...t.players] }]));
   const moves: PlayerTransfer[] = [];
@@ -918,11 +924,13 @@ export function offseasonTransferPass(
         crossRegionBlocked(pb, b.leagueId, a.leagueId)
       )
         continue;
+      const rosterBefore = structuredClone([a, b]);
       a.players[li] = settle(pb, b.leagueId, a.leagueId, true); // offseason: preseason to adjust
       b.players[li] = settle(pa, a.leagueId, b.leagueId, true);
       bump(aTeamId);
       bump(bTeamId);
       moves.push({
+        teamSnapshots: captureMarketTeamSnapshots(rosterBefore, [a, b], [a.id, b.id], { before: inactivePool, after: inactivePool }),
         event: "worlds",
         lane,
         fromTeamId: aTeamId,
@@ -1022,6 +1030,7 @@ export function executeOffseasonUserTransfer(
   const themSnap = snapshot(pThem, theirGrade);
   const themBetter = vThem >= vMine;
   const record: PlayerTransfer = {
+    teamSnapshots: captureMarketTeamSnapshots(season.teams, teams, [m2.id, o2.id], { before: season.franchise?.inactivePool ?? [], after: season.franchise?.inactivePool ?? [] }),
     origin: marketOrigin(season, OFFSEASON),
     event: OFFSEASON,
     lane,

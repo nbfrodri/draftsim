@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { forcePersistReady } from "@/lib/desktopStorage";
+import { forcePersistReady, isPersistReady } from "@/lib/desktopStorage";
 import AppLifecycleShell from "./AppLifecycleShell";
 
 /** Last-resort unlock if async hydrate never settles (corrupt DB, hung I/O). */
@@ -14,7 +14,10 @@ const HYDRATE_TIMEOUT_MS = 45_000;
  */
 export default function AppStartupLoading() {
   useEffect(() => {
-    const timer = setTimeout(() => forcePersistReady(), HYDRATE_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      // A long synchronous decode may finish before React unmounts this shell.
+      if (!isPersistReady()) forcePersistReady();
+    }, HYDRATE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, []);
 

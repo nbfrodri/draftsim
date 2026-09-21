@@ -1,3 +1,4 @@
+import { normalizeTeamStars } from "./teamStars";
 import type { Champion, Lane, Player, PlayerTier, Roster } from "./types";
 import { getMetaTiers, type MetaTier } from "./championMeta";
 
@@ -103,14 +104,14 @@ export function valueToTier(v: number): PlayerTier {
   return (["D", "C", "B", "A", "S", "S+"] as PlayerTier[])[idx];
 }
 
-// Derive a 1..5 star rating from a roster: rounded mean tier-value recentred
+// Derive a 1..5 star rating from a roster: half-step rounded mean tier-value recentred
 // on 3. 5×S → 5, all B → 3, 5×D → 1. Empty/missing → 3 (neutral).
-export function deriveStar(roster: Roster | null | undefined): number {
+export function deriveStar(roster: ReadonlyArray<{ tier: PlayerTier }> | null | undefined): number {
   if (!roster || roster.length === 0) return 3;
   const mean =
     roster.reduce((sum, p) => sum + PLAYER_TIER_VALUE[p.tier], 0) /
     roster.length;
-  return clamp(Math.round(3 + mean), 1, 5);
+  return normalizeTeamStars(3 + mean);
 }
 
 // Lanes a champion can be drafted into. Mirrors the meta editor's union of
@@ -230,7 +231,7 @@ export function randomizeTiersForStar(
   star: number,
   rng: RNG = Math.random,
 ): PlayerTier[] {
-  const target = clamp(Math.round(star), 1, 5);
+  const target = normalizeTeamStars(star);
   const base = target - 3; // target mean in tier-value units, [-2, 2]
   const SPREAD = 1.1;
   const values: number[] = [];
@@ -239,7 +240,7 @@ export function randomizeTiersForStar(
     values.push(clamp(Math.round(base + jitter), -2, 2));
   }
   const starOf = (vs: number[]) =>
-    clamp(Math.round(3 + vs.reduce((s, v) => s + v, 0) / vs.length), 1, 5);
+    normalizeTeamStars(3 + vs.reduce((s, v) => s + v, 0) / vs.length);
   let guard = 0;
   while (starOf(values) !== target && guard++ < 200) {
     const tooLow = starOf(values) < target;
@@ -356,15 +357,17 @@ export function emptyRoster(): Roster {
   }));
 }
 
-// A uniform roster whose every player sits at the tier matching `star` (so
-// deriveStar(result) === star), with empty pools. Deterministic — no RNG or
+// A deterministic adjacent-tier roster matching the normalized `star` target,
+// with empty pools. Integer targets remain uniform. Deterministic — no RNG or
 // champion list needed. Used as a legacy fallback when filling rosters for
 // teams persisted before this feature existed (they carry only a starRating).
 export function rosterFromStar(star: number): Roster {
-  const tier = valueToTier(clamp(Math.round(star), 1, 5) - 3);
-  return LANE_ORDER.map((lane) => ({
+  const total = Math.round((normalizeTeamStars(star) - 3) * LANE_ORDER.length);
+  const base = Math.floor(total / LANE_ORDER.length);
+  const higher = total - base * LANE_ORDER.length;
+  return LANE_ORDER.map((lane, index) => ({
     lane,
-    tier,
+    tier: valueToTier(base + (index < higher ? 1 : 0)),
     goodChamps: [],
     badChamps: [],
   }));

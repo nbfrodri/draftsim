@@ -57,12 +57,16 @@ async fn read_summary(path: &Path, verify_contents: bool) -> Result<(Vec<String>
         if verify_contents {
             let violations = sqlx::query("PRAGMA foreign_key_check").fetch_all(&mut db).await.map_err(err)?;
             if !violations.is_empty() { return Err("Backup contains broken references".into()); }
-            for table in ["SELECT state_json AS value FROM global_state", "SELECT season_json AS value FROM realities", "SELECT entry_json AS value FROM reality_history"] {
-                for row in sqlx::query(table).fetch_all(&mut db).await.map_err(err)? {
-                    let value: String = row.get("value");
-                    let parsed: serde_json::Value = serde_json::from_str(&value).map_err(err)?;
-                    if !parsed.is_object() { return Err("Invalid saved data in backup".into()); }
-                }
+            // Validate in SQLite instead of allocating a Rust JSON tree for every
+            // season and archived match. This also bounds IPC/host memory during
+            // migration backups and retention of many large snapshots.
+            for query in [
+                "SELECT COUNT(*) FROM global_state WHERE CASE WHEN json_valid(state_json) THEN json_type(state_json) != 'object' ELSE 1 END",
+                "SELECT COUNT(*) FROM realities WHERE CASE WHEN json_valid(season_json) THEN json_type(season_json) != 'object' ELSE 1 END",
+                "SELECT COUNT(*) FROM reality_history WHERE CASE WHEN json_valid(entry_json) THEN json_type(entry_json) != 'object' ELSE 1 END",
+            ] {
+                let (invalid,): (i64,) = sqlx::query_as(query).fetch_one(&mut db).await.map_err(err)?;
+                if invalid != 0 { return Err("Invalid saved data in backup".into()); }
             }
         }
         if version.as_ref().is_some_and(|(v,)| v == "8") {
@@ -72,12 +76,11 @@ async fn read_summary(path: &Path, verify_contents: bool) -> Result<(Vec<String>
                 .fetch_one(&mut db).await.map_err(err)?;
             if tables != 2 { return Err("Missing storage format 8 tables".into()); }
             if verify_contents {
-                let fragments = sqlx::query("SELECT store_key, fragment_key, value_json FROM global_fragments")
+                let (invalid,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM global_fragments WHERE COALESCE(json_valid(value_json), 0) = 0")
+                    .fetch_one(&mut db).await.map_err(err)?;
+                if invalid != 0 { return Err("Invalid global fragment in backup".into()); }
+                let fragments = sqlx::query("SELECT store_key, fragment_key FROM global_fragments")
                     .fetch_all(&mut db).await.map_err(err)?;
-                for row in &fragments {
-                    let value: String = row.get("value_json");
-                    serde_json::from_str::<serde_json::Value>(&value).map_err(err)?;
-                }
                 for row in sqlx::query("SELECT store_key, state_json FROM global_state").fetch_all(&mut db).await.map_err(err)? {
                     let store_key: String = row.get("store_key");
                     let root: serde_json::Value = serde_json::from_str(&row.get::<String, _>("state_json")).map_err(err)?;
@@ -583,6 +586,43 @@ mod tests {
             std::fs::remove_dir_all(root).unwrap();
         });
     }
+    #[test]
+    fn backup_validation_rejects_invalid_payloads_without_materializing_trees() {
+        tauri::async_runtime::block_on(async {
+            let root = std::env::temp_dir().join(format!("draftsim-json-validation-{}", now()));
+            std::fs::create_dir(&root).unwrap();
+            let path = root.join("fixture.db");
+            let options = sqlx::sqlite::SqliteConnectOptions::new().filename(&path).create_if_missing(true);
+            let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+            sqlx::query("CREATE TABLE schema_meta (key TEXT, value TEXT); CREATE TABLE meta_config (value TEXT); CREATE TABLE global_state (store_key TEXT, state_json TEXT); CREATE TABLE realities (name TEXT, year INTEGER, season_json TEXT); CREATE TABLE reality_history (entry_json TEXT); CREATE TABLE global_fragments (store_key TEXT, fragment_key TEXT, value_json TEXT); CREATE TABLE reality_catalog (reality_id TEXT, summary_json TEXT)").execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO schema_meta VALUES ('persist_version', '8'); INSERT INTO global_state VALUES ('save', '{\"_draftsimFragments\":[\"season\"]}'); INSERT INTO realities VALUES ('Fixture', 1, '{}'); INSERT INTO reality_history VALUES ('{}'); INSERT INTO global_fragments VALUES ('save', 'season', '{}')").execute(&pool).await.unwrap();
+            assert!(inspect(&path).await.is_ok());
+            for (table, column, original) in [
+                ("global_state", "state_json", r#"{"_draftsimFragments":["season"]}"#),
+                ("realities", "season_json", "{}"),
+                ("reality_history", "entry_json", "{}"),
+            ] {
+                let update = format!("UPDATE {table} SET {column} = ?");
+                for invalid in [Some("{broken"), Some("[]"), Some("null"), Some("true"), Some("12"), Some("\"text\""), None] {
+                    sqlx::query(&update).bind(invalid).execute(&pool).await.unwrap();
+                    assert!(inspect(&path).await.is_err(), "accepted invalid {table}: {invalid:?}");
+                }
+                sqlx::query(&update).bind(original).execute(&pool).await.unwrap();
+                assert!(inspect(&path).await.is_ok());
+            }
+            for valid in ["null", "[]", "{}", "true", "12", "\"text\""] {
+                sqlx::query("UPDATE global_fragments SET value_json = ?").bind(valid).execute(&pool).await.unwrap();
+                assert!(inspect(&path).await.is_ok());
+            }
+            for invalid in [Some("{broken"), Some(""), None] {
+                sqlx::query("UPDATE global_fragments SET value_json = ?").bind(invalid).execute(&pool).await.unwrap();
+                assert!(inspect(&path).await.is_err());
+            }
+            pool.close().await;
+            std::fs::remove_dir_all(root).unwrap();
+        });
+    }
+
     #[test]
     fn snapshot_captures_wal_and_rejects_corruption() {
         tauri::async_runtime::block_on(async {

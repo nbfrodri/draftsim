@@ -1,4 +1,6 @@
 "use client";
+import { teamStarRating } from "@/lib/tournament";
+import TeamStars from "@/components/TeamStars";
 import { useLayoutEffect } from "react";
 
 import TeamLogoLink from "@/components/team/TeamLogoLink";
@@ -65,20 +67,7 @@ function StatusPill({ status }: { status: "pending" | "ready" | "complete" }) {
 // filled stars in gold so it's recognizable at a glance without taking
 // much horizontal space on dense match cards.
 function StarsBadge({ rating }: { rating: number }) {
-  const safe = Math.max(1, Math.min(5, Math.round(rating)));
-  // Empty stars used `text-rift-line` previously, which is too dark
-  // against the panel background — they appeared invisible. Faded
-  // gold (rift-gold/30) keeps the contrast hierarchy (filled brighter
-  // than empty) while staying readable on the dark theme.
-  return (
-    <span
-      className="text-[9px] tracking-tight tabular-nums leading-none flex-shrink-0 whitespace-nowrap"
-      title={`Rating: ${safe}/5`}
-    >
-      <span className="text-rift-gold">{"★".repeat(safe)}</span>
-      <span className="text-rift-gold/30">{"★".repeat(5 - safe)}</span>
-    </span>
-  );
+  return <TeamStars rating={rating} className="text-[9px] tracking-tight" />;
 }
 
 function StreakChip({
@@ -224,7 +213,7 @@ const TeamRow = memo(function TeamRow({
           )}
         </span>
         {team && (
-          <StarsBadge rating={team.starRating ?? 3} />
+          <StarsBadge rating={teamStarRating(team)} />
         )}
         {team && (
           <StreakChip kind={streakKind} count={streakCount ?? 0} />

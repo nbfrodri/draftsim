@@ -146,3 +146,47 @@ Fuentes: [engine](../lib/season/engine.ts), [franchise](../lib/season/franchise.
 
 
 Las importaciones validan un origen opcional tanto en noticias como en transferencias y archivo anual. Un origen mal formado se rechaza; su ausencia no se rellena con el año actual. Las pruebas incluyen dos rollovers tras serializar y recargar, con movimientos anteriores en el mismo bucket y fronteras que ya no coinciden con el orden de las filas nuevas.
+
+
+## 10. Historial de movimientos del Hall
+
+`SeasonHistoryEntry.marketNews` conserva snapshots de noticias con la identidad del equipo del momento. Su ausencia significa que ese archivo antiguo no registraba estas noticias; `[]` significa que se registró la cobertura y no había eventos. `franchiseYear` conserva el año conocido de los nuevos archivos, y los intercambios añaden `inId` y `outId` cuando existen IDs de jugador.
+
+`startNextSeasonWithArchive` devuelve el año siguiente junto con el archivo de cierre, después de generar el mercado automático, los cambios de academia y los retiros. `rollFranchiseToNextYearState` persiste esa salida y el snapshot final de inactivos. Crear el archivo únicamente antes de ejecutar el offseason perdería los eventos generados durante el cierre.
+
+`collectMarketHistory` une el archivo y la temporada actual sin mutarlos. Un intercambio produce dos filas, una por jugador y dirección. La identidad de equipos incluye región y nombre. Los eventos con origen explícito se deduplican contra el carry del año siguiente conservando ocurrencias repetidas dentro de una ventana. El carry antiguo sin origen se contrasta con los archivos disponibles; cuando no se puede atribuir, mantiene año desconocido en lugar de adoptar el año actual.
+
+La fecha visible es el año y la ventana de la simulación. El orden interno entre fuentes de una misma ventana no siempre está registrado. Los estados de origen y destino proceden del tipo de noticia; no se deducen del roster actual. Un retiro antiguo puede tener origen desconocido porque la noticia no distingue si venía de academia o de agencia libre. El equipo asociado a un retiro se muestra como último equipo, no como destino.
+
+Los campos son opcionales y viajan en las exportaciones JSON y en el payload del archivo Excel; no requieren cambiar el formato SQLite. No se reconstruyen noticias que una versión antigua no archivó.
+
+
+### Snapshots del mercado (2026-09-21)
+
+`MarketTeamSnapshot` guarda identidad de equipo, región y los cinco slots del roster principal antes y después de una actualización. `teamSnapshots` es opcional en `RosterNewsEvent`, `PlayerTransfer` y `HistoryTransfer`. Se clonan jugadores y colecciones anidadas al confirmar el cambio; las noticias ya marcadas con origen no se vuelven a fotografiar al pasar de ventana o año. Las propuestas rechazadas no crean snapshots.
+
+Los intercambios capturan ambos equipos por operación, incluidos los intercambios automáticos de offseason. Las noticias de una actualización automática conjunta comparten los límites anterior/posterior de esa actualización; no se reconstruye un orden intermedio no registrado. Los movimientos de academia que no alteran el roster principal pueden mostrar el mismo roster en ambos lados. El snapshot no incluye el plantel de academia ni las estadísticas competitivas del instante.
+
+El archivo anual conserva `teamSnapshots` y la importación valida identidad, región, slots y campos de jugadores. La lectura del Hall no modifica las partidas ni genera snapshots para movimientos antiguos. Sin snapshot, la card indica que no se registró el roster y no sustituye esa ausencia por el roster actual o por el de cierre de año. Los nombres de jugadores conservan IDs estables y los reemplazos conservan `replacedId` al normalizarse para la vista.
+
+
+### Academy snapshots and retirement provenance
+
+`MarketTeamSnapshot.academyBefore` / `academyAfter` freeze the players whose inactive status is Academy and whose `lastTeamId` matches the affected team. Missing fields mean unrecorded legacy coverage; empty arrays mean a recorded empty academy. Import validation checks these players like the main roster. News captures the updated inactive pool alongside the updated teams; individual main-roster swaps preserve the unchanged academy pool.
+
+`inactiveTenure` is optional on inactive players and their archived snapshots. New inactive spells start at zero and count each observed season end by the status entering that year-end update. Clock resets and Academy/FA moves preserve these counts. Legacy records remain unknown, even if their badge clock appears to suggest a duration. Retirement news records `retirement.from`, optional `age`, `academyYears` and `freeAgentYears`. The origin is the state before the committed annual lifecycle batch, including retirements caused by pressure valves. Main-roster departures start a new spell; these counters are not lifetime career totals.
+
+The Hall uses recorded year metadata to offer all available years, including years without news. Five rollover/save/load regression coverage verifies ownership and window filters across real SQLite boundaries. Missing archives or news cannot be regenerated from the latest season without inventing history.
+
+
+### Movement tiers and promotion counterparts
+
+Movement rows use the tier recorded in the event: incoming/outgoing transfer tiers, entrant tier, or departed tier for demotions. Missing legacy tiers remain unknown and can be selected with the Unknown tier filter. Never substitute the player's current tier. Main/academy swaps emit two distinct player rows when `departedDestination` or frozen before/academy-after rosters prove the demotion. Explicit demotion events are deduplicated by season/window/player/team with occurrence counts. No demotion is inferred for a vacant slot or from a replaced name alone.
+
+Agency overrides retain their stored news but are excluded from the movement view because retention is not a move. Preseason is not a selectable Hall window; legacy origin metadata is preserved and remains visible through unfiltered history rather than reassigned to a different year/window. Offseason remains selectable.
+
+Before/After team strength uses the selected frozen main roster: `averageTierFromRoster` and `deriveStar` share existing rounding and star limits with the normal team card. Academy members are shown separately and do not alter the main team's rating. Missing/empty snapshots do not receive invented neutral ratings.
+
+## Team-strength precision
+
+Team stars are numbers on the 1..5 half-step scale, owned by `normalizeTeamStars` in `lib/teamStars.ts`. Main-roster strength uses `deriveStar`; no caller should independently round it to an integer. Roster-bearing teams override cached `starRating` values. A saved series retains its explicit per-team strength, and side swaps move that strength with the team. Integer legacy values remain valid without a persistence migration. Academy players, player match grades, player letter tiers and decimal coach ratings are separate domains. Completed results are immutable; future matches and derived roster summaries can differ under the more precise model.

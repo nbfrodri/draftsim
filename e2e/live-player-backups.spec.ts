@@ -28,6 +28,11 @@ test("live player search shows current status, a card and both sides of a move",
   await expect(search.getByRole("button", { name: /SearchStar/ }).getByTitle(b.name, { exact: true }).locator("img, svg")).toHaveCount(1);
   await search.screenshot({ path: "test-results/playwright/player-search-suggestions.png" });
   // Enable desktop-only hover cards after storage hydration, without native writes.
+  const suggestion = search.getByRole("button", { name: /SearchStar/ });
+  const logoBox = await suggestion.getByTitle(b.name, { exact: true }).locator("svg, img").first().boundingBox();
+  const rowBox = await suggestion.boundingBox();
+  expect(logoBox).not.toBeNull(); expect(rowBox).not.toBeNull();
+  expect(Math.abs(logoBox!.y + logoBox!.height / 2 - rowBox!.y - rowBox!.height / 2)).toBeLessThanOrEqual(1);
   await page.evaluate(() => Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true }));
   await search.getByRole("searchbox").fill("searchstar");
   await search.getByRole("button", { name: /SearchStar/ }).click();

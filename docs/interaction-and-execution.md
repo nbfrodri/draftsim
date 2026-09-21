@@ -104,3 +104,33 @@ Las vistas históricas muestran cobertura incompleta si falta información. Sust
 Las pruebas E2E usan la exportación estática. Para probar un cambio de aplicación hay que reconstruir `out/`; modificar solo un test no exige reconstruir el producto. Las capturas complementan las aserciones, pero no sustituyen comprobar qué callback o escritura ocurrió.
 
 Fuentes principales: [Escape](../lib/escapeNavigation.ts), [hook](../lib/useEscapeLayer.ts), [worker](../lib/sim/bulkSimClient.ts), [bulk years](../lib/season/bulkYears.ts), [E2E](../e2e/season-ui-navigation.spec.ts).
+
+
+## Historial de mercado
+
+La pestaña **Roster Moves** del Hall está disponible también para realidades sin temporadas archivadas. Usa el selector de realidad existente y muestra los movimientos del año en curso junto con los del archivo. Al cambiar de fuente reinicia filtros y paginación, sin activar otra realidad.
+
+El orden inicial es **Newest first**, con opción **Oldest first**. Los filtros incluyen año, ventana, equipo, región, rol, tipo de movimiento, estado y búsqueda por nombre del jugador o del jugador reemplazado. Un equipo o región puede coincidir con cualquiera de los extremos del movimiento. Las regiones usan sus logos; las filas reutilizan los iconos de rol y equipo y presentan badges de Main roster, Academy, Free Agent, Rookie, Retired o Unknown.
+
+The list paginates in groups of 50 and distinguishes incomplete legacy coverage, empty logs and filters without matches. All Hall tabs share the selected reality history: `loadHallRealityHistory` drains pending writes, reads the complete archive, drains writes again and installs it only if the request and target reality are still current. Only then is history marked loaded for persistence. Browsing does not activate the reality or load its season body. Roster Moves separately reads an absent season body for current-year news. Failed reads expose Retry and never install an empty placeholder.
+
+El filtro `Windows` del Hall incluye siempre `Post Winter Split`, `Post Spring Split` y `Post Summer Split`, separados de `Post First Stand`, `Post MSI` y `Offseason`. Las etiquetas de los splits corresponden a las ventanas previas al internacional; solo cambia su nombre visible, conservando los identificadores de origen existentes y su orden cronológico.
+
+
+### Presentación del mercado y navegación
+
+Los movimientos usan filas compactas con separadores, rol del jugador, origen, destino y badges. Año, ventana, equipo, tipo, estado y orden reutilizan `PlaygroundSelect`: mismo desplegable, foco, flechas, selección y Escape. El selector de equipos incluye logos. Regiones y posiciones usan grupos de botones con sus logos, texto y `aria-pressed`, permitiendo varias selecciones. Dentro de cada grupo se aplica OR; entre grupos y el resto de filtros se aplica AND. Sin botones seleccionados no se restringe ese grupo, y «All» lo restablece. Cambiar regiones limpia el equipo seleccionado y cualquier filtro vuelve a la primera página.
+
+El año del movimiento enlaza con `goToSeasonInTimeline` cuando existe una entrada archivada de esa temporada. Un año desconocido o una temporada aún sin entrada no genera un enlace falso. Los nombres usan `PlayerNameLink`; las cards conservan el contexto de temporada y pueden usar el jugador congelado del snapshot.
+
+La card de equipo de un movimiento incorpora `Before` / `After`, con `After` inicialmente seleccionado. Esos botones no abren el perfil del equipo ni cierran la card. La card muestra el roster principal y la academia congelados, sin atribuirle estadísticas actuales. El comportamiento de hover continúa siendo propio de Desktop; las pruebas de navegador habilitan esa rama de UI después de hidratar fixtures y no prueban IPC nativo.
+
+Los movimientos nuevos se capturan también durante una temporada en curso. No es necesario comenzar otra temporada. Los archivos anteriores sin procedencia conservan el año desconocido; una marca `Offseason` antigua no basta para inventar su año.
+
+
+Roster-move team cards show both main and academy rosters for the selected Before/After snapshot. An unknown academy snapshot is distinct from an empty academy. Team filter icons resolve the bundled team catalogue when saved rows have no explicit logo URL. Retirement rows display prior status, age and recorded Academy/Free Agent year counts; unavailable legacy fields remain explicitly unknown. The year filter includes known archive years even if they have no recorded movements.
+
+
+Records & Dynasties uses 20-row pages inside long boards. Previous/Next controls expose the complete ranking with absolute ranks, so large realities do not mount thousands of invisible cards at once. Roster Moves adds a player-tier selector and tier badges beside names, removes the Preseason option and retained-player category, and includes paired demotions with recorded evidence. Snapshot team cards show average main-roster tier and stars for whichever Before/After view is selected. Live player-search suggestion team labels align their icon and text vertically with the suggestion row.
+
+Records pagination buttons use bordered gold controls, directional chevrons and explicit hover/focus/disabled states. The Before/After strength indicator shows five filled/dimmed stars with an accessible rating label; it uses the shared half-step deriveStar result. A 4.5 rating displays four complete stars, a half-filled fifth star and an accessible numeric label. Season and tournament setup use a keyboard-accessible range from 1 to 5 in increments of 0.5.

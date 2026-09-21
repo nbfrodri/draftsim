@@ -21,6 +21,14 @@ DraftSim utiliza Microsoft Edge WebView2. El instalador gestiona su instalación
 
 ## Modos y funciones
 
+El guardado de escritorio incluye temporadas sin terminar. Las realidades inactivas se cargan bajo demanda; Backups ofrece diagnósticos locales optativos. Consulta la [guía de persistencia](docs/persistence-and-recovery.md) para la migración al formato 8 y su recuperación.
+
+El Hall incluye **Roster Moves**: historial cronológico de mercado por realidad, también del año en curso, con filtros por año, ventana, equipo, región y rol, e insignias de estado del jugador. Los archivos antiguos muestran únicamente los eventos que conservaron.
+
+Consulta las [notas de v0.8.0](docs/releases/v0.8.0.md) para el historial de movimientos, las medias estrellas y las mejoras de guardado y rendimiento.
+
+La fuerza de los equipos admite **medias estrellas (de 1 a 5)** en la configuración, las tarjetas, los rankings, el mercado y la simulación normal y masiva. Los guardados anteriores siguen siendo compatibles y los resultados terminados se conservan. Consulta el [contrato técnico](docs/technical-design.md#half-star-team-strength).
+
 - **Series:** pick/ban entre jugadores, contra la IA o IA contra IA; series al mejor de varias partidas, draft fearless y rosters opcionales.
 - **Simulación de partidas:** estrategia en War Room, bajas, objetivos, oro, probabilidad de victoria, MVP y resúmenes.
 - **Torneos:** eliminación simple o doble, round robin, suizo, suizo con playoffs y grupos con playoffs.
@@ -238,5 +246,3 @@ Proyecto no oficial de fans, sin afiliación con Riot Games. Los nombres de Leag
 - [Persistencia y recuperación](docs/persistence-and-recovery.md).
 - [Interacción y ejecución asíncrona](docs/interaction-and-execution.md).
 - [Desarrollo, diagnóstico, pruebas y releases](docs/development-and-release.md).
-
-El guardado de escritorio incluye temporadas sin terminar. Las realidades inactivas se cargan bajo demanda; Backups ofrece diagnósticos locales optativos. Consulta la [guía de persistencia](docs/persistence-and-recovery.md) para la migración al formato 8 y su recuperación.

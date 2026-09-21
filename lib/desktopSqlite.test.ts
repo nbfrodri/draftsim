@@ -1,8 +1,9 @@
-import { loadRealitySeasonFromDb, loadRealityHistoryFromDb, savePersistedStateToDbExecutor } from "./desktopSqlite";
+import { markRealityHistoryLoaded, loadRealitySeasonFromDb, loadRealityHistoryFromDb, savePersistedStateToDbExecutor } from "./desktopSqlite";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 
 vi.mock("./desktopStorage", () => ({
+  setPersistLoadStage: vi.fn(),
   isDesktop: () => true,
   desktopStorage: {
     getItem: vi.fn(),
@@ -1052,4 +1053,36 @@ it("does not reinterpret a damaged format-8 root as a legacy save", async () => 
   row.state_json = JSON.stringify(root);
   await expect(loadPersistedStateFromDb(STORE_KEY)).rejects.toThrow("manifest is missing");
   expect(fragments.size).toBe(1);
+});
+
+it("does not re-encode or rewrite a dormant archive just read from SQLite, but saves subsequent edits", async () => {
+  resetSqliteStorageForTests();
+  const { db } = createMockPersistDb();
+  setDesktopDatabaseForTests(db);
+  const active = makeReality("active", "Active");
+  const dormant = { ...makeReality("dormant", "Dormant"), history: Array.from({ length: 5 }, (_, i) => makeEntry(`year-${i}`, `Year ${i}`)) };
+  await savePersistedStateToDbExecutor(db, STORE_KEY, { activeRealityId: active.id, realities: [active, dormant] }, { forceAllHistory: true });
+  resetSqliteStorageForTests(); setDesktopDatabaseForTests(db);
+  const loaded = (await loadPersistedStateFromDb(STORE_KEY))!;
+  const history = await loadRealityHistoryFromDb(dormant.id);
+  markRealityHistoryLoaded(dormant.id, history);
+  const installed = { ...loaded, realities: loaded.realities!.map(r => r.id === dormant.id ? { ...r, history } : r) };
+  const execute = vi.spyOn(db, "execute");
+  await savePersistedStateToDbExecutor(db, STORE_KEY, installed);
+  expect(execute).not.toHaveBeenCalled();
+  const edited = { ...installed, realities: installed.realities.map(r => r.id === dormant.id ? { ...r, history: history.slice(1) } : r) };
+  await savePersistedStateToDbExecutor(db, STORE_KEY, edited);
+  expect(execute.mock.calls.some(([query]) => query === UPSERT_REALITY_HISTORY_SQL)).toBe(true);
+  resetSqliteStorageForTests();
+});
+
+it("persists nonempty history after module load flags are lost, while empty dormant placeholders stay protected", async () => {
+  resetSqliteStorageForTests();
+  const { db, historyRows } = createMockPersistDb();
+  const populated = { ...makeReality("hmr", "HMR"), history: Array.from({ length: 5 }, (_, i) => makeEntry(`y-${i}`, `Year ${i}`)) };
+  await savePersistedStateToDbExecutor(db, STORE_KEY, { realities: [populated] });
+  expect(historyRows.size).toBe(5);
+  resetSqliteStorageForTests();
+  await savePersistedStateToDbExecutor(db, STORE_KEY, { realities: [{ ...populated, history: [] }] });
+  expect(historyRows.size).toBe(5);
 });

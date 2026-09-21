@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { StorageValue } from "zustand/middleware";
 
 vi.mock("./desktopStorage", () => ({
+  setPersistLoadStage: vi.fn(),
   cancelPendingWrite: vi.fn(),
   isDesktop: () => true,
   migrateWebStorageToDesktop: vi.fn().mockResolvedValue(undefined),

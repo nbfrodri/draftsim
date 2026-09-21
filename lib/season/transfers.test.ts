@@ -242,6 +242,13 @@ describe("transferCandidates / executeUserTransfer", () => {
     const myMid = ok.teams.find((t) => t.id === "mine")!.players[2];
     expect(myMid.goodChamps).toEqual([99]); // received rivalB's player
     expect(ok.transfersByEvent?.["first-stand"]).toHaveLength(1);
+    const snapshots = ok.transfersByEvent!["first-stand"]![0].teamSnapshots!;
+    const mine = snapshots.find(team => team.teamId === "mine")!;
+    expect(mine.before[2].goodChamps).toEqual([1]);
+    expect(mine.after[2].goodChamps).toEqual([99]);
+    myMid.goodChamps.push(123);
+    expect(mine.after[2].goodChamps).toEqual([99]);
+
 
     const blocked = executeUserTransfer(season(), [], "middle", "rivalA");
     expect(blocked.teams.find((t) => t.id === "mine")!.players[2].goodChamps).toEqual([1]);

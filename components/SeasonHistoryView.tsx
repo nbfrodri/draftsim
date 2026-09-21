@@ -1,4 +1,7 @@
 "use client";
+import { isRealityHistoryLoaded } from "@/lib/desktopSqlite";
+import { loadHallRealityHistory } from "@/lib/loadHallRealityHistory";
+import RecordRows from "./hall/RecordRows";
 import { ALL_PRO_LABELS } from "@/lib/season/allProScopes";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
@@ -129,6 +132,7 @@ import RosterSnapshotCards from "./hall/RosterSnapshotCards";
 import CareerTeammates from "./hall/CareerTeammates";
 import ChampionRecords from "./hall/ChampionRecords";
 import TeamSeasonResultsHistory from "./team/TeamSeasonResultsHistory";
+const MarketHistoryPanel = dynamic(() => import("./hall/MarketHistoryPanel"), { loading: () => <HallPanelLoading label="Loading roster moves..." /> });
 const BestRosters = dynamic(() => import("./hall/BestRosters"), { loading: () => <HallPanelLoading label="Loading best rosters..." /> });
 const TitlePlayground = dynamic(() => import("./hall/TitlePlayground"), { loading: () => <HallPanelLoading label="Loading title playground…" /> });
 
@@ -213,10 +217,11 @@ const NavCoachName = memo(function NavCoachName({
 // starting and final tier tables side by side (per lane) plus the drift
 // between them.
 
-type HallTab = "rosters" | "playground" | "timeline" | "records" | "dynasties" | "search" | "compare";
+type HallTab = "market" | "rosters" | "playground" | "timeline" | "records" | "dynasties" | "search" | "compare";
 type TimelineView = "seasons" | "overall";
 
 const HALL_TAB_LOADING: Record<HallTab, string> = {
+  market: "Loading roster moves...",
   rosters: "Loading best rosters...",
   playground: "Loading title playground…",
   timeline: "Loading timeline…",
@@ -974,7 +979,7 @@ function RegionTitleBoard({
               {league}
             </div>
             <div className="divide-y divide-rift-line/15 max-h-64 overflow-y-auto">
-              {rows.map((p, i) => {
+              <RecordRows items={rows}>{(p, i) => {
                 const st = careerStatus.get(p.playerId);
                 return (
                 <div
@@ -1015,7 +1020,7 @@ function RegionTitleBoard({
                   </span>
                 </div>
                 );
-              })}
+              }}</RecordRows>
             </div>
           </div>
         ))}
@@ -1447,7 +1452,7 @@ function RecordBoard({
         </p>
       ) : (
         <div className="divide-y divide-rift-line/15 max-h-56 overflow-y-auto">
-          {rows.map((r, i) => (
+          <RecordRows items={rows}>{(r, i) => (
             <div key={r.key} className="flex items-center gap-2 px-3 py-1.5 text-[11px] cv-row">
               <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
                 {i + 1}
@@ -1466,7 +1471,7 @@ function RecordBoard({
                 {count(r)}
               </span>
             </div>
-          ))}
+          )}</RecordRows>
         </div>
       )}
     </div>
@@ -1806,7 +1811,7 @@ function RecordsPanel({
                 </p>
               ) : (
                 <div className="divide-y divide-rift-line/15 max-h-56 overflow-y-auto">
-                  {winners.map((w, i) => (
+                  <RecordRows items={winners}>{(w, i) => (
                     <div
                       key={`${event}:${i}:${w.season}`}
                       className="flex items-center gap-2 px-3 py-1.5 text-[11px] cv-row"
@@ -1826,7 +1831,7 @@ function RecordsPanel({
                         {w.season}
                       </span>
                     </div>
-                  ))}
+                  )}</RecordRows>
                 </div>
               )}
             </div>
@@ -1935,7 +1940,7 @@ function RecordsPanel({
           </p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-            {goldenRoads.map((g) => (
+            <RecordRows items={goldenRoads}>{(g) => (
               <div
                 key={`${g.season}-${g.team.leagueId}-${g.team.name}`}
                 className="flex items-center gap-2 px-3 py-2 border border-rift-goldbright/50 bg-gradient-to-r from-rift-gold/10 to-rift-goldbright/10 text-[11px]"
@@ -1959,7 +1964,7 @@ function RecordsPanel({
                   Golden Road
                 </span>
               </div>
-            ))}
+            )}</RecordRows>
           </div>
         )}
       </div>
@@ -1979,7 +1984,7 @@ function RecordsPanel({
           </p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-            {dynasties.map((r) => (
+            <RecordRows items={dynasties}>{(r) => (
               <div
                 key={r.key}
                 className="flex items-center gap-2 px-3 py-2 border border-rift-line/40 bg-rift-bg/30 text-[11px]"
@@ -2000,7 +2005,7 @@ function RecordsPanel({
                 </span>
                 <DynastyBadge tier={r.dynasty.tier} />
               </div>
-            ))}
+            )}</RecordRows>
           </div>
         )}
       </div>
@@ -2018,7 +2023,7 @@ function RecordsPanel({
           </p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-            {allTimeRivalries.map((r) => {
+            <RecordRows items={allTimeRivalries}>{(r) => {
               const key = `${r.teamA.leagueId}:${r.teamA.name}-${r.teamB.leagueId}:${r.teamB.name}`;
               return (
                 <div
@@ -2039,7 +2044,7 @@ function RecordsPanel({
                   </span>
                 </div>
               );
-            })}
+            }}</RecordRows>
           </div>
         )}
       </div>
@@ -2135,7 +2140,7 @@ function RecordsPanel({
                     {b.label}
                   </div>
                   <div className="divide-y divide-rift-line/15 max-h-64 overflow-y-auto">
-                    {b.rows.map((p, i) => {
+                    <RecordRows items={b.rows}>{(p, i) => {
                       const lane = p.lane ?? laneById.get(p.playerId);
                       const st = careerStatus.get(p.playerId);
                       return (
@@ -2175,7 +2180,7 @@ function RecordsPanel({
                         </span>
                       </div>
                       );
-                    })}
+                    }}</RecordRows>
                   </div>
                 </div>
               ))}
@@ -2196,7 +2201,7 @@ function RecordsPanel({
               <span className="text-right">Teams</span>
             </div>
             <div className="divide-y divide-rift-line/15 max-h-72 overflow-y-auto">
-              {distinctTeamsBoard.map((p: PlayerDistinctTeamsEntry, i) => {
+              <RecordRows items={distinctTeamsBoard}>{(p: PlayerDistinctTeamsEntry, i) => {
                 const st = careerStatus.get(p.playerId);
                 const lane = p.lane ?? laneById.get(p.playerId);
                 return (
@@ -2243,7 +2248,7 @@ function RecordsPanel({
                     </span>
                   </div>
                 );
-              })}
+              }}</RecordRows>
             </div>
           </div>
         </div>
@@ -2265,7 +2270,7 @@ function RecordsPanel({
               <span className="text-right" title="Career win rate">WR</span>
             </div>
             <div className="divide-y divide-rift-line/15 max-h-72 overflow-y-auto">
-              {winRateBoard.map(({ c, wl }, i) => {
+              <RecordRows items={winRateBoard}>{({ c, wl }, i) => {
                 const st = careerStatus.get(c.playerId);
                 return (
                 <div
@@ -2311,7 +2316,7 @@ function RecordsPanel({
                   <span className="text-right tabular-nums text-rift-gold/80">{winPct(wl.rate)}</span>
                 </div>
                 );
-              })}
+              }}</RecordRows>
             </div>
           </div>
         </div>
@@ -2336,7 +2341,7 @@ function RecordsPanel({
               <span className="text-center text-rift-gold/70" title="Ranked by weighted titles — Global Cup ≫ Worlds ≫ MSI ≫ First Stand ≫ split">Tot</span>
             </div>
             <div className="divide-y divide-rift-line/15 max-h-72 overflow-y-auto">
-              {legends.map((p, i) => {
+              <RecordRows items={legends}>{(p, i) => {
                 const st = careerStatus.get(p.playerId);
                 return (
                 <div
@@ -2383,7 +2388,7 @@ function RecordsPanel({
                   </span>
                 </div>
                 );
-              })}
+              }}</RecordRows>
             </div>
           </div>
         </div>
@@ -2404,7 +2409,7 @@ function RecordsPanel({
                   {b.label}
                 </div>
                 <div className="divide-y divide-rift-line/15 max-h-64 overflow-y-auto">
-                  {b.rows.map((p, i) => (
+                  <RecordRows items={b.rows}>{(p, i) => (
                     <div key={p.playerId} className="flex items-center gap-2 px-3 py-1.5 text-[11px] cv-row">
                       <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">
                         {i + 1}
@@ -2452,7 +2457,7 @@ function RecordsPanel({
                         {p.intlTitles + p.splitTitles}
                       </span>
                     </div>
-                  ))}
+                  )}</RecordRows>
                 </div>
               </div>
             ))}
@@ -2478,7 +2483,7 @@ function RecordsPanel({
               <span className="text-center text-rift-gold/70" title="Ranked by weighted titles — Global Cup ≫ Worlds ≫ MSI ≫ First Stand ≫ split">Tot</span>
             </div>
             <div className="divide-y divide-rift-line/15 max-h-72 overflow-y-auto">
-              {topCoaches.map((c, i) => (
+              <RecordRows items={topCoaches}>{(c, i) => (
                 <div key={c.name} className="grid grid-cols-[1.25rem_minmax(0,1fr)_repeat(6,2rem)] gap-x-1 items-center px-3 py-1.5 text-[11px] cv-row">
                   <span className="text-right text-[9px] tabular-nums text-rift-muted/70">{i + 1}</span>
                   <span className="flex items-center gap-1.5 min-w-0">
@@ -2499,7 +2504,7 @@ function RecordsPanel({
                   <span className="text-center tabular-nums text-rift-mutedbright">{c.globalCup || "·"}</span>
                   <span className={`text-center tabular-nums font-semibold ${i === 0 ? "text-rift-goldbright" : "text-rift-gold/80"}`}>{c.total}</span>
                 </div>
-              ))}
+              )}</RecordRows>
             </div>
           </div>
         </div>
@@ -2519,7 +2524,7 @@ function RecordsPanel({
                   {g.league}
                 </div>
                 <div className="divide-y divide-rift-line/15">
-                  {g.rows.map((c, i) => (
+                  <RecordRows items={g.rows}>{(c, i) => (
                     <div key={c.name} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
                       <span className="w-4 text-right text-[9px] tabular-nums text-rift-muted/70 flex-shrink-0">{i + 1}</span>
                       {c.team && <NavTeamLogo team={c.team} size={13} nested />}
@@ -2533,7 +2538,7 @@ function RecordsPanel({
                       </span>
                       <span className={`tabular-nums font-semibold flex-shrink-0 ${i === 0 ? "text-rift-goldbright" : "text-rift-mutedbright"}`}>{c.total}</span>
                     </div>
-                  ))}
+                  )}</RecordRows>
                 </div>
               </div>
             ))}
@@ -2557,7 +2562,7 @@ function RecordsPanel({
                   {LEAGUE_NAMES[league]}
                 </div>
                 <div className="divide-y divide-rift-line/15">
-                  {winners.map((r) => (
+                  <RecordRows items={winners}>{(r) => (
                     <div
                       key={r.key}
                       className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
@@ -2571,7 +2576,7 @@ function RecordsPanel({
                         {r.splitTitles}×
                       </span>
                     </div>
-                  ))}
+                  )}</RecordRows>
                 </div>
               </div>
             );
@@ -4679,10 +4684,19 @@ export default function SeasonHistoryView({
   // source: "season" = one-off Hall; otherwise a reality id.
   const [source, setSource] = useState<string>(() => liveFid ?? "season");
   const realityId = source === "season" ? undefined : source;
-  const seasonHistory =
-    realityId != null
-      ? (realities.find((r) => r.id === realityId)?.history ?? [])
-      : globalHistory;
+  const selectedReality = realities.find(r => r.id === realityId);
+  const needsHistory = !!selectedReality && isDesktop() && !isRealityHistoryLoaded(selectedReality.id);
+  const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
+  const [historyLoadAttempt, setHistoryLoadAttempt] = useState(0);
+  useEffect(() => {
+    if (!needsHistory || !selectedReality) return;
+    let cancelled = false;
+    void loadHallRealityHistory(selectedReality.id, () => !cancelled).catch(() => {
+      if (!cancelled) setHistoryLoadError(selectedReality.id);
+    });
+    return () => { cancelled = true; };
+  }, [needsHistory, selectedReality, historyLoadAttempt]);
+  const seasonHistory = realityId != null ? (selectedReality?.history ?? []) : globalHistory;
   // Live franchise pool overlays Search current-status only (never year-history).
   const liveSearchOpts = useMemo(() => {
     if (!realityId || !liveSeason?.franchise || liveSeason.franchise.id !== realityId) {
@@ -4951,7 +4965,7 @@ export default function SeasonHistoryView({
             >
               {importing ? "Importing…" : "Import (.xlsx)"}
             </button>
-            {seasonHistory.length > 0 && (
+            {!needsHistory && seasonHistory.length > 0 && (
               <>
                 <button
                   type="button"
@@ -5020,11 +5034,12 @@ export default function SeasonHistoryView({
         />
 
         {/* Timeline ↔ Records tabs */}
-        {seasonHistory.length > 0 && (
+        {(seasonHistory.length > 0 || realityId != null || liveSeason != null) && (
           <div className="flex flex-wrap items-center gap-1 mb-5">
             {(
               [
                 { id: "timeline", label: "Timeline" },
+                { id: "market", label: "Roster Moves" },
                 { id: "records", label: "Records & Dynasties" },
                 { id: "playground", label: "Title Playground" },
                 { id: "rosters", label: "Best Rosters of All Time" },
@@ -5050,8 +5065,19 @@ export default function SeasonHistoryView({
           </div>
         )}
 
-        {seasonHistory.length === 0 ? (
-          <p className="text-[11px] md:text-xs text-rift-mutedbright leading-snug max-w-2xl">
+        {needsHistory ? (
+          historyLoadError === realityId ? <div role="alert" className="border border-rift-line p-5 text-sm text-rift-mutedbright">
+            <p>Could not load this reality&apos;s history. Saved data has not been replaced.</p>
+            <button type="button" className="mt-3 border border-rift-gold/50 px-3 py-2 text-rift-goldbright" onClick={() => { setHistoryLoadError(null); setHistoryLoadAttempt(n => n + 1); }}>Retry history</button>
+          </div> : <HallPanelLoading label="Loading reality history..." />
+        ) : tab === "market" ? (
+          <MarketHistoryPanel onOpenSeason={goToSeasonInTimeline} key={source} realityId={realityId} entries={seasonHistory}
+            season={realityId ? (liveSeason?.franchise?.id === realityId ? liveSeason : realities.find(r => r.id === realityId)?.season ?? null) : liveSeason?.franchise ? null : liveSeason} />
+        ) : seasonHistory.length === 0 ? (
+          realityId != null ? <p className="text-[11px] md:text-xs text-rift-mutedbright leading-snug max-w-2xl">
+            No archived seasons are available for this reality. Current year: {selectedReality?.year ?? "unknown"}.
+            Completed years appear here when advancing to the next year. Roster Moves can still show movements from the current season.
+          </p> : <p className="text-[11px] md:text-xs text-rift-mutedbright leading-snug max-w-2xl">
             No seasons archived yet. Finish a season and use “Add to Season
             History” on its dashboard — or archive a completed saved season
             from the Saved Seasons list — to build your timeline of

@@ -352,3 +352,9 @@ Separate from champion synergies: `lib/chemistry.ts` rolls stored pair values on
 | [`tournament-mode.md`](tournament-mode.md) | Bracket formats, TOUR1 codes |
 | [`desktop-sqlite-storage.md`](desktop-sqlite-storage.md) | DB schema, migration |
 | [`performance-franchise-saves.md`](performance-franchise-saves.md) | Long-save optimizations |
+
+## Half-star team strength
+
+Team strength ranges from 1 to 5 in steps of 0.5. `normalizeTeamStars` centralizes rounding and `deriveStar` derives the result from the main roster. A roster of three S and two A players yields 4.5; academy players do not contribute. Team setup, random generation, current and historical cards, match context, strength rankings and market attractiveness share this contract. Classic simulation bias remains nine points per star difference; a half-star gap contributes 4.5 points before other modifiers. Both interactive and worker simulations preserve fractional values and swap them with the team when sides change.
+
+Regional starting targets include halves without changing their aggregate target strength. Player tiers and coach ratings retain their separate scales. Integer saves remain supported and completed historical results are not recomputed. See [technical design](technical-design.md#half-star-team-strength) for the consumer audit and compatibility details.

@@ -1,3 +1,6 @@
+import { captureMarketTeamSnapshots } from "./marketSnapshots";
+import type { SeasonTeam } from "./types";
+import type { MarketTeamSnapshot } from "./marketSnapshots";
 import { marketOrigin, type MarketOrigin, type MarketSeason } from "./marketOrigin";
 // Player careers for franchise/reality mode: stable ids, ageing, growth and
 // decline, performance-based demotion (academy → free agency → retired), and
@@ -159,6 +162,8 @@ export interface InactivePlayer {
    * (inactiveYears − ACADEMY_YEARS) → 1…FREE_AGENT_YEARS.
    */
   inactiveYears: number;
+  /** Recorded season-end counts in this continuous inactive spell; absent on legacy saves. */
+  inactiveTenure?: { academyYears: number; freeAgentYears: number };
   /** Franchise year they left the **main roster** (archive filter / tenure). */
   demotedYear: number;
   /**
@@ -210,6 +215,8 @@ export interface InactivePlayerSnapshot {
   debutYear?: number;
   status: "academy" | "free-agent" | "retired";
   inactiveYears: number;
+  /** Recorded season-end counts in this continuous inactive spell; absent on legacy saves. */
+  inactiveTenure?: { academyYears: number; freeAgentYears: number };
   demotedYear: number;
   /** Year the badge clock started (see {@link InactivePlayer.clockYear}). */
   clockYear?: number;
@@ -234,6 +241,7 @@ export function toInactiveSnapshot(p: InactivePlayer): InactivePlayerSnapshot {
     ...(p.player.debutYear != null ? { debutYear: p.player.debutYear } : {}),
     status: p.status,
     inactiveYears: p.inactiveYears,
+    ...(p.inactiveTenure ? { inactiveTenure: { ...p.inactiveTenure } } : {}),
     demotedYear: p.demotedYear,
     ...(p.clockYear != null ? { clockYear: p.clockYear } : {}),
     lastTeamId: p.lastTeamId,
@@ -427,11 +435,15 @@ export type MarketNote = FaMarketNote;
 
 /** Offseason roster news: demotion + who entered (rookie vs returnee). */
 export interface RosterNewsEvent {
+  teamSnapshots?: MarketTeamSnapshot[];
   origin?: MarketOrigin;
   lane: Lane;
   departedName?: string;
   departedTier?: PlayerTier;
+  /** Recorded when an occupied starter slot is exchanged with an academy player. */
+  departedDestination?: "academy";
   departedAge?: number;
+  retirement?: { from: "academy" | "free-agent"; age?: number; academyYears?: number; freeAgentYears?: number };
   departedId?: string;
   entrantName: string;
   entrantTier: PlayerTier;
@@ -451,13 +463,19 @@ export interface RosterNewsEvent {
 }
 
 /** Stamp `timeMark` on news rows that lack one (additive; preserves existing). */
-export function withRosterTimeMark<T extends { timeMark?: string; origin?: MarketOrigin }>(
+export function withRosterTimeMark<T extends { timeMark?: string; origin?: MarketOrigin; teamId?: string; teamSnapshots?: MarketTeamSnapshot[] }>(
   items: readonly T[],
   mark: string,
-  season?: MarketSeason,
+  season?: MarketSeason & { teams?: readonly SeasonTeam[] },
+  afterTeams = season?.teams,
+  afterPool = season?.franchise?.inactivePool,
 ): T[] {
   if (!mark) return [...items];
-  return items.map(n => ({ ...n, timeMark: n.timeMark || mark, ...(season && !n.origin ? { origin: marketOrigin(season, n.timeMark || mark) } : {}) }));
+  return items.map(n => ({ ...n, timeMark: n.timeMark || mark,
+    ...(season && !n.origin ? { origin: marketOrigin(season, n.timeMark || mark) } : {}),
+    ...(!n.origin && !n.teamSnapshots && n.teamId && season?.teams && afterTeams
+      ? { teamSnapshots: captureMarketTeamSnapshots(season.teams, afterTeams, [n.teamId], season.franchise ? { before: season.franchise.inactivePool ?? [], after: afterPool ?? [] } : undefined) } : {}),
+  }));
 }
 
 /** @deprecated Alias kept for older imports — prefer RosterNewsEvent. */
@@ -563,6 +581,10 @@ export function advanceInactivePool(
       out.push(entry);
       continue;
     }
+    const inactiveTenure = entry.inactiveTenure ? {
+      academyYears: entry.inactiveTenure.academyYears + (entry.status === "academy" ? 1 : 0),
+      freeAgentYears: entry.inactiveTenure.freeAgentYears + (entry.status === "free-agent" ? 1 : 0),
+    } : undefined;
     const tick = tickInactiveYear(entry, champions, rng);
     const perf = inactiveMarketGrade({
       ...entry,
@@ -581,6 +603,7 @@ export function advanceInactivePool(
       out.push({
         ...entry,
         player: aged,
+        inactiveTenure,
         shadowGrade: tick.shadowGrade,
       });
       continue;
@@ -604,6 +627,7 @@ export function advanceInactivePool(
     out.push({
       ...entry,
       player: aged,
+      inactiveTenure,
       inactiveYears,
       status,
       shadowGrade: tick.shadowGrade,
@@ -768,7 +792,7 @@ export function runDemotionPass(
       if (after.status === "free-agent" && prev?.status === "academy") {
         news.push(makeBecameFaNews(after as MarketInactive, "became-fa"));
       } else if (after.status === "retired" && prev && prev.status !== "retired") {
-        news.push(makeRetiredNews(after as MarketInactive));
+        news.push(makeRetiredNews(after as MarketInactive, prev));
       }
     }
   } else {
@@ -808,6 +832,7 @@ export function runDemotionPass(
           player: { ...withStreak, badStreak: 0 },
           status: "academy",
           // 1-based: badge shows Academy · 1y on demotion day.
+          inactiveTenure: { academyYears: 0, freeAgentYears: 0 },
           inactiveYears: 1,
           demotedYear: year,
           clockYear: year,

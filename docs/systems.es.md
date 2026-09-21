@@ -352,3 +352,9 @@ Separado de sinergias campeón: `lib/chemistry.ts` tira valores de pares almacen
 | [`tournament-mode.md`](tournament-mode.md) | Formatos bracket, códigos TOUR1 |
 | [`desktop-sqlite-storage.md`](desktop-sqlite-storage.md) | Schema DB, migración |
 | [`performance-franchise-saves.md`](performance-franchise-saves.md) | Optimizaciones saves largos |
+
+## Fuerza de equipo con medias estrellas
+
+La fuerza del equipo va de 1 a 5 en pasos de 0,5. `normalizeTeamStars` centraliza el redondeo y `deriveStar` calcula la fuerza del roster principal. Tres jugadores S y dos A producen 4,5 estrellas; la academia no interviene. Configuración, generación, tarjetas actuales e históricas, simulación, rankings de fuerza y atractivo en el mercado comparten este contrato. El sesgo clásico sigue siendo nueve puntos por estrella: una diferencia de media estrella aporta 4,5 puntos antes de los demás modificadores. La simulación interactiva y el worker conservan los decimales, incluso al intercambiar lados.
+
+Los objetivos iniciales regionales incluyen medias estrellas sin alterar su fuerza total objetivo. Los tiers de jugadores y las valoraciones de entrenadores mantienen sus escalas propias. Los guardados enteros siguen siendo compatibles y los resultados históricos terminados no se recalculan. Consulta el [diseño técnico](technical-design.md#half-star-team-strength) para el mapa de consumidores y compatibilidad.

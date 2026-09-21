@@ -1,3 +1,4 @@
+import type { MarketTeamSnapshot } from "./marketSnapshots";
 import type { MarketOrigin } from "./marketOrigin";
 // Season history ("Hall of Seasons") — lightweight résumé snapshots of
 // completed seasons the user chooses to archive. Unlike saved seasons
@@ -46,6 +47,7 @@ import { transfersForHistoryArchive } from "./transfers";
 /** A roster move frozen for the Hall: team names (not ids — teams regenerate)
  *  plus the two players who swapped lanes between the two clubs. */
 export interface HistoryTransfer {
+  teamSnapshots?: MarketTeamSnapshot[];
   origin?: MarketOrigin;
   event: InternationalId;
   lane: Lane;
@@ -53,9 +55,11 @@ export interface HistoryTransfer {
   to: SeasonHistoryTeamRef | null;
   /** Headline player moving from→to. */
   inName?: string;
+  inId?: string;
   inTier: PlayerTier;
   /** Player going the other way (to→from). */
   outName?: string;
+  outId?: string;
   outTier: PlayerTier;
 }
 
@@ -225,6 +229,10 @@ export interface SeasonHistoryEntry {
    *  with team names so they recap forever. Optional — only on seasons that
    *  ran with player transfers and had at least one move. */
   transfers?: HistoryTransfer[];
+  /** Known simulation year; absent in legacy/one-off archives. */
+  franchiseYear?: number;
+  /** Explicitly captured news, including an empty array when no events occurred. */
+  marketNews?: Array<import("./playerLifecycle").RosterNewsEvent & { team: SeasonHistoryTeamRef | null }>;
   /** Per-league strength score at archive time (the evolved region tide).
    *  Optional — only present on seasons that ran with Region Tides on.
    *  Carried into the next season's starting tides (decayed toward
@@ -639,14 +647,17 @@ export function buildSeasonHistoryEntry(
   const transfers: HistoryTransfer[] = [];
   for (const m of transfersForHistoryArchive(season)) {
     transfers.push({
+      ...(m.teamSnapshots ? { teamSnapshots: structuredClone(m.teamSnapshots) } : {}),
       event: m.event,
       ...(m.origin ? { origin: { ...m.origin } } : {}),
       lane: m.lane,
       from: teamRef(season, m.fromTeamId),
       to: teamRef(season, m.toTeamId),
       ...(m.star.name ? { inName: m.star.name } : {}),
+      ...(m.star.id ? { inId: m.star.id } : {}),
       inTier: m.star.tier,
       ...(m.swap.name ? { outName: m.swap.name } : {}),
+      ...(m.swap.id ? { outId: m.swap.id } : {}),
       outTier: m.swap.tier,
     });
   }
@@ -694,6 +705,11 @@ export function buildSeasonHistoryEntry(
         }
       : {}),
     ...(transfers.length > 0 ? { transfers } : {}),
+    ...(season.franchise ? { franchiseYear: season.franchise.year } : {}),
+    marketNews: (season.rosterNews ?? []).filter((n, index) => n.origin
+      ? n.origin.seasonId === season.id && n.origin.year === (season.franchise?.year ?? 1)
+      : n.timeMark !== "Offseason" || (season.offseasonRosterNewsBaseline != null && index >= season.offseasonRosterNewsBaseline)
+    ).map(({ teamId, ...news }) => ({ ...structuredClone(news), team: teamRef(season, teamId) })),
     ...(rivalryArchive.length > 0 ? { rivalries: rivalryArchive } : {}),
     ...(headToHeadArchive.length > 0 ? { headToHead: headToHeadArchive } : {}),
     // Starting tier table (undefined when the season pre-dates

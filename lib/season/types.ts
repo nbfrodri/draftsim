@@ -1,3 +1,4 @@
+import type { MarketTeamSnapshot } from "./marketSnapshots";
 import type { MarketOrigin } from "./marketOrigin";
 // Season mode — a full competitive year simulated on top of the
 // tournament engine. Six regional leagues play three splits (Winter,
@@ -438,6 +439,7 @@ export interface TransferPlayer {
 // moved from `fromTeamId` up to the better seat `toTeamId`; `swap` moved the
 // other way. `lane` is shared (same positional slot on both teams).
 export interface PlayerTransfer {
+  teamSnapshots?: MarketTeamSnapshot[];
   origin?: MarketOrigin;
   event: InternationalId;
   lane: Lane;

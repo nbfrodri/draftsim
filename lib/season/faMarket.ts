@@ -73,6 +73,8 @@ export interface MarketInactive {
   player: Player;
   status: "academy" | "free-agent" | "retired";
   inactiveYears: number;
+  /** Recorded season-end counts in this continuous inactive spell; absent on legacy saves. */
+  inactiveTenure?: { academyYears: number; freeAgentYears: number };
   /**
    * Franchise year the player left the **main roster** (demote / cut / mint).
    * Stable identity used by archive filters and Hall tenure rows — it is NOT
@@ -125,7 +127,10 @@ export interface MarketNewsEvent {
   lane: Lane;
   departedName?: string;
   departedTier?: PlayerTier;
+  /** Recorded when an occupied starter slot is exchanged with an academy player. */
+  departedDestination?: "academy";
   departedAge?: number;
+  retirement?: { from: "academy" | "free-agent"; age?: number; academyYears?: number; freeAgentYears?: number };
   departedId?: string;
   entrantName: string;
   entrantTier: PlayerTier;
@@ -621,7 +626,7 @@ export function makeBecameFaNews(
 }
 
 /** Roster-news row when an inactive player retires (FA clock / overflow valves). */
-export function makeRetiredNews(entry: MarketInactive): MarketNewsEvent {
+export function makeRetiredNews(entry: MarketInactive, previous?: MarketInactive): MarketNewsEvent {
   const p = entry.player;
   return {
     teamId: entry.lastTeamId,
@@ -636,6 +641,7 @@ export function makeRetiredNews(entry: MarketInactive): MarketNewsEvent {
     ...(p.id ? { entrantId: p.id } : {}),
     entrantSource: "free-agent",
     marketNote: "retired",
+    ...(previous && previous.status !== "retired" ? { retirement: { from: previous.status, ...(p.age != null ? { age: p.age } : {}), ...entry.inactiveTenure } } : {}),
   };
 }
 
@@ -830,6 +836,7 @@ export interface MarketVacancy {
   departedName?: string;
   departedTier?: PlayerTier;
   departedAge?: number;
+  retirement?: { from: "academy" | "free-agent"; age?: number; academyYears?: number; freeAgentYears?: number };
   departedId?: string;
   departedGrade?: number | null;
 }
@@ -1165,6 +1172,7 @@ export function runOpenFaReplacePass(
       const parked = addToTeamAcademy(working, {
         player: { ...best.incumbent, badStreak: 0 },
         status: "academy",
+        inactiveTenure: { academyYears: 0, freeAgentYears: 0 },
         inactiveYears: 1,
         demotedYear: demoteYear,
         clockYear: demoteYear,
@@ -1311,6 +1319,7 @@ export function runOpenAcademyReplacePass(
     const parked = addToTeamAcademy(working, {
       player: { ...best.incumbent, badStreak: 0 },
       status: "academy",
+      inactiveTenure: { academyYears: 0, freeAgentYears: 0 },
       inactiveYears: 1,
       demotedYear: demoteYear,
       clockYear: demoteYear,
@@ -1336,6 +1345,7 @@ export function runOpenAcademyReplacePass(
       ...(entrant.id ? { entrantId: entrant.id } : {}),
       entrantSource: "academy" as const,
       marketNote: "academy-recall" as const,
+      departedDestination: "academy" as const,
       ...(best.incumbent.name ? { beatenNames: [best.incumbent.name] } : {}),
     };
     if (!isSamePlayerReplaceNoise(recallNews)) news.push(recallNews);
@@ -1623,6 +1633,7 @@ export function executeUserFaSign(
     const parked = addToTeamAcademy(nextPool, {
       player: { ...incumbent, badStreak: 0 },
       status: "academy",
+      inactiveTenure: { academyYears: 0, freeAgentYears: 0 },
       inactiveYears: 1,
       demotedYear: year,
       clockYear: year,
@@ -1735,6 +1746,7 @@ export function executeUserAcademyRecall(
     const parked = addToTeamAcademy(nextPool, {
       player: { ...incumbent, badStreak: 0 },
       status: "academy",
+      inactiveTenure: { academyYears: 0, freeAgentYears: 0 },
       inactiveYears: 1,
       demotedYear: year,
       clockYear: year,
@@ -1770,6 +1782,7 @@ export function executeUserAcademyRecall(
         ...(entrant.id ? { entrantId: entrant.id } : {}),
         entrantSource: "academy",
         marketNote: "academy-recall",
+        ...(!vacant ? { departedDestination: "academy" as const } : {}),
         ...(!vacant && incumbent.name ? { beatenNames: [incumbent.name] } : {}),
       },
     ],
@@ -1817,6 +1830,7 @@ export function executeUserFaToAcademy(
   nextPool = addToTeamAcademy(nextPool, {
     player: { ...fa.player, badStreak: 0 },
     status: "academy",
+    inactiveTenure: fa.inactiveTenure ? { ...fa.inactiveTenure } : undefined,
     inactiveYears: 1,
     demotedYear: fa.demotedYear,
     clockYear: year,
@@ -2023,6 +2037,7 @@ export function executeAddAcademyRookie(
   const nextPool = addToTeamAcademy(pool, {
     player: { ...rookie, badStreak: 0 },
     status: "academy",
+    inactiveTenure: { academyYears: 0, freeAgentYears: 0 },
     inactiveYears: 1,
     demotedYear: year,
     clockYear: year,
@@ -2152,6 +2167,7 @@ export function runAiAcademyStashPass(
     working = addToTeamAcademy(working, {
       player: { ...fa.player, badStreak: 0 },
       status: "academy",
+      inactiveTenure: fa.inactiveTenure ? { ...fa.inactiveTenure } : undefined,
       inactiveYears: 1,
       demotedYear: fa.demotedYear,
       clockYear: stashYear,

@@ -11,7 +11,7 @@ import type { Champion, Lane, Player } from "../types";
 import { LANE_ORDER, type RNG } from "../players";
 import { driftSynergiesOverTime, assignSynergies, CHEM_PRESEASON_STEP } from "../chemistry";
 import { createSeason } from "./engine";
-import { buildSeasonHistoryEntry } from "./history";
+import { buildSeasonHistoryEntry, type SeasonHistoryEntry } from "./history";
 import { teamSeasonGrades, computePlayerTitleCounts } from "./stats";
 import {
   USER_MAX_FA_SIGNS,
@@ -413,7 +413,7 @@ export function applyMidSplitDemotions(
   const mark = rosterTimeMarkForSeason(season, { split });
   const rosterNews = [
     ...(season.rosterNews ?? []),
-    ...withRosterTimeMark(result.news, mark, season),
+    ...withRosterTimeMark(result.news, mark, season, teams, result.inactivePool),
   ];
   return {
     ...season,
@@ -508,6 +508,7 @@ export function seedOpeningFreeAgents(
       player: { ...rook, badStreak: 0 },
       status: "free-agent",
       // FA · 1y snap — same as toFreeAgentFromAcademy / academy graduate.
+      inactiveTenure: { academyYears: 0, freeAgentYears: 0 },
       inactiveYears: ACADEMY_YEARS + 1,
       demotedYear: year,
       clockYear: year,
@@ -570,11 +571,16 @@ export function seedFranchise(
  *  carries the same teams + meta + region tides forward, and starts a fresh
  *  Winter. The prior season should be archived to the reality's history by the
  *  caller. */
-export function startNextSeason(
+export function startNextSeason(prev: SeasonState, champions: readonly Champion[], rng: RNG = Math.random): SeasonState {
+  return startNextSeasonWithArchive(prev, champions, rng).season;
+}
+
+/** Return the closing archive after lifecycle events, before replacing the year. */
+export function startNextSeasonWithArchive(
   prev: SeasonState,
   champions: readonly Champion[],
   rng: RNG = Math.random,
-): SeasonState {
+): { season: SeasonState; archived?: SeasonHistoryEntry } {
   const gradeCache = new Map<string, (number | null)[]>();
   const gradesOf = (teamId: string): (number | null)[] => {
     let g = gradeCache.get(teamId);
@@ -668,7 +674,7 @@ export function startNextSeason(
       players: byId.get(t.id) ?? t.players,
     }));
     nextInactivePool = result.inactivePool;
-    rosterNews.push(...withRosterTimeMark(result.news, "Offseason", working));
+    rosterNews.push(...withRosterTimeMark(result.news, "Offseason", working, evolvedTeams, result.inactivePool));
   }
 
   evolvedTeams = evolvedTeams.map((t) => {
@@ -700,6 +706,7 @@ export function startNextSeason(
       prev.config.controlledTeamId,
       (teamId, li) => movedKey.has(`${teamId}:${LANES[li]}`),
       userMoves,
+      nextInactivePool,
     );
     evolvedTeams = shuffledTeams;
     offseasonMoves = [...userMoves, ...autoMoves.map(move => ({ ...move, origin: marketOrigin(prev, "worlds") }))];
@@ -720,7 +727,9 @@ export function startNextSeason(
   if (offseasonMoves.length > 0) historyEvents.worlds = offseasonMoves;
   else delete historyEvents.worlds;
   // These rows already exclude old carry. Do not apply the old boundary again.
-  const prevForHistory = { ...prev, transfersByEvent: historyEvents, worldsOffseasonBaseline: 0 };
+  const prevForHistory = { ...prev,
+    rosterNews: [...new Set([...(working.rosterNews ?? []), ...rosterNews])],
+    transfersByEvent: historyEvents, worldsOffseasonBaseline: 0 };
   const prior =
     prev.status === "complete" ? buildSeasonHistoryEntry(prevForHistory, Date.now()) : undefined;
   const year = nextYear;
@@ -765,7 +774,7 @@ export function startNextSeason(
     }
   }
 
-  return {
+  return { archived: prior, season: {
     ...next,
     ...(continuityForm
       ? { teamForm: { ...next.teamForm, ...continuityForm } }
@@ -779,7 +788,7 @@ export function startNextSeason(
       ? { transfersByEvent: { worlds: offseasonMoves } }
       : {}),
     ...(rosterNews.length > 0 ? { rosterNews } : {}),
-  };
+  } };
 }
 
 /**
@@ -853,7 +862,7 @@ export function applyUserFaToAcademy(
     },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season),
+      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season, season.teams, result.inactivePool),
     ],
     updatedAt: Date.now(),
   };
@@ -893,7 +902,7 @@ export function applyUserAcademyRelease(
     },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season),
+      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season, season.teams, result.inactivePool),
     ],
     updatedAt: Date.now(),
   };
@@ -955,7 +964,7 @@ export function applyUserAcademyRookie(
     },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season),
+      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season, season.teams, result.inactivePool),
     ],
     updatedAt: Date.now(),
   };
@@ -1046,7 +1055,7 @@ function applyUserInactiveSign(
     },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season),
+      ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season, season.teams.map(t => ({ ...t, players: byTeam.get(t.id) ?? t.players })), result.inactivePool),
     ],
     updatedAt: Date.now(),
   };
@@ -1093,6 +1102,7 @@ export function applyUserManualDemote(
   const parked = {
     player: { ...incumbent, badStreak: 0 },
     status: "academy" as const,
+    inactiveTenure: { academyYears: 0, freeAgentYears: 0 },
     inactiveYears: 1,
     demotedYear: season.franchise.year,
     clockYear: season.franchise.year,
@@ -1141,7 +1151,7 @@ export function applyUserManualDemote(
     },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark([...bumpNews, news], mark, season),
+      ...withRosterTimeMark([...bumpNews, news], mark, season, season.teams.map(t => t.id === me ? { ...t, players } : t), parkedRes.pool),
     ],
     updatedAt: Date.now(),
   };
@@ -1236,7 +1246,7 @@ export function applyUserRookieSign(
       usedNames: [...taken],
       sameWindowRookieIds,
     },
-    rosterNews: [...(season.rosterNews ?? []), { ...news, origin: marketOrigin(season, news.timeMark ?? rosterTimeMarkForSeason(season)) }],
+    rosterNews: [...(season.rosterNews ?? []), ...withRosterTimeMark([news], news.timeMark ?? rosterTimeMarkForSeason(season), season, season.teams.map(t => t.id === me ? { ...t, players } : t), pool)],
     updatedAt: Date.now(),
   };
 }
@@ -1514,7 +1524,7 @@ export function fillRosterVacancies(
     },
     rosterNews: [
       ...priorNews,
-      ...withRosterTimeMark(mergedNews, rosterTimeMarkForSeason(season), season),
+      ...withRosterTimeMark(mergedNews, rosterTimeMarkForSeason(season), season, teams, pool),
     ],
     updatedAt: Date.now(),
   };

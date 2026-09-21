@@ -1322,3 +1322,10 @@ describe("career teammates", () => {
     expect(careerTeammates([{...entries[0],phaseRosters:[]}],"vet")).toEqual([]);
   });
 });
+
+it("historical team stars use the frozen roster's half-step rating", () => {
+  const entries = retiredFixture([["one", "two", "three", "four", "five"]]);
+  const team = entries[0].phaseRosters![0].teams[0];
+  team.players.forEach((player, index) => { player.tier = index < 3 ? "S" : "A"; });
+  expect(teamStars(entries).get(`${team.leagueId}:${team.teamName}`)).toBe(4.5);
+});

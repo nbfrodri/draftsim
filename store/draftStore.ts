@@ -4,7 +4,7 @@ import { repairNameRegistry } from "@/lib/season/nameRegistry";
 import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 import { reportPersistenceError } from "@/lib/persistenceStatus";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
-import { forcePersistReady } from "@/lib/desktopStorage";
+import { forcePersistReady, setPersistLoadStage } from "@/lib/desktopStorage";
 import { createFranchiseActions } from "./actions/franchise";
 import { createImportsActions } from "./actions/imports";
 import { createSimulationActions } from "./actions/simulation";
@@ -85,7 +85,7 @@ makeSeasonId,
 nextPendingTournament as nextPendingSeasonTournament,
 phaseProgress as seasonPhaseProgress,
 } from "@/lib/season/engine";
-import { aiDecideFollowedDemotes,applyUserAcademyRecall,applyUserAcademyRelease,applyUserAcademyRookie,applyUserFaSign,applyUserFaToAcademy,applyUserManualDemote,applyUserRookieSign,seedFranchise,startNextSeason } from "@/lib/season/franchise";
+import { aiDecideFollowedDemotes,applyUserAcademyRecall,applyUserAcademyRelease,applyUserAcademyRookie,applyUserFaSign,applyUserFaToAcademy,applyUserManualDemote,applyUserRookieSign,seedFranchise,startNextSeasonWithArchive } from "@/lib/season/franchise";
 import {
 aiHonorFollowedAgency,
 honorAgencyDemand as applyHonorAgencyDemand,
@@ -323,13 +323,14 @@ export function rollFranchiseToNextYearState(
   champions: readonly Champion[],
   prevHistory: SeasonHistoryEntry[],
 ): { season: SeasonState; history: SeasonHistoryEntry[] } {
-  const entry = buildSeasonHistoryEntry(season, Date.now());
+  const rollover = startNextSeasonWithArchive(season, champions);
+  const entry = rollover.archived ?? buildSeasonHistoryEntry(season, Date.now());
   const historyBase = [entry, ...prevHistory.filter((e) => e.id !== entry.id)].slice(
     0,
     seasonHistoryCap(),
   );
   const prePool = season.franchise!.inactivePool ?? [];
-  const next = startNextSeason(season, champions);
+  const next = rollover.season;
   const inactivePlayers = next.franchise?.aging
     ? inactiveSnapshotsForArchivedYear(
         prePool,
@@ -3438,6 +3439,7 @@ export const useDraftStore = create<DraftStore>()(
         forcePersistReady();
         return;
       }
+      setPersistLoadStage("Preparing loaded seasons and recaps");
       // Mirror persisted sound prefs onto the imperative SoundPlayer
       // singleton — the store is the source of truth, but `sounds`
       // reads its own state at play() time.

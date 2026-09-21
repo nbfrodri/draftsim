@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Champion, Lane } from "../types";
 import { LANE_ORDER } from "../players";
-import { generateSeasonTeams, assignRoleElites, SPLUS_PER_ROLE } from "./teamGen";
+import { generateSeasonTeams, assignRoleElites, SPLUS_PER_ROLE, STAR_DISTRIBUTIONS } from "./teamGen";
 import type { SeasonTeam } from "./types";
 
 let nid = 1;
@@ -67,4 +67,13 @@ describe("S+ elite promotion", () => {
     const tiers = (teams: ReturnType<typeof generateSeasonTeams>) => teams.flatMap((t) => t.players.map((p) => p.tier)).join(",");
     expect(tiers(a)).toBe(tiers(b));
   });
+});
+
+it("initial half-step league targets preserve regional strength totals", () => {
+  const totals = { LCK: 35, LPL: 35, LEC: 32, LCS: 31, CBLOL: 28, LCP: 28 };
+  for (const [region, targets] of Object.entries(STAR_DISTRIBUTIONS)) {
+    expect(targets.reduce((sum, value) => sum + value, 0)).toBe(totals[region as keyof typeof totals]);
+    expect(targets.some(value => value % 1 === 0.5)).toBe(true);
+    expect(targets.every(value => value >= 1 && value <= 5 && Number.isInteger(value * 2))).toBe(true);
+  }
 });

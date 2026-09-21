@@ -66,8 +66,8 @@ describe("deriveStar", () => {
   });
 
   it("rounds the mean of a mixed roster", () => {
-    // values: 2 + 1 + 0 + 0 + (-1) = 2, mean 0.4 → round(3.4) = 3
-    expect(deriveStar(rosterOfTiers(["S", "A", "B", "B", "C"]))).toBe(3);
+    // values: 2 + 1 + 0 + 0 + (-1) = 2, mean 0.4 → nearest half(3.4) = 3.5
+    expect(deriveStar(rosterOfTiers(["S", "A", "B", "B", "C"]))).toBe(3.5);
     // values: 2 + 2 + 1 + 1 + 0 = 6, mean 1.2 → round(4.2) = 4
     expect(deriveStar(rosterOfTiers(["S", "S", "A", "A", "B"]))).toBe(4);
   });
@@ -93,7 +93,7 @@ describe("valueToTier", () => {
 
 describe("randomizeTiersForStar", () => {
   it("always produces a roster whose derived star equals the target", () => {
-    for (let star = 1; star <= 5; star++) {
+    for (let star = 1; star <= 5; star += 0.5) {
       for (let seed = 1; seed <= 40; seed++) {
         const tiers = randomizeTiersForStar(star, rngFrom(seed * 31 + star));
         expect(tiers).toHaveLength(5);

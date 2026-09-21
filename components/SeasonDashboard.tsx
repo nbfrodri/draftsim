@@ -1,4 +1,5 @@
 "use client";
+import { teamStarRating } from "@/lib/tournament";
 import { ALL_PRO_LABELS } from "@/lib/season/allProScopes";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
@@ -1619,7 +1620,7 @@ function TournamentCard({
                   />
                   <TeamFormBadge
                     form={s.team.form}
-                    baseStar={s.team.starRating}
+                    baseStar={teamStarRating(s.team)}
                   />
                   <QualifierTagView tag={regionSeeds?.get(s.team.id)} />
                 </span>

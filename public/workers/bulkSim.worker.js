@@ -13671,6 +13671,12 @@
     return _counterOverrideVersion;
   }
 
+  // lib/teamStars.ts
+  function normalizeTeamStars(value) {
+    if (typeof value !== "number" || !Number.isFinite(value)) return 3;
+    return Math.max(1, Math.min(5, Math.round(value * 2) / 2));
+  }
+
   // lib/players.ts
   var _playerSeq = 0;
   function makePlayerId(rng = Math.random) {
@@ -13694,13 +13700,10 @@
   };
   var MAIN_POOL = 3;
   var SECONDARY_COMFORT = 0.5;
-  function clamp(n2, lo, hi) {
-    return Math.max(lo, Math.min(hi, n2));
-  }
   function deriveStar(roster) {
     if (!roster || roster.length === 0) return 3;
     const mean = roster.reduce((sum, p) => sum + PLAYER_TIER_VALUE[p.tier], 0) / roster.length;
-    return clamp(Math.round(3 + mean), 1, 5);
+    return normalizeTeamStars(3 + mean);
   }
   function playableInLane(champ, lane) {
     if (champ.lanes.includes(lane)) return true;
@@ -13819,7 +13822,7 @@
   // lib/chemistry.ts
   var CHEM_SAME_REGION = 0.25;
   var CHEM_DUO = 0.25;
-  function clamp2(n2, lo, hi) {
+  function clamp(n2, lo, hi) {
     return Math.max(lo, Math.min(hi, n2));
   }
   function settle(a, b) {
@@ -13850,7 +13853,7 @@
       if (other === me) continue;
       sum += pairChemistry(me, other);
     }
-    return clamp2(sum / 2, -1, 1);
+    return clamp(sum / 2, -1, 1);
   }
   var CHEM_LANE_K = 12;
   function laneChemistryBias(bluePlayers, redPlayers, lane, k = CHEM_LANE_K) {
@@ -14229,16 +14232,16 @@
   var FORM_DECAY = 0.85;
   var FORM_RATING_CENTER = 5.5;
   var FORM_RATING_SCALE = 3.5;
-  function clamp3(n2, lo, hi) {
+  function clamp2(n2, lo, hi) {
     return Math.max(lo, Math.min(hi, n2));
   }
   function clampForm(form) {
     if (!Number.isFinite(form)) return 0;
-    return clamp3(form, FORM_MIN, FORM_MAX);
+    return clamp2(form, FORM_MIN, FORM_MAX);
   }
   function normalizeRating(rating) {
     if (!Number.isFinite(rating)) return 0;
-    return clamp3((rating - FORM_RATING_CENTER) / FORM_RATING_SCALE, -1, 1);
+    return clamp2((rating - FORM_RATING_CENTER) / FORM_RATING_SCALE, -1, 1);
   }
   function updateForm(prev, gameRating) {
     const p = clampForm(prev);
@@ -36445,7 +36448,7 @@
     }
     const r = team.starRating;
     if (typeof r !== "number" || !Number.isFinite(r)) return 3;
-    return Math.max(1, Math.min(5, Math.round(r)));
+    return normalizeTeamStars(r);
   }
   function bracketChronoRank(bracket) {
     switch (bracket) {

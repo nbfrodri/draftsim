@@ -1,4 +1,5 @@
 "use client";
+import { TeamStarPicker } from "./TeamStars";
 
 import { useMemo,useState } from "react";
 
@@ -781,29 +782,7 @@ export default function SeasonSetup({ onCancel }: Props) {
                           className="flex-1 min-w-0 bg-transparent text-[12px] text-rift-mutedbright outline-none border-b border-transparent focus:border-rift-gold/40"
                           aria-label="Team name"
                         />
-                        <span
-                          className="inline-flex items-center flex-shrink-0"
-                          title="Team rating — click a star to set roster strength"
-                        >
-                          {[1, 2, 3, 4, 5].map((n) => {
-                            const star = deriveStar(t.players);
-                            return (
-                              <button
-                                key={n}
-                                type="button"
-                                onClick={() => setTeamStar(t.id, n)}
-                                aria-label={`Set ${t.name} rating to ${n} star${n === 1 ? "" : "s"}`}
-                                className={`px-0.5 text-[11px] leading-none transition-colors ${
-                                  n <= star
-                                    ? "text-rift-gold hover:text-rift-goldbright"
-                                    : "text-rift-line hover:text-rift-gold/60"
-                                }`}
-                              >
-                                ★
-                              </button>
-                            );
-                          })}
-                        </span>
+                        <TeamStarPicker value={deriveStar(t.players)} onChange={value => setTeamStar(t.id, value)} label={`${t.name} team rating`} />
                         <button
                           type="button"
                           onClick={() =>

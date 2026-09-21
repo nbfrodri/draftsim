@@ -569,6 +569,7 @@ describe("academy open-replace gap (looser than FA)", () => {
     );
     expect(result.ok).toBe(true);
     expect(result.teams[0]!.players.find((p) => p.lane === "middle")?.id).toBe("acy-ok");
+    expect(result.news.find(n => n.marketNote === "academy-recall")?.departedDestination).toBe("academy");
   });
 
   it("AI academy promote pass swaps a clear upgrade when chance fires", () => {

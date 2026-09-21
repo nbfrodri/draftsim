@@ -1,6 +1,6 @@
 # Documentación técnica de DraftSim
 
-Esta documentación describe el código de la versión en preparación 0.6.0. Distingue contratos implementados de propuestas de evolución. Los resultados de CI y el estado de publicación deben consultarse en la ejecución correspondiente de GitHub.
+Esta documentación describe el código de la versión 0.8.0. Distingue contratos implementados de propuestas de evolución. Los resultados de CI y el estado de publicación deben consultarse en la ejecución correspondiente de GitHub.
 
 ## Recorridos de lectura
 
@@ -22,3 +22,7 @@ Esta documentación describe el código de la versión en preparación 0.6.0. Di
 - [Instrucciones para contribuir](../AGENTS.md).
 
 Los documentos de `plans/` y las auditorías registran objetivos y decisiones de un momento concreto; no certifican por sí solos el comportamiento actual. Si una descripción contradice el código, debe investigarse y actualizarse junto con las pruebas pertinentes.
+
+## Versiones
+
+- [v0.8.0: historial de movimientos, medias estrellas y fiabilidad](releases/v0.8.0.md).

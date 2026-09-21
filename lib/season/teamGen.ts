@@ -92,13 +92,14 @@ const NAME_POOLS: Record<LeagueId, { first: string[]; second: string[] }> = {
 // teams so the top org isn't always slot #1. Major regions (LCK/LPL)
 // average higher, which is what makes seed-1-of-LCK beating
 // seed-4-of-a-minor-region the LIKELY outcome at internationals.
-const STAR_DISTRIBUTIONS: Record<LeagueId, number[]> = {
-  LCK: [5, 5, 4, 4, 4, 3, 3, 3, 2, 2],
-  LPL: [5, 5, 4, 4, 4, 3, 3, 3, 2, 2],
-  LEC: [5, 4, 4, 4, 3, 3, 3, 2, 2, 2],
-  LCS: [5, 4, 4, 3, 3, 3, 3, 2, 2, 2],
-  CBLOL: [4, 4, 4, 3, 3, 3, 2, 2, 2, 1],
-  LCP: [4, 4, 4, 3, 3, 3, 2, 2, 2, 1],
+// Half steps preserve the previous target total in each region (35/32/31/28).
+export const STAR_DISTRIBUTIONS: Record<LeagueId, number[]> = {
+  LCK: [5, 4.5, 4.5, 4, 3.5, 3.5, 3, 3, 2, 2],
+  LPL: [5, 4.5, 4.5, 4, 3.5, 3.5, 3, 3, 2, 2],
+  LEC: [5, 4.5, 4, 3.5, 3.5, 3, 2.5, 2, 2, 2],
+  LCS: [5, 4, 3.5, 3.5, 3, 3, 2.5, 2.5, 2, 2],
+  CBLOL: [4.5, 4, 3.5, 3.5, 3, 2.5, 2.5, 2, 1.5, 1],
+  LCP: [4.5, 4, 3.5, 3.5, 3, 2.5, 2.5, 2, 1.5, 1],
 };
 
 function shuffled<T>(arr: readonly T[], rng: RNG): T[] {

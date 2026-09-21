@@ -352,7 +352,24 @@ test("title playground filters teams, player winning regions, years and realitie
     playground.getByText("No competitors match this view"),
   ).toBeVisible();
   // Cards are desktop-only. Enable their environment gate after browser storage hydration.
-  await page.evaluate(() => Object.defineProperty(window, "__TAURI_INTERNALS__", {value:{}, configurable:true}));
+  await page.evaluate(entries => Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {
+    invoke: async (command: string, args: { query?: string; path?: string; values?: string[] } = {}) => {
+      if (command === "plugin:path|resolve_directory") return "fixture";
+      if (command === "plugin:path|join") return "fixture/draftsim.db";
+      if (command === "plugin:sql|load") return args.path;
+      if (command === "plugin:sql|execute") return [0, 0];
+      if (command === "plugin:sql|select") {
+        if (args.query?.includes("persist_version")) return [{ value: "8" }];
+        if (args.query?.includes("FROM reality_history")) {
+          const saved = JSON.parse(localStorage.getItem("draftsim-store")!) as { state: { realities: Array<{ id: string; history: typeof entries }> } };
+          const selected = saved.state.realities.find(reality => reality.id === args.values?.[0]);
+          return (selected?.history ?? []).map(entry => ({ entry_json: JSON.stringify(entry) }));
+        }
+        return [];
+      }
+      return null;
+    },
+  } }), history);
   await page.getByRole("button", {name:"Reality · Alpha",exact:true}).click();
   const teamRow = playground.getByRole("button", {name:"T1: 17 titles. View breakdown",exact:true});
   await teamRow.getByText("T1", {exact:true}).hover();

@@ -96,6 +96,7 @@ function agencyWalkToFa(
   const faEntry: MarketInactive = {
     player: { ...player, badStreak: 0 },
     status: "free-agent",
+    inactiveTenure: { academyYears: 0, freeAgentYears: 0 },
     inactiveYears: ACADEMY_YEARS + 1,
     demotedYear: year,
     clockYear: year,
@@ -186,7 +187,7 @@ function agencyHonorCallUp(
       ...(season.rosterNews ?? []),
       ...withRosterTimeMark(
         result.news.map((n) => ({ ...n, marketNote: "agency-callup" as const })),
-        rosterTimeMarkForSeason(season), season
+        rosterTimeMarkForSeason(season), season, season.teams.map(t => ({ ...t, players: byTeam.get(t.id) ?? t.players })), result.inactivePool
       ),
     ],
     updatedAt: Date.now(),
@@ -238,7 +239,7 @@ function agencyHonorDepart(
           franchise: { ...season.franchise, inactivePool: pool },
           rosterNews: [
             ...(season.rosterNews ?? []),
-            ...withRosterTimeMark(news, rosterTimeMarkForSeason(season), season),
+            ...withRosterTimeMark(news, rosterTimeMarkForSeason(season), season, season.teams, pool),
           ],
           updatedAt: Date.now(),
         };
@@ -262,7 +263,7 @@ function agencyHonorDepart(
     franchise: { ...season.franchise, inactivePool: released.pool },
     rosterNews: [
       ...(season.rosterNews ?? []),
-      ...withRosterTimeMark(news, rosterTimeMarkForSeason(season), season),
+      ...withRosterTimeMark(news, rosterTimeMarkForSeason(season), season, season.teams, released.pool),
     ],
     updatedAt: Date.now(),
   };
@@ -295,7 +296,7 @@ export function honorAgencyDemand(
           ...(walked.season.rosterNews ?? []),
           ...withRosterTimeMark(
             [agencyLeaveNews(walked.vacated, demand)],
-            rosterTimeMarkForSeason(season), season
+            rosterTimeMarkForSeason(season), season, walked.season.teams, walked.season.franchise?.inactivePool
           ),
         ],
       };

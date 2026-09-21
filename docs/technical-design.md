@@ -144,3 +144,65 @@ Identificar productores, consumidores y representación persistida antes de camb
 Los cambios de almacenamiento deben declarar la frontera transaccional y el comportamiento ante fallo. Los cambios históricos deben preferir campos opcionales y normalización conservadora. Las nuevas superficies deben integrar Escape y sus guardas desde el inicio.
 
 Las pruebas deben usar datos desechables representativos: varias realidades, archivos antiguos, historiales extensos y temporadas incompletas. Los planes y comentarios antiguos ayudan a entender decisiones, pero el comportamiento actual se comprueba en código y tests.
+
+
+### Historial de mercado: ampliación de septiembre de 2026
+
+El Hall dispone de una vista de movimientos por realidad que combina archivo anual y temporada en curso sin activar otra realidad. `marketHistory.ts` normaliza noticias y transferencias, preserva procedencia y ofrece filtrado cronológico. Las ventanas domésticas previas al internacional se muestran como `Post Winter Split`, `Post Spring Split` y `Post Summer Split`; se conservan las claves persistidas existentes.
+
+`marketSnapshots.ts` captura rosters principales y academia antes/después de cambios confirmados. Los snapshots son campos aditivos de cada movimiento, viajan con temporada, archivo e importación, y no requieren migración destructiva de SQLite. La UI usa esos snapshots en una card específica con selector y mantiene una ausencia explícita para datos antiguos. No se recorre ni se reescribe el historial para deducir plantillas pasadas a partir de las actuales. El coste adicional de almacenamiento se limita a los equipos afectados, con hasta cinco jugadores principales por lado y los miembros de academia asociados; no se copian torneos ni recaps.
+
+La interfaz comparte el selector accesible del Hall para los desplegables, usa botones de selección múltiple para regiones y posiciones, incorpora sus logos y enlaza años archivados a la Timeline. Véanse los contratos y límites detallados en [domain-contracts.md](domain-contracts.md) y [interaction-and-execution.md](interaction-and-execution.md).
+
+
+### Market history: multi-year coverage and retirement evidence
+
+The year selector uses recorded archive years, the current franchise year and movement origins, rather than only years with visible rows. Empty or pre-feature archives therefore remain selectable when their year metadata is known. Archived news may use its explicit archive year when origin metadata is absent; live legacy news never borrows the current year. No missing market events are reconstructed from current rosters.
+
+A regression exercises five real franchise rollovers and SQLite save/load boundaries using a disposable in-memory database, checking every year's Winter and MSI filters. This verifies persistence of recorded news, not recovery of news that an older running dev store never archived. Restarting desktop:dev is necessary when checking changes to initialized Zustand actions; creating a new reality alone may retain old closures through hot reload.
+
+New inactive spells carry optional `inactiveTenure` counters. Each year-end observation increments the player's previous Academy or Free Agent status, independently of the resettable badge clock. Moving between those inactive states preserves counts; returning to a main roster and leaving again starts a new spell. These are observed simulation year-end counts, not exact fractional durations or lifetime career totals. Legacy missing counters remain unknown. Retirement news freezes the previous committed status, age and available counters before the inactive record is lost or altered.
+
+
+### Shared lazy history loading in the Hall
+
+`SeasonHistoryView` loads a selected reality's complete archive once for every tab through `loadHallRealityHistory`. Previously only the Roster Moves child performed a private read, leaving Timeline/Records/Search with an empty in-memory placeholder. The shared loader preserves active reality and season body, checks target identity and cancellation, drains pending snapshots before authorizing history writes, and installs the full archive before any destructive history action is offered. Loading and retry UI are shared across tabs; a failed read cannot be presented as an empty archive.
+
+
+The shared Hall loader deduplicates concurrent requests for the same reality object, including dev Strict Mode remounts. Nonempty in-memory archives remain authoritative when dev reloads lose transient load flags; they are eligible for persistence even without the flag. A complete DB read is recognized as already durable on installation, avoiding a second full encode/upsert pass. The five-year regression now deliberately drops transient flags before every save. Empty history placeholders still cannot delete dormant DB rows.
+
+An empty archive and a loading failure are separate outcomes: a current simulation year greater than one does not itself reconstruct earlier results. The Hall explains that current-season market news may still be visible when the annual archive is absent. Missing historical match results cannot safely be regenerated from the current roster.
+
+
+### Records & Dynasties rendering budget
+
+The main bottleneck was mounting every row of every career/region/coach leaderboard, despite placing them inside small scrolling containers. CSS content visibility reduced painting but did not avoid React component creation, hooks and DOM nodes. `RecordRows` paginates long lists in groups of 20 while retaining all sorted data and absolute ranks. This also bounds international honour rolls, dynasty lists and rivalry lists. No historical records are dropped and existing calculations/ranking rules are unchanged.
+
+A browser fixture contains 100 annual archives, 200 career lines per year and 5,000 distinct careers. Before the change it became unresponsive and exhausted a 120-second test timeout. Afterward, opening the same Records view took 665 ms and mounted 204 record rows. These are synthetic Edge/static-export measurements, not native WebView guarantees. The regression asserts a bounded row count and navigation to later ranks, avoiding a flaky machine-specific time threshold.
+
+Market news may additionally record `departedDestination: "academy"` for an occupied main/academy swap. Normalization emits a promotion and its paired demotion with separate stable player IDs and recorded tiers, deduplicating an already explicit demotion. Snapshots can substantiate the same destination in older data; promotions into vacancies and legacy events lacking destination evidence do not invent a demotion. The new field is optional and import-validated; no physical SQLite migration is required.
+
+
+### Half-star team strength
+
+`lib/teamStars.ts` owns the numeric contract: finite values are rounded to the nearest 0.5 and clamped to 1..5; missing/non-finite values default to neutral 3. `deriveStar` applies this to `3 + mean(PLAYER_TIER_VALUE)`. Main-roster tiers remain discrete D/C/B/A/S/S+; S+ cannot push a team above five stars. Academy members do not contribute to main-roster strength. Raw means 4.4 and 4.6 both produce 4.5.
+
+Random roster generation nudges discrete lane tiers until the derived half-step target matches. Deterministic legacy reconstruction distributes adjacent tiers across five lanes. An exact raw mean of 4.5 is impossible for five integer-tier players, so the contract is equality of the quantized rating, not equality of raw means. Integer reconstruction remains uniform. Initial regional distributions now include half steps while preserving previous target sums (LCK/LPL 35, LEC 32, LCS 31, CBLOL/LCP 28); elite promotion still happens afterward.
+
+| Consumer | Behavior / verification boundary |
+| --- | --- |
+| `players.ts`, `tournament.ts` | Shared half-step derivation; an actual roster overrides a stale cached team rating. |
+| `series.ts`, `BetweenGamesView.tsx`, `draftStore.ts` | Interactive match context carries fractional strengths; side swaps keep them attached to the team. The classic bias remains `(blue - red) * 9`, hence 4.5 vs 4 contributes 4.5 before other modifiers. |
+| `sim/autoPlayMatch.ts`, `sim/bulkSim.worker.ts` | Same tournament context and bias as interactive simulation. The compiled worker is exercised with fractional roster strengths and deliberately incorrect cached ratings. |
+| `season/engine.ts` | Tournament creation, strength-based seeding and roster changes consume the shared derivation. |
+| `season/powerRankings.ts`, `teamGen.ts` | Sorting and numeric strength scores retain fractions; existing elite incumbency bonus remains equivalent to half a star. |
+| `season/playerAgency.ts`, `transfers.ts` | Organization attractiveness and destination ordering receive fractional strength without changing their coefficients. |
+| `season/coach.ts` | Initial coach generation receives the refined team strength; coach ratings keep their independent decimal scale. |
+| `season/seasonStory.ts` | Upset gap arithmetic already accepts fractions in recorded tournament ratings; thresholds and archived outcomes are preserved. |
+| `historySearch.ts`, `teamCard.ts`, `TeamCardContext.tsx` | Current and frozen historical roster summaries use the same calculation; duplicate integer historical rounding is removed. |
+| Setup, roster editor, series creation, match cards, market Before/After | Shared five-glyph display clips half of the relevant star. Season/tournament selectors support pointer, touch and keyboard half steps. Tournament randomization clears an authoritative old roster when changing its rating. |
+| Team browser, My Team, hover cards, Hall search, form badges | Numeric star labels preserve `.5`; form badges show the numeric rating, with an approximate discrete letter tier only as supplemental tooltip information. |
+
+Variance scaling remains continuous. Final underdog protection retains its existing gap threshold of 3, rather than admitting a 2.5 gap through integer rounding. Player match grades, coach ratings and average letter tiers remain separate quantities.
+
+No physical SQLite migration or destructive rounding pass is needed. Numeric JSON fields already represent halves. Import reconstruction handles missing legacy rosters with half ratings, and completed series survive share round trips unchanged. Explicit strengths in existing in-progress series remain frozen; future matches and recalculated roster summaries use the new rule. This intentionally changes future simulation probabilities and can separate teams that previously shared an integer rating.

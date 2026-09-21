@@ -9,6 +9,7 @@ import {
   gatePersistWritesUntilReady,
   isPersistReady,
   onPersistReady,
+  pausePersistWrites,
   resetPersistGateForTests,
   resetAppClosePhaseForTests,
   resolveWebStringStorage,
@@ -206,4 +207,45 @@ it("a hydration timeout releases the screen but keeps writes blocked", () => {
 it("a malformed saved JSON is an error, not a missing save", () => {
   const storage = createWebLazyStorage(() => ({ getItem: () => "{broken", setItem: vi.fn(), removeItem: vi.fn() }));
   expect(() => storage.getItem("protected")).toThrow();
+});
+
+
+describe("recovery during a slow hydration", () => {
+  beforeEach(resetPersistGateForTests);
+  it("keeps writes paused even when hydration finishes during recovery", () => {
+    const write = vi.fn();
+    const storage = gatePersistWritesUntilReady({ getItem: () => null, setItem: write, removeItem: () => {} });
+    const resume = pausePersistWrites();
+    enablePersistWrites();
+    storage.setItem("save", { state: {} });
+    expect(write).not.toHaveBeenCalled();
+    resume(); resume();
+    storage.setItem("save", { state: {} });
+    expect(write).toHaveBeenCalledOnce();
+  });
+  it("rejects the old read before it can replace restored state, even after recovery ends", async () => {
+    let resolve!: (value: StorageValue<{ year: number }>) => void;
+    const read = new Promise<StorageValue<{ year: number }>>(done => { resolve = done; });
+    const storage = gatePersistWritesUntilReady({ getItem: () => read, setItem: vi.fn(), removeItem: () => {} });
+    const loading = storage.getItem("save");
+    const resume = pausePersistWrites();
+    expect(() => storage.getItem("save")).toThrow("paused during recovery");
+    resume();
+    resolve({ state: { year: 1 } });
+    await expect(loading).rejects.toThrow("superseded by recovery");
+    await expect(storage.getItem("save")).resolves.toEqual({ state: { year: 1 } });
+  });
+  it("does not re-enable failed hydration on recovery failure or nested resume", () => {
+    const write = vi.fn();
+    const storage = gatePersistWritesUntilReady({ getItem: () => null, setItem: write, removeItem: () => {} });
+    enablePersistWrites();
+    const first = pausePersistWrites(), second = pausePersistWrites();
+    first(); first();
+    storage.setItem("save", { state: {} });
+    expect(write).not.toHaveBeenCalled();
+    forcePersistReady();
+    second();
+    storage.setItem("save", { state: {} });
+    expect(write).not.toHaveBeenCalled();
+  });
 });

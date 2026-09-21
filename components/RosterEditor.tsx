@@ -1,4 +1,5 @@
 "use client";
+import TeamStars from "@/components/TeamStars";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
 
@@ -267,8 +268,7 @@ export default function RosterEditor({
                 className="text-rift-gold text-sm tracking-tight inline-block"
                 aria-label={`${star} of 5 stars`}
               >
-                {"★".repeat(star)}
-                <span className="text-rift-line">{"★".repeat(5 - star)}</span>
+                <TeamStars rating={star} />
               </span>
             </div>
             <div className="flex items-center gap-1.5">

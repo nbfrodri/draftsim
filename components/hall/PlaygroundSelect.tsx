@@ -1,7 +1,7 @@
 "use client";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 /** Compact Hall picker with a themed popup and native-style keyboard controls. */
 export default function PlaygroundSelect({
@@ -12,7 +12,7 @@ export default function PlaygroundSelect({
 }: {
   label: string;
   value: string;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; icon?: ReactNode }[];
   onChange: (value: string) => void;
 }) {
   const id = useId();
@@ -55,7 +55,7 @@ export default function PlaygroundSelect({
   return (
     <div
       ref={root}
-      className="relative grid min-w-32 gap-1.5"
+      className="relative grid min-w-0 gap-1.5"
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
       }}
@@ -127,7 +127,7 @@ export default function PlaygroundSelect({
           }
         }}
       >
-        <span>{options[selected]?.label}</span>
+        <span className="flex min-w-0 items-center gap-1.5">{options[selected]?.icon}<span className="truncate">{options[selected]?.label}</span></span>
         <svg
           aria-hidden
           viewBox="0 0 12 12"
@@ -144,7 +144,7 @@ export default function PlaygroundSelect({
           id={`${id}-list`}
           role="listbox"
           aria-label={label}
-          className={`absolute left-0 z-30 max-h-60 min-w-full overflow-y-auto border border-rift-gold/50 bg-rift-panel py-1 shadow-xl ${above ? "bottom-10" : "top-full mt-1"}`}
+          className={`absolute left-0 z-30 max-h-60 w-full overflow-y-auto border border-rift-gold/50 bg-rift-panel py-1 shadow-xl ${above ? "bottom-10" : "top-full mt-1"}`}
           onMouseDown={(event) => event.preventDefault()}
         >
           {options.map((option, index) => (
@@ -155,9 +155,9 @@ export default function PlaygroundSelect({
               aria-selected={option.value === value}
               onMouseEnter={() => setActive(index)}
               onClick={() => choose(index)}
-              className={`flex cursor-pointer items-center justify-between gap-4 whitespace-nowrap border-l-2 px-3 py-2 text-[11px] ${active === index ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-transparent text-rift-mutedbright"}`}
+              className={`flex cursor-pointer items-center justify-between gap-2 border-l-2 px-3 py-2 text-[11px] ${active === index ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-transparent text-rift-mutedbright"}`}
             >
-              <span>{option.label}</span>
+              <span className="flex min-w-0 items-center gap-1.5">{option.icon}<span className="truncate">{option.label}</span></span>
               <span aria-hidden className="w-3 text-rift-gold">
                 {option.value === value ? "✓" : ""}
               </span>

@@ -21,6 +21,14 @@ DraftSim uses Microsoft Edge WebView2. The installer handles its installation wh
 
 ## What you can play
 
+Read the [v0.8.0 release notes](docs/releases/v0.8.0.md) for market history, half-star strength and save/performance improvements.
+
+Desktop saves include unfinished seasons. Inactive realities load on demand; Backups offers optional local save diagnostics. See the [persistence guide](docs/persistence-and-recovery.md) for storage format 8 migration and recovery.
+
+The Hall also includes **Roster Moves**: chronological market history per reality, including the current year, with year/window/team/region/role filters and player-status badges. Older archives show only the events they actually retained.
+
+Team strength supports **half stars (1 to 5)** throughout setup, roster displays, rankings, market decisions and interactive/bulk simulation. Existing saves remain compatible; completed results are preserved. See [the team-strength contract](docs/technical-design.md#half-star-team-strength).
+
 - **Single series:** pick/ban against another player or the AI, or watch AI vs AI; best-of series, fearless drafting and optional player rosters.
 - **Match simulation:** set a War Room strategy and follow kills, objectives, gold, win probability, MVPs and post-match recaps.
 - **Tournaments:** single/double elimination, round robin, Swiss, Swiss with playoffs, and groups with playoffs.
@@ -234,5 +242,3 @@ AI has been used to assist with the development and documentation of this projec
 ## Attribution
 
 Unofficial fan-made project, not affiliated with Riot Games. League of Legends names, champion artwork, icons and sound effects belong to Riot Games. CommunityDragon and Meraki Analytics provide community data mirrors; roster reference data also uses Leaguepedia. Third-party assets retain their owners' rights.
-
-Desktop saves include unfinished seasons. Inactive realities load on demand; Backups offers optional local save diagnostics. See the [persistence guide](docs/persistence-and-recovery.md) for storage format 8 migration and recovery.

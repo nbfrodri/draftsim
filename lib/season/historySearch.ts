@@ -1,3 +1,4 @@
+import { deriveStar } from "../players";
 import { archivedAllProCounts } from "./allProScopes";
 import { careerTeammates, type CareerTeammate } from "./teammates";
 // Liquipedia-style search over the Hall of Seasons archive: build player, team,
@@ -8,7 +9,6 @@ import { careerTeammates, type CareerTeammate } from "./teammates";
 // historyRecords). Players are matched by stable id; coaches by name.
 
 import type { Lane, PlayerTier } from "../types";
-import { PLAYER_TIER_VALUE } from "../players";
 import type { SeasonHistoryEntry, SeasonHistoryTeamRef } from "./history";
 import {
   SPLIT_LABELS,
@@ -578,11 +578,7 @@ export function listPlayers(
 
 // 1..5 star rating from a roster's tiers (mirrors players.deriveStar without
 // needing full Player objects). Empty → 3 (neutral).
-function starOf(players: ReadonlyArray<{ tier: PlayerTier }>): number {
-  if (players.length === 0) return 3;
-  const mean = players.reduce((s, p) => s + PLAYER_TIER_VALUE[p.tier], 0) / players.length;
-  return Math.max(1, Math.min(5, Math.round(3 + mean)));
-}
+const starOf = deriveStar;
 
 /** Each team's most-recent star rating (key = `${leagueId}:${name}`). */
 export function teamStars(entries: SeasonHistoryEntry[]): Map<string, number> {

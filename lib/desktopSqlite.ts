@@ -32,6 +32,7 @@ clearDesktopOperation,
 desktopStorage,
 isDesktop,
 signalCompactingDatabase,
+setPersistLoadStage,
 } from "./desktopStorage";
 
 export { PERSIST_VERSION } from "./desktopSqliteSchema";
@@ -44,6 +45,7 @@ export type SqlExecutor = {
 
 type SqlStatement = { query: string; bindValues: unknown[] };
 let dbPromise: Promise<SqlExecutor> | null = null;
+const readHistorySources = new WeakMap<SeasonHistoryEntry[], { db: SqlExecutor; realityId: string }>();
 const writeTails = new WeakMap<SqlExecutor, Promise<unknown>>();
 const savedGlobals = new WeakMap<SqlExecutor, { storeKey: string; value: Record<string, unknown> }>();
 
@@ -111,7 +113,17 @@ export function setDesktopDatabaseForTests(db: SqlExecutor | null): void {
 export const isRealityHistoryLoaded = (id: string): boolean => loadedHistoryRealityIds.has(id);
 
 /** Mark history installed in state (including intentionally empty histories). */
-export function markRealityHistoryLoaded(realityId: string): void {
+export function markRealityHistoryLoaded(realityId: string, history?: SeasonHistoryEntry[]): void {
+  // A full unchanged DB read is already durable. Installing it must not encode
+  // and upsert every archive again. Call only after draining older snapshots.
+  const source = history && readHistorySources.get(history);
+  if (source?.realityId === realityId) {
+    const cached = savedRealities.get(source.db)?.get(realityId);
+    if (cached && !cached.historySynced) {
+      cached.history = history!;
+      cached.historySynced = true;
+    }
+  }
   loadedHistoryRealityIds.add(realityId);
 }
 
@@ -128,6 +140,7 @@ async function loadDatabase(): Promise<SqlExecutor> {
       const { appDataDir, join } = await import("@tauri-apps/api/path");
       const Database = (await import("@tauri-apps/plugin-sql")).default;
       const dbPath = await join(await appDataDir(), DESKTOP_DB_FILENAME);
+      setPersistLoadStage("Connecting to SQLite");
       const db = await Database.load(`sqlite:${dbPath}`);
       // Ensure WAL mode is active (tauri-plugin-sql/SQLx may already set this,
       // but being explicit prevents surprises if the plugin default changes).
@@ -135,6 +148,7 @@ async function loadDatabase(): Promise<SqlExecutor> {
       await db.execute("PRAGMA journal_mode = WAL");
       await db.execute("PRAGMA synchronous = NORMAL");
       await db.execute("PRAGMA foreign_keys = ON");
+      setPersistLoadStage("Checking saved database schema");
       await db.execute(SCHEMA_SQL);
       const versions = await db.select<{ value: string }[]>("SELECT value FROM schema_meta WHERE key = 'persist_version'");
       if (!["7", String(DATABASE_VERSION)].includes(versions[0]?.value)) throw new Error("Unsupported saved database version. Update DraftSim before opening it.");
@@ -143,7 +157,18 @@ async function loadDatabase(): Promise<SqlExecutor> {
         const existing = await db.select<{ c: number }[]>("SELECT COUNT(*) AS c FROM global_state");
         if (existing[0]?.c) {
           // Preserve a coherent v7 database before any partitioned writes.
-          await invoke("backup_create", { name: "Before storage format 8", onProgress: new Channel<string>() });
+          setPersistLoadStage("Creating recovery copy before storage upgrade");
+          const onProgress = new Channel<string>();
+          onProgress.onmessage = step => {
+            const stages: Record<string, string> = {
+              snapshot: "Creating recovery copy before storage upgrade",
+              verify: "Verifying recovery copy before storage upgrade",
+              retention: "Checking older recovery copies before storage upgrade",
+              external: "Finishing external recovery copy before storage upgrade",
+            };
+            if (stages[step]) setPersistLoadStage(stages[step]);
+          };
+          await invoke("backup_create", { name: "Before storage format 8", onProgress });
         }
       }
       return {
@@ -491,6 +516,7 @@ export async function measureDesktopDbFootprint(
   );
   const globalBytes = Number(globalRows[0]?.bytes ?? 0);
 
+  setPersistLoadStage("Reading reality catalogue and active season");
   const realityRows = await db.select<{
     id: string;
     name: string;
@@ -793,7 +819,10 @@ async function reconcilePersistedState(
     });
     const historyLoaded =
       options?.forceAllHistory ||
-      loadedHistoryRealityIds.has(r.id);
+      loadedHistoryRealityIds.has(r.id) ||
+      // Lazy placeholders are empty. A populated archive is complete data,
+      // including years produced by store actions retained through dev HMR.
+      r.history.length > 0;
     if (historyLoaded && (!prev?.historySynced || prev.history !== r.history || options?.forceAllHistory)) {
       await syncRealityHistory(db, r.id, r.history as SeasonHistoryEntry[]);
       loadedHistoryRealityIds.add(r.id);
@@ -819,6 +848,7 @@ export async function loadPersistedStateFromDbExecutor(
   db: SqlExecutor,
   storeKey: string,
 ): Promise<PersistedStoreState | null> {
+  setPersistLoadStage("Reading saved global state");
   const globalRows = await db.select<{ state_json: string }>(
     "SELECT state_json FROM global_state WHERE store_key = ?",
     [storeKey],
@@ -839,12 +869,14 @@ export async function loadPersistedStateFromDbExecutor(
     if (version[0]?.value === String(DATABASE_VERSION)) throw new Error("Saved global fragment manifest is missing; refusing to overwrite it.");
   }
   if (partitioned) {
+    setPersistLoadStage("Reading competitive save fragments");
     const fragments = await db.select<{ fragment_key: string; value_json: string }>("SELECT fragment_key, value_json FROM global_fragments WHERE store_key = ?", [storeKey]);
     global = joinGlobalState(global, fragments);
   }
   const activeRealityId =
     typeof global.activeRealityId === "string" ? global.activeRealityId : null;
 
+  setPersistLoadStage("Reading reality catalogue and active season");
   const realityRows = await db.select<{
     id: string;
     name: string;
@@ -879,6 +911,7 @@ export async function loadPersistedStateFromDbExecutor(
 
     let history: unknown[] = [];
     if (activeRealityId && row.id === activeRealityId) {
+      setPersistLoadStage("Reading active reality history");
       const histRows = await db.select<{ entry_json: string }>(
         "SELECT entry_json FROM reality_history WHERE reality_id = ? ORDER BY sort_order",
         [row.id],
@@ -956,6 +989,7 @@ export async function loadRealityHistoryFromDb(
       }
     })
     .filter((e): e is SeasonHistoryEntry => e != null);
+  readHistorySources.set(history, { db, realityId });
   // Reading alone does not authorize empty snapshots to replace this history.
   // The caller marks it loaded only when installing the result into state.
   return history;

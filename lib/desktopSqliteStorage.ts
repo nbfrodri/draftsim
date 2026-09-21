@@ -13,6 +13,7 @@ saveStorageValueToSqlite,
 } from "./desktopSqlite";
 import {
 cancelPendingWrite,
+setPersistLoadStage,
 isDesktop,
 migrateWebStorageToDesktop,
 } from "./desktopStorage";
@@ -110,12 +111,15 @@ export function createDesktopSqliteStorage<S>(): PersistStorage<S> {
       if (!isDesktop()) return null;
 
       if (inFlight) await inFlight;
+      setPersistLoadStage("Checking legacy web saves");
       await migrateWebStorageToDesktop(name);
+      setPersistLoadStage("Opening saved database");
       await migrateJsonFilesToSqlite(name);
 
       const fromDb = await loadStorageValueFromSqlite<S>(name);
       if (fromDb) return fromDb;
 
+      setPersistLoadStage("Reading legacy save file");
       return loadLegacyJsonStorageValue<S>(name);
     },
 

@@ -1,4 +1,7 @@
 "use client";
+import { teamStarRating } from "@/lib/tournament";
+import { TeamStarPicker } from "./TeamStars";
+import { normalizeTeamStars } from "@/lib/teamStars";
 
 import { useMemo, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
@@ -449,12 +452,12 @@ export default function TournamentSetup({ onCancel }: Props) {
   const handleRandomRatings = () => {
     const triangular = (): number => {
       // Average two uniforms in [0, 4] → triangular peak at 2 → +1 to
-      // shift into [1, 5]. Round to integer.
+      // shift into [1, 5]. Round to the nearest half.
       const u = (Math.random() * 4 + Math.random() * 4) / 2;
-      return Math.max(1, Math.min(5, Math.round(u + 1)));
+      return normalizeTeamStars(u + 1);
     };
     setTeams((prev) =>
-      prev.map((t) => ({ ...t, starRating: triangular() })),
+      prev.map((t) => ({ ...t, starRating: triangular(), players: undefined })),
     );
   };
 
@@ -806,7 +809,7 @@ export default function TournamentSetup({ onCancel }: Props) {
                     narrow (2-col grid) instead of overflowing the border. */}
                 <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mt-1 pl-8">
                   <StarPicker
-                    value={team.starRating ?? 3}
+                    value={teamStarRating(team)}
                     onChange={(r) => handleTeamRatingChange(i, r)}
                   />
                   <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 min-w-0">
@@ -1389,36 +1392,7 @@ function AIDifficultyChip({
 }
 
 
-function StarPicker({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="flex items-center gap-0.5 shrink-0" title={`Rating: ${value}/5`}>
-      {[1, 2, 3, 4, 5].map((n) => {
-        const filled = n <= value;
-        return (
-          <button
-            key={n}
-            type="button"
-            onClick={() => onChange(n)}
-            className={`text-base leading-none transition-colors ${
-              filled
-                ? "text-rift-gold hover:text-rift-goldbright"
-                : "text-rift-line hover:text-rift-gold/60"
-            }`}
-            aria-label={`Set rating to ${n}`}
-          >
-            {filled ? "★" : "☆"}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+const StarPicker = TeamStarPicker;
 
 // ─── Advanced settings panel ──────────────────────────────────────────
 //

@@ -1,4 +1,5 @@
 "use client";
+import TeamStars from "@/components/TeamStars";
 
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
@@ -830,8 +831,7 @@ function RosterCard({
       <div className="mt-1 text-sm tracking-tight" aria-hidden>
         {star != null ? (
           <span className="text-rift-gold">
-            {"★".repeat(star)}
-            <span className="text-rift-line">{"★".repeat(5 - star)}</span>
+            <TeamStars rating={star} />
           </span>
         ) : (
           <span className="text-[10px] uppercase tracking-[0.25em] text-rift-muted/70">

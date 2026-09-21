@@ -101,6 +101,8 @@ export interface TeamCardData {
 }
 
 export interface TeamCardHint {
+  /** null means an old market event has no recorded roster; never use a later roster. */
+  marketSnapshot?: import("./marketSnapshots").MarketTeamSnapshot | null;
   team?: Pick<
     SeasonTeam,
     "id" | "name" | "leagueId" | "iconKey" | "logoUrl" | "color" | "players"

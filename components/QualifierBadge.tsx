@@ -1,4 +1,5 @@
 "use client";
+import { normalizeTeamStars } from "@/lib/teamStars";
 
 import {
   INTERNATIONAL_LABELS,
@@ -67,12 +68,12 @@ export function TeamFormBadge({
 }) {
   if (typeof form !== "number" || Math.abs(form) < 0.12) return null;
   const up = form > 0;
-  const star = Math.max(1, Math.min(5, Math.round(baseStar ?? 3)));
-  const tier = STAR_TIER[star - 1];
+  const star = normalizeTeamStars(baseStar);
+  const tier = STAR_TIER[Math.round(star) - 1];
   const signed = `${form > 0 ? "+" : ""}${form.toFixed(2)}`;
   return (
     <span
-      title={`${tier}-tier · ${up ? "trending up" : "trending down"} (form ${signed})`}
+      title={`${star}/5 stars · ${tier}-tier · ${up ? "trending up" : "trending down"} (form ${signed})`}
       className={`inline-flex items-center gap-0.5 px-1 py-px border text-[8px] uppercase tracking-[0.15em] leading-tight whitespace-nowrap flex-shrink-0 ${
         up
           ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
@@ -82,7 +83,7 @@ export function TeamFormBadge({
       <span aria-hidden className="leading-none">
         {up ? "▲" : "▼"}
       </span>
-      {tier}
+      {star}{"\u2605"}
     </span>
   );
 }

@@ -45,17 +45,29 @@ export function isDesktop(): boolean {
 // setChampions() before the AppData file has been read, which would schedule
 // a debounced write of the empty initial state and wipe realities / season
 // history on disk. Writes stay disabled until enablePersistWrites() runs from
-// onRehydrateStorage (success or failure).
+// onRehydrateStorage after successful loading. Failed loading keeps writes blocked.
 
 let persistWritesEnabled = false;
-/** Freeze scheduling while recovery replaces durable storage. */
+let persistPauseCount = 0;
+let persistReadGeneration = 0;
+/** Freeze scheduling and invalidate pre-restore reads while recovery replaces storage. */
 export function pausePersistWrites(): () => void {
-  const previous = persistWritesEnabled;
-  persistWritesEnabled = false;
-  return () => { persistWritesEnabled = previous; };
+  persistPauseCount += 1;
+  persistReadGeneration += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    persistPauseCount -= 1;
+  };
 }
 let persistReady = false;
 const persistReadyListeners = new Set<() => void>();
+let persistLoadStage = "Reading saved data";
+/** Stage labels contain no saved payload, names or personal paths. */
+export function setPersistLoadStage(stage: string): void {
+  persistLoadStage = stage;
+}
 
 /** Allow Zustand persist setItem calls (call once rehydration finishes). */
 export function enablePersistWrites(): void {
@@ -68,16 +80,14 @@ export function enablePersistWrites(): void {
 }
 
 /**
- * Unlock the persist gate when hydrate never settles (hung I/O, etc.). Same
- * end state as a failed rehydration — app becomes usable instead of blocking
+ * Show recovery when hydrate never settles (hung I/O, etc.). Writes stay
+ * blocked, as after a failed rehydration — app becomes usable instead of blocking
  * forever on the startup screen.
  */
 export function forcePersistReady(): void {
-  console.warn(
-    "[draftsim] persist gate forced open after timeout — hydrate may still be in flight",
-  );
+  console.warn("[draftsim] saved data loading did not finish; saving remains paused. Last step:", persistLoadStage);
   persistWritesEnabled = false;
-  reportPersistenceError("Saved data could not be loaded. Saving is paused to protect your existing save. Retry loading before continuing.", "hydrate");
+  reportPersistenceError(`Saved data could not be loaded. Saving is paused to protect your existing save. Last loading step: ${persistLoadStage}. Retry loading before continuing.`, "hydrate");
   persistReady = true;
   for (const cb of persistReadyListeners) cb();
 }
@@ -113,6 +123,9 @@ export function subscribePersistReady(onStoreChange: () => void): () => void {
 /** @internal — test helper to reset gate between cases. */
 export function resetPersistGateForTests(): void {
   persistWritesEnabled = false;
+  persistPauseCount = 0;
+  persistReadGeneration = 0;
+  persistLoadStage = "Reading saved data";
   persistReady = false;
   persistReadyListeners.clear();
 }
@@ -321,9 +334,22 @@ export function gatePersistWritesUntilReady<S>(
 ): PersistStorage<S> {
   const inner = storage ?? (noopPersistStorage as PersistStorage<S>);
   return {
-    getItem: (name) => inner.getItem(name),
+    getItem: (name) => {
+      if (persistPauseCount > 0) throw new Error("Saved data loading is paused during recovery.");
+      const generation = persistReadGeneration;
+      const value = inner.getItem(name);
+      // Keep web storage synchronous. Reject a late desktop read before Zustand
+      // can merge a pre-restore snapshot into memory or re-enable saving.
+      if (value && typeof (value as Promise<StorageValue<S> | null>).then === "function") {
+        return Promise.resolve(value).then(result => {
+          if (generation !== persistReadGeneration) throw new Error("Saved data load superseded by recovery. Retry loading after recovery finishes.");
+          return result;
+        });
+      }
+      return value;
+    },
     setItem: (name, value) => {
-      if (!persistWritesEnabled) return;
+      if (!persistWritesEnabled || persistPauseCount > 0) return;
       return inner.setItem(name, value);
     },
     removeItem: (name) => inner.removeItem(name),
@@ -656,7 +682,7 @@ export function createDesktopLazyStorage<S>(): PersistStorage<S> {
       }
     },
     setItem(name: string, value: StorageValue<S>): void {
-      if (!persistWritesEnabled) return;
+      if (!persistWritesEnabled || persistPauseCount > 0) return;
       if (!isDesktop()) return;
       // Defer serialization into the debounced write — stringify happens at
       // flush time (timer fire or beforeunload), at most once per 500ms.
@@ -711,7 +737,7 @@ export function createWebLazyStorage<S>(
       }
     },
     setItem(name: string, value: StorageValue<S>): void {
-      if (!persistWritesEnabled) return;
+      if (!persistWritesEnabled || persistPauseCount > 0) return;
       const storage = getStorage();
       if (!storage) return;
       scheduleWrite(

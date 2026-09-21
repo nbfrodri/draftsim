@@ -66,7 +66,7 @@ const TeamLabel = memo(function TeamLabel({
 }) {
   return (
     <span
-      className="inline-flex min-w-0 items-center gap-1.5"
+      className="inline-flex min-w-0 items-center gap-1.5 align-middle leading-none"
       title={team.name}
     >
       <TeamIcon
@@ -232,7 +232,7 @@ const SearchResults = memo(function SearchResults({
               <LaneIcon lane={player.lane} size="xs" />
               <span className="min-w-0 flex-1 truncate">{player.name}</span>
               {player.team && (
-                <span className="max-w-[45%] text-[10px]">
+                <span className="inline-flex max-w-[45%] items-center self-center text-[10px] leading-none">
                   <TeamLabel team={player.team} />
                 </span>
               )}
