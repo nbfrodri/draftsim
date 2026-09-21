@@ -151,3 +151,10 @@ Para perfilar sin partidas personales: `npx tsx scripts/benchmark-save-pipeline.
 
 
 La validación previa de 0.7.0 está registrada en [CI 35533598227](https://github.com/nbfrodri/draftsim/actions/runs/35533598227): instalación NSIS, actualización desde 0.6.0, migración y copia anterior verificadas, reapertura y navegación nativa sin errores. El tag vuelve a ejecutar el workflow completo antes de publicar sus propios artefactos.
+
+
+## v0.8.0 release verification
+
+[Windows release 35550438705](https://github.com/nbfrodri/draftsim/actions/runs/35550438705) passed on commit `5eb0189160ea88681c626d72730720e51556dab5`, including interface checks, native tests and NSIS install/reopen/upgrade/Escape verification. Both v0.8.0 installers were published from that run.
+
+The parallel main-branch run exposed a separate smoke-harness startup race: CDP was ready before `browser.contexts()[0].pages()[0]` existed. The harness now waits up to 60 seconds for a live page across browser contexts, inside its diagnostic and cleanup boundary. Existing navigation assertions remain mandatory. This follow-up only changes CI verification and documentation; the public v0.8.0 tag and installers remain unchanged.

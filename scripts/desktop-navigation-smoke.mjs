@@ -19,11 +19,17 @@ if (!browser) {
   await writeFile(path.join(output, "native-navigation-error.txt"), String(connectionError?.stack));
   throw new Error("Native WebView debugging connection failed", { cause: connectionError });
 }
-const page = browser.contexts()[0].pages()[0];
-page.setDefaultTimeout(20_000);
+let page;
 const errors = [];
-page.on("pageerror", error => errors.push(error.message));
 try {
+  // CDP can accept connections before WebView2 has created its first page.
+  // Keep this inside the diagnostic/cleanup boundary and wait for discovery.
+  await expect.poll(() => {
+    page = browser.contexts().flatMap(context => context.pages()).find(candidate => !candidate.isClosed());
+    return Boolean(page);
+  }, { timeout: 60_000, message: "Native WebView page did not initialize" }).toBe(true);
+  page.setDefaultTimeout(20_000);
+  page.on("pageerror", error => errors.push(error.message));
   await expect(page.getByRole("heading", { name: "DRAFTSIM", exact: true })).toBeVisible({ timeout: 60_000 });
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "DRAFTSIM", exact: true })).toBeVisible();
@@ -80,7 +86,7 @@ try {
   expect(errors).toEqual([]);
   await writeFile(path.join(output, "native-navigation.json"), JSON.stringify({ rootEscape: "passed", modalEscape: "passed", heldEscape: "passed", nestedDialogFocus: "passed", seasonExitSqliteCommit: "passed", exitMs, errors }, null, 2));
 } catch (error) {
-  await page.screenshot({ path: path.join(output, "native-navigation-failure.png") }).catch(() => {});
+  await page?.screenshot({ path: path.join(output, "native-navigation-failure.png") }).catch(() => {});
   await writeFile(path.join(output, "native-navigation-error.txt"), `${error.stack}\n${errors.join("\n")}`);
   throw error;
 } finally { await browser.close(); }
