@@ -102,6 +102,7 @@ export interface SeasonMatchdayTeam {
 }
 
 export interface SeasonMatchdayMatch {
+  context?: import("@/lib/tournamentMatchContext").TournamentMatchContext;
   blue: SeasonMatchdayTeam;
   red: SeasonMatchdayTeam;
   blueScore: number;

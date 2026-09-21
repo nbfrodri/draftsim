@@ -52,8 +52,14 @@ import type { MatchOverride } from "./tournament/shared";
 // when the match's series is cleared in finishMatch.
 
 export default function TournamentDashboard() {
-  const tournament = useDraftStore((s) => s.tournament)!;
+  const storedTournament = useDraftStore((s) => s.tournament)!;
   const season = useDraftStore((s) => s.season);
+  const tournament = useMemo(() => {
+    if (!season || storedTournament.seasonId !== season.id || !season.tournaments[storedTournament.id]) return storedTournament;
+    const teams = new Map(season.teams.map(team => [team.id, team]));
+    if (storedTournament.teams.every(team => team.leagueId || !teams.has(team.id))) return storedTournament;
+    return { ...storedTournament, teams: storedTournament.teams.map(team => team.leagueId ? team : { ...team, leagueId: teams.get(team.id)?.leagueId }) };
+  }, [storedTournament, season]);
   const startMatch = useDraftStore((s) => s.startMatch);
   const saveCurrentTournament = useDraftStore((s) => s.saveCurrentTournament);
   const exitTournament = useDraftStore((s) => s.exitTournament);

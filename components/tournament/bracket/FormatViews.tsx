@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import {
   computeGroupStandings,
+  teamStarRating,
   isSwissStageComplete,
   playoffBracketKindFor,
 } from "@/lib/tournament";
@@ -13,6 +14,7 @@ import { RoundColumn, LosersRoundColumn, PlayoffBracketSection } from "./Bracket
 import { StandingsTable, GroupStandingsTable, SwissStandingsTable } from "./StandingsTables";
 import { buildLiveTeamStatsMap } from "@/components/team/TeamLiveStats";
 import { DirectQualifierBadge } from "@/components/QualifierBadge";
+import TeamStars from "@/components/TeamStars";
 import TeamLogoLink from "@/components/team/TeamLogoLink";
 import TeamNameLink from "@/components/team/TeamNameLink";
 
@@ -967,14 +969,14 @@ function SwissPairingRow({
   const redWon = winner && winner.teamId === match.redTeamId;
   const ready = blueTeam && redTeam && !winner;
   return (
-    <div className="border border-rift-line/40 bg-rift-bg/30 px-2 py-1.5">
+    <div role="group" aria-label={`${blueTeam?.name ?? "TBD"} versus ${redTeam?.name ?? "TBD"}`} className="border border-rift-line/40 bg-rift-bg/30 px-2 py-1.5">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
         <SwissTeamSlot
           team={blueTeam}
           opponent={redTeam}
           record={blueRec}
-          side="blue"
           isWinner={!!blueWon}
+          isLoser={!!redWon}
         />
         <span className="text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright/50 tabular-nums">
           {winner ? `${winner.blueWins}–${winner.redWins}` : "vs"}
@@ -983,8 +985,8 @@ function SwissPairingRow({
           team={redTeam}
           opponent={blueTeam}
           record={redRec}
-          side="red"
           isWinner={!!redWon}
+          isLoser={!!blueWon}
           alignRight
         />
       </div>
@@ -1020,26 +1022,23 @@ function SwissPairingRow({
 }
 
 import type { TournamentTeam } from "@/lib/tournament";
-import type { Side } from "@/lib/types";
 
 function SwissTeamSlot({
   team,
   opponent,
   record,
-  side,
   isWinner,
+  isLoser,
   alignRight,
 }: {
   team: TournamentTeam | null;
   opponent?: TournamentTeam | null;
   record: { w: number; l: number } | null | undefined;
-  side: Side;
   isWinner: boolean;
+  isLoser: boolean;
   alignRight?: boolean;
 }) {
-  const accent =
-    side === "blue" ? "text-rift-bluebright" : "text-rift-redbright";
-  const winnerCls = isWinner ? "text-rift-goldbright" : accent;
+  const winnerCls = isWinner ? "text-emerald-300" : isLoser ? "text-rift-redbright" : "text-rift-mutedbright";
   const opponentHint = opponent
     ? {
         name: opponent.name,
@@ -1051,10 +1050,11 @@ function SwissTeamSlot({
   return (
     <div
       className={`min-w-0 ${alignRight ? "text-right" : "text-left"}`}
+      title={isWinner ? "Series winner" : isLoser ? "Series loser" : undefined}
     >
       <div
         className={`flex items-center gap-1 min-w-0 ${
-          alignRight ? "flex-row-reverse justify-end" : ""
+          alignRight ? "flex-row-reverse justify-start" : ""
         }`}
       >
         {team && (
@@ -1102,11 +1102,11 @@ function SwissTeamSlot({
           )}
         </div>
       </div>
-      {record && (
-        <div className="text-[8px] uppercase tracking-[0.25em] text-rift-mutedbright/60 tabular-nums">
-          {record.w}-{record.l}
-        </div>
-      )}
+      <div className={`mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 ${alignRight ? "justify-end" : ""}`}>
+        {(isWinner || isLoser) && <span className="sr-only">{isWinner ? "Series winner" : "Series loser"}</span>}
+        {team && <TeamStars rating={teamStarRating(team)} className="text-[10px]" />}
+        {record && <span className="text-[9px] text-rift-mutedbright/70 tabular-nums">{record.w}-{record.l}</span>}
+      </div>
     </div>
   );
 }

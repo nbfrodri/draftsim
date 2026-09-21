@@ -4,6 +4,9 @@ import { useMemo, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { computeTournamentChampionWR } from "@/lib/tournament";
 import type { TournamentState } from "@/lib/tournament";
+import LaneIcon from "@/components/LaneIcon";
+import TierChip from "@/components/season/TierChip";
+import type { Champion } from "@/lib/types";
 import type { MetaChange } from "@/lib/metaEvolution";
 
 // Live in-tournament meta panel. Renders a compact table of the
@@ -92,6 +95,8 @@ const COLLAPSED_LIMIT = 8;
 
 export function MetaEvolutionFeed({ tournament }: { tournament: TournamentState }) {
   const [expanded, setExpanded] = useState(false);
+  const champions = useDraftStore(s => s.champions);
+  const byAlias = useMemo(() => new Map(champions.map(c => [c.alias, c])), [champions]);
 
   const log: MetaChange[] = tournament.metaEvolutionLog ?? [];
   if (!tournament.liveMeta || log.length === 0) return null;
@@ -113,7 +118,7 @@ export function MetaEvolutionFeed({ tournament }: { tournament: TournamentState 
       </div>
       <div className="space-y-1">
         {visible.map((change, i) => (
-          <MetaChangeRow key={i} change={change} />
+          <MetaChangeRow key={i} change={change} champion={byAlias.get(change.alias)} />
         ))}
       </div>
       {hasMore && (
@@ -129,7 +134,7 @@ export function MetaEvolutionFeed({ tournament }: { tournament: TournamentState 
   );
 }
 
-function MetaChangeRow({ change }: { change: MetaChange }) {
+function MetaChangeRow({ change, champion }: { change: MetaChange; champion?: Champion }) {
   // Determine direction: is this a rise or a fall?
   const tierValues: Record<string, number> = {
     "S+": 6, "S": 5, "A": 4, "B": 3, "C": 2, "D": 1,
@@ -148,18 +153,17 @@ function MetaChangeRow({ change }: { change: MetaChange }) {
       : "emerging";
 
   return (
-    <div className="flex items-center gap-2 text-[10px] md:text-[11px] py-0.5 border-b border-rift-line/20 last:border-0">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] py-2 border-b border-rift-line/20 last:border-0">
       <span className="text-rift-mutedbright/55 shrink-0 w-20 truncate">{change.roundLabel}</span>
-      <span className="text-rift-goldbright/85 font-display tracking-wide truncate flex-1 min-w-0">
-        {change.alias}
+      <span className="text-rift-goldbright/85 font-display tracking-wide flex items-center gap-1.5 w-36 min-w-0">
+        {champion && <img src={champion.iconUrl} alt="" width={22} height={22} className="shrink-0" onError={e => { e.currentTarget.style.display = "none"; }} />}
+        {champion?.name ?? change.alias}
       </span>
-      <span className="text-rift-muted shrink-0 uppercase text-[9px] tracking-[0.15em] w-12 text-center">
-        {change.lane}
-      </span>
-      <span className="shrink-0 flex items-center gap-1 tabular-nums">
-        <span className="text-rift-mutedbright">{change.from}</span>
+      <span className="shrink-0 inline-flex items-center gap-2 tabular-nums" aria-label={`${change.lane}: ${change.from} to ${change.to}`}>
+        <LaneIcon lane={change.lane} size="xs" className="shrink-0" />
+        <TierChip tier={change.from} size="md" />
         <span className={`text-[9px] ${arrowCls}`}>{arrowChar}</span>
-        <span className={isRise ? "text-emerald-300" : "text-rift-redbright"}>{change.to}</span>
+        <TierChip tier={change.to} size="md" />
       </span>
       <span className="text-rift-muted/60 shrink-0 hidden md:block text-[9px] italic">
         {reasonLabel}

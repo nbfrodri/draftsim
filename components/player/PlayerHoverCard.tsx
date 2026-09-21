@@ -1,4 +1,6 @@
 "use client";
+
+import { formatAggregateKda } from "@/lib/formatKda";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
 
@@ -278,12 +280,7 @@ export function PlayerCardBody({
   const season = data.season;
   const career = data.career;
   const hasPool = data.goodChamps.length > 0 || data.badChamps.length > 0;
-  const kda =
-    season && season.deaths > 0
-      ? (season.kills + season.assists) / season.deaths
-      : season
-        ? season.kills + season.assists
-        : null;
+  const kda = season ? formatAggregateKda(season.kills, season.deaths, season.assists) : "—";
   const isImport = data.acclimation != null && data.acclimation < 0.999;
 
   return (
@@ -366,7 +363,7 @@ export function PlayerCardBody({
                 label="Win%"
                 value={season.wins != null ? pct(season.wins / Math.max(1, season.games)) : "—"}
               />
-              <Stat label="KDA" value={num(kda, 2)} />
+              <Stat label="KDA" value={kda} />
               <Stat
                 label="Rating"
                 value={num(season.avgRating)}
@@ -594,13 +591,19 @@ export default function PlayerHoverCard({
           ...(seasonId ? { seasonId } : {}),
           ...(phaseScope ? { phaseScope } : {}),
           ...(resolveHint ? { hint: resolveHint } : {}),
-        });
+        }) ?? (hint?.player ? ctx.resolve(playerId, {
+          ...(seasonId ? { seasonId } : {}),
+          ...(phaseScope ? { phaseScope } : {}),
+          hint,
+        }) : null);
+        // A custom tournament may have an empty champion pool and no live
+        // season index. Its actual roster is still a valid card fallback.
         if (resolved) setData(resolved);
       };
       if (immediate) run();
       else showTimer.current = setTimeout(run, SHOW_DELAY_MS);
     },
-    [active, ctx, playerId, seasonId, phaseScope, resolveHint],
+    [active, ctx, playerId, seasonId, phaseScope, resolveHint, hint],
   );
 
   const close = useCallback((immediate = false) => {

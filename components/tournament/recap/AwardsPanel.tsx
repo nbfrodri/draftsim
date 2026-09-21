@@ -1,10 +1,12 @@
 "use client";
 
+import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdentity";
+
 import { useMemo } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { computeTournamentAwards } from "@/lib/awards";
 import type { TournamentAwards, PlayerAward, SpecialAward } from "@/lib/awards";
-import type { TournamentState } from "@/lib/tournament";
+import type { TournamentTeam, TournamentState } from "@/lib/tournament";
 import type { Lane } from "@/lib/types";
 import LaneIcon from "../../LaneIcon";
 import PlayerNameLink from "../../player/PlayerNameLink";
@@ -33,13 +35,14 @@ function RatingBadge({ rating }: { rating: number }) {
 
 // ─── MVP card ─────────────────────────────────────────────────────────────────
 
-function MVPCard({ mvp }: { mvp: PlayerAward }) {
+function MVPCard({ mvp, teams }: { mvp: PlayerAward; teams: Map<string, TournamentTeam> }) {
   return (
     <div className="border-2 border-rift-gold/50 bg-gradient-to-br from-rift-gold/[0.08] via-rift-bg/40 to-transparent p-4">
       <div className="text-[8px] uppercase tracking-[0.4em] text-rift-gold/70 mb-2">
         Tournament MVP
       </div>
       <div className="flex items-baseline gap-3 flex-wrap">
+        <LaneIcon lane={mvp.lane} size="sm" />
         <PlayerNameLink
           playerId={mvp.playerId}
           name={mvp.playerName ?? mvp.displayName}
@@ -51,7 +54,7 @@ function MVPCard({ mvp }: { mvp: PlayerAward }) {
         </span>
       </div>
       <div className="mt-1 text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/55">
-        {mvp.playerName ? mvp.displayName : mvp.teamName}
+        <TournamentTeamIdentity team={teams.get(mvp.teamId)} fallback={mvp.teamName} />
       </div>
     </div>
   );
@@ -59,7 +62,7 @@ function MVPCard({ mvp }: { mvp: PlayerAward }) {
 
 // ─── All-Pro strip ────────────────────────────────────────────────────────────
 
-function AllProStrip({ allPro, label }: { allPro: TournamentAwards["allPro"]; label: string }) {
+function AllProStrip({ allPro, label, teams }: { allPro: TournamentAwards["allPro"]; label: string; teams: Map<string, TournamentTeam> }) {
   if (allPro.length === 0) return null;
   const laneOrder: Lane[] = ["top", "jungle", "middle", "bottom", "support"];
   const byLane = new Map(allPro.map((p) => [p.lane, p]));
@@ -87,6 +90,7 @@ function AllProStrip({ allPro, label }: { allPro: TournamentAwards["allPro"]; la
                   name={player.playerName ?? player.displayName}
                   className="font-display tracking-wider text-sm text-rift-mutedbright"
                 />
+                <TournamentTeamIdentity team={teams.get(player.teamId)} fallback={player.teamName} />
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright/50">
@@ -113,7 +117,7 @@ const AWARD_ICON: Record<SpecialAward["kind"], string> = {
 
 // ─── Awards list ──────────────────────────────────────────────────────────────
 
-function AwardsList({ awards }: { awards: SpecialAward[] }) {
+function AwardsList({ awards, teams }: { awards: SpecialAward[]; teams: Map<string, TournamentTeam> }) {
   if (awards.length === 0) return null;
   return (
     <div className="border border-rift-line/50 bg-rift-panel/40">
@@ -133,12 +137,14 @@ function AwardsList({ awards }: { awards: SpecialAward[] }) {
                 {award.title}
               </span>
             </div>
-            <div className="flex items-baseline gap-2 flex-wrap pl-4">
+            <div className="flex items-center gap-2 flex-wrap pl-4">
+              <LaneIcon lane={award.player.lane} size="sm" />
               <PlayerNameLink
                 playerId={award.player.playerId}
                 name={award.player.playerName ?? award.player.displayName}
                 className="font-display tracking-wider text-sm text-rift-mutedbright"
               />
+              <TournamentTeamIdentity team={teams.get(award.player.teamId)} fallback={award.player.teamName} />
               <RatingBadge rating={award.player.avgRating} />
               <span className="text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright/50">
                 {award.context}
@@ -157,6 +163,7 @@ export function AwardsPanel({ tournament }: { tournament: TournamentState }) {
   // Read playerForms from the store so "Hottest Streak" can be included.
   const playerForms = useDraftStore((s) => s.playerForms);
   const phaseKind = useDraftStore(s => s.season?.phases.find(p => p.tournamentIds.includes(tournament.id))?.kind);
+  const teams = useMemo(() => new Map(tournament.teams.map(team => [team.id, team])), [tournament.teams]);
   const showAllPro = (phaseKind ?? tournament.seasonStageKind) !== "international";
 
   const awards = useMemo(
@@ -172,10 +179,10 @@ export function AwardsPanel({ tournament }: { tournament: TournamentState }) {
 
   return (
     <div className="space-y-3">
-      {awards.mvp && <MVPCard mvp={awards.mvp} />}
+      {awards.mvp && <MVPCard mvp={awards.mvp} teams={teams} />}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {showAllPro && <AllProStrip allPro={awards.allPro} label={(phaseKind ?? tournament.seasonStageKind) === "split" ? "Domestic Split All-Pro" : "All-Pro Team"} />}
-        <AwardsList awards={awards.awards} />
+        {showAllPro && <AllProStrip teams={teams} allPro={awards.allPro} label={(phaseKind ?? tournament.seasonStageKind) === "split" ? "Domestic Split All-Pro" : "All-Pro Team"} />}
+        <AwardsList awards={awards.awards} teams={teams} />
       </div>
     </div>
   );

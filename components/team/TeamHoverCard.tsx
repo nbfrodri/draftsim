@@ -221,7 +221,7 @@ export function TeamCardBody({
               {data.name}
             </div>
             <div className="flex items-center gap-1 mt-0.5 min-w-0">
-              <LeagueIcon league={data.leagueId} size={12} />
+              {data.leagueId && <LeagueIcon league={data.leagueId} size={12} />}
               <span className="text-[8px] uppercase tracking-[0.2em] text-rift-mutedbright/70 truncate">
                 {data.leagueId}
                 {data.starRating ? ` · ${data.starRating}★` : ""}
@@ -527,6 +527,7 @@ export default function TeamHoverCard({
             ref={cardRef}
             id={tipId}
             role="tooltip"
+            tabIndex={-1}
             onMouseEnter={() => open(true)}
             onMouseLeave={() => close()}
             onMouseDown={onCardMouseDown}
@@ -566,7 +567,10 @@ export default function TeamHoverCard({
         }}
         onMouseLeave={() => close()}
         onFocus={() => open(true)}
-        onBlur={() => close(true)}
+        onBlur={(event) => {
+          // Clicking the portal must not dismiss it before its profile handler.
+          if (!cardRef.current?.contains(event.relatedTarget as Node | null)) close(true);
+        }}
       >
         {children}
       </span>

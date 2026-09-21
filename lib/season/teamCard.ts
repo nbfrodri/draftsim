@@ -78,7 +78,7 @@ export interface TeamCardData {
   /** Hall navigation key — `leagueId:teamName`. */
   navKey: string;
   name: string;
-  leagueId: LeagueId;
+  leagueId?: LeagueId;
   iconKey?: string;
   logoUrl?: string;
   color?: string;
@@ -101,6 +101,8 @@ export interface TeamCardData {
 }
 
 export interface TeamCardHint {
+  /** The roster and identity captured for this tournament, even after a transfer. */
+  tournamentTeam?: Pick<import("../tournament").TournamentTeam, "id" | "name" | "players" | "leagueId" | "logoUrl" | "iconKey" | "color" | "starRating">;
   /** null means an old market event has no recorded roster; never use a later roster. */
   marketSnapshot?: import("./marketSnapshots").MarketTeamSnapshot | null;
   team?: Pick<

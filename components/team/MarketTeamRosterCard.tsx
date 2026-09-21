@@ -20,7 +20,7 @@ export default function MarketTeamRosterCard({ snapshot, data }: { snapshot: Mar
     <div className="flex items-center gap-2">
       <TeamIcon iconKey={team.iconKey ?? "shield"} logoUrl={resolveTeamLogo(team.name, team.logoUrl)} color={team.color} size={28} />
       <div className="min-w-0"><p className="truncate font-display text-sm text-rift-goldbright">{team.name}</p>
-        <p className="flex items-center gap-1 text-[10px] text-rift-mutedbright"><LeagueIcon league={team.leagueId} size={13} />{team.leagueId}</p></div>
+        <p className="flex items-center gap-1 text-[10px] text-rift-mutedbright">{team.leagueId && <LeagueIcon league={team.leagueId} size={13} />}{team.leagueId}</p></div>
     </div>
     {snapshot ? <>
       <div role="group" aria-label="Roster snapshot" className="my-3 flex border border-rift-line">

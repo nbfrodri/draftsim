@@ -134,3 +134,44 @@ Roster-move team cards show both main and academy rosters for the selected Befor
 Records & Dynasties uses 20-row pages inside long boards. Previous/Next controls expose the complete ranking with absolute ranks, so large realities do not mount thousands of invisible cards at once. Roster Moves adds a player-tier selector and tier badges beside names, removes the Preseason option and retained-player category, and includes paired demotions with recorded evidence. Snapshot team cards show average main-roster tier and stars for whichever Before/After view is selected. Live player-search suggestion team labels align their icon and text vertically with the suggestion row.
 
 Records pagination buttons use bordered gold controls, directional chevrons and explicit hover/focus/disabled states. The Before/After strength indicator shows five filled/dimmed stars with an accessible rating label; it uses the shared half-step deriveStar result. A 4.5 rating displays four complete stars, a half-filled fifth star and an accessible numeric label. Season and tournament setup use a keyboard-accessible range from 1 to 5 in increments of 0.5.
+
+
+## Consistent typography, Swiss strength and rookie filters
+
+The application uses [one typography contract](typography.md): Inter for interface text and data, Cinzel only for the DraftSim wordmark, and monospace only for technical import/export text. This also covers form controls and chart labels; the previous display utility now means semibold Inter.
+
+Swiss pairing rows display both teams' graphical stars directly below their names, alongside their pre-round W-L record. `TeamStars` and `teamStarRating` preserve half steps and roster authority, matching other bracket cards. Unassigned/TBD slots do not receive invented strength.
+
+Season Mode's Rookie Class includes icon-and-label role toggle buttons. Multiple selected roles combine with OR; role selection combines with region/team and Your org/Rest of league scope using AND. All roles clears only the role selection. Main and academy rookies use the same role predicate, and counts plus empty-state guidance follow the active filters. Filters are presentation state and do not change saved players or simulation rules.
+
+
+## Tournament presentation and matchday context (2026-09-21)
+
+Tournament Momentum, Team Champion Pools, Notable Games, individual awards, MVP, summary and champion banners display team artwork and tournament seeds. Known region snapshots add the region logo; awards retain role icons. Meta Shifts displays champion artwork, role and previous/new tier badges. Seeds describe entry into this tournament, not the current standings. Clickable pool/replay cards contain non-interactive identity markup, avoiding nested buttons.
+
+Latest Matchday places context badges on a separate line above each score, leaving space for team names. Each match records its stage and round before simulation: Regular Split/Matchday, Group Stage/group, Swiss Stage/round/pre-round record, or Playoffs/Knockout and bracket. Single-elimination paths name Round of 32, Round of 16, Quarterfinals, Semifinals and Final from advancement links. Double/triple elimination retain Winners, Losers, Last-Chance, Consolation and Grand Final/Reset; stepladders keep their own label. Play-In is an additional badge, independent of the underlying format. Different Swiss records are shown as `2-1 vs 1-2`, not collapsed into an invented common pool.
+
+Recorded zero-death KDA displays **Perfect KDA**, including an explicit 0/0/0. Missing recap statistics remain unavailable. A partially recorded series states how many games its KDA covers. Positive-death ratios still use total kills plus assists divided by total deaths; ratings and award selection are unchanged.
+
+Offseason leaders and Season Recap reuse team/region artwork and player role icons. Rookie of the Year uses separate rows for the player and team; it also retains the role and region. AI Difficulty and Follow Team occupy a separate responsive control row, so season-option wrapping cannot misalign their labels or inputs.
+
+
+### Card interactions and alignment follow-up
+
+Latest Matchday centers its stage/round/record badges above each result. Swiss slots anchor their identity to the outer edge of their respective column regardless of name length. Notable Games aligns and centers the `Won by` label with the winning team's identity. The live World Champion banner places Golden Road on a separate centered row with explicit spacing.
+
+Momentum's On fire/Slumping rows show the actual tournament roster player's name through `PlayerNameLink`, next to the role icon, with team identity and seed below. Team identities across tournament panels open existing desktop cards, using the tournament roster rather than a replacement signed later. Standalone teams can open cards without a region; no regional identity is fabricated. Empty champion pools do not suppress otherwise valid player cards.
+
+Franchise Timeline team names toggle the row detail instead of navigating directly. Both the name and logo expose a team card; clicking that card opens the Hall team profile. The detail is anchored near the left edge of the matrix, including after horizontal scrolling. Moving focus from a team-name trigger into its card preserves the card long enough to handle profile navigation.
+
+### Tournament summary readability
+
+Notable Games uses one card per category with a prominent duration or lowest winner win probability, game number, stacked team identities, a centered winner line and an explicit View replay button. Team cards remain separate from the replay action. Missing observations show an unavailable state. Game selection remains side-aware when teams switch sides within a series.
+
+Momentum groups win streaks, On fire and Slumping into three desktop columns that stack on narrow windows. Rows retain team/player cards, seeds and role icons. Streaks state the consecutive series count; player form shows its signed value on the existing −1 to +1 scale, not a win probability. Existing eligibility and sorting remain unchanged.
+
+Meta Shifts groups the role icon and before/after tiers in one vertically centered inline row next to champion identity, allowing wrapping on narrow screens. Swiss pairing names are neutral before play, green for the winner and red for the loser after a result. Accessible result labels and tooltips identify both outcomes. There are no winner badges, backgrounds or underlines. This adds no layout space and does not displace names, records or stars. Record-group colors still describe winning/even/losing records. Simulation sides and results are unchanged.
+
+Notable Games also includes Most Kills (combined observed kills), Closest Kill Score (absolute final kill difference, not a victory margin), Biggest Momentum Swing (largest absolute single-event probability change in percentage points), and Largest Gold Lead (peak absolute gold difference recorded in the timeline, either side, even if that side later lost). Each opens its originating game replay. Missing data stays unavailable; multiple categories can legitimately select the same game.
+
+Biggest Momentum Swing explains `pp` inline as percentage points: a change from 40% to 65% is 25 pp, not a relative increase of 25%.

@@ -14,6 +14,8 @@ Esta documentación describe el código de la versión 0.8.0. Distingue contrato
 
 ## Referencias especializadas
 
+- [Tipografía de la aplicación](typography.md).
+
 - [Sistemas de juego en inglés](systems.md) y [en español](systems.es.md).
 - [Formatos de torneo](tournament-mode.md), [plantillas](players-feature.md) e [identidad de jugadores](player-identity-and-franchise.md).
 - [Realismo de temporadas](season-realism.md) y [Title Playground](title-playground.md).
@@ -25,4 +27,5 @@ Los documentos de `plans/` y las auditorías registran objetivos y decisiones de
 
 ## Versiones
 
+- [v0.9.0: presentación de torneos, destacados y tipografía](releases/v0.9.0.md).
 - [v0.8.0: historial de movimientos, medias estrellas y fiabilidad](releases/v0.8.0.md).

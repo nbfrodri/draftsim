@@ -1,4 +1,6 @@
 "use client";
+
+import { formatAggregateKda } from "@/lib/formatKda";
 import { isRealityHistoryLoaded } from "@/lib/desktopSqlite";
 import { loadHallRealityHistory } from "@/lib/loadHallRealityHistory";
 import RecordRows from "./hall/RecordRows";
@@ -2808,7 +2810,7 @@ function StatChip({ label, value, tone }: { label: string; value: number | strin
 // Career-average formatting from the summed PlayerCareerLine accumulators.
 const avg1 = (sum: number, n: number) => (n > 0 ? (sum / n).toFixed(1) : "—");
 const perGame = (total: number, games: number) => (games > 0 ? (total / games).toFixed(1) : "—");
-const kdaOf = (k: number, d: number, a: number) => (k + a === 0 && d === 0 ? "—" : (d > 0 ? (k + a) / d : k + a).toFixed(2));
+const kdaOf = formatAggregateKda;
 const winPct = (rate: number | null) => (rate == null ? "—" : `${Math.round(rate * 100)}%`);
 const goldDiff = (sum: number, n: number) => {
   if (n <= 0) return { text: "—", tone: "text-rift-muted/60" };

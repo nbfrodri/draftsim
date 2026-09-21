@@ -145,13 +145,13 @@ export function validTournament(v: unknown): v is TournamentState {
     !defaults(v.defaults) || !record(v.fearlessConfig) ||
     !["perSeries", "perTeam", "global"].every(k => typeof (v.fearlessConfig as Obj)[k] === "boolean") ||
     !record(v.teamPickHistory) || !Object.values(v.teamPickHistory).every(numbers) ||
-    !numbers(v.globalPickHistory) || !optional(v.seasonStageKind, x => enumeration(x, ["split", "international"])) || !optional(v.metaSnapshot, meta)) return false;
+    !numbers(v.globalPickHistory) || !optional(v.seasonStageKind, x => enumeration(x, ["split", "international"])) || !optional(v.seasonSubStage, x => x === "play-in") || !optional(v.metaSnapshot, meta)) return false;
   const teamIds = new Set(v.teams.map(t => t.id));
   const matchIds = new Set(v.matches.map(m => m.id));
   const teamRef = (id: unknown) => id === null || (text(id) && teamIds.has(id));
   const link = (l: unknown) => l == null || (record(l) && text(l.matchId) && matchIds.has(l.matchId) && enumeration(l.slot, ["blue", "red"]));
   if (v.activeMatchId != null && !matchIds.has(v.activeMatchId)) return false;
-  return v.teams.every(t => text(t.name) && (t.players === undefined || roster(t.players))) &&
+  return v.teams.every(t => text(t.name) && optional(t.leagueId, x => enumeration(x, LEAGUE_IDS)) && (t.players === undefined || roster(t.players))) &&
     v.matches.every(m => integer(m.round) && m.round >= 1 && m.round <= 10000 && defaults(m) &&
       teamRef(m.blueTeamId) && teamRef(m.redTeamId) && link(m.feedsInto) && link(m.losersFeedsInto) &&
       (m.series === null || validSeries(m.series)) &&

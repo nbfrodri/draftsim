@@ -202,6 +202,13 @@ export function LiveTeamCardProvider({
   children: ReactNode;
 }) {
   const season = useDraftStore((s) => s.season);
+  const tournamentTeams = useDraftStore(s => s.tournament?.teams);
+  const tournamentSeasonId = useDraftStore(s => s.tournament?.seasonId);
+  const tournamentSeasonIdRef = useRef(tournamentSeasonId);
+  useLayoutEffect(() => { tournamentSeasonIdRef.current = tournamentSeasonId; }, [tournamentSeasonId]);
+  const tournamentIndex = useMemo(() => new Map(tournamentTeams?.map(team => [team.id, team])), [tournamentTeams]);
+  const tournamentIndexRef = useRef(tournamentIndex);
+  useLayoutEffect(() => { tournamentIndexRef.current = tournamentIndex; }, [tournamentIndex]);
   const seasonHistory = useDraftStore((s) => s.seasonHistory);
   const realities = useDraftStore((s) => s.realities);
 
@@ -243,6 +250,26 @@ export function LiveTeamCardProvider({
   const value = useMemo<TeamCardContextValue>(
     () => ({
       resolve: (teamId, opts) => {
+        const snapshot = opts?.hint?.tournamentTeam ?? (teamId && !opts?.hint?.players ? tournamentIndexRef.current.get(teamId) : undefined);
+        if (snapshot) {
+          const idx = indexRef.current;
+          // Keep known season standings, academy and H2H while pinning the
+          // player roster. Custom tournaments must not borrow another team's data.
+          const live = idx.season && idx.season.id === tournamentSeasonIdRef.current && idx.teamsById.has(snapshot.id) ? resolveLive(idx, snapshot.id, {
+            ...opts, hint: { ...opts?.hint, players: snapshot.players },
+          }) : null;
+          const leagueId = snapshot.leagueId ?? live?.leagueId;
+          const roster = snapshot.players ? rosterLinesFromPlayers(snapshot.players) : [];
+          return {
+            ...live,
+            name: snapshot.name, teamId: snapshot.id,
+            navKey: leagueId ? `${leagueId}:${snapshot.name}` : `tournament:${snapshot.id}`,
+            leagueId, iconKey: snapshot.iconKey ?? "shield", logoUrl: snapshot.logoUrl, color: snapshot.color,
+            roster, academyCount: live?.academyCount ?? 0,
+            starRating: snapshot.players ? deriveStar(snapshot.players) : snapshot.starRating ?? 3,
+            avgTier: averageTierFromRoster(roster), highlights: live?.highlights ?? [], scope: "Tournament roster", archived: false,
+          };
+        }
         if (!indexRef.current.season) {
           const hint = opts?.hint;
           if (!hint?.name || !hint.leagueId) return null;

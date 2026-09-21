@@ -1,5 +1,7 @@
 "use client";
 
+import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdentity";
+
 import { useMemo } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import {
@@ -13,7 +15,8 @@ import type { Champion } from "@/lib/types";
 import MetaPanel from "@/components/MetaPanel";
 import { formatHeaderLabel } from "@/components/tournament/shared";
 import { MetaShiftPanel } from "./MetaShiftPanel";
-import { NotableGamesPanel, computeNotableGames } from "./NotableGames";
+import { NotableGamesPanel } from "./NotableGames";
+import { computeNotableGames } from "@/lib/notableGames";
 import { PresenceTable, WinRateTable, BestKDATable } from "./ChampionTables";
 import { ChampionSearchPanel } from "./ChampionSearchPanel";
 import { TeamBreakdownPanel } from "./TeamBreakdownPanel";
@@ -134,7 +137,7 @@ function SummaryCard({
         <div className="text-[10px] uppercase tracking-[0.3em] text-rift-mutedbright/70 mb-3">
           Crowned:&nbsp;
           <span className="text-rift-goldbright font-display text-base tracking-wider">
-            {champion.name}
+            <TournamentTeamIdentity team={champion} />
           </span>
         </div>
       )}

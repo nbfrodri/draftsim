@@ -18,7 +18,7 @@ DraftSim is a Windows Tauri 2 desktop app with a statically exported Next.js 16 
 
 Read relevant code and tests before changing behavior. Preserve unrelated work and untracked data, including `training/`. Keep changes scoped; do not refresh datasets, regenerate unrelated artifacts, add dependencies, or publish releases unless the task requires it. Do not edit generated `out/`, `.next/`, or worker bundles directly; use the build scripts.
 
-Use existing components and styling conventions. Prefer pure domain helpers with behavior-focused tests. Avoid broad store subscriptions and repeated history scans on each render. Coordinate keyboard dismissal so one Escape closes only the topmost active surface; use existing close/back callbacks and retain operation/unsaved-change guards.
+Use existing components and styling conventions. Follow `docs/typography.md`: Inter for interface text and data (`font-body`/`font-sans`, `font-display` for semibold emphasis), Cinzel only for the DraftSim wordmark (`font-brand`), and monospace only for technical codes. Prefer pure domain helpers with behavior-focused tests. Avoid broad store subscriptions and repeated history scans on each render. Coordinate keyboard dismissal so one Escape closes only the topmost active surface; use existing close/back callbacks and retain operation/unsaved-change guards.
 
 ## Domain invariants
 

@@ -21,7 +21,7 @@ DraftSim uses Microsoft Edge WebView2. The installer handles its installation wh
 
 ## What you can play
 
-Read the [v0.8.0 release notes](docs/releases/v0.8.0.md) for market history, half-star strength and save/performance improvements.
+Read the [v0.9.0 release notes](docs/releases/v0.9.0.md) for tournament highlights, clearer results, roster cards and consistent typography.
 
 Desktop saves include unfinished seasons. Inactive realities load on demand; Backups offers optional local save diagnostics. See the [persistence guide](docs/persistence-and-recovery.md) for storage format 8 migration and recovery.
 

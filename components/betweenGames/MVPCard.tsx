@@ -1,5 +1,7 @@
 "use client";
 
+import { formatKda } from "@/lib/formatKda";
+
 import LaneIcon from "@/components/LaneIcon";
 import TeamName from "@/components/TeamName";
 import PlayerNameLink from "@/components/player/PlayerNameLink";
@@ -161,14 +163,7 @@ export function MVPCard({
       : mvp.laneGoldDiff < -100
       ? "text-rift-redbright/80"
       : "text-rift-muted";
-  // KDA ratio for the headline ("8.0 KDA"). Treat 0 deaths specially —
-  // "Perfect" reads more like a broadcast.
-  const kdaRatio =
-    mvp.kda.d === 0
-      ? mvp.kda.k + mvp.kda.a > 0
-        ? "Perfect"
-        : "—"
-      : ((mvp.kda.k + mvp.kda.a) / mvp.kda.d).toFixed(1);
+  const kdaRatio = formatKda(mvp.kda);
 
   return (
     <div

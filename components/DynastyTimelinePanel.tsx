@@ -293,7 +293,7 @@ function ExpandedDetail({
         <div
           className="sticky left-0 z-[5] py-2 pr-3"
           style={{
-            paddingLeft: FRANCHISE_COL_W + 10,
+            paddingLeft: 10,
             width: "max-content",
             maxWidth: "min(92vw, 52rem)",
           }}
@@ -306,6 +306,8 @@ function ExpandedDetail({
             <div className="flex items-center gap-2 px-3 py-2 border-b border-rift-line/25 bg-rift-bg/25 min-w-0">
               <TeamNameLink
                 name={row.team.name}
+                noNavigate
+                renderAs="span"
                 leagueId={row.team.leagueId}
                 iconKey={row.team.iconKey}
                 logoUrl={resolveTeamLogo(row.team.name, row.team.logoUrl)}
@@ -427,16 +429,16 @@ const FranchiseRow = memo(function FranchiseRow({
               }}
             />
             <div className="flex-1 min-w-0 overflow-hidden">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onNavigate?.("teams", `${row.team.leagueId}:${row.team.name}`);
-                }}
-                className="text-[11px] font-medium text-rift-goldbright truncate leading-tight hover:underline text-left w-full block"
-              >
-                {row.team.name}
-              </button>
+              <TeamHoverCard hint={teamCardHint(row.team)} className="max-w-full">
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-label={`${row.team.name} title details`}
+                  className="text-[11px] font-medium text-rift-goldbright truncate leading-tight text-left block"
+                >
+                  {row.team.name}
+                </button>
+              </TeamHoverCard>
               <div className="flex items-center gap-1 mt-0.5">
                 <LeagueIcon league={row.team.leagueId} size={9} />
                 <span className="text-[8px] text-rift-muted/55 tabular-nums">

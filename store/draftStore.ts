@@ -1,4 +1,5 @@
 "use client";
+import { tournamentMatchContext } from "@/lib/tournamentMatchContext";
 import { initializeOffseasonRosterNewsBoundary } from "@/lib/season/rosterNews";
 import { repairNameRegistry } from "@/lib/season/nameRegistry";
 import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
@@ -1653,7 +1654,12 @@ export const useDraftStore = create<DraftStore>()(
             set((s) => ({ ...seasonPatchFor(s, frozen) }));
             t = get().season?.tournaments[tid] ?? frozen;
           }
-          const wasPlayIn = t.name.includes("Play-In");
+          const wasPlayIn = t.seasonSubStage === "play-in" || (
+            // Legacy season qualifiers predate explicit provenance. Restrict this
+            // fallback to the owning international phase and its first event.
+            t.seasonSubStage == null && t.seasonId === cur0.id && phase.kind === "international" &&
+            phase.tournamentIds[0] === t.id && ["Worlds Play-In", "MSI Play-In", "First Stand Play-In"].includes(t.name)
+          );
           const ids = matchdayIds(t);
           if (ids.length === 0) continue;
           const results: SeasonMatchdayMatch[] = [];
@@ -1667,6 +1673,7 @@ export const useDraftStore = create<DraftStore>()(
             }
             const blue = liveT.teams.find((x) => x.id === m.blueTeamId);
             const red = liveT.teams.find((x) => x.id === m.redTeamId);
+            const context = tournamentMatchContext(liveT, m, wasPlayIn);
             let [after, nf] = await runAutoPlayMatch(liveT, id, champions, forms);
             forms = nf;
             const evo = evolveMetaForTournament(after, champions);
@@ -1687,6 +1694,7 @@ export const useDraftStore = create<DraftStore>()(
                 logoUrl: tt.logoUrl,
               });
               results.push({
+                context,
                 blue: teamRef(blue),
                 red: teamRef(red),
                 blueScore: fm.winner.blueWins,

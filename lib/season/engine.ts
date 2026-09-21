@@ -166,6 +166,7 @@ function toTournamentTeam(team: SeasonTeam, seed: number): TournamentTeam {
     name: team.name,
     seed,
     starRating: deriveStar(team.players),
+    leagueId: team.leagueId,
     iconKey: team.iconKey,
     color: team.color,
     logoUrl: team.logoUrl,
@@ -1069,7 +1070,7 @@ function createFirstStandPlayIn(season: SeasonState): TournamentState {
       qualified.map((q) => q.team),
     ),
   });
-  return tagSeason(t, season);
+  return { ...tagSeason(t, season), seasonSubStage: "play-in" };
 }
 
 function createFirstStandMain(
@@ -1209,7 +1210,7 @@ function createMSIPlayIn(season: SeasonState): TournamentState {
       pair.map((q) => q.team),
     ),
   });
-  return tagSeason(t, season);
+  return { ...tagSeason(t, season), seasonSubStage: "play-in" };
 }
 
 function createMSI(
@@ -1313,7 +1314,7 @@ function createWorldsPlayIn(season: SeasonState): TournamentState {
       qualified.map((q) => q.team),
     ),
   });
-  return tagSeason(t, season);
+  return { ...tagSeason(t, season), seasonSubStage: "play-in" };
 }
 
 function createWorldsMain(

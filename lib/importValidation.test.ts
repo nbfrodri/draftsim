@@ -112,3 +112,18 @@ it("accepts optional offseason provenance and rejects malformed boundaries", () 
   expect(validSeason({ ...season, offseasonRosterNewsBaseline: -1 })).toBe(false);
   expect(validSeason({ ...season, offseasonRosterNewsBaseline: "old" })).toBe(false);
 });
+
+
+it("round trips optional tournament region and qualifier provenance without changing legacy data", async () => {
+  const t = makeTournament();
+  t.seasonSubStage = "play-in";
+  t.teams[0].leagueId = "LCK";
+  t.teams[1].leagueId = "LPL";
+  t.teams[1].name = t.teams[0].name;
+  const result = await decodeTournament(await encodeTournament(t));
+  expect(result.error).toBeNull();
+  expect(result.tournament?.seasonSubStage).toBe("play-in");
+  expect(result.tournament?.teams.map(team => team.leagueId).slice(0, 3)).toEqual(["LCK", "LPL", undefined]);
+  const invalid = { ...t, teams: t.teams.map(team => ({ ...team, leagueId: "invented" })) };
+  expect((await decodeTournament(JSON.stringify(invalid))).error).toBeTruthy();
+});

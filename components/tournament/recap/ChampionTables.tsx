@@ -1,5 +1,7 @@
 "use client";
 
+import { formatKda } from "@/lib/formatKda";
+
 import type { ChampionKDAStat, ChampionStat } from "@/lib/tournament";
 import type { Champion } from "@/lib/types";
 
@@ -169,7 +171,7 @@ export function BestKDATable({
           Min 2 games · (K+A)/D
         </span>
       </div>
-      <div className="grid grid-cols-[2rem_1fr_2.5rem_4.5rem_3rem] gap-2 px-3 py-1.5 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.3em] text-rift-gold/55">
+      <div className="grid grid-cols-[2rem_1fr_2.5rem_4.5rem_6rem] gap-2 px-3 py-1.5 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.3em] text-rift-gold/55">
         <span></span>
         <span>Champion</span>
         <span className="text-center" title="Games played">G</span>
@@ -199,7 +201,7 @@ export function BestKDATable({
         return (
           <div
             key={c.id}
-            className="grid grid-cols-[2rem_1fr_2.5rem_4.5rem_3rem] gap-2 px-3 py-1.5 border-b border-rift-line/20 last:border-b-0 text-[10px] md:text-[11px] items-center"
+            className="grid grid-cols-[2rem_1fr_2.5rem_4.5rem_6rem] gap-2 px-3 py-1.5 border-b border-rift-line/20 last:border-b-0 text-[10px] md:text-[11px] items-center"
           >
             <img
               src={c.iconUrl}
@@ -216,7 +218,7 @@ export function BestKDATable({
               {stat.kills}/{stat.deaths}/{stat.assists}
             </span>
             <span className={`text-center tabular-nums font-display ${kdaCls}`}>
-              {stat.kda.toFixed(2)}
+              {formatKda({ k: stat.kills, d: stat.deaths, a: stat.assists }, 2)}
             </span>
           </div>
         );

@@ -1,4 +1,8 @@
 "use client";
+
+import TeamIcon from "@/components/TeamIcon";
+import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdentity";
+import MatchContextBadges from "@/components/tournament/MatchContextBadges";
 import { teamStarRating } from "@/lib/tournament";
 import { ALL_PRO_LABELS } from "@/lib/season/allProScopes";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
@@ -391,7 +395,7 @@ export default function SeasonDashboard() {
               </span>
             </div>
             {goldenRoadId === championTeam.id && (
-              <div className="mt-3 inline-block border border-rift-goldbright bg-gradient-to-r from-rift-gold/20 via-rift-goldbright/25 to-rift-gold/20 px-4 py-1.5">
+              <div className="mt-4 mx-auto w-fit block border border-rift-goldbright bg-gradient-to-r from-rift-gold/20 via-rift-goldbright/25 to-rift-gold/20 px-4 py-1.5">
                 <span className="font-display text-sm md:text-lg tracking-[0.3em] uppercase bg-gold-sheen bg-clip-text text-transparent">
                   ★ Golden Road ★
                 </span>
@@ -913,27 +917,6 @@ function MiniBracket({
 
 // ─── Latest matchday results ───────────────────────────────────────────────
 
-function MatchdayStageTag({ stage, group }: { stage: string; group?: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    winners: { label: "Winners", cls: "border-rift-gold/50 text-rift-gold/80" },
-    losers: { label: "Losers", cls: "border-amber-500/50 text-amber-300/90" },
-    elimination: { label: "Last-Chance", cls: "border-rift-red/50 text-rift-redbright/90" },
-    consolation: { label: "Consolation", cls: "border-rift-red/50 text-rift-redbright/90" },
-    "grand-final": { label: "Grand Final", cls: "border-rift-goldbright/60 text-rift-goldbright" },
-    "grand-final-reset": { label: "GF Reset", cls: "border-rift-goldbright/60 text-rift-goldbright" },
-    stepladder: { label: "Stepladder", cls: "border-rift-gold/50 text-rift-gold/80" },
-    group: { label: group ? `Group ${group}` : "Group", cls: "border-rift-line/60 text-rift-mutedbright/70" },
-    regular: { label: "", cls: "" },
-  };
-  const t = map[stage] ?? { label: stage, cls: "border-rift-line/60 text-rift-mutedbright/70" };
-  if (!t.label) return null;
-  return (
-    <span className={`px-1 py-px border text-[7px] uppercase tracking-[0.15em] flex-shrink-0 ${t.cls}`}>
-      {t.label}
-    </span>
-  );
-}
-
 function MatchdayResultTag({ tag }: { tag: string }) {
   if (tag === "reverse-sweep") {
     return (
@@ -989,6 +972,8 @@ function LatestMatchdayPanel({
                     m.matchId &&
                     onViewReplay;
                   const row = (
+                    <div className="space-y-1 py-1">
+                    <MatchContextBadges context={m.context} stage={m.stage} group={m.group} />
                     <div className="flex items-center gap-1.5 text-[10px]">
                     {/* Blue side (right-aligned toward the score) */}
                     <span className="flex-1 flex items-center justify-end gap-1 min-w-0">
@@ -1107,7 +1092,7 @@ function LatestMatchdayPanel({
                         }}
                       />
                     </span>
-                    <MatchdayStageTag stage={m.stage} group={m.group} />
+
                     {m.tags?.map((tag) => (
                       <MatchdayResultTag key={tag} tag={tag} />
                     ))}
@@ -1116,6 +1101,7 @@ function LatestMatchdayPanel({
                         · View
                       </span>
                     )}
+                    </div>
                     </div>
                   );
                   if (!canReplay) {
@@ -2405,6 +2391,13 @@ function SeasonRecapPanel({
   title?: string;
 }) {
   const stats = useMemo(() => computeSeasonStats(season), [season]);
+  // Old record summaries carry names only: an ambiguous name cannot establish region.
+  const uniqueTeamsByName = useMemo(() => {
+    const map = new Map<string, SeasonState["teams"][number] | null>();
+    for (const team of season.teams) map.set(team.name, map.has(team.name) ? null : team);
+    return map;
+  }, [season.teams]);
+  const recordTeam = (name: string) => <TournamentTeamIdentity team={uniqueTeamsByName.get(name)} fallback={name} seed={false} />;
   const rookies = useMemo(() => computeSeasonRookiesOfYear(season), [season]);
   const winningest = seasonTeam(season, stats.winningestTeam?.teamId);
   const mostTitled = seasonTeam(season, stats.mostTitledTeam?.teamId);
@@ -2432,6 +2425,7 @@ function SeasonRecapPanel({
           <RecapChip
             label="Winningest Team"
             value={winningest.name}
+            icon={<><TeamIcon iconKey={winningest.iconKey} logoUrl={winningest.logoUrl} color={winningest.color} size={18} /><LeagueIcon league={winningest.leagueId} size={14} /></>}
             sub={`${stats.winningestTeam.wins}-${stats.winningestTeam.losses} in matches`}
           />
         )}
@@ -2439,6 +2433,7 @@ function SeasonRecapPanel({
           <RecapChip
             label="Most Titles"
             value={mostTitled.name}
+            icon={<><TeamIcon iconKey={mostTitled.iconKey} logoUrl={mostTitled.logoUrl} color={mostTitled.color} size={18} /><LeagueIcon league={mostTitled.leagueId} size={14} /></>}
             sub={`${stats.mostTitledTeam.titles} trophies`}
           />
         )}
@@ -2523,16 +2518,16 @@ function SeasonRecapPanel({
           <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
             Rookie of the Year
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 mb-4">
             {rookies.map((r) => {
               const team = seasonTeam(season, r.teamId);
               return (
                 <div
                   key={r.lane}
-                  className="border border-rift-blue/30 bg-rift-blue/[0.04] px-2.5 py-2 text-[10px]"
+                  className="border border-rift-blue/30 bg-rift-blue/[0.04] px-2.5 py-2 text-[10px] flex flex-col items-start gap-1"
                 >
                   <div className="text-[8px] uppercase tracking-[0.25em] text-rift-blue/70 mb-1">
-                    {r.lane}
+                    <LaneIcon lane={r.lane} size="xs" />
                   </div>
                   <PlayerNameLink
                     playerId={r.playerId}
@@ -2540,6 +2535,7 @@ function SeasonRecapPanel({
                     className="font-display text-rift-goldbright truncate"
                   />
                   {team && (
+                    <span className="inline-flex max-w-full items-center gap-1.5">
                     <TeamNameLink
                       teamId={team.id}
                       name={team.name}
@@ -2547,12 +2543,15 @@ function SeasonRecapPanel({
                       iconKey={team.iconKey}
                       logoUrl={team.logoUrl}
                       color={team.color}
-                      showLogo={false}
+                      showLogo
                       renderAs="span"
                       className="text-[9px] text-rift-mutedbright/70 truncate mt-0.5"
                       hint={{ team }}
                     />
+                    <LeagueIcon league={team.leagueId} size={13} />
+                    </span>
                   )}
+
                   <div className="text-[8px] text-rift-muted/70 tabular-nums mt-1">
                     ★{r.avgRating.toFixed(1)} · {r.splitTitles} split · {r.intlTitles} intl
                   </div>
@@ -2589,8 +2588,8 @@ function SeasonRecapPanel({
                   {Math.round(stats.records.longestGame.minutes)}′
                 </div>
                 <div className="text-[9px] text-rift-mutedbright/70 truncate">
-                  {stats.records.longestGame.blueTeam} vs{" "}
-                  {stats.records.longestGame.redTeam}
+                  {recordTeam(stats.records.longestGame.blueTeam)} vs{" "}
+                  {recordTeam(stats.records.longestGame.redTeam)}
                 </div>
               </div>
             )}
@@ -2603,8 +2602,8 @@ function SeasonRecapPanel({
                   {Math.round(stats.records.shortestGame.minutes)}′
                 </div>
                 <div className="text-[9px] text-rift-mutedbright/70 truncate">
-                  {stats.records.shortestGame.blueTeam} vs{" "}
-                  {stats.records.shortestGame.redTeam}
+                  {recordTeam(stats.records.shortestGame.blueTeam)} vs{" "}
+                  {recordTeam(stats.records.shortestGame.redTeam)}
                 </div>
               </div>
             )}
@@ -2617,8 +2616,8 @@ function SeasonRecapPanel({
                   +{(stats.records.biggestStomp.goldLead / 1000).toFixed(1)}k g
                 </div>
                 <div className="text-[9px] text-rift-mutedbright/70 truncate">
-                  {stats.records.biggestStomp.winnerTeam} ▸{" "}
-                  {stats.records.biggestStomp.loserTeam}
+                  {recordTeam(stats.records.biggestStomp.winnerTeam)} ▸{" "}
+                  {recordTeam(stats.records.biggestStomp.loserTeam)}
                 </div>
               </div>
             )}
@@ -2657,7 +2656,7 @@ function SeasonRecapPanel({
                     {stats.records.bestMvp.lane && (
                       <LaneIcon lane={stats.records.bestMvp.lane} size="xs" />
                     )}
-                    <span className="truncate">{stats.records.bestMvp.teamName}</span>
+                    <span className="truncate">{recordTeam(stats.records.bestMvp.teamName)}</span>
                   </div>
                 </div>
               </div>
@@ -2687,7 +2686,7 @@ function SeasonRecapPanel({
                     </span>
                   </div>
                   <div className="text-[9px] text-rift-mutedbright/70 truncate">
-                    {stats.records.fastestPentakill.teamName}
+                    {recordTeam(stats.records.fastestPentakill.teamName)}
                   </div>
                 </div>
               </div>
@@ -2701,7 +2700,7 @@ function SeasonRecapPanel({
                   {stats.records.biggestSwing.description}
                 </div>
                 <div className="text-[9px] text-rift-mutedbright/70 truncate mt-0.5">
-                  {stats.records.biggestSwing.teamName} ·{" "}
+                  {recordTeam(stats.records.biggestSwing.teamName)} ·{" "}
                   {Math.round(stats.records.biggestSwing.minute)}′ ·{" "}
                   {Math.round(Math.abs(stats.records.biggestSwing.probDelta) * 100)}
                   pp
@@ -2723,16 +2722,6 @@ function SeasonRecapPanel({
             {stats.mvpLeaderboard.slice(0, 6).map((p) => {
               const team = seasonTeam(season, p.teamId);
               const champ = championsById.get(p.topChampionId);
-              const laneLabel =
-                p.lane === "middle"
-                  ? "MID"
-                  : p.lane === "bottom"
-                  ? "BOT"
-                  : p.lane === "jungle"
-                  ? "JG"
-                  : p.lane === "support"
-                  ? "SUP"
-                  : "TOP";
               const avg = (n: number) => (n / Math.max(1, p.count)).toFixed(1);
               return (
                 <div
@@ -2768,12 +2757,12 @@ function SeasonRecapPanel({
                         className="font-display text-xs tracking-wider text-rift-goldbright truncate"
                       />
                       <span className="ml-auto text-[8px] uppercase tracking-wider text-rift-gold/50 shrink-0">
-                        {laneLabel}
+                        <LaneIcon lane={p.lane} size="xs" />
                       </span>
                     </div>
                     {p.playerName && (
                       <div className="text-[8px] tracking-wide text-rift-mutedbright/50 truncate">
-                        {team?.name ?? "—"}
+                        <TournamentTeamIdentity team={team} seed={false} />
                       </div>
                     )}
                     <div className="flex items-center justify-between gap-1">
@@ -2842,6 +2831,7 @@ function SeasonRecapPanel({
                             />
                           )}
                           <LaneIcon lane={l.lane} size="xs" className="shrink-0" />
+                          {lteam && <LeagueIcon league={lteam.leagueId} size={12} />}
                           <span className="min-w-0 flex-1 truncate">
                             <PlayerNameLink
                               playerId={l.playerId}
@@ -2881,7 +2871,7 @@ function SeasonRecapPanel({
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
             {stats.pentakills.slice(0, 12).map((p) => {
               const champ = championsById.get(p.championId);
-              const pTeam = season.teams.find((t) => t.name === p.teamName);
+              const pTeam = uniqueTeamsByName.get(p.teamName);
               return (
                 <div
                   key={`${p.championId}-${p.teamName}`}

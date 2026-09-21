@@ -43,7 +43,7 @@ export default function AppLifecycleShell({
       aria-label={ariaLabel}
     >
       <div className="w-full max-w-md text-center">
-        <div className="text-[10px] md:text-xs uppercase tracking-[0.5em] text-rift-gold/70 mb-2">
+        <div className="font-brand text-[10px] md:text-xs uppercase tracking-[0.5em] text-rift-gold/70 mb-2">
           DraftSim
         </div>
         <h1 className="font-display text-4xl md:text-5xl tracking-[0.15em] text-rift-goldbright mb-1">

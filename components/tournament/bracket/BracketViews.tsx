@@ -1,5 +1,7 @@
 "use client";
 
+import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdentity";
+
 import { useEffect, useMemo, useRef } from "react";
 import gsap from "gsap";
 import { useDraftStore } from "@/store/draftStore";
@@ -100,7 +102,7 @@ export function Header({
             Champion
           </span>
           <span className="crown-name font-display text-lg md:text-2xl text-rift-goldbright tracking-wider">
-            {champion.name}
+            <TournamentTeamIdentity team={champion} />
           </span>
           <span aria-hidden className="text-rift-gold/70 text-base">
             &#x2766;

@@ -1,5 +1,7 @@
 "use client";
 
+import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdentity";
+
 import { useMemo,useState } from "react";
 
 import { MAIN_POOL } from "@/lib/players";
@@ -218,7 +220,8 @@ export default function OffseasonView() {
             rows[0] ? (
               <div key={label} className="border border-rift-line/40 bg-rift-bg/30 px-2 py-1">
                 <div className="text-[8px] uppercase tracking-[0.25em] text-rift-gold/55">{label} leader</div>
-                <div className="flex items-baseline gap-1 text-[10px] text-rift-mutedbright truncate">
+                <div className="flex items-center gap-1 text-[10px] text-rift-mutedbright min-w-0">
+                  <LaneIcon lane={rows[0].lane} size="xs" />
                   <PlayerNameLink
                     playerId={rows[0].playerId}
                     name={rows[0].playerName || rows[0].teamName}
@@ -226,6 +229,7 @@ export default function OffseasonView() {
                   />
                   <span className="text-rift-goldbright font-display">{val(rows[0])}</span>
                 </div>
+                <TournamentTeamIdentity team={season.teams.find(team => team.id === rows[0].teamId)} fallback={rows[0].teamName} seed={false} className="text-[9px] text-rift-mutedbright/70 mt-1" />
               </div>
             ) : null,
           )}

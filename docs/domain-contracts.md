@@ -190,3 +190,21 @@ Before/After team strength uses the selected frozen main roster: `averageTierFro
 ## Team-strength precision
 
 Team stars are numbers on the 1..5 half-step scale, owned by `normalizeTeamStars` in `lib/teamStars.ts`. Main-roster strength uses `deriveStar`; no caller should independently round it to an integer. Roster-bearing teams override cached `starRating` values. A saved series retains its explicit per-team strength, and side swaps move that strength with the team. Integer legacy values remain valid without a persistence migration. Academy players, player match grades, player letter tiers and decimal coach ratings are separate domains. Completed results are immutable; future matches and derived roster summaries can differ under the more precise model.
+
+
+## Tournament presentation provenance and KDA
+
+`TournamentTeam.leagueId` is an optional snapshot copied by `toTournamentTeam`, including direct qualifiers and play-in entrants. Import validation accepts its absence and rejects unknown region identifiers. The compact codec and share export preserve it through object spreads. For legacy tournaments, the dashboard can fill the display-only region from a stable team ID only when the currently loaded season owns the tournament and matches its `seasonId`. Standalone/unknown teams receive no fabricated region. Duplicate names alone never establish a cross-region identity; old name-only recap records display a region only when the name is unambiguous within the displayed season.
+
+`TournamentState.seasonSubStage?: "play-in"` marks newly created First Stand/MSI/Worlds qualifiers. It is additive and validated on import. Latest Matchday supports legacy qualifier names only within their owning international phase's first tournament; arbitrary standalone names do not establish season provenance. Simulation, qualifier selection and event lifecycle rules are unchanged.
+
+`lib/tournamentMatchContext.ts` is a presentation helper, separate from simulation pressure/round-depth calculations. `SeasonMatchdayMatch.context` is ephemeral and captured before `runAutoPlayMatch` or automatic advancement. Swiss records use decided matches from strictly earlier rounds, including real bye credit; synthetic byes are explicitly labelled and never simulated as played encounters. Knockout names follow advancement edges; winners/losers/last-chance contexts retain their separate meaning.
+
+`lib/formatKda.ts` accepts observed totals or null. An observed zero-death game returns `Perfect KDA`; absent/invalid data returns an em dash. Series summaries count KDA coverage per slot and label partial totals, while preserving per-game player IDs/names. Legacy career aggregates do not record complete KDA coverage: all-zero aggregates remain unavailable rather than claiming perfection. Aggregate ratio formatting does not change numeric rankings or simulator formulas.
+
+These additions require no SQLite migration and do not alter hydration, queued writes, backup or restore boundaries. Compatibility tests operate on disposable import/codec fixtures rather than personal saves.
+
+
+Tournament cards accept a UI-only `TeamCardHint.tournamentTeam` snapshot. Known season teams retain their standings, academy count and H2H while the roster comes from the tournament. The live card provider indexes active tournament teams by stable ID for bracket/Swiss consumers. `TeamCardData.leagueId` is optional for custom tournaments, without changing stored season-team region requirements. Snapshot hints and focus changes do not modify saves or import formats. A player card first attempts the normal live/history resolution; if no player resolves, an explicit roster hint remains a valid fallback even when its champion pool is empty.
+
+`lib/notableGames.ts` selects recap highlights in one traversal, retaining match ID, game index and per-game side labels. Ties retain the first encountered game. Kill categories require both valid stored totals or complete five-player KDA per missing side; partial or absent stats are not zero. Momentum swing uses the absolute recorded event delta (displayed as percentage points). Largest Gold Lead uses the maximum absolute finite timeline sample; it neither infers a final lead nor assumes the leader won. Missing timelines remain unknown. These summaries are derived display data and require no save migration.

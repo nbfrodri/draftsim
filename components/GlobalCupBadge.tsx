@@ -59,7 +59,7 @@ export default function GlobalCupBadge({
         textAnchor="middle"
         fill="#c8aa6e"
         fontSize="4.5"
-        fontFamily="system-ui, sans-serif"
+        fontFamily="inherit"
         fontWeight="700"
         letterSpacing="0.08em"
         opacity="0.85"

@@ -25,7 +25,7 @@ El guardado de escritorio incluye temporadas sin terminar. Las realidades inacti
 
 El Hall incluye **Roster Moves**: historial cronológico de mercado por realidad, también del año en curso, con filtros por año, ventana, equipo, región y rol, e insignias de estado del jugador. Los archivos antiguos muestran únicamente los eventos que conservaron.
 
-Consulta las [notas de v0.8.0](docs/releases/v0.8.0.md) para el historial de movimientos, las medias estrellas y las mejoras de guardado y rendimiento.
+Consulta las [notas de v0.9.0](docs/releases/v0.9.0.md) para los nuevos destacados de torneos, resultados más claros, cards de rosters y tipografía uniforme.
 
 La fuerza de los equipos admite **medias estrellas (de 1 a 5)** en la configuración, las tarjetas, los rankings, el mercado y la simulación normal y masiva. Los guardados anteriores siguen siendo compatibles y los resultados terminados se conservan. Consulta el [contrato técnico](docs/technical-design.md#half-star-team-strength).
 

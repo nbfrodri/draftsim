@@ -35,7 +35,9 @@ export default {
         },
       },
       fontFamily: {
-        display: ["var(--font-display)", "serif"],
+        brand: ["var(--font-brand)", "serif"],
+        display: ["var(--font-body)", "system-ui", "sans-serif"],
+        sans: ["var(--font-body)", "system-ui", "sans-serif"],
         body: ["var(--font-body)", "system-ui", "sans-serif"],
       },
       boxShadow: {

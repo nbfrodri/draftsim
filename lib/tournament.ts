@@ -167,6 +167,8 @@ export type TournamentBracket =
   | "grand-final-reset";
 
 export interface TournamentTeam {
+  /** Region captured when this tournament roster is created; absent in legacy/custom events. */
+  leagueId?: import("./season/types").LeagueId;
   id: string;
   name: string;
   // 1..N, where 1 is the top seed. Used for bracket position assignment.
@@ -734,6 +736,8 @@ export interface TournamentState {
   seasonId?: string;
   /** Award scope retained when opening a season tournament directly. */
   seasonStageKind?: "split" | "international";
+  /** Explicit qualifier provenance, independent of the tournament display name. */
+  seasonSubStage?: "play-in";
   // Season mode only: per-team SIGNED streak carried in from the team's
   // most recent tournament of the same season (+N = N-series win streak,
   // -N = loss streak). teamStreak() extends its walk with this seed when

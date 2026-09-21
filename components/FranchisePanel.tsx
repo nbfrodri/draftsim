@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { computePlayerSeasonLines } from "@/lib/season/stats";
-import { PLAYER_TIER_VALUE } from "@/lib/players";
-import type { Player, PlayerTier } from "@/lib/types";
+import { LANE_ORDER, PLAYER_TIER_VALUE } from "@/lib/players";
+import type { Lane, Player, PlayerTier } from "@/lib/types";
 import type { LeagueId } from "@/lib/season/types";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import LaneIcon from "./LaneIcon";
@@ -27,12 +27,15 @@ function ratingTone(avg: number | null) {
   return "text-rift-gold/80";
 }
 
+const ROLE_LABELS: Record<Lane, string> = { top: "Top", jungle: "Jungle", middle: "Mid", bottom: "Bot", support: "Support" };
+
 const ROOKIE_GRID =
   "grid grid-cols-[auto_auto_minmax(0,1fr)_auto_auto_auto_auto] items-center gap-x-2 gap-y-1";
 
 export default function FranchisePanel() {
   const season = useDraftStore((s) => s.season);
   const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
+  const [roleFilters, setRoleFilters] = useState<Lane[]>([]);
   const [teamFilter, setTeamFilter] = useState<string | null>(null);
   /** Rookie class disclosure — expanded by default. */
   const [rookiesOpen, setRookiesOpen] = useState(true);
@@ -162,9 +165,10 @@ export default function FranchisePanel() {
   const filteredRookies = useMemo(
     () =>
       rookies.filter((r) =>
-        matchesTeamFilters(r.teamId, teamsById, leagueFilter, teamFilter),
+        matchesTeamFilters(r.teamId, teamsById, leagueFilter, teamFilter) &&
+        (roleFilters.length === 0 || roleFilters.includes(r.lane)),
       ),
-    [rookies, teamsById, leagueFilter, teamFilter],
+    [rookies, teamsById, leagueFilter, teamFilter, roleFilters],
   );
 
   const controlledId = season?.config.controlledTeamId;
@@ -213,7 +217,7 @@ export default function FranchisePanel() {
       </div>
 
       {rookies.length > 0 && (
-        <div className="px-3 pb-2.5">
+        <div role="region" aria-label="Rookie class" className="px-3 pb-2.5">
           <button
             type="button"
             onClick={() => setRookiesOpen((v) => !v)}
@@ -224,7 +228,7 @@ export default function FranchisePanel() {
               Rookie Class · Year {fr.year}
               <span className="ml-1.5 normal-case tracking-normal text-rift-muted/45 tabular-nums">
                 {rookieStats.total}
-                {(leagueFilter || teamFilter) && rookieStats.total !== rookies.length
+                {(leagueFilter || teamFilter || roleFilters.length > 0) && rookieStats.total !== rookies.length
                   ? ` of ${rookies.length}`
                   : ""}
               </span>
@@ -256,6 +260,17 @@ export default function FranchisePanel() {
               onLeagueFilter={setLeagueFilter}
               onTeamFilter={setTeamFilter}
             />
+            <div role="group" aria-label="Rookie roles" className="flex flex-wrap items-center gap-1">
+              <span className="mr-1 text-[10px] text-rift-mutedbright">Role</span>
+              {([null, ...LANE_ORDER] as const).map(lane => {
+                const selected = lane == null ? roleFilters.length === 0 : roleFilters.includes(lane);
+                return <button key={lane ?? "all"} type="button" aria-pressed={selected} aria-label={lane ? ROLE_LABELS[lane] : "All roles"}
+                  onClick={() => setRoleFilters(current => lane == null ? [] : current.includes(lane) ? current.filter(value => value !== lane) : [...current, lane])}
+                  className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-rift-gold ${selected ? "border-rift-gold/60 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright"}`}>
+                  {lane && <LaneIcon lane={lane} size="xs" />}{lane ? ROLE_LABELS[lane] : "All"}
+                </button>;
+              })}
+            </div>
             {controlledId && (
               <div className="inline-flex flex-wrap gap-0.5 p-0.5 border border-rift-line/40 bg-rift-bg/50">
                 {(
@@ -285,12 +300,14 @@ export default function FranchisePanel() {
             {visibleRookies.length === 0 ? (
               <div className="px-2.5 py-4 text-center">
                 <div className="font-display text-[11px] text-rift-mutedbright/75">
-                  {rookieView === "yours" ? "No rookies in your org" : "No other rookies match"}
+                  {leagueFilter || teamFilter || roleFilters.length > 0 ? "No rookies match these filters" : rookieView === "yours" ? "No rookies in your org" : "No other rookies match"}
                 </div>
                 <div className="mt-1 text-[10px] italic text-rift-muted/55">
-                  {rookieView === "yours"
+                  {leagueFilter || teamFilter || roleFilters.length > 0
+                    ? "Try clearing region, team or role filters to browse the class."
+                    : rookieView === "yours"
                     ? "Academy intake and main-roster debuts for your team show here first."
-                    : "Try clearing region or team filters to browse the full class."}
+                    : "Try clearing region, team or role filters to browse the full class."}
                 </div>
               </div>
             ) : (
@@ -313,6 +330,7 @@ export default function FranchisePanel() {
                     return (
                       <div
                         key={r.id}
+                        data-testid="rookie-row"
                         className={`${ROOKIE_GRID} px-2.5 py-1.5 text-[10px] ${
                           highlight ? "bg-rift-blue/[0.06]" : "hover:bg-rift-bg/20"
                         }`}

@@ -1,96 +1,11 @@
 "use client";
 
+import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdentity";
+
 import { getTeam } from "@/lib/tournament";
 import type { TournamentState } from "@/lib/tournament";
 
-// ─── Notable games (fastest / longest / biggest comeback) ─────────────
-// Walks every recapped game in the tournament once and picks the three
-// extremes. Each entry tracks the originating match + game index so the
-// post-tournament recap can deep-link the user straight to that game in
-// the replay modal.
-
-export interface NotableGameEntry {
-  matchId: string;
-  gameIdx: number;
-  durationMinutes: number;
-  blueTeamLabel: string;
-  redTeamLabel: string;
-  winnerLabel: string;
-  // Lowest win-prob (from the eventual winner's perspective) reached
-  // during the game. Only populated for the comeback entry; lower means
-  // a deeper hole. 0 = looked dead, 1 = never looked behind.
-  lowestWinnerProb?: number;
-}
-
-export interface NotableGames {
-  any: boolean;
-  fastest: NotableGameEntry | null;
-  longest: NotableGameEntry | null;
-  comeback: NotableGameEntry | null;
-}
-
-export function computeNotableGames(tournament: TournamentState): NotableGames {
-  let fastest: NotableGameEntry | null = null;
-  let longest: NotableGameEntry | null = null;
-  let comeback: NotableGameEntry | null = null;
-  let bestComebackDepth = 0; // 1 - lowestWinnerProb; bigger = deeper hole climbed out of
-
-  for (const m of tournament.matches) {
-    const series = m.series;
-    if (!series) continue;
-    const blueTeam = getTeam(tournament, m.blueTeamId);
-    const redTeam = getTeam(tournament, m.redTeamId);
-    series.games.forEach((g, gameIdx) => {
-      const recap = g.recap;
-      if (!recap || g.winner == null) return;
-      // Side-aware team labels — track the per-GAME blue/red names since
-      // sides can swap inside a series under the loser-picks-blue rule.
-      const blueLabel = g.blueTeam || blueTeam?.name || "Blue";
-      const redLabel = g.redTeam || redTeam?.name || "Red";
-      const winnerLabel = g.winner === "blue" ? blueLabel : redLabel;
-      const base: NotableGameEntry = {
-        matchId: m.id,
-        gameIdx,
-        durationMinutes: recap.durationMinutes,
-        blueTeamLabel: blueLabel,
-        redTeamLabel: redLabel,
-        winnerLabel,
-      };
-
-      if (fastest == null || recap.durationMinutes < fastest.durationMinutes) {
-        fastest = base;
-      }
-      if (longest == null || recap.durationMinutes > longest.durationMinutes) {
-        longest = base;
-      }
-
-      // Comeback magnitude: 1 - the lowest win-prob the eventual winner
-      // ever reached. Requires a winProbTimeline (legacy recaps may not
-      // have one — those games are silently skipped for this category).
-      const tl = recap.winProbTimeline;
-      if (tl && tl.length > 1) {
-        let lowestWinnerProb = 1;
-        for (const point of tl) {
-          const winnerProb =
-            g.winner === "blue" ? point.blueProb : 1 - point.blueProb;
-          if (winnerProb < lowestWinnerProb) lowestWinnerProb = winnerProb;
-        }
-        const depth = 1 - lowestWinnerProb;
-        if (depth > bestComebackDepth) {
-          bestComebackDepth = depth;
-          comeback = { ...base, lowestWinnerProb };
-        }
-      }
-    });
-  }
-
-  return {
-    any: fastest != null || longest != null || comeback != null,
-    fastest,
-    longest,
-    comeback,
-  };
-}
+import type { NotableGameEntry, NotableGames } from "@/lib/notableGames";
 
 export function NotableGamesPanel({
   notable,
@@ -109,6 +24,7 @@ export function NotableGamesPanel({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-3">
         <NotableGameCard
           label="Fastest"
+          description="Recorded game duration"
           tagline={
             notable.fastest
               ? `${Math.round(notable.fastest.durationMinutes)} min`
@@ -120,6 +36,7 @@ export function NotableGamesPanel({
         />
         <NotableGameCard
           label="Longest"
+          description="Recorded game duration"
           tagline={
             notable.longest
               ? `${Math.round(notable.longest.durationMinutes)} min`
@@ -131,15 +48,28 @@ export function NotableGamesPanel({
         />
         <NotableGameCard
           label="Biggest Comeback"
+          description="Winner’s lowest recorded win probability"
           tagline={
             notable.comeback?.lowestWinnerProb != null
-              ? `Down to ${Math.round(notable.comeback.lowestWinnerProb * 100)}% win`
-              : "No clear comeback"
+              ? `${Math.round(notable.comeback.lowestWinnerProb * 100)}%`
+              : "—"
           }
           entry={notable.comeback}
           tournament={tournament}
           onViewGame={onViewGame}
         />
+        <NotableGameCard label="Most Kills" description="Combined kills by both teams"
+          tagline={notable.mostKills ? `${notable.mostKills.metric} kills` : "—"}
+          entry={notable.mostKills} tournament={tournament} onViewGame={onViewGame} />
+        <NotableGameCard label="Closest Kill Score" description="Final kill difference · not the victory margin"
+          tagline={notable.closestKills ? `${notable.closestKills.metric} kill gap` : "—"}
+          entry={notable.closestKills} tournament={tournament} onViewGame={onViewGame} />
+        <NotableGameCard label="Biggest Momentum Swing" description="Largest single-event win-probability change · pp = percentage points"
+          tagline={notable.biggestSwing ? `${Math.round(notable.biggestSwing.metric! * 100)} pp` : "—"}
+          entry={notable.biggestSwing} tournament={tournament} onViewGame={onViewGame} />
+        <NotableGameCard label="Largest Gold Lead" description="Peak recorded gold difference · either team"
+          tagline={notable.largestGoldLead ? `${Math.round(notable.largestGoldLead.metric!).toLocaleString("en-US")} gold` : "—"}
+          entry={notable.largestGoldLead} tournament={tournament} onViewGame={onViewGame} />
       </div>
     </div>
   );
@@ -148,12 +78,14 @@ export function NotableGamesPanel({
 function NotableGameCard({
   label,
   tagline,
+  description,
   entry,
   tournament,
   onViewGame,
 }: {
   label: string;
   tagline: string;
+  description: string;
   entry: NotableGameEntry | null;
   tournament: TournamentState;
   onViewGame: (matchId: string, gameIdx: number) => void;
@@ -163,41 +95,36 @@ function NotableGameCard({
     ? tournament.matches.find((m) => m.id === entry.matchId)
     : null;
   const hasReplay = !!match?.series;
+  const participants = match ? [getTeam(tournament, match.blueTeamId), getTeam(tournament, match.redTeamId)] : [];
+  const identity = (name: string) => {
+    const candidates = participants.filter(team => team?.name === name);
+    return <TournamentTeamIdentity team={candidates.length === 1 ? candidates[0] : null} fallback={name} />;
+  };
   return (
-    <button
-      type="button"
-      disabled={disabled || !hasReplay}
-      onClick={() => entry && onViewGame(entry.matchId, entry.gameIdx)}
-      className={`text-left p-3 border transition-all ${
-        disabled || !hasReplay
-          ? "border-rift-line/40 bg-rift-bg/30 cursor-not-allowed text-rift-muted/50"
-          : "border-rift-gold/40 bg-rift-gold/5 hover:bg-rift-gold/15 hover:border-rift-gold text-rift-mutedbright"
-      }`}
-      title={
-        disabled
-          ? "No game data"
-          : !hasReplay
-          ? "No replay data for this match"
-          : `Replay Game ${entry.gameIdx + 1}`
-      }
-    >
-      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/70 mb-1">
-        {label}
+    <article aria-label={label} className="min-w-0 flex flex-col border border-rift-line/50 bg-rift-bg/40 p-4">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <h3 className="text-xs font-display text-rift-mutedbright">{label}</h3>
+        {entry && <span className="text-[10px] text-rift-mutedbright/60">Game {entry.gameIdx + 1}</span>}
       </div>
-      <div className="font-display text-[13px] md:text-sm tracking-wider text-rift-goldbright">
-        {tagline}
-      </div>
-      {entry && (
-        <div className="mt-1 text-[10px] uppercase tracking-[0.25em] text-rift-mutedbright/80">
-          {entry.blueTeamLabel} vs {entry.redTeamLabel}
+      <div className="text-2xl font-display tabular-nums text-rift-goldbright">{tagline}</div>
+      <p className="text-[10px] text-rift-mutedbright/60 mt-1 mb-4">
+        {description}
+      </p>
+      {entry ? <>
+        <div className="space-y-2 text-xs text-rift-mutedbright mb-4">
+          <div className="flex items-center gap-2"><span className="w-5 text-[9px] text-rift-mutedbright/50">VS</span>{identity(entry.blueTeamLabel)}</div>
+          <div className="flex items-center gap-2"><span className="w-5 shrink-0" aria-hidden="true" />{identity(entry.redTeamLabel)}</div>
         </div>
-      )}
-      {entry && (
-        <div className="text-[9px] tracking-[0.25em] text-rift-mutedbright/60 mt-0.5">
-          Game {entry.gameIdx + 1} · Won by{" "}
-          <span className="text-rift-goldbright">{entry.winnerLabel}</span>
+        <div className="flex flex-wrap items-center justify-center gap-1.5 border-t border-rift-line/30 pt-3 mt-auto text-[11px] text-rift-mutedbright/70">
+          <span>Won by</span><span className="text-rift-goldbright">{identity(entry.winnerLabel)}</span>
         </div>
-      )}
-    </button>
+      </> : <p className="text-xs text-rift-mutedbright/55 mb-4 mt-auto">No qualifying recorded data available.</p>}
+      <button type="button" disabled={disabled || !hasReplay}
+        onClick={() => entry && onViewGame(entry.matchId, entry.gameIdx)}
+        aria-label={`${label}: replay${entry ? ` Game ${entry.gameIdx + 1}` : " unavailable"}`}
+        className="mt-4 w-full border border-rift-gold/40 bg-rift-gold/5 px-3 py-2 text-xs text-rift-goldbright transition-colors hover:border-rift-gold hover:bg-rift-gold/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold disabled:opacity-40 disabled:cursor-not-allowed">
+        {hasReplay ? "View replay →" : "Replay unavailable"}
+      </button>
+    </article>
   );
 }

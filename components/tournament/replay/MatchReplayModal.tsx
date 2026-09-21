@@ -1,4 +1,6 @@
 "use client";
+
+import { formatKda } from "@/lib/formatKda";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
 import { RatingBadge } from "@/components/betweenGames/contributions/ContributionRow";
@@ -133,6 +135,8 @@ type SeriesPlayerSummary = {
   playerId: string | null;
   avgRating: number;
   kda: { k: number; d: number; a: number };
+  kdaGames: number;
+  playedGames: number;
 };
 
 // Per-player series averages + summed KDA for one team slot.
@@ -144,6 +148,8 @@ function seriesTeamPlayerSummaries(
 ): SeriesPlayerSummary[] | null {
   const ratingSum = [0, 0, 0, 0, 0];
   const ratingCount = [0, 0, 0, 0, 0];
+  const kdaCount = [0, 0, 0, 0, 0];
+  const playedGames = games.filter(g => g.winner && teamSideInGame(g, teamName)).length;
   const kdaSum = [
     { k: 0, d: 0, a: 0 },
     { k: 0, d: 0, a: 0 },
@@ -151,6 +157,7 @@ function seriesTeamPlayerSummaries(
     { k: 0, d: 0, a: 0 },
     { k: 0, d: 0, a: 0 },
   ];
+  const idsFromGames: (string | null)[] = [null, null, null, null, null];
   const namesFromGames: (string | null)[] = [null, null, null, null, null];
   let anyKda = false;
   let anyRating = false;
@@ -177,12 +184,14 @@ function seriesTeamPlayerSummaries(
       for (let i = 0; i < 5; i++) {
         const row = sideKda[i];
         if (!row) continue;
+        kdaCount[i]++;
         kdaSum[i].k += row.k;
         kdaSum[i].d += row.d;
         kdaSum[i].a += row.a;
         anyKda = true;
         const name = recap.perPickNames?.[side]?.[i];
         if (name && !namesFromGames[i]) namesFromGames[i] = name;
+        idsFromGames[i] ??= recap.perPickIds?.[side]?.[i] ?? null;
       }
     }
   }
@@ -192,12 +201,14 @@ function seriesTeamPlayerSummaries(
   return LANES.map(({ key: lane }, i) => ({
     lane,
     name: namesFromGames[i] ?? roster?.[i]?.name ?? null,
-    playerId: roster?.[i]?.id ?? null,
+    playerId: idsFromGames[i] ?? roster?.[i]?.id ?? null,
     avgRating:
       ratingCount[i] > 0
         ? Math.round((ratingSum[i] / ratingCount[i]) * 10) / 10
         : 0,
     kda: kdaSum[i],
+    kdaGames: kdaCount[i],
+    playedGames,
   }));
 }
 
@@ -540,11 +551,8 @@ function SeriesRatingsPanel({
       </div>
       <div className="space-y-0.5">
         {players.map((p, i) => {
-          const hasKda = p.kda.k + p.kda.d + p.kda.a > 0;
-          const kdaRatio =
-            p.kda.d > 0
-              ? ((p.kda.k + p.kda.a) / p.kda.d).toFixed(1)
-              : null;
+          const hasKda = p.kdaGames > 0;
+          const kdaRatio = formatKda(hasKda ? p.kda : null);
           return (
             <div
               key={i}
@@ -575,7 +583,7 @@ function SeriesRatingsPanel({
                   <span className="text-rift-goldbright/85">{p.kda.a}</span>
                   {kdaRatio && (
                     <span className="ml-1 text-rift-mutedbright/60">
-                      ({kdaRatio})
+                      ({kdaRatio}{p.kdaGames < p.playedGames ? ` · ${p.kdaGames}/${p.playedGames} games recorded` : ""})
                     </span>
                   )}
                 </span>
@@ -1090,9 +1098,9 @@ function PickColumn({
                   <span className="text-rift-redbright/85">{kda!.d}</span>
                   <span className="text-rift-muted/50">/</span>
                   <span className="text-rift-goldbright/85">{kda!.a}</span>
-                  {kda!.d > 0 && (
+                  {hasKDA && (
                     <span className="ml-2 text-[9px] text-rift-mutedbright/65">
-                      {((kda!.k + kda!.a) / kda!.d).toFixed(1)} KDA
+                      {formatKda(kda)}
                     </span>
                   )}
                   {rating != null && (

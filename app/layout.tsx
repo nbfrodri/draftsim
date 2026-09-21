@@ -4,10 +4,10 @@ import type { Metadata } from "next";
 import { Cinzel,Inter } from "next/font/google";
 import "./globals.css";
 
-const display = Cinzel({
+const brand = Cinzel({
   subsets: ["latin"],
   weight: ["400", "600", "700"],
-  variable: "--font-display",
+  variable: "--font-brand",
 });
 
 const body = Inter({
@@ -28,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable}`}>
+    <html lang="en" className={`${brand.variable} ${body.variable}`}>
       <body className="font-body antialiased">
         <ChampionImageFallback />
         <PersistenceNotice />

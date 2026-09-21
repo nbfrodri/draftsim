@@ -473,7 +473,7 @@ function EntryMenu({ onChoose }: { onChoose: (v: EntryView) => void }) {
       <div className="w-full max-w-6xl">
         <header className="mb-6 border-b border-rift-line pb-5">
           <div className="text-[10px] uppercase tracking-[0.35em] text-rift-mutedbright mb-2">League of Legends simulator</div>
-          <div className="flex items-center gap-4"><Image src="/icon.svg" alt="DraftSim logo" width={64} height={64} priority className="h-14 w-14 md:h-16 md:w-16 shrink-0" /><h1 className="font-display text-4xl md:text-5xl tracking-[0.12em] text-rift-goldbright">DRAFTSIM</h1></div>
+          <div className="flex items-center gap-4"><Image src="/icon.svg" alt="DraftSim logo" width={64} height={64} priority className="h-14 w-14 md:h-16 md:w-16 shrink-0" /><h1 className="font-brand text-4xl md:text-5xl tracking-[0.12em] text-rift-goldbright">DRAFTSIM</h1></div>
           <p className="mt-3 text-sm text-rift-mutedbright">Your next draft. Your next champion. Your own history.</p>
         </header>
         <MainMenuSections

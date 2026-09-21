@@ -8,6 +8,7 @@
 }
 
 html {
+  font-family: var(--font-body), system-ui, sans-serif;
   background-color: #010a13;
 }
 
@@ -57,9 +58,20 @@ body::after {
   -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 0%, transparent 90%);
 }
 
-.font-display {
-  font-family: var(--font-display), serif;
-  letter-spacing: 0.02em;
+/* UI typography: one family for headings, controls, data and chart labels.
+   The decorative family is reserved for the DraftSim wordmark. */
+@layer base {
+  button, input, select, textarea, option, optgroup {
+    font-family: var(--font-body), system-ui, sans-serif;
+  }
+  h1, h2, h3, h4, h5, h6 { font-weight: 600; }
+  svg text { font-family: inherit; }
+}
+@layer utilities {
+  .font-display {
+    font-family: var(--font-body), system-ui, sans-serif;
+    font-weight: 600;
+  }
 }
 
 /* Gold-framed slot used for picks and bans */

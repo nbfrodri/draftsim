@@ -639,6 +639,8 @@ export default function SeasonSetup({ onCancel }: Props) {
           >
             Draft Timer {timerEnabled ? "ON" : "OFF"}
           </button>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-[minmax(160px,1fr)_minmax(0,2fr)] items-start gap-4 mb-6" data-testid="season-control-row">
           <label className="flex flex-col gap-1">
             <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
               AI Difficulty
@@ -653,7 +655,7 @@ export default function SeasonSetup({ onCancel }: Props) {
               <option value="hard">Hard</option>
             </select>
           </label>
-          <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+          <div className="flex flex-col gap-1 min-w-0">
             <span className="text-[8px] uppercase tracking-[0.3em] text-rift-muted">
               Spectate or Follow a Team
             </span>

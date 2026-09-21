@@ -1,5 +1,7 @@
 "use client";
 
+import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdentity";
+
 import { useMemo, useState } from "react";
 import { computeTeamBreakdown, getTeam } from "@/lib/tournament";
 import type { TournamentState } from "@/lib/tournament";
@@ -49,13 +51,8 @@ export function TeamBreakdownPanel({
               }
               className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-rift-gold/[0.03] transition-colors"
             >
-              <span className="flex items-baseline gap-2">
-                <span className="text-rift-mutedbright/55 text-[9px] tabular-nums">
-                  #{team.seed}
-                </span>
-                <span className="font-display tracking-wider text-rift-goldbright text-sm">
-                  {team.name}
-                </span>
+              <span className="flex flex-wrap items-center gap-2">
+                <TournamentTeamIdentity team={team} className="font-display text-sm text-rift-goldbright" />
                 <span className="text-[9px] uppercase tracking-[0.3em] text-rift-mutedbright/55">
                   {entry.champions.length} champions · {totalPicks} picks · {totalWins}-{totalLosses}
                 </span>
