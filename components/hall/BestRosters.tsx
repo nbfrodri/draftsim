@@ -19,6 +19,7 @@ import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
 import PlaygroundSelect from "./PlaygroundSelect";
 import GoToSeasonButton from "./GoToSeasonButton";
+import { HallPager } from "./RecordRows";
 
 const button =
   "inline-flex items-center justify-center gap-2 border px-3 py-2 text-[9px] uppercase tracking-[0.15em] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rift-gold";
@@ -44,6 +45,7 @@ export default function BestRosters({
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [limit, setLimit] = useState("10");
+  const [page, setPage] = useState(0);
   const fromYear = from ? Number(from) : -Infinity;
   const toYear = to ? Number(to) : Infinity;
   const { rows, missingRosters } = useMemo(
@@ -53,7 +55,11 @@ export default function BestRosters({
   const years = [...new Set(data.years)]
     .sort((a, b) => a - b)
     .map((year) => ({ value: String(year), label: `Year ${year}` }));
-  const visible = limit === "all" ? rows : rows.slice(0, Number(limit));
+  const capped = limit === "all" ? rows : rows.slice(0, Number(limit));
+  const pageSize = 10;
+  const pageCount = Math.max(1, Math.ceil(capped.length / pageSize));
+  const currentPage = Math.min(page, pageCount - 1);
+  const visible = capped.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
   return (
     <section aria-label="Best rosters of all time" className="space-y-4">
       <header className="border border-rift-gold/25 bg-rift-panel/50 p-4">
@@ -79,26 +85,30 @@ export default function BestRosters({
             type="button"
             aria-pressed={regions.length === LEAGUE_IDS.length}
             className={`${button} ${regions.length === LEAGUE_IDS.length ? on : off}`}
-            onClick={() => setRegions([...LEAGUE_IDS])}
-          >
-            All regions
-          </button>
-          {LEAGUE_IDS.map((region) => (
-            <button
-              key={region}
-              type="button"
-              aria-pressed={regions.includes(region)}
-              className={`${button} ${regions.includes(region) ? on : off}`}
-              onClick={() =>
-                setRegions((current) =>
-                  current.length === LEAGUE_IDS.length
-                    ? [region]
-                    : current.includes(region)
-                      ? current.filter((value) => value !== region)
-                      : [...current, region],
-                )
-              }
+              onClick={() => {
+                setRegions([...LEAGUE_IDS]);
+                setPage(0);
+              }}
             >
+              All regions
+            </button>
+            {LEAGUE_IDS.map((region) => (
+              <button
+                key={region}
+                type="button"
+                aria-pressed={regions.includes(region)}
+                className={`${button} ${regions.includes(region) ? on : off}`}
+                onClick={() => {
+                  setPage(0);
+                  setRegions((current) =>
+                    current.length === LEAGUE_IDS.length
+                      ? [region]
+                      : current.includes(region)
+                        ? current.filter((value) => value !== region)
+                        : [...current, region],
+                  );
+                }}
+              >
               <LeagueIcon league={region} size={16} />
               {region}
             </button>
@@ -112,6 +122,7 @@ export default function BestRosters({
             onChange={(value) => {
               setFrom(value);
               if (value && Number(value) > toYear) setTo(value);
+              setPage(0);
             }}
           />
           <PlaygroundSelect
@@ -121,6 +132,7 @@ export default function BestRosters({
             onChange={(value) => {
               setTo(value);
               if (value && Number(value) < fromYear) setFrom(value);
+              setPage(0);
             }}
           />
           <PlaygroundSelect
@@ -131,7 +143,10 @@ export default function BestRosters({
               { value: "25", label: "Top 25" },
               { value: "all", label: "All rosters" },
             ]}
-            onChange={setLimit}
+            onChange={(value) => {
+              setLimit(value);
+              setPage(0);
+            }}
           />
           <button
             type="button"
@@ -140,6 +155,7 @@ export default function BestRosters({
               setRegions([...LEAGUE_IDS]);
               setFrom("");
               setTo("");
+              setPage(0);
             }}
           >
             Reset filters
@@ -161,14 +177,15 @@ export default function BestRosters({
         </p>
       )}
       <p className="text-[10px] uppercase tracking-[0.15em] text-rift-mutedbright">
-        {rows.length} winning roster{rows.length === 1 ? "" : "s"} /{" "}
-        {visible.length} shown
+        {rows.length} winning roster{rows.length === 1 ? "" : "s"}
+        {limit !== "all" ? ` · capped to top ${capped.length}` : ""}
       </p>
       {!rows.length && (
         <p className="border border-dashed border-rift-line p-6 text-center text-sm text-rift-mutedbright">
           No winning rosters with five recorded players match these filters.
         </p>
       )}
+      <div>
       <ol className="space-y-3">
         {visible.map((row) => {
           const latest = row.awards[0];
@@ -284,6 +301,17 @@ export default function BestRosters({
           );
         })}
       </ol>
+      <HallPager
+        page={currentPage}
+        pageCount={pageCount}
+        total={capped.length}
+        pageSize={pageSize}
+        label="Best roster pages"
+        previousLabel="Previous rosters"
+        nextLabel="Next rosters"
+        onChange={setPage}
+      />
+      </div>
     </section>
   );
 }

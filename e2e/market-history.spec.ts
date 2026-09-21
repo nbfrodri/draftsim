@@ -115,7 +115,7 @@ test("large movement histories paginate and filters reset the page", async ({ pa
   data.season.rosterNews = Array.from({ length: 75 }, (_, index) => ({ ...original, entrantName: `Prospect ${index}`, entrantId: `id-${index}` }));
   await seed(page, data, true);
   await expect(page.getByTestId("market-move")).toHaveCount(50);
-  await page.getByRole("button", { name: "Next movements" }).click();
+  await page.getByRole("navigation", { name: "Roster moves pages" }).getByRole("button", { name: "Next movements" }).click();
   await expect(page.getByTestId("market-move")).toHaveCount(25);
   await page.getByLabel("Search roster players").fill("Prospect 74");
   await expect(page.getByTestId("market-move")).toHaveCount(1);

@@ -34,3 +34,16 @@ Validation: 64 focused unit tests and 27 Edge browser cases passed, plus TypeScr
 - `test-results/playwright/completed-year-roster-moves-0.png`
 
 The local Windows build retains 0.9.2. Native WebView interactions and installer installation are not part of these browser checks.
+
+## Follow-up: Hall pagination, recap cards and Rookie Class disclosure
+
+Hall list surfaces share the Records & Dynasties pager chrome via `HallPager` / `RecordRows`:
+
+- Roster Moves: 50 per page, with the same pager above and below the list (no sticky overlay).
+- Best Rosters: 10 per page after the Top 10/25/All cap.
+- Search: 40 per page for every matching player/team/coach (replaces the former silent first-200 display slice; archives are unchanged). Compact chevron-only controls sit below the scrollable result column.
+- Compare: 20 options per pick column for players and teams, also using the compact pager.
+
+Timeline → By Season pads the season-list scrollport so archived-year card borders are not clipped. Season Recap Most MVPs drops the unused champion icon and aligns MVP/Rookie cards. Season Mode Rookie Class starts collapsed behind an explicit Show/Hide control.
+
+Presentation and DOM bounding only; no save, award or simulation rule changes.

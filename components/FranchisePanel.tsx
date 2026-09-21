@@ -37,8 +37,8 @@ export default function FranchisePanel() {
   const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
   const [roleFilters, setRoleFilters] = useState<Lane[]>([]);
   const [teamFilter, setTeamFilter] = useState<string | null>(null);
-  /** Rookie class disclosure — expanded by default. */
-  const [rookiesOpen, setRookiesOpen] = useState(true);
+  /** Rookie class disclosure — collapsed until the user opens it. */
+  const [rookiesOpen, setRookiesOpen] = useState(false);
   const [rookieView, setRookieView] = useState<"yours" | "league">("yours");
 
   const filterTeams: FilterTeam[] = useMemo(() => {
@@ -222,19 +222,23 @@ export default function FranchisePanel() {
             type="button"
             onClick={() => setRookiesOpen((v) => !v)}
             aria-expanded={rookiesOpen}
-            className="w-full flex items-center justify-between gap-2 mb-1.5 text-left"
+            aria-label={rookiesOpen ? "Hide rookie class" : "Show rookie class"}
+            className="w-full flex items-center justify-between gap-2 mb-1.5 rounded-sm border border-emerald-500/45 bg-emerald-500/10 px-2.5 py-2 text-left transition-colors hover:border-emerald-400/70 hover:bg-emerald-500/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
           >
-            <span className="text-[8px] uppercase tracking-[0.3em] text-emerald-300/80">
+            <span className="text-[9px] uppercase tracking-[0.28em] text-emerald-200">
               Rookie Class · Year {fr.year}
-              <span className="ml-1.5 normal-case tracking-normal text-rift-muted/45 tabular-nums">
+              <span className="ml-1.5 normal-case tracking-normal text-emerald-200/70 tabular-nums">
                 {rookieStats.total}
                 {(leagueFilter || teamFilter || roleFilters.length > 0) && rookieStats.total !== rookies.length
                   ? ` of ${rookies.length}`
                   : ""}
               </span>
             </span>
-            <span className="text-emerald-300/60 text-[10px] leading-none" aria-hidden>
-              {rookiesOpen ? "▴" : "▾"}
+            <span className="inline-flex items-center gap-1.5 shrink-0 text-[9px] uppercase tracking-[0.2em] text-emerald-200/90">
+              {rookiesOpen ? "Hide" : "Show"}
+              <span className="text-[11px] leading-none" aria-hidden>
+                {rookiesOpen ? "▴" : "▾"}
+              </span>
             </span>
           </button>
           {rookiesOpen && (

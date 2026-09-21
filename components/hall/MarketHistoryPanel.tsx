@@ -11,6 +11,7 @@ import { LEAGUE_IDS, type SeasonState } from "@/lib/season/types";
 import TierChip from "../season/TierChip";
 import { PLAYER_TIERS, LANE_ORDER } from "@/lib/players";
 import PlaygroundSelect from "./PlaygroundSelect";
+import { HallPager } from "./RecordRows";
 import TeamIcon from "../TeamIcon";
 import PlayerNameLink from "../player/PlayerNameLink";
 import LaneIcon from "../LaneIcon";
@@ -92,6 +93,18 @@ function MarketHistoryTable({ entries, season, onOpenSeason }: Omit<Props, "real
   const select = (label: string, key: Exclude<keyof MarketFilters, "region" | "lane">, values: Array<[string, string]>) => <PlaygroundSelect label={label} value={filters[key]} onChange={value => update(key, value)} options={[
     { value: "", label: `All ${label.toLowerCase()}` }, ...values.map(([value, label]) => ({ value, label })),
   ]} />;
+  const pager = (navLabel: string) => (
+    <HallPager
+      page={currentPage}
+      pageCount={pages}
+      total={filtered.length}
+      pageSize={PAGE_SIZE}
+      label={navLabel}
+      previousLabel="Previous movements"
+      nextLabel="Next movements"
+      onChange={setPage}
+    />
+  );
   return <section aria-label="Roster moves history" className="space-y-4">
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div><h2 className="font-display text-xl tracking-wider text-rift-goldbright">Roster Moves</h2>
@@ -139,7 +152,10 @@ function MarketHistoryTable({ entries, season, onOpenSeason }: Omit<Props, "real
     </div>
     {visible.length === 0 ? <div className="border border-rift-line/50 p-8 text-center text-sm text-rift-mutedbright">
       {rows.length ? "No movements match these filters." : "No roster moves recorded yet. New signings, academy changes and retirements will appear here."}
-    </div> : <ol className="divide-y divide-rift-line/50 border border-rift-line/50">
+    </div> : <div className="space-y-0">
+      {/* Controls sit above the list so paging stays reachable without sticky overlays. */}
+      {pager("Roster moves pages")}
+      <ol className="divide-y divide-rift-line/50 border border-rift-line/50 border-y-0">
       {visible.map(row => <li key={row.id} data-testid="market-move" className="grid items-center gap-x-4 gap-y-2 bg-rift-panel/20 px-3 py-2 md:grid-cols-[140px_minmax(130px,0.8fr)_minmax(0,2fr)]">
         <div className="text-xs"><div className="font-display text-sm text-rift-goldbright">{row.year != null && onOpenSeason && archivedIds.has(row.seasonId) ? <button type="button" className="underline decoration-rift-gold/40 underline-offset-2 hover:text-rift-gold focus-visible:outline focus-visible:outline-rift-gold" aria-label={`Open Year ${row.year} in Timeline`} onClick={() => onOpenSeason(row.seasonId)}>Year {row.year} &rarr;</button> : row.year == null ? "Unknown year" : `Year ${row.year}`}</div>
           <div className="mt-0.5 text-[11px] text-rift-mutedbright">{row.window ? marketWindowLabel(row.window) : "Unknown window"}</div>
@@ -158,11 +174,8 @@ function MarketHistoryTable({ entries, season, onOpenSeason }: Omit<Props, "real
           </div>
         </div>
       </li>)}
-    </ol>}
-    {pages > 1 && <nav aria-label="Roster moves pages" className="flex items-center justify-center gap-4 text-xs text-rift-mutedbright">
-      <button type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)} className="border border-rift-line px-3 py-2 disabled:opacity-40">Previous movements</button>
-      <span>Page {currentPage + 1} of {pages}</span>
-      <button type="button" disabled={currentPage + 1 === pages} onClick={() => setPage(currentPage + 1)} className="border border-rift-line px-3 py-2 disabled:opacity-40">Next movements</button>
-    </nav>}
+      </ol>
+      {pager("Roster moves end pages")}
+    </div>}
   </section>;
 }

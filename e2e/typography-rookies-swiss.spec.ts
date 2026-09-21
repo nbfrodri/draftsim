@@ -15,6 +15,7 @@ test("rookie role buttons combine with team filters and include academy rookies"
   await page.addInitScript(season => localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state: { season, seasonViewOpen: true } })), season);
   await page.goto("/");
   const panel = page.getByRole("region", { name: "Rookie class", exact: true });
+  await panel.getByRole("button", { name: "Show rookie class" }).click();
   const rows = panel.getByTestId("rookie-row");
   const roles = panel.getByRole("group", { name: "Rookie roles" });
   await expect(rows).toHaveCount(3);

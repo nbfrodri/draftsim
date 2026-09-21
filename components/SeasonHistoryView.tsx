@@ -3,7 +3,7 @@
 import { formatAggregateKda } from "@/lib/formatKda";
 import { isRealityHistoryLoaded } from "@/lib/desktopSqlite";
 import { loadHallRealityHistory } from "@/lib/loadHallRealityHistory";
-import RecordRows from "./hall/RecordRows";
+import RecordRows, { HallPager } from "./hall/RecordRows";
 import { ALL_PRO_LABELS } from "@/lib/season/allProScopes";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
@@ -4205,6 +4205,8 @@ function SearchPanel({
     () => new Set(INTL_ORDER),
   );
   const [minGoldAdv, setMinGoldAdv] = useState("");
+  const [resultPage, setResultPage] = useState(0);
+  const SEARCH_PAGE_SIZE = 40;
 
   const titleFilters = useMemo((): TitleFilters => {
     const kinds: TitleFilters["kinds"] = [];
@@ -4399,6 +4401,20 @@ function SearchPanel({
   }, [kind, q, laneFilter, regionFilter, statusFilter, sortKey, titleFilters, minGoldAdvNum, players, teams, stars, coaches, teamRecords, playerCareersById]);
 
   const sortLabel = SORT_OPTIONS[kind].find((o) => o.key === sortKey)?.label;
+  const searchPageCount = Math.max(1, Math.ceil(results.length / SEARCH_PAGE_SIZE));
+  const searchPage = Math.min(resultPage, searchPageCount - 1);
+  const visibleResults = results.slice(
+    searchPage * SEARCH_PAGE_SIZE,
+    (searchPage + 1) * SEARCH_PAGE_SIZE,
+  );
+  const [previousResultKey, setPreviousResultKey] = useState(
+    `${kind}|${q}|${laneFilter}|${regionFilter}|${statusFilter}|${sortKey}|${intlTitleFilter}|${splitTitleFilter}|${minGoldAdv}`,
+  );
+  const resultKey = `${kind}|${q}|${laneFilter}|${regionFilter}|${statusFilter}|${sortKey}|${intlTitleFilter}|${splitTitleFilter}|${minGoldAdv}`;
+  if (previousResultKey !== resultKey) {
+    setPreviousResultKey(resultKey);
+    setResultPage(0);
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-5 items-start">
@@ -4613,21 +4629,36 @@ function SearchPanel({
             )}
           </div>
         )}
-        <div className="space-y-1 lg:max-h-[60vh] lg:overflow-y-auto lg:pr-1">
-          {results.length === 0 ? (
-            <p className="text-[10px] italic text-rift-muted px-1">No matches.</p>
-          ) : (
-            results.slice(0, 200).map((r) => (
-              <SearchResultRow
-                key={r.id}
-                row={r}
-                kind={kind}
-                selected={selected === r.id}
-                sortKey={sortKey}
-                sortLabel={sortLabel}
-                onSelect={selectRow}
-              />
-            ))
+        <div className="flex flex-col min-w-0">
+          <div className="space-y-1 lg:max-h-[60vh] lg:overflow-y-auto lg:px-px lg:pt-px lg:pb-1 lg:pr-1.5">
+            {results.length === 0 ? (
+              <p className="text-[10px] italic text-rift-muted px-1">No matches.</p>
+            ) : (
+              visibleResults.map((r) => (
+                <SearchResultRow
+                  key={r.id}
+                  row={r}
+                  kind={kind}
+                  selected={selected === r.id}
+                  sortKey={sortKey}
+                  sortLabel={sortLabel}
+                  onSelect={selectRow}
+                />
+              ))
+            )}
+          </div>
+          {results.length > 0 && (
+            <HallPager
+              page={searchPage}
+              pageCount={searchPageCount}
+              total={results.length}
+              pageSize={SEARCH_PAGE_SIZE}
+              label="Search result pages"
+              previousLabel="Previous results"
+              nextLabel="Next results"
+              compact
+              onChange={setResultPage}
+            />
           )}
         </div>
       </div>
@@ -5156,7 +5187,7 @@ export default function SeasonHistoryView({
             <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-5 items-start">
             {/* Timeline list — scrollable so every season stays reachable
                 while the selected season's résumé stays in view */}
-            <div className="space-y-1.5 lg:max-h-[72vh] lg:overflow-y-auto lg:pr-1">
+            <div className="space-y-1.5 lg:max-h-[72vh] lg:overflow-y-auto lg:px-px lg:pt-px lg:pb-1.5 lg:pr-1.5">
               {seasonHistory.map((entry) => {
                 const active = entry.id === listSelectedId;
                 const date = new Date(entry.archivedAt);

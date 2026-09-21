@@ -40,7 +40,10 @@ import LaneIcon from "../LaneIcon";
 import LeagueIcon from "../LeagueIcon";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TeamLogoLink from "../team/TeamLogoLink";
+import { HallPager } from "./RecordRows";
 import { CareerStatus,CareerStatusBadge,DynastyBadge,LANES,NavFn,NavPlayerName,PlayerTeamIcon,TeamRef } from "./shared";
+
+const COMPARE_PICK_PAGE = 20;
 
 export const LANE_SHORT: Record<Lane, string> = {
   top: "TOP",
@@ -63,6 +66,8 @@ export function TeamComparePanel({
   const [keyB, setKeyB] = useState("");
   const [query, setQuery] = useState("");
   const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
+  const [pageA, setPageA] = useState(0);
+  const [pageB, setPageB] = useState(0);
 
   const teamOptions = useMemo(() => {
     const byKey = new Map<string, SeasonHistoryTeamRef>();
@@ -115,6 +120,14 @@ export function TeamComparePanel({
     [teamOptions, leagueFilter, q],
   );
 
+  const teamFilterKey = `${leagueFilter ?? ""}|${q}`;
+  const [previousTeamFilterKey, setPreviousTeamFilterKey] = useState(teamFilterKey);
+  if (previousTeamFilterKey !== teamFilterKey) {
+    setPreviousTeamFilterKey(teamFilterKey);
+    setPageA(0);
+    setPageB(0);
+  }
+
   const compare = useMemo(
     () =>
       keyA && keyB && keyA !== keyB
@@ -161,16 +174,25 @@ export function TeamComparePanel({
     value: string,
     onChange: (key: string) => void,
     disabledKey: string,
-  ) => (
+    page: number,
+    setPage: (page: number) => void,
+  ) => {
+    const pageCount = Math.max(1, Math.ceil(filteredTeams.length / COMPARE_PICK_PAGE));
+    const current = Math.min(page, pageCount - 1);
+    const visible = filteredTeams.slice(
+      current * COMPARE_PICK_PAGE,
+      (current + 1) * COMPARE_PICK_PAGE,
+    );
+    return (
     <div className="min-w-0 flex-1 flex flex-col border border-rift-line/40 bg-rift-bg/30">
       <div className="px-2.5 py-1.5 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.25em] text-rift-gold/60">
         {label}
       </div>
-      <div className="max-h-36 overflow-y-auto divide-y divide-rift-line/15">
+      <div className="divide-y divide-rift-line/15">
         {filteredTeams.length === 0 ? (
           <p className="px-2.5 py-2 text-[10px] italic text-rift-muted">No matches.</p>
         ) : (
-          filteredTeams.map((o) => (
+          visible.map((o) => (
             <button
               key={o.key}
               type="button"
@@ -211,8 +233,20 @@ export function TeamComparePanel({
           ))
         )}
       </div>
+      <HallPager
+        page={current}
+        pageCount={pageCount}
+        total={filteredTeams.length}
+        pageSize={COMPARE_PICK_PAGE}
+        label={`${label} pages`}
+        previousLabel={`Previous ${label.toLowerCase()}`}
+        nextLabel={`Next ${label.toLowerCase()}`}
+        compact
+        onChange={setPage}
+      />
     </div>
-  );
+    );
+  };
 
   return (
     <div>
@@ -259,13 +293,13 @@ export function TeamComparePanel({
         ))}
       </div>
       <div className="flex flex-col sm:flex-row items-stretch gap-2 mb-3">
-        {pickColumn("Team A", keyA, setKeyA, keyB)}
+        {pickColumn("Team A", keyA, setKeyA, keyB, pageA, setPageA)}
         <div className="flex sm:flex-col items-center justify-center px-1 py-1 sm:py-0">
           <span className="text-[10px] uppercase tracking-[0.3em] text-rift-gold/60">
             vs
           </span>
         </div>
-        {pickColumn("Team B", keyB, setKeyB, keyA)}
+        {pickColumn("Team B", keyB, setKeyB, keyA, pageB, setPageB)}
       </div>
 
       {keyA && keyB && keyA === keyB ? (
@@ -464,6 +498,8 @@ export function PlayerComparePanel({
   const [laneFilter, setLaneFilter] = useState<Lane | null>(null);
   const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
   const [teamFilter, setTeamFilter] = useState<string | null>(null);
+  const [pageA, setPageA] = useState(0);
+  const [pageB, setPageB] = useState(0);
 
   const playerOptions = useMemo(
     () =>
@@ -513,6 +549,13 @@ export function PlayerComparePanel({
       }),
     [playerOptions, laneFilter, leagueFilter, teamFilter, q],
   );
+  const playerFilterKey = `${laneFilter ?? ""}|${leagueFilter ?? ""}|${teamFilter ?? ""}|${q}`;
+  const [previousPlayerFilterKey, setPreviousPlayerFilterKey] = useState(playerFilterKey);
+  if (previousPlayerFilterKey !== playerFilterKey) {
+    setPreviousPlayerFilterKey(playerFilterKey);
+    setPageA(0);
+    setPageB(0);
+  }
 
   const compare = useMemo(
     () =>
@@ -580,18 +623,27 @@ export function PlayerComparePanel({
     value: string,
     onChange: (id: string) => void,
     disabledId: string,
-  ) => (
+    page: number,
+    setPage: (page: number) => void,
+  ) => {
+    const pageCount = Math.max(1, Math.ceil(filteredPlayers.length / COMPARE_PICK_PAGE));
+    const current = Math.min(page, pageCount - 1);
+    const visible = filteredPlayers.slice(
+      current * COMPARE_PICK_PAGE,
+      (current + 1) * COMPARE_PICK_PAGE,
+    );
+    return (
     <div className="min-w-0 flex-1 flex flex-col border border-rift-line/40 bg-rift-bg/30">
       <div className="px-2.5 py-1.5 border-b border-rift-line/30 text-[8px] uppercase tracking-[0.25em] text-rift-gold/60">
         {label}
       </div>
-      <div className="max-h-36 overflow-y-auto divide-y divide-rift-line/15">
+      <div className="divide-y divide-rift-line/15">
         {filteredPlayers.length === 0 ? (
           <p className="px-2.5 py-2 text-[10px] italic text-rift-muted">
             No matches.
           </p>
         ) : (
-          filteredPlayers.map((p) => (
+          visible.map((p) => (
             <button
               key={p.playerId}
               type="button"
@@ -642,8 +694,20 @@ export function PlayerComparePanel({
           ))
         )}
       </div>
+      <HallPager
+        page={current}
+        pageCount={pageCount}
+        total={filteredPlayers.length}
+        pageSize={COMPARE_PICK_PAGE}
+        label={`${label} pages`}
+        previousLabel={`Previous ${label.toLowerCase()}`}
+        nextLabel={`Next ${label.toLowerCase()}`}
+        compact
+        onChange={setPage}
+      />
     </div>
-  );
+    );
+  };
 
   const playerHeader = (p: PlayerCareerLine) => (
     <span className="min-w-0 flex flex-col gap-1 items-center">
@@ -851,13 +915,13 @@ export function PlayerComparePanel({
         </div>
       )}
       <div className="flex flex-col sm:flex-row items-stretch gap-2 mb-3">
-        {pickColumn("Player A", idA, setIdA, idB)}
+        {pickColumn("Player A", idA, setIdA, idB, pageA, setPageA)}
         <div className="flex sm:flex-col items-center justify-center px-1 py-1 sm:py-0">
           <span className="text-[10px] uppercase tracking-[0.3em] text-rift-gold/60">
             vs
           </span>
         </div>
-        {pickColumn("Player B", idB, setIdB, idA)}
+        {pickColumn("Player B", idB, setIdB, idA, pageB, setPageB)}
       </div>
 
       {idA && idB && idA === idB ? (
