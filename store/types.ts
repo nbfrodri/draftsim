@@ -124,6 +124,8 @@ export interface SeasonMatchdayMatch {
 }
 
 export interface SeasonMatchdayRegion {
+  /** International identity captured before the simulation advances phase. */
+  event?: import("@/lib/season/types").InternationalId;
   league: LeagueId | null;
   name: string;
   results: SeasonMatchdayMatch[];

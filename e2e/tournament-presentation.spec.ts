@@ -103,6 +103,8 @@ test("Latest Matchday captures regular stage before advancing", async ({ page })
   const badges = page.getByLabel("Match context").first();
   await expect(badges).toContainText("Regular Split", { timeout: 60000 });
   await expect(badges).toContainText("Matchday 1");
+  const latest = page.getByText("Latest Matchday", { exact: true }).locator("../..");
+  await expect(latest.locator('img[src="/league-logos/LCK.png"]').first()).toBeVisible();
   const badgeBounds = await badges.boundingBox();
   const firstBadge = await badges.locator(":scope > span").first().boundingBox();
   const lastBadge = await badges.locator(":scope > span").last().boundingBox();
@@ -234,4 +236,40 @@ test("franchise timeline names expand on the left and profile navigation belongs
   await expect(page.getByRole("tooltip")).toContainText("Archived Player 0");
   await page.getByRole("tooltip").click();
   await expect(page.getByRole("button", { name: "Timeline Team title details", exact: true })).toHaveCount(0);
+});
+
+for (const event of ["first-stand", "msi", "worlds", "global-cup"] as const) {
+  test(`Latest Matchday uses ${event} identity instead of a participant region`, async ({ page }) => {
+    const season = makeAuditSeason("Event logo");
+    // Use an existing playable tournament, owned by an international phase.
+    season.phases[0] = { ...season.phases[0], kind: "international", event, label: event };
+    await seed(page, { season, seasonViewOpen: true });
+    await page.goto("/");
+    await page.getByRole("button", { name: /Sim Matchday/ }).first().click();
+    const latest = page.getByText("Latest Matchday", { exact: true }).locator("../..");
+    await expect(latest).toBeVisible({ timeout: 60000 });
+    if (event === "global-cup") {
+      await expect(latest.getByRole("img", { name: "Global Cup", exact: true }).first()).toBeVisible();
+    } else {
+      await expect(latest.locator(`img[src="/league-logos/${event}.png"]`).first()).toBeVisible();
+    }
+    await expect(latest.locator('img[src="/league-logos/LCK.png"]')).toHaveCount(0);
+  });
+}
+
+test("Latest Matchday keeps reverse sweeps beside phase badges above teams", async ({ page }) => {
+  const season = makeAuditSeason("Reverse sweep layout");
+  const team = (name: string) => ({ name, iconKey: "shield", color: "#c8aa6e" });
+  await seed(page, { season, seasonViewOpen: true, seasonMatchday: { label: "Winter Playoffs", regions: [{
+    league: "LCK", name: "LCK Winter", results: [{ blue: team("Winner Team"), red: team("Other Team"), blueScore: 3, redScore: 2, blueWon: true,
+      stage: "winners", context: { stage: "Playoffs", round: 3, eliminationRound: "Final", bracket: "Winners" }, tags: ["reverse-sweep"] }],
+  }] } });
+  await page.goto("/");
+  const badges = page.getByLabel("Match context").first();
+  await expect(badges.getByText("Reverse Sweep", { exact: true })).toBeVisible();
+  const row = badges.locator("..");
+  const badgeBox = await badges.boundingBox();
+  const teamBox = await row.getByText("Winner Team", { exact: true }).boundingBox();
+  expect(badgeBox!.y + badgeBox!.height).toBeLessThanOrEqual(teamBox!.y);
+  await row.screenshot({ path: "test-results/playwright/latest-matchday-reverse-sweep.png" });
 });

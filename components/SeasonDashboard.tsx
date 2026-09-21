@@ -924,7 +924,7 @@ function MatchdayResultTag({ tag }: { tag: string }) {
         className="px-1 py-px border border-rift-red/50 text-rift-redbright/90 text-[7px] uppercase tracking-[0.12em] flex-shrink-0"
         title="Reverse sweep — 0-2 comeback to win 3-2"
       >
-        Rev Sweep
+        Reverse Sweep
       </span>
     );
   }
@@ -956,8 +956,9 @@ function LatestMatchdayPanel({
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-x-4 gap-y-3 p-3">
         {matchday.regions.map((r) => (
           <div key={r.name} className="min-w-0">
-            <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/65 mb-1.5 truncate border-b border-rift-line/20 pb-0.5">
-              {r.name}
+            <div className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.3em] text-rift-gold/65 mb-1.5 border-b border-rift-line/20 pb-0.5">
+              {(r.event ?? r.league) && <LeagueIcon league={(r.event ?? r.league)!} size={16} className="shrink-0" />}
+              <span className="min-w-0 truncate">{r.name}</span>
             </div>
             {r.results.length === 0 ? (
               <div className="text-[10px] italic text-rift-muted">
@@ -973,7 +974,11 @@ function LatestMatchdayPanel({
                     onViewReplay;
                   const row = (
                     <div className="space-y-1 py-1">
-                    <MatchContextBadges context={m.context} stage={m.stage} group={m.group} />
+                    <MatchContextBadges context={m.context} stage={m.stage} group={m.group}>
+                    {m.tags?.map((tag) => (
+                      <MatchdayResultTag key={tag} tag={tag} />
+                    ))}
+                    </MatchContextBadges>
                     <div className="flex items-center gap-1.5 text-[10px]">
                     {/* Blue side (right-aligned toward the score) */}
                     <span className="flex-1 flex items-center justify-end gap-1 min-w-0">
@@ -1093,9 +1098,7 @@ function LatestMatchdayPanel({
                       />
                     </span>
 
-                    {m.tags?.map((tag) => (
-                      <MatchdayResultTag key={tag} tag={tag} />
-                    ))}
+
                     {canReplay && (
                       <span className="text-[8px] uppercase tracking-[0.15em] text-rift-gold/60 flex-shrink-0">
                         · View

@@ -175,3 +175,7 @@ Meta Shifts groups the role icon and before/after tiers in one vertically center
 Notable Games also includes Most Kills (combined observed kills), Closest Kill Score (absolute final kill difference, not a victory margin), Biggest Momentum Swing (largest absolute single-event probability change in percentage points), and Largest Gold Lead (peak absolute gold difference recorded in the timeline, either side, even if that side later lost). Each opens its originating game replay. Missing data stays unavailable; multiple categories can legitimately select the same game.
 
 Biggest Momentum Swing explains `pp` inline as percentage points: a change from 40% to 65% is 25 pp, not a relative increase of 25%.
+
+Latest Matchday competition headings pair their text with bundled league artwork for domestic splits and event artwork for internationals (First Stand, MSI, Worlds and Global Cup). Event identity is captured from the simulated phase before advancement, so a completed qualifier keeps its event logo and an international never borrows its first participant’s region logo.
+
+Latest Matchday result tags, including Reverse Sweep, share the centered, wrapping phase/round badge row above the score. They do not consume space in the team/score row.

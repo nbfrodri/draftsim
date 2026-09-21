@@ -27,5 +27,7 @@ Los documentos de `plans/` y las auditorías registran objetivos y decisiones de
 
 ## Versiones
 
+- [v0.9.1: logos y badges de Latest Matchday](releases/v0.9.1.md).
+
 - [v0.9.0: presentación de torneos, destacados y tipografía](releases/v0.9.0.md).
 - [v0.8.0: historial de movimientos, medias estrellas y fiabilidad](releases/v0.8.0.md).

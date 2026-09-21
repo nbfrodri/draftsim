@@ -1738,6 +1738,7 @@ export const useDraftStore = create<DraftStore>()(
             }
           }
           regions.push({
+            ...(phase.kind === "international" && phase.event ? { event: phase.event } : {}),
             league: leagueOfTournament(cur0, t),
             name: t.name,
             results,
