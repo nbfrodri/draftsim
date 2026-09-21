@@ -32,7 +32,11 @@ it("preserves event identity and rosters through transfers and SQLite save/load"
     const loaded = (await loadPersistedStateFromDbExecutor(executor, "draftsim-store"))!.season as SeasonState;
     const frozen = seasonAtPhase(loaded, loaded.phases[0]).teams.find(t => t.id === entrant.id)!;
     expect(frozen.name).toBe(original.name);
-    expect(frozen.players).toEqual(original.players);
+    // SQLite persists tournament entrants as JSON; IEEE -0 becomes 0 on parse.
+    // Compare the JSON-stable roster so signed-zero noise does not fail the freeze.
+    expect(JSON.parse(JSON.stringify(frozen.players))).toEqual(
+      JSON.parse(JSON.stringify(original.players)),
+    );
     expect(loaded.teams.find(t => t.id === entrant.id)!.name).toBe("Renamed current team");
   } finally { db.close(); resetSqliteStorageForTests(); }
 });
