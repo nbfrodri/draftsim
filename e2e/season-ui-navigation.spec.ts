@@ -155,7 +155,7 @@ test("manual season save confirms durable success and exposes a failed write for
 });
 
 
-test("offseason digest excludes earlier rookies and carry after save/reload", async ({ page }) => {
+test("completed-year digest retains split moves until advancing and excludes old offseason carry", async ({ page }) => {
   const season: SeasonState = makeAuditSeason("Offseason attribution");
   season.status = "complete";
   season.franchise!.year = 2;
@@ -163,8 +163,9 @@ test("offseason digest excludes earlier rookies and carry after save/reload", as
   const row = (name: string, timeMark: string) => ({ teamId: season.teams[0].id, lane: "top" as const,
     entrantName: name, entrantId: name, entrantTier: "A" as const, entrantPotential: "A" as const,
     entrantSource: "rookie" as const, timeMark });
-  season.rosterNews = [row("PreviousYearRookie", "Offseason"), row("WinterOnlyRookie", "Winter"), row("CurrentOffseasonRookie", "Offseason")];
-  season.offseasonRosterNewsBaseline = 2;
+  season.rosterNews = [row("PreviousYearRookie", "Offseason"), row("WinterOnlyRookie", "Winter"), row("SpringOnlyRookie", "Spring"), row("SummerOnlyRookie", "Summer"), row("CurrentOffseasonRookie", "Offseason")];
+  season.offseasonRosterNewsBaseline = 4;
+  season.franchise!.aging = false;
   await seed(page, { season, seasonViewOpen: true, activeRealityId: season.franchise!.id,
     realities: [{ id: season.franchise!.id, name: season.franchise!.name, year: 2, season, history: [] }] });
   await page.goto("/");
@@ -173,12 +174,24 @@ test("offseason digest excludes earlier rookies and carry after save/reload", as
     await expect(digest.getByText("CurrentOffseasonRookie", { exact: true })).toBeVisible();
     await expect(digest.getByText("PreviousYearRookie", { exact: true })).toHaveCount(0);
     await expect(digest.getByText("WinterOnlyRookie", { exact: true })).toHaveCount(0);
+    for (const split of ["Winter", "Spring", "Summer"]) {
+      await expect(digest.getByRole("button", { name: new RegExp(`After ${split} Split`) })).toBeVisible();
+      await digest.getByRole("button", { name: new RegExp(`After ${split} Split`) }).click();
+      await expect(digest.getByText(`${split}OnlyRookie`, { exact: true })).toBeVisible();
+    }
+    await digest.screenshot({ path: `test-results/playwright/completed-year-roster-moves-${reload}.png` });
     await digest.getByRole("button", { name: "Winter", exact: true }).click();
-    await digest.getByRole("button", { name: /After Winter Split/ }).click();
     await expect(digest.getByText("WinterOnlyRookie", { exact: true })).toBeVisible();
     await expect(digest.getByText("CurrentOffseasonRookie", { exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByText("Saved to reality", { exact: true })).toBeVisible();
     if (reload === 0) await page.reload();
+  }
+  await page.getByRole("button", { name: /Finalize Offseason.*Year 3/ }).click();
+  await expect(page.getByRole("button", { name: /Sim Matchday/ }).first()).toBeVisible({ timeout: 60000 });
+  const nextDigest = page.getByRole("button", { name: /^Transfer Window/ }).locator("..");
+  for (const split of ["Winter", "Spring", "Summer"]) {
+    await expect(nextDigest.getByRole("button", { name: new RegExp(`After ${split} Split`) })).toHaveCount(0);
+    await expect(nextDigest.getByText(`${split}OnlyRookie`, { exact: true })).toHaveCount(0);
   }
 });

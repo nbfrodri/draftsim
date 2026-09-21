@@ -201,6 +201,13 @@ test("annual recap separates rookie/player/team and offseason leaders show roles
   await expect(leader.locator('img[src*="icon-position-"]')).toHaveCount(1);
   await expect(leader.locator('img[src*="league-logos"]')).toHaveCount(2);
   await card.screenshot({ path: "test-results/playwright/rookie-year-spacing.png" });
+  const mostMvps = page.getByText("Most MVPs", { exact: true }).locator("..");
+  const mvpCard = mostMvps.locator('div[class*="bg-rift-bg/40"]').first();
+  await expect(mvpCard.getByTitle(/^Tier /)).toHaveCount(1);
+  await expect(mvpCard.locator('img[src*="league-logos"]')).toHaveCount(2);
+  const playerRow = mvpCard.locator(":scope > div > div").first();
+  await expect(playerRow.locator('img[src*="league-logos"]')).toHaveCount(0);
+  await mostMvps.screenshot({ path: "test-results/playwright/season-most-mvps-tier.png" });
 });
 
 
@@ -266,6 +273,7 @@ for (const event of ["first-stand", "msi", "worlds", "global-cup"] as const) {
     season.phases[0] = { ...season.phases[0], kind: "international", event, label: event };
     await seed(page, { season, seasonViewOpen: true });
     await page.goto("/");
+    await expect(page.getByRole("button", { name: "Sim Regular Season", exact: true })).toBeDisabled();
     await page.getByRole("button", { name: /Sim Matchday/ }).first().click();
     const latest = page.getByText("Latest Matchday", { exact: true }).locator("../..");
     await expect(latest).toBeVisible({ timeout: 60000 });
@@ -349,4 +357,183 @@ test("live simulation event logs show team artwork and player roles", async ({ p
   const eventRow = log.getByText(/Player [12] [1-5]/).first().locator("../../..");
   await eventRow.scrollIntoViewIfNeeded();
   await eventRow.screenshot({ path: "test-results/playwright/live-event-identities.png" });
+});
+
+test("replay team marks open cards and a swapped-side pentakill has a gold game badge", async ({ page }) => {
+  const tournament = tournamentFixture();
+  const match = tournament.matches[0];
+  const game = match.series!.games[1];
+  game.redPicks[3] = 22;
+  game.recap!.perPickKDA!.red[3] = { k: 8, d: 1, a: 6 };
+  game.recap!.pentakills = [{ minute: 22, side: "red", championId: 22, championName: "Ashe", teamName: game.redTeam, lane: "bottom" }];
+  await seed(page, { tournament, season: null });
+  await page.goto("/");
+  await expect(page.getByRole("article", { name: "Fastest", exact: true })).toBeVisible();
+  await page.evaluate(() => Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true }));
+  await page.getByRole("article", { name: "Fastest", exact: true }).getByRole("button").click();
+  const pentaTab = page.getByRole("button", { name: /^Game 2,.*Pentakill/ });
+  await expect(pentaTab).toContainText("Player 1 4");
+  await expect(pentaTab.locator('img[src*="icon-position-"]')).toHaveCount(1);
+  await expect(pentaTab.locator('img[src*="/22.png"]')).toHaveCount(1);
+  await pentaTab.click();
+  const banner = page.getByRole("region", { name: "Game pentakills", exact: true });
+  await expect(banner).toContainText("Player 1 4");
+  await expect(banner).toContainText("Pentakill");
+  await expect(banner.locator('img[src*="icon-position-"]')).toHaveCount(1);
+  await expect(pentaTab).toHaveAttribute("aria-pressed", "true");
+  await expect(pentaTab).toHaveClass(/bg-rift-gold\/25/);
+  await pentaTab.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/playwright/replay-pentakill-desktop.png" });
+  const keyEvents = page.getByText("Key Events", { exact: true }).locator("..");
+  const damage = page.getByText("Damage Dealt", { exact: true }).locator("../..");
+  const mvp = page.getByText("Game MVP", { exact: true }).locator("..");
+  for (const [panel, expected] of [[keyEvents, "Player 8 1"], [damage, "Player 8 1"], [mvp, "Player 1 1"]] as const) {
+    await panel.locator('img[src*="league-logos"]').first().hover();
+    await expect(page.getByRole("tooltip")).toContainText("Tournament roster");
+    await expect(page.getByRole("tooltip")).toContainText(expected);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await expect(pentaTab).toBeVisible();
+    await page.mouse.move(0, 0);
+  }
+  await page.setViewportSize({ width: 1024, height: 700 });
+  await pentaTab.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/playwright/replay-pentakill-minimum.png" });
+  await page.getByRole("button", { name: /^Game 1, won by/ }).click();
+  await expect(banner).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Game 1, won by/ }).getByText("Pentakill")).toHaveCount(0);
+});
+
+test("Sim Regular Season finishes every region and stops before playoffs", async ({ page }) => {
+  test.setTimeout(120000);
+  const season = makeAuditSeason("Regular boundary");
+  for (const id of season.phases[0].tournamentIds) {
+    let tournament = season.tournaments[id];
+    for (const match of tournament.matches.slice(0, -1)) {
+      if (!match.winner && match.blueTeamId && match.redTeamId)
+        tournament = recordMatchWinner(tournament, match.id, { teamId: match.blueTeamId, blueWins: 1, redWins: 0 });
+    }
+    season.tournaments[id] = tournament;
+  }
+  await seed(page, { season, seasonViewOpen: true });
+  await page.goto("/");
+  const regular = page.getByRole("button", { name: "Sim Regular Season", exact: true });
+  await expect(regular).toBeEnabled();
+  await regular.click();
+  await expect(page.getByRole("button", { name: /Sim Matchday/ }).first()).toBeEnabled({ timeout: 90000 });
+  await expect(regular).toBeDisabled();
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("draftsim-store")!).state.season) as typeof season;
+  expect(stored.phaseIndex).toBe(0);
+  for (const id of season.phases[0].tournamentIds) {
+    const t = stored.tournaments[id];
+    expect(t.matches.filter(m => m.bracket == null).every(m => m.winner)).toBe(true);
+    expect(t.matches.filter(m => m.bracket != null).every(m => !m.winner)).toBe(true);
+    expect(t.status).not.toBe("complete");
+  }
+  await regular.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/playwright/regular-season-complete.png" });
+  await page.getByRole("button", { name: /Sim Matchday/ }).first().click();
+  await expect(page.getByLabel("Match context").first()).toContainText("Playoffs", { timeout: 90000 });
+  await expect(regular).toBeDisabled();
+});
+
+for (const event of ["winter", "first-stand"] as const) {
+  test(`Season Results pins ${event} teams and rosters after a transfer`, async ({ page }) => {
+    const season = makeAuditSeason("Frozen results");
+    const tournament = tournamentFixture();
+    tournament.seasonId = season.id;
+    tournament.seasonStageKind = event === "winter" ? "split" : "international";
+    season.tournaments = { [tournament.id]: tournament };
+    const phase = { ...season.phases[0], tournamentIds: [tournament.id], status: "complete" as const };
+    if (event === "first-stand") {
+      phase.kind = "international";
+      phase.event = event;
+      delete phase.split;
+      phase.label = "First Stand";
+      season.intlResults[event] = tournament.teams.map(t => t.id);
+    } else season.splitResults.winter = { LCK: tournament.teams.filter(t => t.leagueId === "LCK").map(t => t.id) };
+    season.phases[0] = phase;
+    season.phaseIndex = 1;
+    season.teams = tournament.teams.map(team => ({ ...season.teams[0], ...team, leagueId: team.leagueId!,
+      name: `Current ${team.id}`, players: team.players!.map(p => ({ ...p, id: `new-${p.id}`, name: `Replacement ${p.name}` })) }));
+    await seed(page, { season, seasonViewOpen: true, tournament: null });
+    await page.goto("/");
+    const results = page.getByRole("region", { name: `${phase.label} results`, exact: true });
+    const assertFrozenCard = async () => {
+      await expect(page.getByRole("tooltip")).toContainText("Event roster snapshot");
+      await expect(page.getByRole("tooltip")).toContainText("Player 1 1");
+      await expect(page.getByRole("tooltip")).not.toContainText("Replacement");
+      await page.keyboard.press("Escape");
+      await page.mouse.move(0, 0);
+    };
+    await expect(results).toBeVisible();
+    await page.evaluate(() => Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true }));
+    await results.getByRole("button", { name: /Placements/ }).click();
+    await results.getByTitle("Open Presentation Cup").getByText("Visual Team 1", { exact: true }).hover();
+    await assertFrozenCard();
+    await results.locator("li").getByText("Visual Team 1", { exact: true }).hover();
+    await assertFrozenCard();
+    await results.getByRole("button", { name: /^Stats/ }).click();
+    const stats = page.getByRole("region", { name: `${tournament.name} statistics`, exact: true });
+    await stats.getByText("Visual Team 1", { exact: true }).first().hover();
+    await expect(page.getByRole("tooltip")).toContainText("Player 1 1");
+    await expect(page.getByRole("tooltip")).not.toContainText("Replacement");
+    await page.screenshot({ path: `test-results/playwright/season-results-${event}-snapshot.png` });
+  });
+}
+
+test("multiple pentakills share a count badge without hiding game tabs", async ({ page }) => {
+  const tournament = tournamentFixture();
+  const match = tournament.matches[0];
+  match.format = "bo5";
+  match.series!.format = "bo5";
+  const originals = match.series!.games;
+  match.series!.games = Array.from({ length: 5 }, (_, i) => {
+    const game = structuredClone(originals[i % 2]);
+    game.id = `multi-penta-game-${i}`;
+    game.gameNumber = i + 1;
+    game.winner = i === 2 || i === 3 ? (i % 2 ? "blue" : "red") : (i % 2 ? "red" : "blue");
+    game.recap!.pentakills = i < 2 ? Array.from({ length: i === 0 ? 3 : 2 }, (_, n) => ({
+      minute: 18 + n * 6, side: "blue" as const, championId: 22,
+      championName: "Ashe", teamName: game.blueTeam, lane: "bottom" as const,
+    })) : undefined;
+    if (i < 2) game.recap!.perPickKDA!.blue[3] = { k: i === 0 ? 18 : 12, d: 2, a: 8 };
+    return game;
+  });
+  match.winner = { teamId: match.blueTeamId!, blueWins: 3, redWins: 2 };
+  await seed(page, { tournament, season: null });
+  await page.goto("/");
+  await page.getByRole("article", { name: "Fastest", exact: true }).getByRole("button").click();
+  const tabs = page.getByRole("button", { name: /^Game [1-5], won by/ });
+  const strip = tabs.first().locator("..");
+  for (const width of [1440, 1024]) {
+    await page.setViewportSize({ width, height: width === 1024 ? 700 : 900 });
+    await tabs.first().click();
+    await strip.scrollIntoViewIfNeeded();
+    await expect(tabs).toHaveCount(5);
+    await expect(tabs.nth(0).getByText("Pentakill ×3", { exact: true })).toHaveCount(1);
+    await expect(tabs.nth(1).getByText("Pentakill ×2", { exact: true })).toHaveCount(1);
+    await expect(page.getByRole("region", { name: "Game pentakills" }).getByText("Pentakill ×3", { exact: true })).toHaveCount(1);
+    const bounds = await strip.boundingBox();
+    const rows = new Set<number>();
+    for (const tab of await tabs.all()) {
+      await expect(tab).toBeVisible();
+      const box = (await tab.boundingBox())!;
+      rows.add(Math.round(box.y));
+      expect(box.x).toBeGreaterThanOrEqual(bounds!.x);
+      expect(box.x + box.width).toBeLessThanOrEqual(bounds!.x + bounds!.width + 1);
+      expect(await tab.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      for (const badge of await tab.getByText(/^Pentakill/).all()) await expect(badge).toBeVisible();
+    }
+    expect(rows.size).toBeGreaterThanOrEqual(1);
+    await expect(tabs.nth(0).locator('img[src*="icon-position-"]')).toHaveCount(1);
+    await expect(tabs.nth(1).locator('img[src*="icon-position-"]')).toHaveCount(1);
+    expect(await strip.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    await page.screenshot({ path: `test-results/playwright-multiple-pentas/replay-penta-count-${width}.png` });
+    await strip.screenshot({ path: `test-results/playwright-multiple-pentas/replay-game-tabs-${width}.png` });
+    for (let i = 0; i < 5; i++) {
+      await tabs.nth(i).click();
+      await expect(tabs.nth(i)).toHaveAttribute("aria-pressed", "true");
+    }
+  }
 });

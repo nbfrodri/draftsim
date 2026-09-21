@@ -19,7 +19,7 @@ import {
   type PlayerAward,
   type SpecialAward,
 } from "../awards";
-import type { Lane } from "../types";
+import type { Lane, PlayerTier } from "../types";
 import { playerForLane, LANE_ORDER } from "../players";
 import { tournamentPlacements } from "./engine";
 import {
@@ -292,7 +292,7 @@ export interface SeasonStats {
     kills: number;
     deaths: number;
     assists: number;
-    tier: string | null; // the player's skill tier, from the roster
+    tier: PlayerTier | null; // the player's skill tier, from the roster
     playerName: string | null; // in-game handle, when present on the roster
     playerId?: string; // stable id of the earner, when recaps recorded one
   }>;
@@ -825,7 +825,7 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
     { teamAId: string; teamBId: string; meetings: number; aWins: number; bWins: number }
   >();
   const LANE_ORDER: Lane[] = ["top", "jungle", "middle", "bottom", "support"];
-  const tierOf = (teamId: string, lane: Lane): string | null => {
+  const tierOf = (teamId: string, lane: Lane): PlayerTier | null => {
     const team = season.teams.find((t) => t.id === teamId);
     return playerForLane(team?.players, lane)?.tier ?? null;
   };

@@ -405,7 +405,7 @@ export interface DraftStore {
   // remaining season, or one specific tournament (a single league's
   // split, or one international). Auto-advances phases, applies patch
   // shifts, and crowns the Worlds champion.
-  simSeason: (scope: "phase" | "all" | { tournamentId: string }) => void;
+  simSeason: (scope: "regular" | "phase" | "all" | { tournamentId: string }) => void;
   // Advance every region (split phases) — or the current event (intl
   // phases) — by exactly ONE matchday/round, in lockstep, and record the
   // results into `seasonMatchday` for the dashboard's Latest Matchday

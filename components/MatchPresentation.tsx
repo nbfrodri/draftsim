@@ -3,7 +3,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { participantAliases, type MatchPresentation } from "@/lib/matchPresentation";
 import type { Lane, Side } from "@/lib/types";
-import TeamIcon from "./TeamIcon";
+import TeamNameLink from "./team/TeamNameLink";
 import LaneIcon from "./LaneIcon";
 import PlayerNameLink from "./player/PlayerNameLink";
 
@@ -13,8 +13,11 @@ export function MatchTeamMark({ side, name = false }: { side: Side; name?: boole
   const ctx = useContext(Context);
   const team = ctx?.teams[side];
   return <span className="inline-flex items-center gap-1 min-w-0 align-middle text-rift-mutedbright" title={team?.name ?? side}>
-    {team && (team.logoUrl || team.iconKey) ? <TeamIcon logoUrl={team.logoUrl} iconKey={team.iconKey} color={team.color} size={16} className="shrink-0" /> : <span className="text-[9px] uppercase">{team?.name ?? side}</span>}
-    {name && team && (team.logoUrl || team.iconKey) && <span className="truncate">{team.name}</span>}
+    {team ? <TeamNameLink teamId={team.id} name={team.name} leagueId={team.leagueId}
+      logoUrl={team.logoUrl} iconKey={team.iconKey} color={team.color} logoSize={16} renderAs="span"
+      hint={team.id ? { tournamentTeam: { ...team, id: team.id } } : { name: team.name, leagueId: team.leagueId }}>
+      {name || (!team.logoUrl && !team.iconKey) ? <span className="truncate">{team.name}</span> : <span className="sr-only">{team.name}</span>}
+    </TeamNameLink> : <span className="text-[9px] uppercase">{side}</span>}
   </span>;
 }
 export function MatchPlayerLabel({ side, lane, fallback, playerName, playerId }: { side: Side; lane: Lane; fallback?: string; playerName?: string; playerId?: string }) {

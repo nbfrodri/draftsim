@@ -457,3 +457,24 @@ export function HistoryTeamCardProvider({
 export function NoTeamCards({ children }: { children: ReactNode }) {
   return <TeamCardContext.Provider value={null}>{children}</TeamCardContext.Provider>;
 }
+
+/** Pin all team cards in a completed phase to the participants displayed there. */
+export function PhaseTeamCardProvider({ teams, label, children }: {
+  teams: SeasonTeam[]; label: string; children: ReactNode;
+}) {
+  const parent = useTeamCardContext();
+  const value = useMemo<TeamCardContextValue | null>(() => {
+    if (!parent) return null;
+    const byId = new Map(teams.map(team => [team.id, team]));
+    return {
+      ...parent,
+      resolve: (teamId, opts) => {
+        const team = byId.get(teamId ?? opts?.hint?.team?.id ?? "");
+        if (!team) return null;
+        const card = parent.resolve(team.id, { ...opts, hint: { tournamentTeam: team } });
+        return card ? { ...card, scope: `${label} · Event roster snapshot` } : null;
+      },
+    };
+  }, [parent, teams, label]);
+  return <TeamCardContext.Provider value={value}>{children}</TeamCardContext.Provider>;
+}

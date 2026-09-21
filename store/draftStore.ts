@@ -4,6 +4,7 @@ import { initializeOffseasonRosterNewsBoundary } from "@/lib/season/rosterNews";
 import { repairNameRegistry } from "@/lib/season/nameRegistry";
 import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 import { reportPersistenceError } from "@/lib/persistenceStatus";
+import { nextSplitRegularMatch } from "@/lib/season/regularSeason";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
 import { forcePersistReady, setPersistLoadStage } from "@/lib/desktopStorage";
 import { createFranchiseActions } from "./actions/franchise";
@@ -1458,6 +1459,7 @@ export const useDraftStore = create<DraftStore>()(
     const { season, simulating } = get();
     if (!season || simulating) return;
     if (season.status === "complete") return;
+    if (scope === "regular" && !nextSplitRegularMatch(season)) return;
     const trackResults = scope === "all";
     if (trackResults) resetSimResultsBatch();
     set({
@@ -1485,17 +1487,19 @@ export const useDraftStore = create<DraftStore>()(
           const cur = get().season;
           if (!cur || cur.id !== runId) return;
           if (cur.status === "complete") break;
-          if (scope === "phase" && cur.phaseIndex !== startPhaseIndex) break;
+          if ((scope === "phase" || scope === "regular") && cur.phaseIndex !== startPhaseIndex) break;
+          const regular = scope === "regular" ? nextSplitRegularMatch(cur) : null;
+          if (scope === "regular" && !regular) break;
           const champions = get().champions;
           // Tournament scope plays exactly one event to completion;
           // the other scopes follow the engine's play order.
           const t =
             typeof scope === "object"
               ? cur.tournaments[scope.tournamentId]
-              : nextPendingSeasonTournament(cur);
+              : regular?.tournament ?? nextPendingSeasonTournament(cur);
           if (!t) break; // defensive — engine advances phases itself
           if (typeof scope === "object" && t.status === "complete") break;
-          const startable = t.matches.find(
+          const startable = regular?.match ?? t.matches.find(
             (m) => !m.winner && m.blueTeamId != null && m.redTeamId != null,
           );
           if (!startable) {

@@ -356,8 +356,8 @@ export default function TransferWindowPanel() {
   );
   const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
   const [teamFilter, setTeamFilter] = useState<string | null>(null);
-  const [chosenSplitFilter, setSplitFilter] = useState<RosterTimeSplit | null | undefined>(undefined);
-  const splitFilter = chosenSplitFilter === undefined ? (season?.status === "complete" ? "offseason" : null) : chosenSplitFilter;
+  // Keep the completed year visible until the user advances to the next year.
+  const [splitFilter, setSplitFilter] = useState<RosterTimeSplit | null>(null);
   /** Whole panel disclosure — expanded by default (decisions + recap). */
   const [panelOpen, setPanelOpen] = useState(true);
   /** Demotions & roster entries disclosure — expanded by default. */

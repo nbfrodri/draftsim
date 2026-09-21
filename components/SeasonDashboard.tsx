@@ -1,5 +1,10 @@
 "use client";
 
+import TierChip from "./season/TierChip";
+import { seasonAtPhase } from "@/lib/season/phaseResults";
+import { PhaseTeamCardProvider } from "./team/TeamCardContext";
+import { nextSplitRegularMatch } from "@/lib/season/regularSeason";
+
 import TeamIcon from "@/components/TeamIcon";
 import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdentity";
 import MatchContextBadges from "@/components/tournament/MatchContextBadges";
@@ -562,6 +567,15 @@ export default function SeasonDashboard() {
               }
             >
               ▸ Sim Matchday
+            </button>
+            <button
+              type="button"
+              disabled={!!simulating || !nextSplitRegularMatch(season)}
+              onClick={() => simSeason("regular")}
+              className="px-4 py-2 border border-rift-gold/60 text-rift-goldbright text-[10px] uppercase tracking-[0.3em] hover:bg-rift-gold/10 hover:border-rift-gold disabled:opacity-40 transition-all"
+              title="Simulate the remaining regular season across all regions in this split, stopping before playoffs"
+            >
+              Sim Regular Season
             </button>
             <button
               type="button"
@@ -1842,10 +1856,9 @@ function PastResults({
   const [statsFor, setStatsFor] = useState<string | null>(null);
   const [resultsFor, setResultsFor] = useState<string | null>(null);
   const allProTeams = useMemo(() => computeAllProTeams(season), [season]);
-  const past = season.phases.filter(
-    (p, i) =>
-      p.kind !== "transfer" && (p.status === "complete" || i < season.phaseIndex),
-  );
+  const past = useMemo(() => season.phases
+    .filter((p, i) => p.kind !== "transfer" && (p.status === "complete" || i < season.phaseIndex))
+    .map(phase => ({ phase, snapshot: seasonAtPhase(season, phase) })), [season]);
   if (past.length === 0) return null;
   return (
     <div className="mb-8">
@@ -1853,13 +1866,13 @@ function PastResults({
         Season Results
       </div>
       <div className="space-y-1.5">
-        {past.map((p, i) => {
+        {past.map(({ phase: p, snapshot }, i) => {
           const phaseKey = `${p.label}-${i}`;
           const statsOpen = statsFor === phaseKey;
           const resultsOpen = resultsFor === phaseKey;
           return (
-            <div
-              key={phaseKey}
+            <PhaseTeamCardProvider key={phaseKey} teams={snapshot.teams} label={p.label}>
+            <div role="region" aria-label={`${p.label} results`}
               className="border border-rift-line/40 bg-rift-bg/30 px-3 py-2"
             >
               <div className="flex items-center justify-between gap-2 mb-1">
@@ -1913,7 +1926,7 @@ function PastResults({
                           <TeamNameLink
                             teamId={champ.id}
                             name={champ.name}
-                            leagueId={season.teams.find((x) => x.id === champ.id)?.leagueId}
+                            leagueId={snapshot.teams.find((x) => x.id === champ.id)?.leagueId}
                             iconKey={champ.iconKey}
                             logoUrl={champ.logoUrl}
                             color={champ.color}
@@ -1921,7 +1934,7 @@ function PastResults({
                             renderAs="span"
                             className="inline-flex items-center gap-1.5 text-rift-goldbright"
                             hint={{
-                              team: season.teams.find((x) => x.id === champ.id),
+                              tournamentTeam: champ,
                             }}
                           />
                         </>
@@ -1932,7 +1945,7 @@ function PastResults({
                   );
                 })}
               </div>
-              {resultsOpen && <PhasePlacements season={season} phase={p} />}
+              {resultsOpen && <PhasePlacements season={snapshot} phase={p} />}
               {statsOpen && (
                 <div className="mt-2 space-y-1.5 border-t border-rift-line/30 pt-2">
                   {/* Split's cross-region All-Pro team (the per-league picks
@@ -1944,7 +1957,7 @@ function PastResults({
                       );
                       return g ? (
                         <AllProTeamStrip
-                          season={season}
+                          season={snapshot}
                           team={g}
                           label={`${p.label} · Global Split All-Pro`}
                         />
@@ -1956,7 +1969,7 @@ function PastResults({
                     return (
                       <StageStatsRow
                         key={id}
-                        season={season}
+                        season={snapshot}
                         tournament={t}
                         championsById={championsById}
                       />
@@ -1965,6 +1978,7 @@ function PastResults({
                 </div>
               )}
             </div>
+            </PhaseTeamCardProvider>
           );
         })}
       </div>
@@ -2527,36 +2541,39 @@ function SeasonRecapPanel({
               return (
                 <div
                   key={r.lane}
-                  className="border border-rift-blue/30 bg-rift-blue/[0.04] px-2.5 py-2 text-[10px] flex flex-col items-start gap-1"
+                  className="border border-rift-blue/30 bg-rift-blue/[0.04] px-2.5 py-2"
                 >
-                  <div className="text-[8px] uppercase tracking-[0.25em] text-rift-blue/70 mb-1">
-                    <LaneIcon lane={r.lane} size="xs" />
-                  </div>
-                  <PlayerNameLink
-                    playerId={r.playerId}
-                    name={r.playerName}
-                    className="font-display text-rift-goldbright truncate"
-                  />
-                  {team && (
-                    <span className="inline-flex max-w-full items-center gap-1.5">
-                    <TeamNameLink
-                      teamId={team.id}
-                      name={team.name}
-                      leagueId={team.leagueId}
-                      iconKey={team.iconKey}
-                      logoUrl={team.logoUrl}
-                      color={team.color}
-                      showLogo
-                      renderAs="span"
-                      className="text-[9px] text-rift-mutedbright/70 truncate mt-0.5"
-                      hint={{ team }}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <LaneIcon lane={r.lane} size="xs" className="shrink-0" />
+                    <PlayerNameLink
+                      playerId={r.playerId}
+                      name={r.playerName}
+                      className="font-display text-xs tracking-wider text-rift-goldbright truncate min-w-0"
                     />
-                    <LeagueIcon league={team.leagueId} size={13} />
+                    <span className="ml-auto font-display text-[11px] text-rift-bluebright tabular-nums shrink-0">
+                      ★{r.avgRating.toFixed(1)}
                     </span>
+                  </div>
+                  {team && (
+                    <div className="mt-1 flex items-center gap-1.5 min-w-0">
+                      <TeamNameLink
+                        teamId={team.id}
+                        name={team.name}
+                        leagueId={team.leagueId}
+                        iconKey={team.iconKey}
+                        logoUrl={team.logoUrl}
+                        color={team.color}
+                        showLogo
+                        logoSize={13}
+                        renderAs="span"
+                        className="text-[9px] text-rift-mutedbright/70 truncate min-w-0"
+                        hint={{ team }}
+                      />
+                      <LeagueIcon league={team.leagueId} size={12} />
+                    </div>
                   )}
-
-                  <div className="text-[8px] text-rift-muted/70 tabular-nums mt-1">
-                    ★{r.avgRating.toFixed(1)} · {r.splitTitles} split · {r.intlTitles} intl
+                  <div className="mt-1 text-[9px] text-rift-mutedbright/70 tabular-nums">
+                    {r.splitTitles} split · {r.intlTitles} intl titles
                   </div>
                 </div>
               );
@@ -2721,66 +2738,47 @@ function SeasonRecapPanel({
           <div className="text-[9px] uppercase tracking-[0.3em] text-rift-gold/60 mb-1.5">
             Most MVPs
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
             {stats.mvpLeaderboard.slice(0, 6).map((p) => {
               const team = seasonTeam(season, p.teamId);
-              const champ = championsById.get(p.topChampionId);
               const avg = (n: number) => (n / Math.max(1, p.count)).toFixed(1);
               return (
                 <div
                   key={`${p.teamId}-${p.lane}`}
-                  className="flex items-center gap-2 border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2"
+                  className="border border-rift-line/40 bg-rift-bg/40 px-2.5 py-2"
                 >
-                  {champ && (
-                    <img
-                      src={champ.iconUrl}
-                      alt=""
-                      draggable={false}
-                      className="w-8 h-8 rounded-sm ring-1 ring-rift-gold/30 shrink-0"
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <LaneIcon lane={p.lane} size="xs" className="shrink-0" />
+                    <PlayerNameLink
+                      playerId={p.playerId}
+                      name={p.playerName ?? (team?.name ?? "—")}
+                      className="font-display text-xs tracking-wider text-rift-goldbright truncate min-w-0"
                     />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1">
-                      {team && (
-                        <TeamLogoLink
-                          teamId={team.id}
-                          name={team.name}
-                          leagueId={team.leagueId}
-                          iconKey={team.iconKey}
-                          logoUrl={team.logoUrl}
-                          color={team.color}
-                          size={12}
-                          renderAs="span"
-                          hint={{ team }}
-                        />
-                      )}
-                      <PlayerNameLink
-                        playerId={p.playerId}
-                        name={p.playerName ?? (team?.name ?? "—")}
-                        className="font-display text-xs tracking-wider text-rift-goldbright truncate"
+                    {p.tier && <TierChip tier={p.tier} size="xs" />}
+                    <span className="ml-auto font-display text-sm text-rift-goldbright tabular-nums shrink-0">
+                      ×{p.count}
+                    </span>
+                  </div>
+                  {team && (
+                    <div className="mt-1 flex items-center gap-1.5 min-w-0">
+                      <TeamNameLink
+                        teamId={team.id}
+                        name={team.name}
+                        leagueId={team.leagueId}
+                        iconKey={team.iconKey}
+                        logoUrl={team.logoUrl}
+                        color={team.color}
+                        showLogo
+                        logoSize={13}
+                        renderAs="span"
+                        className="text-[9px] text-rift-mutedbright/70 truncate min-w-0"
+                        hint={{ team }}
                       />
-                      <span className="ml-auto text-[8px] uppercase tracking-wider text-rift-gold/50 shrink-0">
-                        <LaneIcon lane={p.lane} size="xs" />
-                      </span>
+                      <LeagueIcon league={team.leagueId} size={12} />
                     </div>
-                    {p.playerName && (
-                      <div className="text-[8px] tracking-wide text-rift-mutedbright/50 truncate">
-                        <TournamentTeamIdentity team={team} seed={false} />
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-[9px] text-rift-mutedbright/70 tabular-nums">
-                        {avg(p.kills)}/{avg(p.deaths)}/{avg(p.assists)} avg
-                      </span>
-                      <span className="font-display text-[11px] text-rift-goldbright tabular-nums shrink-0">
-                        ×{p.count}
-                      </span>
-                    </div>
-                    {p.tier && (
-                      <div className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/70 truncate">
-                        {p.tier}
-                      </div>
-                    )}
+                  )}
+                  <div className="mt-1 text-[9px] text-rift-mutedbright/70 tabular-nums">
+                    {avg(p.kills)}/{avg(p.deaths)}/{avg(p.assists)} avg KDA
                   </div>
                 </div>
               );

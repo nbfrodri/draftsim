@@ -183,6 +183,15 @@ Six regional leagues (**LCK, LPL, LEC, LCS, CBLOL, LCP**), 10 teams each. Fixed 
 
 Each stage is a normal `TournamentState` — brackets, fearless series, drafts, replays, and meta snapshots reuse the tournament engine wholesale.
 
+**Simulation controls:** `Sim Regular Season`, beside `Sim Matchday`, finishes only the remaining regular stage of the current domestic split across all regions (round-robin, groups or Swiss). It is disabled outside splits or when no regular matches remain. It never plays a playoff match; `Sim Matchday` or the full-phase action can continue into playoffs. Cancellation, player form, meta updates and the final persistence flush use the existing season simulation path.
+
+**Completed Season Results:** champion links, placements and statistics pin team identity and hover-card rosters to that phase's tournament entrants, with `phaseRosters` as a legacy fallback. Tournament entrants are deep-cloned when created and survive SQLite/browser persistence and exports. Later transfers or renames do not change these cards. Missing historical rosters remain unavailable; the UI does not substitute current players. No database migration is needed.
+
+**Season recap and roster digest:** Most MVPs shows the player without a duplicate team logo beside the name and uses the shared skill-tier badge. The roster digest defaults to all splits even after season completion, so the closing year's post-split moves remain accessible until advancing to the next year. Explicit window filters and the exclusion of prior-year offseason carry remain available.
+
+**Match replay:** team marks in Key Events, Damage Dealt and Game MVP open the existing team cards. Recorded pentakills tint the relevant game tab gold and show a Pentakill badge, recorded player name, lane artwork and champion icon, with a matching banner in the selected game. Repeated pentakills by the same player/champion in one game share a single `Pentakill ×N` badge; different participants remain separate. Identity follows that game's sides and positional recap lanes. Older recaps without pentakill data are not inferred from kill totals; missing player names display `Unknown player`.
+
+
 **Configurable league formats:** round-robin (+ optional DE / triple-elim / stepladder playoffs), groups + playoffs, Swiss (+ playoffs). Per-league playoff team count, series lengths (regular / semis / finals), double round-robin legs, true grand final, Swiss threshold mode.
 
 **International formats** (`SeasonIntlConfig`): First Stand SE with #1 seed byes; MSI Swiss into 12-team DE with region #1 pre-qualified; Worlds play-in (6 teams) feeding groups (4×5) or Swiss main event; optional play-in toggles and series overrides.

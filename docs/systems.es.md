@@ -183,6 +183,15 @@ Seis ligas regionales (**LCK, LPL, LEC, LCS, CBLOL, LCP**), 10 equipos cada una.
 
 Cada stage es un `TournamentState` normal — brackets, series fearless, drafts, replays y snapshots meta reutilizan el motor de torneos al completo.
 
+**Controles de simulación:** `Sim Regular Season`, junto a `Sim Matchday`, termina únicamente la fase regular pendiente del split doméstico actual en todas las regiones (round-robin, grupos o Swiss). Se deshabilita fuera de los splits o cuando no quedan partidos de fase regular. No juega ningún partido de playoffs; `Sim Matchday` o la acción de fase completa permiten continuarlos. Reutiliza la cancelación, la forma de jugadores, la evolución del meta y el guardado final de la simulación existente.
+
+**Season Results completados:** los enlaces del campeón, las posiciones y las estadísticas fijan la identidad y los rosters de las tarjetas a los participantes guardados de esa fase, con `phaseRosters` como alternativa para datos antiguos. Los participantes se clonan al crear el torneo y se conservan en SQLite, navegador y exportaciones. Los fichajes o cambios de nombre posteriores no modifican estas tarjetas. Si falta el roster histórico, no se sustituye por los jugadores actuales. No requiere migración de base de datos.
+
+**Season recap y movimientos:** Most MVPs muestra al jugador sin duplicar el logo del equipo junto al nombre y utiliza el badge de tier compartido. Roster Moves muestra todos los splits por defecto también al terminar la temporada, de modo que los movimientos post-split siguen accesibles hasta avanzar al siguiente año. Se mantienen los filtros de ventana y la exclusión del offseason arrastrado del año anterior.
+
+**Match replay:** los equipos de Key Events, Damage Dealt y Game MVP abren las tarjetas existentes. Las pentakills registradas resaltan en dorado la pestaña del game y muestran el badge Pentakill, nombre registrado del jugador, posición y campeón, además de una banda en el game seleccionado. Las pentakills repetidas del mismo jugador/campeón en un game comparten un único badge `Pentakill ×N`; los participantes distintos conservan su identificación. La identidad sigue los lados de ese game y las posiciones del recap. No se deducen pentakills del total de kills en recaps antiguos; un nombre no registrado aparece como `Unknown player`.
+
+
 **Formatos de liga configurables:** round-robin (+ playoffs DE / triple-elim / stepladder opcionales), groups + playoffs, Swiss (+ playoffs). Conteo playoff por liga, longitudes de serie (regular / semis / finals), legs double round-robin, true grand final, modo threshold Swiss.
 
 **Formatos internacionales** (`SeasonIntlConfig`): First Stand SE con byes seeds #1; MSI Swiss a DE 12 equipos con region #1 pre-calificada; Worlds play-in (6 equipos) alimentando groups (4×5) o main event Swiss; toggles play-in y overrides de serie opcionales.

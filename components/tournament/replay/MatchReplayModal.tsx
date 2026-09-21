@@ -3,6 +3,7 @@
 import { MatchPresentationProvider, MatchTeamMark, MatchPlayerLabel, MatchEventDescription } from "@/components/MatchPresentation";
 import { buildMatchPresentation } from "@/lib/matchPresentation";
 
+import { groupedReplayPentakills } from "@/lib/matchReplay";
 import { formatKda } from "@/lib/formatKda";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
@@ -458,6 +459,7 @@ export function MatchReplayModal({
           <div className="px-4 md:px-5 py-2 border-b border-rift-line/40 flex flex-wrap gap-1.5">
             {games.map((g, i) => {
               const isActive = i === activeGameIdx;
+              const hasPentakill = !!g.recap?.pentakills?.length;
               const winnerSide = g.winner;
               const winnerName = winnerSide === "blue"
                 ? g.blueTeam || matchBlueName
@@ -471,14 +473,18 @@ export function MatchReplayModal({
                   key={g.id}
                   type="button"
                   onClick={() => setActiveGameIdx(i)}
-                  aria-label={`Game ${i + 1}${winnerName ? `, won by ${winnerName}` : ""}`}
+                  aria-label={`Game ${i + 1}${winnerName ? `, won by ${winnerName}` : ""}${hasPentakill ? ", Pentakill" : ""}`}
+                  aria-pressed={isActive}
                   className={`inline-flex items-center px-3 py-1 text-[10px] uppercase tracking-[0.3em] border transition-all ${
-                    isActive
+                    hasPentakill
+                      ? `border-rift-gold text-rift-goldbright ${isActive ? "bg-rift-gold/25 ring-1 ring-rift-gold/50" : "bg-rift-gold/10 hover:bg-rift-gold/20"}`
+                      : isActive
                       ? "border-rift-gold bg-rift-gold/10 text-rift-goldbright"
                       : "border-rift-line text-rift-mutedbright hover:border-rift-gold/50 hover:bg-rift-gold/5"
                   }`}
                 >
                   Game {i + 1}
+                  {hasPentakill && <span className="ml-2 inline-flex"><PentakillBadges game={g} byId={byId} /></span>}
                   {kills && (
                     <span className="ml-1.5 tabular-nums text-rift-mutedbright/80 normal-case tracking-normal">
                       {kills.blue}–{kills.red}
@@ -682,6 +688,12 @@ function ReplayGamePanel({
         )}
       </div>
 
+      {!!recap?.pentakills?.length && (
+        <div role="region" aria-label="Game pentakills" className="flex flex-wrap items-center gap-2 border border-rift-gold/60 bg-rift-gold/10 px-3 py-2">
+          <PentakillBadges game={game} byId={byId} linkPlayer />
+        </div>
+      )}
+
       {/* Bans row, both sides side-by-side */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
         <BanRow
@@ -808,6 +820,23 @@ function ReplayGamePanel({
       )}
     </div></MatchPresentationProvider>
   );
+}
+
+function PentakillBadges({ game, byId, linkPlayer = false }: {
+  game: GameDraft; byId: Map<number, Champion>; linkPlayer?: boolean;
+}) {
+  return groupedReplayPentakills(game).map((penta, i) => {
+    const champion = byId.get(penta.championId);
+    const name = penta.playerName ?? "Unknown player";
+    return (
+      <span key={i} className="inline-flex flex-wrap items-center gap-1.5 text-[10px] normal-case tracking-normal text-rift-goldbright">
+        <span className="border border-rift-gold/50 bg-rift-gold/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wider font-semibold">Pentakill{penta.count > 1 ? ` ×${penta.count}` : ""}</span>
+        {penta.lane && <LaneIcon lane={penta.lane} size="xs" />}
+        {linkPlayer ? <PlayerNameLink playerId={penta.playerId ?? undefined} name={name} /> : <span>{name}</span>}
+        {champion && <img src={champion.iconUrl} alt={penta.championName} width={20} height={20} className="shrink-0 border border-rift-gold/50" />}
+      </span>
+    );
+  });
 }
 
 const ReplayGamePanelMemo = memo(ReplayGamePanel);
