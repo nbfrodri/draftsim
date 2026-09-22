@@ -1051,6 +1051,7 @@ describe("playerProfile", () => {
     const p = playerProfile(entries(), "faker")!;
     expect(p.name).toBe("Faker");
     expect(p.career?.intlTitles).toBe(2); // aggregated from both seasons' careers
+    expect(p.career?.intlAppearances).toBe(2); // both rostered events follow the same player ID
     // Newest first: Year 2 on GEN (won Worlds + Winter), Year 1 on T1 (won both).
     // One stint per season here (no mid-year transfer in the fixture).
     expect(p.tenures.map((t) => t.stints[0].team.name)).toEqual(["GEN", "T1"]);

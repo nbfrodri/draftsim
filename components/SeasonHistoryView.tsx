@@ -3375,6 +3375,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
             <StatChip label="Kills" value={c.kills} />
             <StatChip label="Pentas" value={c.pentakills} />
             <StatChip label="MVPs" value={c.mvps} />
+            <StatChip label="Intl Appearances" value={c.intlAppearances} />
             <StatChip label={ALL_PRO_LABELS["split-global"]} value={c.allProIncomplete ? `${c.allProGlobalSplit ?? 0}+` : c.allProGlobalSplit ?? 0} />
             <StatChip label={ALL_PRO_LABELS["split-league"]} value={c.allProIncomplete ? `${c.allProSplit}+` : c.allProSplit} />
             <StatChip label={ALL_PRO_LABELS["season-global"]} value={c.allProIncomplete ? `${c.allProSeason}+` : c.allProSeason} />

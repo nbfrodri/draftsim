@@ -9,7 +9,7 @@ import {
   playoffBracketKindFor,
 } from "@/lib/tournament";
 import type { TournamentMatch, TournamentState } from "@/lib/tournament";
-import { MatchCard } from "./MatchCard";
+import { MatchCard, ReverseSweepTag } from "./MatchCard";
 import { RoundColumn, LosersRoundColumn, PlayoffBracketSection } from "./BracketViews";
 import { StandingsTable, GroupStandingsTable, SwissStandingsTable } from "./StandingsTables";
 import { buildLiveTeamStatsMap } from "@/components/team/TeamLiveStats";
@@ -17,6 +17,7 @@ import { DirectQualifierBadge } from "@/components/QualifierBadge";
 import TeamStars from "@/components/TeamStars";
 import TeamLogoLink from "@/components/team/TeamLogoLink";
 import TeamNameLink from "@/components/team/TeamNameLink";
+import { isReverseSweep } from "@/lib/matchTags";
 
 /** Season-wide series W-L + titles for teams in this tournament. */
 function useTournamentLiveStats(tournament: TournamentState) {
@@ -990,6 +991,9 @@ function SwissPairingRow({
           alignRight
         />
       </div>
+      {winner && isReverseSweep(match) && (
+        <div className="mt-1 flex justify-center"><ReverseSweepTag /></div>
+      )}
       {ready && (
         <div className="grid grid-cols-[1fr_auto] gap-1.5 mt-1.5">
           <button

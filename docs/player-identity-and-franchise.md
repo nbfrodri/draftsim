@@ -45,8 +45,10 @@ can be followed across teams and seasons — not just per roster slot.
 - Per-season archival: `computePlayerCareerRecords(season)`
   (`lib/season/stats.ts`) produces a `PlayerSeasonRecord[]` (kills, MVPs,
   all-pro, split titles, international appearances, international titles).
-  Team-level honours are credited to the player's **end-of-season roster** (a
-  clean approximation given transfers happen between splits).
+  Team titles and international appearances are credited to player IDs on the
+  relevant stage's main-roster snapshot (`phaseRosters`), so a later transfer
+  does not change who earned them. Only seasons with no stage snapshots at all
+  use the current roster as a legacy fallback.
 - Stored on each archived season: `SeasonHistoryEntry.playerCareers`
   (`lib/season/history.ts`), written in `buildSeasonHistoryEntry`.
 - Cross-season aggregation: `computePlayerCareers(entries)`
@@ -54,6 +56,7 @@ can be followed across teams and seasons — not just per roster slot.
   across every archived season → `PlayerCareerLine[]`.
 - Rendered as **all-time career boards** in the Hall: Most MVPs, Most Kills,
   Most All-Pro, Region Titles, International Appearances, International Titles.
+  Search player profiles also show the summed international appearances.
 
 ---
 

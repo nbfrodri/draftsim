@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
+import { mkdir } from "node:fs/promises";
 import { makeAuditSeason } from "../lib/auditFixtures";
 import { createTournament } from "../lib/tournament";
+import { createSeries } from "../lib/series";
 import { rosterFromStar } from "../lib/players";
 import type { SeasonState } from "../lib/season/types";
 
@@ -67,6 +69,51 @@ test("Swiss pairings show each team's half-star strength without opening cards",
   expect((await slots.first().boundingBox())!.height).toBe(slotHeight);
   expect((await slots.last().boundingBox())!.height).toBe(slotHeight);
   await pairing.screenshot({ path: "test-results/playwright/swiss-pairing-stars.png" });
+});
+
+test("MSI Swiss shows a reverse-sweep badge only on the completed comeback pairing", async ({ page }) => {
+  const tournament = createTournament({
+    name: "MSI Swiss", format: "swiss",
+    teams: Array.from({ length: 8 }, (_, i) => ({ id: `team-${i}`, name: `Swiss Team ${i + 1}`, seed: i + 1, players: rosterFromStar(3) })),
+    defaults: { format: "bo5", fearless: false, mode: "aivai", aiSide: null, aiDifficulty: "normal", timerEnabled: false },
+  });
+  const match = tournament.matches[0];
+  const blue = tournament.teams.find(t => t.id === match.blueTeamId)!;
+  const red = tournament.teams.find(t => t.id === match.redTeamId)!;
+  const series = createSeries({ ...tournament.defaults, blueTeam: blue.name, redTeam: red.name });
+  series.games = (["blue", "blue", "red", "red", "red"] as const).map((winner, i) => ({
+    ...series.games[0], id: `reverse-${i}`, gameNumber: i + 1, status: "complete" as const,
+    winner, blueTeam: blue.name, redTeam: red.name,
+  }));
+  series.status = "complete";
+  match.series = series;
+  match.winner = { teamId: red.id, blueWins: 2, redWins: 3 };
+  await page.addInitScript(tournament => localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state: { tournament, season: null } })), tournament);
+  await page.goto("/");
+  const pairing = page.getByRole("group", { name: `${blue.name} versus ${red.name}` });
+  const badge = pairing.getByText("Rev Sweep", { exact: true });
+  const pairings = page.getByRole("group", { name: /Swiss Team .* versus Swiss Team/ });
+  await expect(badge).toBeVisible();
+  await expect(pairings.getByText("Rev Sweep", { exact: true })).toHaveCount(1);
+  await expect(pairings).toHaveCount(4);
+  await mkdir("test-results/reverse-sweep-swiss", { recursive: true });
+  for (const width of [1440, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => document.fonts.ready);
+    await pairing.scrollIntoViewIfNeeded();
+    await expect(badge).toBeVisible();
+    expect(await pairing.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    const pairingBox = await pairing.boundingBox();
+    const badgeBox = await badge.boundingBox();
+    expect(pairingBox).not.toBeNull();
+    expect(badgeBox).not.toBeNull();
+    expect(badgeBox!.x).toBeGreaterThanOrEqual(pairingBox!.x);
+    expect(badgeBox!.x + badgeBox!.width).toBeLessThanOrEqual(pairingBox!.x + pairingBox!.width + 1);
+    expect(Math.abs((badgeBox!.x + badgeBox!.width / 2) - (pairingBox!.x + pairingBox!.width / 2))).toBeLessThan(2);
+    expect(pairingBox!.x + pairingBox!.width).toBeLessThanOrEqual(width + 1);
+    await page.screenshot({ path: `test-results/reverse-sweep-swiss/full-${width}.png`, fullPage: true });
+    await pairing.screenshot({ path: `test-results/reverse-sweep-swiss/pairing-${width}.png` });
+  }
 });
 
 test("UI headings, controls and ordinary text share Inter while the wordmark uses Cinzel", async ({ page }) => {

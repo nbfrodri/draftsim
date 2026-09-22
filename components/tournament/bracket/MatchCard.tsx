@@ -96,7 +96,7 @@ function StreakChip({
   );
 }
 
-function ReverseSweepTag() {
+export function ReverseSweepTag() {
   return (
     <span
       className="inline-flex items-center text-[8px] uppercase tracking-[0.12em] px-1 py-px border border-rift-red/50 bg-rift-red/10 text-rift-redbright shrink-0"

@@ -196,6 +196,8 @@ Each stage is a normal `TournamentState` — brackets, fearless series, drafts, 
 
 **International formats** (`SeasonIntlConfig`): First Stand SE with #1 seed byes; MSI Swiss into 12-team DE with region #1 pre-qualified; Worlds play-in (6 teams) feeding groups (4×5) or Swiss main event; optional play-in toggles and series overrides.
 
+**Match cards:** MSI Swiss pairings and bracket cards show `Rev Sweep` after a recorded Bo5 comeback from 0–2 to 3–2. `isReverseSweep` uses each game's team identities across side swaps and requires all five recorded game winners; legacy results without game data do not receive the badge. Team hover H2H uses the opponent shown in that match and resolves again from current results when opened, so another pairing or later simulated match cannot supply an unrelated or stale record.
+
 See [`season-realism.md`](season-realism.md) for seed-bye details and UI badges (Direct to Playoffs / Pre-Qualified).
 
 ### Transfer windows
@@ -308,7 +310,7 @@ All map through `tagSeason` → `TournamentTeam.form` / `.clutch` → `tournamen
 - **Live standings** — `computeStandings`, triple-elim lives, Swiss records in tournament engine.
 - **Season placements** — `splitResults`, `intlResults` on `SeasonState`; derived labels in `lib/season/placements.ts` (play-ins-exit vs playoffs-exit vs finalist).
 - **Hall of Seasons** — `SeasonHistoryEntry` résumés: champions, full placement arrays, All-Pro, `playerCareers`, transfer logs, phase rosters, meta start vs end, H2H matrices, dynasty tiers, rivalries. Timeline → By Season shows each archived year's Split Placements: Winter, Spring and Summer tables for every region (`LEAGUE_IDS`), with region logos and team logos resolved from the archive / bundled catalogue. Legacy archives without `splitPlacements` fall back to champion and runner-up only.
-- **Career boards** — cross-season kills, MVPs, regional titles, international appearances/titles keyed by `playerId`.
+- **Career boards and Search profiles** — cross-season kills, MVPs, regional titles, international appearances/titles keyed by `playerId`. The Search player profile shows total archived `Intl Appearances`, counting each international event's stage roster once per season. The legacy fallback used when a season has no stage snapshots is described in [Player identity and franchise](player-identity-and-franchise.md); the profile does not invent additional history.
 - **Exports** — XLSX (`historyExport.ts`), `.draftsim-reality.json`, `REAL1:` codes ([`reality-sharing.md`](reality-sharing.md)).
 
 ### Awards & narrative
