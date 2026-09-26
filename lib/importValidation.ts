@@ -193,6 +193,9 @@ export function validSeason(v: unknown): v is SeasonState {
     (p.status === "pending" || p.tournamentIds.every(id => Object.hasOwn(v.tournaments as Obj, id))))) return false;
   const originRows = (rows: unknown) => Array.isArray(rows) && rows.every(row => record(row) && optional(row.origin, validMarketOrigin) && optional(row.retirement, retirement) && optional(row.departedDestination, x => x === "academy") && optional(row.teamSnapshots, marketSnapshots));
   if (!optional(v.rosterNews, originRows) || !optional(v.transfersByEvent, value => record(value) && Object.values(value).every(originRows))) return false;
+  const coachMove = (m: unknown) => record(m) && text(m.coachName) && finite(m.rating) &&
+    text(m.fromTeamId) && text(m.toTeamId) && optional(m.coachId, text);
+  if (!optional(v.offseasonCoachMoves, x => arrayOf(x, coachMove))) return false;
   return optional(v.offseasonRosterNewsBaseline, integer) &&
     nullableText(v.champion) && (v.champion === null || teamIds.has(v.champion)) &&
     optional(v.phaseRosters, x => arrayOf(x, phaseRoster)) &&
@@ -209,7 +212,7 @@ const snapshotPlayer = (p: unknown): boolean => record(p) && enumeration(p.lane,
 const phaseRoster = (row: unknown): boolean => record(row) && integer(row.phaseIndex) &&
   typeof row.label === "string" && enumeration(row.kind, ["split", "international"]) &&
   arrayOf(row.teams, t => record(t) && text(t.teamId) && text(t.teamName) && enumeration(t.leagueId, LEAGUE_IDS) &&
-    optional(t.coach, c => record(c) && text(c.name) && finite(c.rating)) &&
+    optional(t.coach, c => record(c) && text(c.name) && finite(c.rating) && optional(c.id, text)) &&
     arrayOf(t.players, snapshotPlayer)) &&
   optional(row.inactive, v => arrayOf(v, p => record(p) && text(p.playerId) && enumeration(p.status, ["academy", "free-agent"])));
 const playerCareer = (p: unknown): boolean => record(p) && text(p.playerId) && typeof p.playerName === "string" &&
@@ -227,6 +230,8 @@ export function validHistoryEntry(v: unknown): boolean {
   const objectRows = ["awardTally", "allProTeams", "intlMvps", "splitMvps", "rookieOfYear", "playerCareers", "phaseRosters", "transfers", "rivalries", "headToHead", "inactivePlayers"];
   if (!objectRows.every(key => optional(v[key], rows => arrayOf(rows, record)))) return false;
   if (!optional(v.phaseRosters, rows => arrayOf(rows, phaseRoster))) return false;
+  if (!optional(v.coachMoves, rows => arrayOf(rows, m => record(m) && text(m.coachName) &&
+    finite(m.rating) && team(m.from) && team(m.to) && optional(m.coachId, text)))) return false;
   if (!optional(v.allProTeams, rows => arrayOf(rows, row => record(row) &&
     arrayOf(row.members, member => record(member) && enumeration(member.lane, lanes) && team(member.team))))) return false;
   const requiredTeam = (t: unknown) => t !== null && team(t);

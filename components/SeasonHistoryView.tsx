@@ -37,6 +37,7 @@ import {
 diffMetaOverrides,
 goldenRoadRequiresGlobalCup,
 goldenRoadTeam,
+type HistoryCoachMove,
 type HistoryTransfer,
 type SeasonHistoryAllProMember,
 type SeasonHistoryEntry,
@@ -63,6 +64,7 @@ computePlayerDistinctTeams,
 computePlayerTitlesByEvent,
 computeRegionStrength,
 computeRegionTitleLeaders,
+computeIntlAppearances,
 computeTeamRecords,
 computeTitleStreaks,
 DYNASTY_WINDOW,
@@ -794,9 +796,9 @@ function SeasonDetail({
       )}
 
       {/* Transfer log — every roster move of the year, recap-able forever */}
-      {entry.transfers && entry.transfers.length > 0 && (
+      {((entry.transfers?.length ?? 0) > 0 || (entry.coachMoves?.length ?? 0) > 0) && (
         <div className="cv-section">
-          <TransferLog transfers={entry.transfers} seasonId={entry.id} />
+          <TransferLog transfers={entry.transfers ?? []} coachMoves={entry.coachMoves} seasonId={entry.id} />
         </div>
       )}
 
@@ -1458,9 +1460,11 @@ function StageRosters({
 const XFER_TIER_CLS = STAGE_TIER_CLS;
 function TransferLog({
   transfers,
+  coachMoves,
   seasonId,
 }: {
   transfers: HistoryTransfer[];
+  coachMoves?: HistoryCoachMove[];
   seasonId?: string;
 }) {
   const byEvent = new Map<InternationalId, HistoryTransfer[]>();
@@ -1528,6 +1532,28 @@ function TransferLog({
             </div>
           </div>
         ))}
+        {coachMoves && coachMoves.length > 0 && (
+          <div>
+            <div className="text-[8px] uppercase tracking-[0.25em] text-rift-muted/55 mb-1">
+              Post Worlds — {coachMoves.length} coach move{coachMoves.length === 1 ? "" : "s"}
+            </div>
+            <div className="space-y-1">
+              {coachMoves.map((m) => (
+                <div
+                  key={m.coachId ?? m.coachName}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] border border-rift-line/40 bg-rift-bg/30 px-2 py-1"
+                >
+                  <span className="px-1 border border-rift-gold/40 text-rift-gold/80 text-[7px] uppercase tracking-[0.2em]">Coach</span>
+                  <CoachNameLink name={m.coachName} seasonId={seasonId} className="truncate max-w-[110px] text-rift-mutedbright" />
+                  <span className="text-rift-muted/70 tabular-nums">{m.rating.toFixed(1)}★</span>
+                  {teamChip(m.from)}
+                  <span className="text-rift-gold/60">▸</span>
+                  {teamChip(m.to)}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1620,6 +1646,7 @@ function RecordsPanel({
     [records],
   );
   const bestByRegion = useMemo(() => bestTeamPerRegion(records), [records]);
+  const intlAppearances = useMemo(() => computeIntlAppearances(entries), [entries]);
   const regionStrength = useMemo(
     () => computeRegionStrength(records, entries),
     [records, entries],
@@ -2115,6 +2142,40 @@ function RecordsPanel({
                   </span>
                 </span>
                 <DynastyBadge tier={r.dynasty.tier} />
+              </div>
+            )}</RecordRows>
+          </div>
+        )}
+      </div>
+
+      {/* International appearances — every event played, play-ins included */}
+      <div className="cv-section">
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+          International Appearances
+        </div>
+        {intlAppearances.length === 0 ? (
+          <p className="text-[10px] italic text-rift-muted">
+            No international appearances archived yet.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            <RecordRows items={intlAppearances}>{(a) => (
+              <div
+                key={a.key}
+                className="flex items-center gap-2 px-3 py-2 border border-rift-line/40 bg-rift-bg/30 text-[11px]"
+              >
+                <span className="min-w-0 flex-1 overflow-hidden">
+                  <TeamRef team={a.team} size={14} onNavigate={onNavigate} />
+                  <span className="mt-0.5 flex flex-wrap gap-x-2 text-[8px] uppercase tracking-[0.15em] text-rift-mutedbright/60">
+                    {INTERNATIONAL_DISPLAY_ORDER.filter((ev) => (a.byEvent[ev] ?? 0) > 0).map((ev) => (
+                      <span key={ev} className="inline-flex items-center gap-1">
+                        <LeagueIcon league={ev} size={9} />
+                        {INTERNATIONAL_LABELS[ev]} ×{a.byEvent[ev]}
+                      </span>
+                    ))}
+                  </span>
+                </span>
+                <span className="font-display text-sm text-rift-goldbright tabular-nums flex-shrink-0">{a.total}</span>
               </div>
             )}</RecordRows>
           </div>
@@ -3018,15 +3079,17 @@ function SplitFinalsReachedChips({
 
 function IntlFinalsReachedChips({
   intlFinalsReached,
+  label = "International Finals Reached",
 }: {
   intlFinalsReached: Partial<Record<InternationalId, number>>;
+  label?: string;
 }) {
   const total = totalIntlFinalsReached(intlFinalsReached);
   if (!INTERNATIONAL_DISPLAY_ORDER.some((ev) => (intlFinalsReached[ev] ?? 0) > 0)) return null;
   return (
     <div>
       <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
-        International Finals Reached
+        {label}
         <span className="ml-2 text-rift-goldbright tabular-nums normal-case tracking-normal">
           Total: {total}
         </span>
@@ -3659,6 +3722,7 @@ const TeamProfileView = memo(function TeamProfileView({
           )}
         </>
       )}
+      <IntlFinalsReachedChips intlFinalsReached={t.intlAppearances} label="International Appearances" />
       {/* Hall of Fame — players who spent the most of their careers here. */}
       {t.hallOfFame.length > 0 && (
         <div>

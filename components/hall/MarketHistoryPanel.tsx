@@ -14,6 +14,7 @@ import PlaygroundSelect from "./PlaygroundSelect";
 import { HallPager } from "./RecordRows";
 import TeamIcon from "../TeamIcon";
 import PlayerNameLink from "../player/PlayerNameLink";
+import CoachNameLink from "../coach/CoachNameLink";
 import LaneIcon from "../LaneIcon";
 import LeagueIcon from "../LeagueIcon";
 import { TeamRef } from "./shared";
@@ -147,7 +148,7 @@ function MarketHistoryTable({ entries, season, onOpenSeason }: Omit<Props, "real
     </div>
     {incomplete && <p className="text-xs leading-relaxed text-rift-mutedbright">Older archives may contain transfers only. Missing news, years and windows cannot be reconstructed; unknown dates appear last.</p>}
     <div className="flex items-center justify-between gap-3 text-xs text-rift-mutedbright">
-      <p role="status">{filtered.length} of {rows.length} player movements</p>
+      <p role="status">{filtered.length} of {rows.length} movements</p>
       <button type="button" className="text-rift-goldbright hover:underline" onClick={() => { setFilters(DEFAULT_MARKET_FILTERS); setPage(0); }}>Reset filters</button>
     </div>
     {visible.length === 0 ? <div className="border border-rift-line/50 p-8 text-center text-sm text-rift-mutedbright">
@@ -160,10 +161,10 @@ function MarketHistoryTable({ entries, season, onOpenSeason }: Omit<Props, "real
         <div className="text-xs"><div className="font-display text-sm text-rift-goldbright">{row.year != null && onOpenSeason && archivedIds.has(row.seasonId) ? <button type="button" className="underline decoration-rift-gold/40 underline-offset-2 hover:text-rift-gold focus-visible:outline focus-visible:outline-rift-gold" aria-label={`Open Year ${row.year} in Timeline`} onClick={() => onOpenSeason(row.seasonId)}>Year {row.year} &rarr;</button> : row.year == null ? "Unknown year" : `Year ${row.year}`}</div>
           <div className="mt-0.5 text-[11px] text-rift-mutedbright">{row.window ? marketWindowLabel(row.window) : "Unknown window"}</div>
           </div>
-        <div className="min-w-0"><div className="flex items-center gap-2 text-sm text-rift-goldbright"><LaneIcon lane={row.lane} /><PlayerNameLink playerId={row.playerId} name={row.playerName} seasonId={row.seasonId} hint={{ lane: row.lane, player: row.teamSnapshots?.flatMap(s => [...s.after, ...s.before, ...(s.academyAfter ?? []), ...(s.academyBefore ?? [])]).find(p => p.id === row.playerId) }} className="min-w-0" />{row.tier && <TierChip tier={row.tier} />}</div>
+        <div className="min-w-0"><div className="flex items-center gap-2 text-sm text-rift-goldbright">{row.lane == null ? <CoachNameLink name={row.playerName} seasonId={row.seasonId} className="min-w-0" /> : <><LaneIcon lane={row.lane} /><PlayerNameLink playerId={row.playerId} name={row.playerName} seasonId={row.seasonId} hint={{ lane: row.lane, player: row.teamSnapshots?.flatMap(s => [...s.after, ...s.before, ...(s.academyAfter ?? []), ...(s.academyBefore ?? [])]).find(p => p.id === row.playerId) }} className="min-w-0" /></>}{row.tier && <TierChip tier={row.tier} />}</div>
           <div className="mt-0.5 text-[10px] text-rift-mutedbright">{MARKET_KIND_LABELS[row.kind] ?? row.kind}</div>
           {row.retirement && <div className="mt-0.5 text-[11px] text-rift-mutedbright">{row.retirement.age != null ? `Age ${row.retirement.age} | ` : ""}Academy: {row.retirement.academyYears == null ? "unknown" : `${row.retirement.academyYears}y`} | Free Agent: {row.retirement.freeAgentYears == null ? "unknown" : `${row.retirement.freeAgentYears}y`}</div>}
-          {row.replacedName && <div className="mt-0.5 text-[11px] text-rift-mutedbright">Replaced <PlayerNameLink playerId={row.replacedId} name={row.replacedName} seasonId={row.seasonId} hint={{ lane: row.lane, player: row.teamSnapshots?.flatMap(s => [...s.before, ...s.after]).find(p => p.id === row.replacedId) }} /></div>}</div>
+          {row.replacedName && <div className="mt-0.5 text-[11px] text-rift-mutedbright">Replaced <PlayerNameLink playerId={row.replacedId} name={row.replacedName} seasonId={row.seasonId} hint={{ lane: row.lane ?? undefined, player: row.teamSnapshots?.flatMap(s => [...s.before, ...s.after]).find(p => p.id === row.replacedId) }} /></div>}</div>
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5"><span className="text-[9px] uppercase tracking-widest text-rift-mutedbright">From</span><Endpoint snapshots={row.teamSnapshots} value={row.from} seasonId={row.seasonId} /></div>
           <span aria-hidden="true" className="text-rift-gold/70">&rarr;</span>

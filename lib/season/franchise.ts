@@ -63,7 +63,7 @@ import {
   transfersForHistoryArchive,
   rebucketTransfersByStamp,
 } from "./transfers";
-import { reassignCoaches } from "./coach";
+import { diffCoachMoves, reassignCoaches } from "./coach";
 import { assignRoleElites } from "./teamGen";
 import { applyPoolDrift } from "./poolDrift";
 import {
@@ -713,6 +713,10 @@ export function startNextSeasonWithArchive(
   }
 
   evolvedTeams = reassignCoaches(evolvedTeams, rng, 5, prev.config.controlledTeamId ?? undefined);
+  // Coaches as of the year's last stage (before the user's hire + the market
+  // shuffle) vs now = this offseason's coach moves. No snapshot → unknown.
+  const lastStage = [...(prev.phaseRosters ?? [])].sort((a, b) => b.phaseIndex - a.phaseIndex)[0];
+  const coachMoves = lastStage ? diffCoachMoves(lastStage.teams, evolvedTeams) : [];
 
   evolvedTeams = evolvedTeams.map((t) => ({
     ...t,
@@ -729,7 +733,8 @@ export function startNextSeasonWithArchive(
   // These rows already exclude old carry. Do not apply the old boundary again.
   const prevForHistory = { ...prev,
     rosterNews: [...new Set([...(working.rosterNews ?? []), ...rosterNews])],
-    transfersByEvent: historyEvents, worldsOffseasonBaseline: 0 };
+    transfersByEvent: historyEvents, worldsOffseasonBaseline: 0,
+    ...(coachMoves.length > 0 ? { postWorldsCoachMoves: coachMoves } : {}) };
   const prior =
     prev.status === "complete" ? buildSeasonHistoryEntry(prevForHistory, Date.now()) : undefined;
   const year = nextYear;
@@ -788,6 +793,7 @@ export function startNextSeasonWithArchive(
       ? { transfersByEvent: { worlds: offseasonMoves } }
       : {}),
     ...(rosterNews.length > 0 ? { rosterNews } : {}),
+    ...(coachMoves.length > 0 ? { offseasonCoachMoves: coachMoves } : {}),
   } };
 }
 

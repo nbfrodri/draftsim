@@ -63,6 +63,15 @@ export interface HistoryTransfer {
   outTier: PlayerTier;
 }
 
+/** A head coach changing teams, frozen for the Hall. */
+export interface HistoryCoachMove {
+  coachName: string;
+  coachId?: string;
+  rating: number;
+  from: SeasonHistoryTeamRef | null;
+  to: SeasonHistoryTeamRef | null;
+}
+
 /** Frozen team identity at archive time (teams are regenerated every
  *  season, so ids alone would dangle). */
 export interface SeasonHistoryTeamRef {
@@ -229,6 +238,9 @@ export interface SeasonHistoryEntry {
    *  with team names so they recap forever. Optional — only on seasons that
    *  ran with player transfers and had at least one move. */
   transfers?: HistoryTransfer[];
+  /** Head-coach moves of this year's post-Worlds offseason, frozen with team
+   *  names. Absent on legacy archives (unknown, not "no moves"). */
+  coachMoves?: HistoryCoachMove[];
   /** Known simulation year; absent in legacy/one-off archives. */
   franchiseYear?: number;
   /** Explicitly captured news, including an empty array when no events occurred. */
@@ -498,8 +510,13 @@ export function buildSeasonHistoryEntry(
     // Aggregate stage MVPs; scoped All-Pro tallies are added below.
     const tallyKey = (ref: SeasonHistoryTeamRef, lane: Lane) =>
       `${ref.leagueId}:${ref.name}:${lane}`;
+    const stageKindOf = new Map<string, "split" | "international">();
+    for (const phase of season.phases ?? []) {
+      if (phase.kind !== "split" && phase.kind !== "international") continue;
+      for (const id of phase.tournamentIds) stageKindOf.set(id, phase.kind);
+    }
     for (const t of tournaments) {
-      const stage = computeStageStats(t);
+      const stage = computeStageStats(t, stageKindOf.get(t.id));
       if (stage.mvp) {
         const ref = teamRef(season, stage.mvp.teamId);
         if (ref) {
@@ -705,6 +722,17 @@ export function buildSeasonHistoryEntry(
         }
       : {}),
     ...(transfers.length > 0 ? { transfers } : {}),
+    ...(season.postWorldsCoachMoves?.length
+      ? {
+          coachMoves: season.postWorldsCoachMoves.map((m) => ({
+            coachName: m.coachName,
+            ...(m.coachId ? { coachId: m.coachId } : {}),
+            rating: m.rating,
+            from: teamRef(season, m.fromTeamId),
+            to: teamRef(season, m.toTeamId),
+          })),
+        }
+      : {}),
     ...(season.franchise ? { franchiseYear: season.franchise.year } : {}),
     marketNews: (season.rosterNews ?? []).filter((n, index) => n.origin
       ? n.origin.seasonId === season.id && n.origin.year === (season.franchise?.year ?? 1)

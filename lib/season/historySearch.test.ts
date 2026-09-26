@@ -1330,3 +1330,33 @@ it("historical team stars use the frozen roster's half-step rating", () => {
   team.players.forEach((player, index) => { player.tier = index < 3 ? "S" : "A"; });
   expect(teamStars(entries).get(`${team.leagueId}:${team.teamName}`)).toBe(4.5);
 });
+
+describe("career history: academy year that ends in an offseason FA signing", () => {
+  it("keeps the year even though the player left the pool in that offseason", () => {
+    const [s0, s1] = retiredFixture([["a", "b", "c", "d", "e"], ["a", "b", "c", "d", "e"]]);
+    const t1 = { name: "T1", leagueId: "LCK", color: "#fff", iconKey: "shield" } as const;
+    const t2 = { name: "T2", leagueId: "LCK", color: "#000", iconKey: "shield" } as const;
+    // S0: all year in T1's academy, stamped at the split.
+    s0!.phaseRosters![0]!.inactive = [{ playerId: "kid", status: "academy", teamId: "T1", teamName: "T1" }] as never;
+    // Same offseason: released ACY → FA, then signed by T2's main roster. The
+    // archived pool is post-offseason, so the player is no longer in it.
+    s0!.inactivePlayers = [];
+    s0!.marketNews = [
+      { team: t1, lane: "mid" as never, departedName: "Kid", departedId: "kid", departedTier: "B", entrantName: "Kid", entrantId: "kid",
+        entrantTier: "B", entrantPotential: "B", entrantSource: "free-agent", marketNote: "academy-release", timeMark: "Offseason" },
+      { team: t2, lane: "mid" as never, entrantName: "Kid", entrantId: "kid", entrantTier: "B", entrantPotential: "B",
+        entrantSource: "free-agent", timeMark: "Offseason" },
+    ] as never;
+    // S1: on T2's main roster.
+    s1!.phaseRosters![0]!.teams.push({ teamId: "T2", teamName: "T2", leagueId: "LCK", players: [{ id: "kid", name: "Kid", tier: "B", lane: "middle" }] } as never);
+    s1!.inactivePlayers = [];
+    const profile = playerProfile([s0!, s1!], "kid")!;
+    expect(profile.tenures.map((t) => t.seasonId)).toEqual(["S1", "S0"]);
+    const year = profile.tenures[1]!;
+    expect(year.windows?.map((w) => [w.key, w.status])).toEqual([["winter", "academy"], ["offseason", "active"]]);
+    expect(year.windows?.at(-1)?.team?.name).toBe("T2");
+    // The row itself reads as the academy year it was.
+    expect(year.careerStatus).toBe("academy");
+    expect(year.affiliateTeam?.name).toBe("T1");
+  });
+});

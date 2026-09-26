@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeChampionTeamTournamentMvp,
   computeFinalsMvp,
+  computeStageMvp,
   computeTournamentAwards,
 } from "./awards";
 import type { TournamentState } from "./tournament";
@@ -169,5 +170,53 @@ describe("season tournament MVP agreement", () => {
   it("does not award a season tournament MVP before a champion exists", () => {
     const t = { ...finalOnly(), status: "in-progress" as const, seasonStageKind: "international" as const };
     expect(computeTournamentAwards(t).mvp).toBeNull();
+  });
+});
+
+describe("stage MVP consistency (Worlds play-in and substitutes)", () => {
+  it("never awards a play-in MVP, tagged or legacy-named", () => {
+    const tagged = { ...tournamentWithGroupAndFinal(), name: "Worlds Play-In", seasonStageKind: "international" as const, seasonSubStage: "play-in" as const };
+    const legacy = { ...tournamentWithGroupAndFinal(), name: "Worlds Play-In" };
+    expect(computeTournamentAwards(tagged).mvp).toBeNull();
+    expect(computeStageMvp(tagged)).toBeNull();
+    expect(computeStageMvp(legacy, "international")).toBeNull();
+  });
+
+  it("keeps a substitute's games separate from the starter in the same lane", () => {
+    const t = tournamentWithGroupAndFinal();
+    const subRecap = {
+      ...recap,
+      ratings: { blue: [9.5, 6, 6, 6, 6], red: [6, 6, 6, 6, 6] },
+      perPickIds: { ...recap.perPickIds, blue: ["w-sub", ...recap.perPickIds.blue.slice(1)] },
+      perPickNames: { ...recap.perPickNames, blue: ["WSub", ...recap.perPickNames.blue.slice(1)] },
+    };
+    for (const g of t.matches[0].series!.games) g.recap = subRecap as never;
+    const mvp = computeStageMvp({ ...t, seasonStageKind: "international" });
+    expect(mvp).toMatchObject({ playerId: "w-sub", playerName: "WSub", avgRating: 9.5, gamesPlayed: 3 });
+  });
+
+  it("credits a side-swapped game to the team that actually played that side", () => {
+    const t = finalOnly();
+    // Game 2: Losers on blue. Their players' 10s must not be credited to Winners.
+    const swappedRecap = {
+      ...recap,
+      ratings: { blue: [10, 10, 10, 10, 10], red: [9, 6, 6, 6, 6] },
+      perPickIds: { blue: recap.perPickIds.red, red: recap.perPickIds.blue },
+      perPickNames: { blue: recap.perPickNames.red, red: recap.perPickNames.blue },
+    };
+    t.matches[0].series!.games[0].gameNumber = 1;
+    t.matches[0].series!.games.push({ gameNumber: 2, blueTeam: "Losers", redTeam: "Winners", status: "complete", winner: "red", recap: swappedRecap } as never);
+    const mvp = computeFinalsMvp(t);
+    expect(mvp).toMatchObject({ teamId: "W", playerId: "w-top", avgRating: 9, gamesPlayed: 2 });
+  });
+});
+
+describe("legacy season tournaments without a stage tag", () => {
+  it("use the same event MVP rule as stats and the Hall", () => {
+    const worlds = { ...tournamentWithGroupAndFinal(), name: "World Championship", seasonId: "s1" };
+    const split = { ...tournamentWithGroupAndFinal(), name: "LCK Summer Split", seasonId: "s1" };
+    expect(computeTournamentAwards(worlds).mvp).toEqual(computeChampionTeamTournamentMvp(worlds));
+    expect(computeTournamentAwards(worlds).allPro).toEqual([]);
+    expect(computeTournamentAwards(split).mvp).toEqual(computeFinalsMvp(split));
   });
 });

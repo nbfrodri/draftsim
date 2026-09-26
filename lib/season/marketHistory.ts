@@ -13,7 +13,9 @@ export interface MarketHistoryRow {
   seasonId: string;
   year: number | null;
   window: string | null;
-  lane: Lane;
+  /** Null for coach moves (coaches have no lane). */
+  lane: Lane | null;
+  /** Player name, or the coach's name when `kind === "coach"`. */
   playerName: string;
   tier?: PlayerTier;
   playerId?: string;
@@ -29,7 +31,7 @@ export interface MarketHistoryRow {
 }
 export const MARKET_KIND_LABELS: Record<string, string> = {
   transfer: "Transfer", signing: "Signing", promotion: "Promotion", demotion: "Demotion",
-  release: "Release", retirement: "Retirement", rookie: "Rookie arrival", academy: "Academy move",
+  release: "Release", retirement: "Retirement", rookie: "Rookie arrival", academy: "Academy move", coach: "Coach move",
 };
 export const MARKET_WINDOWS = [ "Winter", "First Stand window", "Spring", "MSI window", "Summer", "Offseason"];
 /** Display labels only: keep persisted origin IDs and legacy timing intact. */
@@ -50,7 +52,7 @@ function frozenTeam(season: SeasonState, id: string): SeasonHistoryTeamRef | nul
   const team = season.teams.find(t => t.id === id);
   return team ? { name: team.name, leagueId: team.leagueId, color: team.color, iconKey: team.iconKey, ...(team.logoUrl ? { logoUrl: team.logoUrl } : {}) } : null;
 }
-function rowsForSource(entry: Pick<SeasonHistoryEntry, "id" | "franchiseYear" | "marketNews" | "transfers">): MarketHistoryRow[] {
+function rowsForSource(entry: Pick<SeasonHistoryEntry, "id" | "franchiseYear" | "marketNews" | "transfers" | "coachMoves">): MarketHistoryRow[] {
   const rows: MarketHistoryRow[] = [];
   const occurrences = new Map<string, number>();
   const demotions: Omit<MarketHistoryRow, "id" | "sequence">[] = [];
@@ -70,6 +72,11 @@ function rowsForSource(entry: Pick<SeasonHistoryEntry, "id" | "franchiseYear" | 
       from: { status: "main", team: transfer.from }, to: { status: "main", team: transfer.to }, contextTeam: null });
     add({ ...timing, teamSnapshots: transfer.teamSnapshots, lane: transfer.lane, kind: "transfer", playerName: transfer.outName || "Unknown player", playerId: transfer.outId, tier: transfer.outTier,
       from: { status: "main", team: transfer.to }, to: { status: "main", team: transfer.from }, contextTeam: null });
+  }
+  // Coaches only change teams in the post-Worlds offseason.
+  for (const move of entry.coachMoves ?? []) {
+    add({ seasonId: entry.id, year: entry.franchiseYear ?? null, window: "Offseason", lane: null, kind: "coach",
+      playerName: move.coachName, from: { status: "main", team: move.from }, to: { status: "main", team: move.to }, contextTeam: null });
   }
   for (const news of entry.marketNews ?? []) {
     const origin = news.origin;
@@ -172,7 +179,7 @@ export function filterMarketHistory(rows: readonly MarketHistoryRow[], filters: 
       && (!filters.window || (row.window ?? "unknown") === filters.window)
       && (!filters.team || teams.some(t => marketTeamKey(t) === filters.team))
       && (!filters.region.length || teams.some(t => filters.region.includes(t.leagueId)))
-      && (!filters.lane.length || filters.lane.includes(row.lane)) && (!filters.kind || row.kind === filters.kind)
+      && (!filters.lane.length || (row.lane != null && filters.lane.includes(row.lane))) && (!filters.kind || row.kind === filters.kind)
       && (!filters.tier || (row.tier ?? "unknown") === filters.tier)
       && (!filters.status || [row.from.status, row.to.status].includes(filters.status as MarketStatus))
       && (!search || `${row.playerName} ${row.replacedName ?? ""}`.toLocaleLowerCase().includes(search));

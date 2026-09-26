@@ -21,7 +21,7 @@ useState,
 type ReactNode,
 } from "react";
 
-import { computeChampionTeamTournamentMvp,computeFinalsMvp } from "@/lib/awards";
+import { computeStageMvp } from "@/lib/awards";
 import { flushPendingPersistWrites,isDesktop,saveFileNative } from "@/lib/desktopStorage";
 import {
 computeAllProTeams,
@@ -2238,14 +2238,11 @@ function StageStatsRow({
       ),
     [season.phases, tournament.id],
   );
-  const stageMvp = useMemo(
-    () =>
-      isIntl
-        ? computeChampionTeamTournamentMvp(tournament)
-        : computeFinalsMvp(tournament),
+  // Same rule as every other surface; play-ins have no MVP.
+  const mvp = useMemo(
+    () => computeStageMvp(tournament, isIntl ? "international" : "split"),
     [isIntl, tournament],
   );
-  const mvp = stageMvp ?? stats.mvp;
   const champion = seasonTeam(season, stats.championTeamId);
   const runnerUp = seasonTeam(season, stats.runnerUpTeamId);
   const s = stats.summary;
@@ -2312,11 +2309,9 @@ function StageStatsRow({
               />
             }
             sub={
-              stageMvp
-                ? isIntl
-                  ? `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} avg across event`
-                  : `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} in the final`
-                : `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} rating`
+              isIntl
+                ? `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} avg across event`
+                : `${mvp.teamName} · ${mvp.avgRating.toFixed(1)} in the final`
             }
             icon={<><LaneIcon lane={mvp.lane} size="xs" /><AwardTeamIcon season={season} teamId={mvp.teamId} /></>}
           />

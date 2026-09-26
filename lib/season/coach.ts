@@ -9,6 +9,7 @@ import type { AIDifficulty } from "../types";
 import { deriveStar, type RNG } from "../players";
 import { PERSONALITY_LIST, getPersonality } from "../draftAI";
 import { generateHandle } from "./playerNames";
+import type { SeasonCoachMove } from "./types";
 
 export interface Coach {
   id: string;
@@ -134,4 +135,30 @@ export function reassignCoaches<
     }
   }
   return arr;
+}
+
+/**
+ * Coach moves between two points in time: `before` = each team's coach as
+ * snapshotted (id when recorded, else the unique handle), `after` = the live
+ * teams. A team whose coach changed yields one move (arriving coach, from the
+ * team that had them). Coaches that weren't on any team before are skipped —
+ * unknown origin is not a move we can attribute.
+ */
+export function diffCoachMoves(
+  before: ReadonlyArray<{ teamId: string; coach?: { id?: string; name: string } }>,
+  after: ReadonlyArray<{ id: string; coach?: Coach }>,
+): SeasonCoachMove[] {
+  const same = (a: { id?: string; name: string }, b: Coach) =>
+    a.id ? a.id === b.id : a.name === b.name;
+  const moves: SeasonCoachMove[] = [];
+  for (const team of after) {
+    const now = team.coach;
+    if (!now) continue;
+    const was = before.find((b) => b.teamId === team.id)?.coach;
+    if (!was || same(was, now)) continue;
+    const from = before.find((b) => b.coach && same(b.coach, now));
+    if (!from) continue;
+    moves.push({ coachId: now.id, coachName: now.name, rating: now.rating, fromTeamId: from.teamId, toTeamId: team.id });
+  }
+  return moves;
 }

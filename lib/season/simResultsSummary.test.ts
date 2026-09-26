@@ -1685,3 +1685,19 @@ it("does not re-emit current offseason news as previous-year carry when the tran
   });
   expect(buildPostWorldsMovesEntry(season)).toBeNull();
 });
+
+describe("releases in live roster moves", () => {
+  it("lists an academy release before the FA signing that followed it", () => {
+    const season = fabricate({
+      id: "rel",
+      rosterNews: [
+        { teamId: "t2", lane: "middle", entrantName: "Kid", entrantId: "kid", entrantTier: "B", entrantPotential: "B",
+          entrantSource: "free-agent", timeMark: "MSI window" },
+        { teamId: "t1", lane: "middle", departedName: "Kid", departedId: "kid", departedTier: "B", entrantName: "Kid", entrantId: "kid",
+          entrantTier: "B", entrantPotential: "B", entrantSource: "free-agent", marketNote: "academy-release", timeMark: "MSI window" },
+      ].reverse() as never,
+    });
+    const entry = buildRosterMovesEntry(season, "msi");
+    expect(entry?.moves.map((m) => [m.kind, m.fromTeam.name])).toEqual([["release", "Alpha"], ["fa-sign", "Beta"]]);
+  });
+});

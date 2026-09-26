@@ -2099,6 +2099,7 @@ export function applyTournamentUpdate(
             ...(t.coach
               ? {
                   coach: {
+                    id: t.coach.id,
                     name: t.coach.name,
                     rating: t.coach.rating,
                     ...(coachPlaystyle(t.coach) ? { playstyle: coachPlaystyle(t.coach) } : {}),

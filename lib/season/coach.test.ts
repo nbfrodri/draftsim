@@ -8,6 +8,7 @@ import {
   nextCoachRating,
   coachAdaptabilityTrait,
   coachDevTilt,
+  diffCoachMoves,
 } from "./coach";
 import type { Coach } from "./coach";
 
@@ -143,5 +144,23 @@ describe("reassignCoaches skip guard", () => {
     const out = reassignCoaches(seed() as never, rng(1), 20, "A");
     expect(out.find((t) => t.id === "A")!.coach!.id).toBe("weak");
     expect(out.find((t) => t.id === "B")!.coach!.id).toBe("strong");
+  });
+});
+
+describe("diffCoachMoves", () => {
+  it("reports each arriving coach once, matching legacy snapshots by name", () => {
+    const x = mkCoach({ id: "cx", name: "Xan", rating: 4 });
+    const y = mkCoach({ id: "cy", name: "Yul", rating: 2 });
+    const z = mkCoach({ id: "cz", name: "Zed" });
+    const before = [
+      { teamId: "A", coach: { id: "cx", name: "Xan" } },
+      { teamId: "B", coach: { name: "Yul" } }, // legacy snapshot: no id
+      { teamId: "C", coach: { id: "cz", name: "Zed" } },
+    ];
+    const after = [{ id: "A", coach: y }, { id: "B", coach: x }, { id: "C", coach: z }];
+    expect(diffCoachMoves(before, after)).toEqual([
+      { coachId: "cy", coachName: "Yul", rating: 2, fromTeamId: "B", toTeamId: "A" },
+      { coachId: "cx", coachName: "Xan", rating: 4, fromTeamId: "A", toTeamId: "B" },
+    ]);
   });
 });

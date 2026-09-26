@@ -398,6 +398,12 @@ export interface SeasonState {
   // the Hall can show who played each stage (rosters shift between stages via
   // transfer windows). Captured at phase completion; archived into history.
   phaseRosters?: PhaseRosterSnapshot[];
+  // Coach moves of the post-Worlds offseason that led INTO this year (coaches
+  // only change teams then). Live feed / season digest read these.
+  offseasonCoachMoves?: SeasonCoachMove[];
+  // Transient, rollover only: the moves made AFTER this year's Worlds, handed
+  // to the history archive of this (closing) year.
+  postWorldsCoachMoves?: SeasonCoachMove[];
   // Completed roster moves per transfer window, keyed by the international the
   // window followed ("first-stand" / "msi"). Powers the league-wide transfer
   // recap on each transfer-phase node. Absent until a window runs.
@@ -473,7 +479,7 @@ export interface TeamRosterSnapshot {
   logoUrl?: string;
   // The team's coach at this stage (name + rating + playstyle label), when it
   // had one. `playstyle` is optional — only on snapshots saved after it existed.
-  coach?: { name: string; rating: number; playstyle?: string };
+  coach?: { id?: string; name: string; rating: number; playstyle?: string };
   players: Array<{
     id?: string;
     name?: string;
@@ -501,6 +507,15 @@ export interface PhaseInactiveSnapshot {
 }
 
 // Every team's roster as a given split / international completed.
+/** A head coach changing teams (post-Worlds offseason). */
+export interface SeasonCoachMove {
+  coachId?: string;
+  coachName: string;
+  rating: number;
+  fromTeamId: string;
+  toTeamId: string;
+}
+
 export interface PhaseRosterSnapshot {
   phaseIndex: number;
   label: string;

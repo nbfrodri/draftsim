@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  computeIntlAppearances,
   computeTeamRecords,
   splitWinnersByRegion,
   teamRecordKey,
@@ -993,5 +994,28 @@ describe("computePlayerDistinctTeams", () => {
     expect(p1.distinctTeams).toBe(2);
     expect(p2.distinctTeams).toBe(2);
     expect(board[0].distinctTeams).toBe(2);
+  });
+});
+
+describe("computeIntlAppearances", () => {
+  const roster = (teamName: string, leagueId: SeasonHistoryTeamRef["leagueId"]) => ({
+    teamId: teamName, teamName, leagueId, players: [],
+  });
+  it("counts each event once per season, keeps regions apart, and includes play-in exits", () => {
+    const s1 = entry("s1", "Season 1", 1000, {
+      intlPlacements: { worlds: [team("T1"), team("G2", "LEC")] },
+      phaseRosters: [
+        { phaseIndex: 5, label: "Worlds Play-In", kind: "international", event: "worlds", teams: [roster("T1", "LCK"), roster("Fnatic", "LEC")] },
+        { phaseIndex: 3, label: "MSI", kind: "international", event: "msi", teams: [roster("T1", "LCK"), roster("T1", "LEC")] },
+      ],
+    });
+    const s2 = entry("s2", "Season 2", 2000, { intlChampions: { worlds: team("T1") }, champion: team("T1") });
+    const s3 = entry("s3", "Season 3", 3000); // no intl data → unknown, adds nothing
+    const byKey = new Map(computeIntlAppearances([s1, s2, s3]).map((a) => [a.key, a]));
+    expect(byKey.get("LCK:T1")).toMatchObject({ byEvent: { worlds: 2, msi: 1 }, total: 3 });
+    expect(byKey.get("LEC:T1")).toMatchObject({ byEvent: { msi: 1 }, total: 1 });
+    expect(byKey.get("LEC:Fnatic")).toMatchObject({ byEvent: { worlds: 1 }, total: 1 });
+    expect(byKey.get("LEC:G2")?.total).toBe(1);
+    expect(computeIntlAppearances([s1, s2, s3])[0].key).toBe("LCK:T1");
   });
 });

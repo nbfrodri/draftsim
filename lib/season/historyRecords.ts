@@ -838,6 +838,54 @@ function buildFranchiseIdentity(
   return byKey;
 }
 
+export interface TeamIntlAppearances {
+  key: string;
+  team: SeasonHistoryTeamRef;
+  /** Seasons the franchise played each international event (play-in included). */
+  byEvent: Partial<Record<InternationalId, number>>;
+  total: number;
+}
+
+/** International appearances per franchise, most first. Sources, per season ×
+ *  event: placements ∪ the event's stage rosters, else (legacy) the finalists.
+ *  Seasons with none of these are unknown and add nothing. */
+export function computeIntlAppearances(
+  entries: SeasonHistoryEntry[],
+): TeamIntlAppearances[] {
+  const byKey = new Map<string, TeamIntlAppearances>();
+  const identity = buildFranchiseIdentity(entries);
+  const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
+  for (const e of ordered) {
+    for (const event of INTERNATIONAL_DISPLAY_ORDER) {
+      // Union: older placements can miss play-in exits the stage rosters kept.
+      let teams: SeasonHistoryTeamRef[] = [
+        ...(e.intlPlacements?.[event] ?? []).filter(Boolean),
+        ...(e.phaseRosters ?? [])
+          .filter((p) => p.kind === "international" && p.event === event)
+          .flatMap((p) => p.teams.map((t): SeasonHistoryTeamRef => ({ name: t.teamName, leagueId: t.leagueId, color: "", iconKey: "shield", ...(t.logoUrl ? { logoUrl: t.logoUrl } : {}) }))),
+      ];
+      if (teams.length === 0) {
+        const champ = event === "worlds" ? (e.intlChampions.worlds ?? e.champion) : e.intlChampions[event];
+        const runner = event === "worlds" ? (e.intlRunnersUp?.worlds ?? e.runnerUp) : e.intlRunnersUp?.[event];
+        teams = [champ, runner].filter((t): t is SeasonHistoryTeamRef => !!t);
+      }
+      const seen = new Set<string>();
+      for (const team of teams) {
+        const key = teamRecordKey(team);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        let row = byKey.get(key);
+        if (!row) byKey.set(key, (row = { key, team: identity.get(key) ?? team, byEvent: {}, total: 0 }));
+        row.byEvent[event] = (row.byEvent[event] ?? 0) + 1;
+        row.total += 1;
+      }
+    }
+  }
+  return [...byKey.values()].sort(
+    (a, b) => b.total - a.total || (b.byEvent.worlds ?? 0) - (a.byEvent.worlds ?? 0) || a.team.name.localeCompare(b.team.name),
+  );
+}
+
 function countIntlAppearances(
   entries: SeasonHistoryEntry[],
   key: string,

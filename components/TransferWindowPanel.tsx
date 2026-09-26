@@ -34,12 +34,14 @@ seasonTeam,
 type InternationalId,
 type LeagueId,
 type PlayerTransfer,
+type SeasonCoachMove,
 type SeasonState,
 type TransferPlayer,
 } from "@/lib/season/types";
 import type { Champion,Lane } from "@/lib/types";
 import { useDraftStore } from "@/store/draftStore";
 import { ChemScore,ProjectedChemScore } from "./ChemistryRow";
+import CoachNameLink from "./coach/CoachNameLink";
 import LaneIcon from "./LaneIcon";
 import type { PlayerCardHint } from "./player/PlayerCardContext";
 import PlayerNameLink from "./player/PlayerNameLink";
@@ -280,6 +282,28 @@ function PlayerChip({
 
 // One completed (auto-applied or accepted) move: the star goes from→to, the
 // swap comes back the other way.
+/** A head coach changing teams in the post-Worlds offseason (carry view). */
+function CoachMoveRow({ move, season }: { move: SeasonCoachMove; season: SeasonState }) {
+  const controlledId = season.config.controlledTeamId;
+  const mine = !!controlledId && (move.fromTeamId === controlledId || move.toTeamId === controlledId);
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] px-2 py-2 border-t border-rift-line/15 first:border-t-0 ${
+        mine ? "bg-rift-blue/[0.06] border-l-2 border-l-rift-blue/50" : "border-l-2 border-l-transparent"
+      }`}
+    >
+      <span className="px-1 border border-rift-gold/40 text-rift-gold/80 text-[7px] uppercase tracking-[0.2em]">Coach</span>
+      <span className="inline-flex items-center gap-1.5 text-rift-mutedbright">
+        <TransferTeamLogo team={seasonTeam(season, move.fromTeamId)} />
+        <span className="text-rift-gold/60" aria-hidden>→</span>
+        <TransferTeamLogo team={seasonTeam(season, move.toTeamId)} />
+      </span>
+      <CoachNameLink name={move.coachName} className="truncate text-rift-goldbright/90" />
+      <span className="text-[9px] tabular-nums text-rift-muted/70">{move.rating.toFixed(1)}★</span>
+    </div>
+  );
+}
+
 function TransferRow({
   tr,
   season,
@@ -553,7 +577,7 @@ export default function TransferWindowPanel() {
   const rosterNewsGroups = groupRosterNewsByTime(filteredRosterNews);
   const newsCounts = rosterNewsKindCounts(baseFilteredRosterNews);
 
-  const transferMatchesFilter = (tr: PlayerTransfer) => {
+  const transferMatchesFilter = (tr: Pick<PlayerTransfer, "fromTeamId" | "toTeamId">) => {
     if (teamFilter) {
       return tr.fromTeamId === teamFilter || tr.toTeamId === teamFilter;
     }
@@ -1058,6 +1082,11 @@ export default function TransferWindowPanel() {
                 windows.map((e) => {
                   const allForEvent = digestMovesByEvent[e] ?? [];
                   const moves = allForEvent.filter(transferMatchesFilter);
+                  // Last offseason's coach moves ride along in the carried Post Worlds section.
+                  const coachMoves =
+                    e === "worlds" && season.status !== "complete"
+                      ? (season.offseasonCoachMoves ?? []).filter(transferMatchesFilter)
+                      : [];
                   const isOpen =
                     openEvent === e ||
                     (openEvent == null && e === preferredWindow) ||
@@ -1072,6 +1101,8 @@ export default function TransferWindowPanel() {
                         <span>
                           {transferDigestSectionTitle(e, season)} — {moves.length} move
                           {moves.length === 1 ? "" : "s"}
+                          {coachMoves.length > 0 &&
+                            ` · ${coachMoves.length} coach move${coachMoves.length === 1 ? "" : "s"}`}
                           {(leagueFilter || teamFilter) &&
                           allForEvent.length !== moves.length
                             ? ` of ${allForEvent.length}`
@@ -1081,7 +1112,8 @@ export default function TransferWindowPanel() {
                       </button>
                       {isOpen && (
                         <div className="border border-t-0 border-rift-line/30 overflow-visible">
-                          {moves.length === 0 ? (
+                          {coachMoves.map((m) => <CoachMoveRow key={m.coachId ?? m.coachName} move={m} season={season} />)}
+                          {moves.length === 0 && coachMoves.length === 0 ? (
                             <div className="px-2 py-2 text-[10px] italic text-rift-muted/55">
                               No transfers match these filters.
                             </div>

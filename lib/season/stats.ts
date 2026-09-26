@@ -13,8 +13,7 @@ import {
 import { computeGameRatings } from "../matchSimulator";
 import {
   computeTournamentAwards,
-  computeChampionTeamTournamentMvp,
-  computeFinalsMvp,
+  computeStageMvp,
   type AllProPlayer,
   type PlayerAward,
   type SpecialAward,
@@ -46,9 +45,14 @@ export interface StageStats {
   specials: SpecialAward[];
 }
 
-export function computeStageStats(t: TournamentState): StageStats {
+/** `kind` = the season phase the tournament belongs to (legacy saves may not
+ *  tag the tournament itself), so the MVP matches every other surface. */
+export function computeStageStats(
+  t: TournamentState,
+  kind?: "split" | "international",
+): StageStats {
   const placements = tournamentPlacements(t);
-  const awards = computeTournamentAwards(t);
+  const awards = computeTournamentAwards(kind ? { ...t, seasonStageKind: kind } : t);
   return {
     tournamentId: t.id,
     name: t.name,
@@ -88,7 +92,7 @@ export function computeSeasonIntlMvps(
       const t = season.tournaments[tid];
       if (!t) continue;
       if (champId && tournamentChampion(t)?.id === champId) {
-        chosen = computeChampionTeamTournamentMvp(t);
+        chosen = computeStageMvp(t, "international");
         if (chosen) break;
       }
     }
@@ -97,7 +101,7 @@ export function computeSeasonIntlMvps(
       for (const tid of [...phase.tournamentIds].reverse()) {
         const t = season.tournaments[tid];
         if (!t) continue;
-        const mvp = computeChampionTeamTournamentMvp(t);
+        const mvp = computeStageMvp(t, "international");
         if (mvp) {
           chosen = mvp;
           break;
@@ -128,7 +132,7 @@ export function computeSeasonSplitMvps(season: SeasonState): SeasonSplitMvp[] {
     for (const tid of phase.tournamentIds) {
       const t = season.tournaments[tid];
       if (!t) continue;
-      const mvp = computeFinalsMvp(t);
+      const mvp = computeStageMvp(t, "split");
       if (!mvp) continue;
       const leagueId = leagueOfTeam.get(mvp.teamId);
       if (!leagueId) continue;

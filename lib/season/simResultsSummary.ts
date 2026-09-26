@@ -48,12 +48,13 @@ export type SimRosterSnapshots = Record<string, SimRosterPlayer[]>;
  * - `"fa-sign"`: free-agent signed onto main roster (`toTeam` = receiving team).
  * - `"retire"`: player retired from the game (`fromTeam` = last team; one-sided exit).
  * - `"demotion"`: player sent to academy by the followed team (`fromTeam` = team; one-sided exit).
+ * - `"release"`: player released to free agency (academy or main roster; `fromTeam` = org; one-sided exit).
  * For callup/fa-sign, `fromTeam === toTeam` (internal org or FA pool); display
  * uses the source badge ("ACY" / "FA") instead of a second team logo.
- * For retire/demotion, `fromTeam === toTeam`; `swapName`/`swapTier` is the departing player.
+ * For retire/demotion/release, `fromTeam === toTeam`; `swapName`/`swapTier` is the departing player.
  */
 export interface SimRosterMoveSummary {
-  kind?: "callup" | "fa-sign" | "retire" | "demotion";
+  kind?: "callup" | "fa-sign" | "retire" | "demotion" | "release";
   fromTeam: SimResultTeamRef;
   toTeam: SimResultTeamRef;
   lane: Lane;
@@ -69,6 +70,15 @@ export interface SimRosterMoveSummary {
   starTier: PlayerTier;
 }
 
+/** A head coach changing teams, summarised for the feed. */
+export interface SimCoachMoveSummary {
+  coachName: string;
+  coachId?: string;
+  rating: number;
+  fromTeam: SimResultTeamRef;
+  toTeam: SimResultTeamRef;
+}
+
 /** Feed entry for a transfer window (post-First Stand / post-MSI / post-Worlds offseason). */
 export interface SimRosterMovesEntry {
   kind: "roster-moves";
@@ -78,6 +88,8 @@ export interface SimRosterMovesEntry {
   /** "Post First Stand", "Post MSI", etc. */
   label: string;
   moves: SimRosterMoveSummary[];
+  /** Head-coach moves (post-Worlds offseason only). */
+  coaches?: SimCoachMoveSummary[];
   /**
    * When true, this entry covers the **pre-international** window: roster
    * moves that happened after the qualifying split ended but BEFORE the
@@ -426,10 +438,20 @@ function isMainRosterFill(n: RosterNewsEvent): boolean {
  * True when a roster-news event represents a notable player exit:
  * - `"retired"`: inactive-path clock expired, player left the game entirely.
  * - `"manual-demote"` / `"ai-demote"`: followed-team player sent to academy.
+ * - releases to free agency (academy or main roster) — the Hall lists them,
+ *   so the live feed must too.
  */
+const RELEASE_NOTES = new Set(["academy-release", "became-fa", "academy-bump", "agency-leave"]);
+
 function isExitEvent(n: RosterNewsEvent): boolean {
   const note = n.marketNote;
-  return note === "retired" || note === "manual-demote" || note === "ai-demote";
+  return note === "retired" || note === "manual-demote" || note === "ai-demote" ||
+    (note != null && RELEASE_NOTES.has(note));
+}
+
+function exitKind(n: RosterNewsEvent): "retire" | "demotion" | "release" {
+  if (n.marketNote === "retired") return "retire";
+  return n.marketNote && RELEASE_NOTES.has(n.marketNote) ? "release" : "demotion";
 }
 
 type SeasonRosterNews = RosterNewsEvent & { teamId: string };
@@ -454,6 +476,49 @@ function indexRosterNewsByWindow(rosterNews: SeasonRosterNews[] | undefined): {
     }
   }
   return { fills, exits };
+}
+
+/** Fills and exits of one window as feed rows, in the order they happened
+ *  (a release followed by a signing must read release → signing). */
+function pushNewsMoves(
+  out: SimRosterMoveSummary[],
+  season: SeasonState,
+  fills: readonly SeasonRosterNews[],
+  exits: readonly SeasonRosterNews[],
+): void {
+  const order = new Map((season.rosterNews ?? []).map((n, i) => [n, i]));
+  const isFill = new Set<SeasonRosterNews>(fills);
+  const news = [...fills, ...exits].sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+  for (const n of news) {
+    const team = teamRef(season, n.teamId);
+    if (!team) continue;
+    if (isFill.has(n)) {
+      out.push({
+        kind: n.entrantSource === "academy" ? "callup" : "fa-sign",
+        fromTeam: team,
+        toTeam: team,
+        lane: n.lane,
+        ...(n.departedName ? { swapName: n.departedName } : {}),
+        ...(n.departedId ? { swapId: n.departedId } : {}),
+        swapTier: n.departedTier ?? n.entrantTier,
+        starName: n.entrantName,
+        ...(n.entrantId ? { starId: n.entrantId } : {}),
+        starTier: n.entrantTier,
+      });
+    } else {
+      out.push({
+        kind: exitKind(n),
+        fromTeam: team,
+        toTeam: team,
+        lane: n.lane,
+        ...(n.departedName ? { swapName: n.departedName } : {}),
+        ...(n.departedId ? { swapId: n.departedId } : {}),
+        swapTier: n.departedTier ?? n.entrantTier,
+        ...(n.entrantId ? { starId: n.entrantId } : {}),
+        starTier: n.entrantTier,
+      });
+    }
+  }
 }
 
 export function buildRosterMovesEntry(
@@ -490,48 +555,14 @@ export function buildRosterMovesEntry(
     : (season.rosterNews ?? []).filter(
         (n) => n.timeMark === windowMark && isMainRosterFill(n),
       );
-  for (const n of windowNews) {
-    const team = teamRef(season, n.teamId);
-    if (!team) continue;
-    const kind: "callup" | "fa-sign" =
-      n.entrantSource === "academy" ? "callup" : "fa-sign";
-    out.push({
-      kind,
-      fromTeam: team,
-      toTeam: team,
-      lane: n.lane,
-      ...(n.departedName ? { swapName: n.departedName } : {}),
-      ...(n.departedId ? { swapId: n.departedId } : {}),
-      swapTier: n.departedTier ?? n.entrantTier,
-      starName: n.entrantName,
-      ...(n.entrantId ? { starId: n.entrantId } : {}),
-      starTier: n.entrantTier,
-    });
-  }
 
-  // ── Retirements and demotions in this window ──────────────────────────────
+  // ── Retirements, demotions and releases in this window ────────────────────
   const windowExits = exitsByWindow
     ? (exitsByWindow.get(windowMark) ?? [])
     : (season.rosterNews ?? []).filter(
         (n) => n.timeMark === windowMark && isExitEvent(n),
       );
-  for (const n of windowExits) {
-    const team = teamRef(season, n.teamId);
-    if (!team) continue;
-    const kind: "retire" | "demotion" =
-      n.marketNote === "retired" ? "retire" : "demotion";
-    out.push({
-      kind,
-      fromTeam: team,
-      toTeam: team,
-      lane: n.lane,
-      ...(n.departedName ? { swapName: n.departedName } : {}),
-      ...(n.departedId ? { swapId: n.departedId } : {}),
-      swapTier: n.departedTier ?? n.entrantTier,
-      ...(n.entrantId ? { starId: n.entrantId } : {}),
-      starTier: n.entrantTier,
-    });
-  }
+  pushNewsMoves(out, season, windowNews, windowExits);
 
   if (out.length === 0) return null;
   return {
@@ -581,48 +612,14 @@ export function buildPreIntlMovesEntry(
     : (season.rosterNews ?? []).filter(
         (n) => n.timeMark === preIntlMark && isMainRosterFill(n),
       );
-  for (const n of preIntlFills) {
-    const team = teamRef(season, n.teamId);
-    if (!team) continue;
-    const kind: "callup" | "fa-sign" =
-      n.entrantSource === "academy" ? "callup" : "fa-sign";
-    out.push({
-      kind,
-      fromTeam: team,
-      toTeam: team,
-      lane: n.lane,
-      ...(n.departedName ? { swapName: n.departedName } : {}),
-      ...(n.departedId ? { swapId: n.departedId } : {}),
-      swapTier: n.departedTier ?? n.entrantTier,
-      starName: n.entrantName,
-      ...(n.entrantId ? { starId: n.entrantId } : {}),
-      starTier: n.entrantTier,
-    });
-  }
 
-  // Retirements and demotions from the mid-split checkpoint.
+  // Retirements, demotions and releases from the mid-split checkpoint.
   const preIntlExits = exitsByWindow
     ? (exitsByWindow.get(preIntlMark) ?? [])
     : (season.rosterNews ?? []).filter(
         (n) => n.timeMark === preIntlMark && isExitEvent(n),
       );
-  for (const n of preIntlExits) {
-    const team = teamRef(season, n.teamId);
-    if (!team) continue;
-    const kind: "retire" | "demotion" =
-      n.marketNote === "retired" ? "retire" : "demotion";
-    out.push({
-      kind,
-      fromTeam: team,
-      toTeam: team,
-      lane: n.lane,
-      ...(n.departedName ? { swapName: n.departedName } : {}),
-      ...(n.departedId ? { swapId: n.departedId } : {}),
-      swapTier: n.departedTier ?? n.entrantTier,
-      ...(n.entrantId ? { starId: n.entrantId } : {}),
-      starTier: n.entrantTier,
-    });
-  }
+  pushNewsMoves(out, season, preIntlFills, preIntlExits);
 
   if (out.length === 0) return null;
 
@@ -895,50 +892,24 @@ export function buildPostWorldsMovesEntry(
     : (season.rosterNews ?? []).filter(
         (n) => n.timeMark === "Offseason" && isMainRosterFill(n),
       );
-  for (const n of offseasonFills) {
-    const team = teamRef(season, n.teamId);
-    if (!team) continue;
-    const kind: "callup" | "fa-sign" =
-      n.entrantSource === "academy" ? "callup" : "fa-sign";
-    out.push({
-      kind,
-      fromTeam: team,
-      toTeam: team,
-      lane: n.lane,
-      ...(n.departedName ? { swapName: n.departedName } : {}),
-      ...(n.departedId ? { swapId: n.departedId } : {}),
-      swapTier: n.departedTier ?? n.entrantTier,
-      starName: n.entrantName,
-      ...(n.entrantId ? { starId: n.entrantId } : {}),
-      starTier: n.entrantTier,
-    });
-  }
 
-  // Retirements and demotions from the offseason lifecycle pass.
+  // Retirements, demotions and releases from the offseason lifecycle pass.
   const offseasonExits = exitsByWindow
     ? (exitsByWindow.get("Offseason") ?? [])
     : (season.rosterNews ?? []).filter(
         (n) => n.timeMark === "Offseason" && isExitEvent(n),
       );
-  for (const n of offseasonExits) {
-    const team = teamRef(season, n.teamId);
-    if (!team) continue;
-    const kind: "retire" | "demotion" =
-      n.marketNote === "retired" ? "retire" : "demotion";
-    out.push({
-      kind,
-      fromTeam: team,
-      toTeam: team,
-      lane: n.lane,
-      ...(n.departedName ? { swapName: n.departedName } : {}),
-      ...(n.departedId ? { swapId: n.departedId } : {}),
-      swapTier: n.departedTier ?? n.entrantTier,
-      ...(n.entrantId ? { starId: n.entrantId } : {}),
-      starTier: n.entrantTier,
-    });
+  pushNewsMoves(out, season, offseasonFills, offseasonExits);
+
+  const coaches: SimCoachMoveSummary[] = [];
+  for (const m of season.offseasonCoachMoves ?? []) {
+    const from = teamRef(season, m.fromTeamId);
+    const to = teamRef(season, m.toTeamId);
+    if (!from || !to) continue;
+    coaches.push({ coachName: m.coachName, ...(m.coachId ? { coachId: m.coachId } : {}), rating: m.rating, fromTeam: from, toTeam: to });
   }
 
-  if (out.length === 0) return null;
+  if (out.length === 0 && coaches.length === 0) return null;
   return {
     kind: "roster-moves",
     seasonId: season.id,
@@ -946,6 +917,7 @@ export function buildPostWorldsMovesEntry(
     afterEvent: "worlds",
     label: "Post Worlds",
     moves: out,
+    ...(coaches.length > 0 ? { coaches } : {}),
   };
 }
 

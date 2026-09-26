@@ -112,8 +112,8 @@ export function buildLivePlayerFeed(
           move.toTeam,
           move.fromTeam,
         );
-      } else if (move.kind === "retire" || move.kind === "demotion") {
-        const status = move.kind === "retire" ? "Retired" : "Academy";
+      } else if (move.kind === "retire" || move.kind === "demotion" || move.kind === "release") {
+        const status = move.kind === "retire" ? "Retired" : move.kind === "release" ? "Free agent" : "Academy";
         add(
           move.swapId,
           move.swapName,

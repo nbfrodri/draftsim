@@ -23,12 +23,14 @@ import {
   careerWinLoss,
   computePlayerCareers,
   computePlayerTitlesByEvent,
+  computeIntlAppearances,
   computeTeamRecords,
   type PlayerCareerLine,
   type PlayerTitleTotals,
   type TeamRecord,
 } from "./historyRecords";
 import type { PlayerChampStat } from "./stats";
+import { collectMarketHistory } from "./marketHistory";
 import {
   bumpSplitFinalsReached,
   reachedIntlFinal,
@@ -1016,6 +1018,25 @@ function teamRefFromInactive(
   return null;
 }
 
+/** Where the player ended a season's offseason, from that archive's recorded
+ *  market moves (last one wins). Undefined when nothing was recorded. */
+function offseasonDestination(
+  entry: SeasonHistoryEntry,
+  playerId: string,
+): { status: CareerStatusInfo["status"]; team: SeasonHistoryTeamRef | null } | undefined {
+  const last = collectMarketHistory([entry])
+    .filter((r) => r.playerId === playerId && r.seasonId === entry.id && r.window === "Offseason")
+    .sort((a, b) => a.sequence - b.sequence)
+    .at(-1);
+  if (!last) return undefined;
+  const to = last.to;
+  const status =
+    to.status === "main" || to.status === "rookie" ? "active"
+      : to.status === "academy" || to.status === "free-agent" || to.status === "retired" ? to.status
+        : undefined;
+  return status ? { status, team: to.team } : undefined;
+}
+
 export function playerProfile(
   entries: SeasonHistoryEntry[],
   playerId: string,
@@ -1182,23 +1203,37 @@ export function playerProfile(
     }
     const affiliate =
       snap != null ? teamRefFromInactive(identity, entries, snap) : null;
-    // Emit a year row when they played OR spent the year in the inactive pool.
-    if (stints.length > 0 || snap != null) {
-      const status = asOf ?? { status: "active" as const };
+    // Not rostered and gone from the (post-offseason) pool: the offseason
+    // moved him — e.g. academy → FA → signed elsewhere. Read the recorded move.
+    const move = asOf ? undefined : offseasonDestination(e, playerId);
+    // Emit a year row when they played, spent the year in the inactive pool,
+    // or were stamped in any window (academy / FA all year).
+    if (stints.length > 0 || snap != null || windows.length > 0) {
+      // Last in-year window (before the offseason chip is added).
+      const lastWindow = windows.at(-1);
+      const status: CareerStatusInfo | undefined =
+        asOf ?? (move ? { status: move.status } : stints.length > 0 ? { status: "active" } : undefined);
       // The year closes on the offseason: how they END the year is exactly the
       // status the annual badge already reports, so reuse it as the last chip.
-      if (windows.length > 0) {
+      // Unknown end-of-year status → no offseason chip (never invented).
+      if (windows.length > 0 && status) {
         windows.push({
           key: "offseason",
           label: careerWindowLabel("offseason"),
           kind: "offseason",
           status: status.status,
-          team:
-            status.status === "active"
+          team: move
+            ? move.team
+            : status.status === "active"
               ? (stints[stints.length - 1]?.team ?? null)
               : (affiliate ?? stints[stints.length - 1]?.team ?? null),
         });
       }
+      // Year row = how the year was lived. Only the offseason chip carries a
+      // move-derived destination; next year's row shows the new club.
+      const careerStatus =
+        asOf?.status ?? (stints.length > 0 ? "active" : lastWindow!.status);
+      const yearOrg = affiliate ?? (stints.length === 0 ? lastWindow?.team ?? null : null);
       tenures.push({
         season: yearOf(e),
         seasonId: e.id,
@@ -1206,11 +1241,11 @@ export function playerProfile(
         stints,
         titles,
         ...(windows.length > 0 ? { windows } : {}),
-        careerStatus: status.status,
-        ...(status.inactiveYears != null ? { inactiveYears: status.inactiveYears } : {}),
-        ...(status.academyYears != null ? { academyYears: status.academyYears } : {}),
-        ...(status.freeAgentYears != null ? { freeAgentYears: status.freeAgentYears } : {}),
-        ...(affiliate ? { affiliateTeam: affiliate } : {}),
+        careerStatus,
+        ...(asOf?.inactiveYears != null ? { inactiveYears: asOf.inactiveYears } : {}),
+        ...(asOf?.academyYears != null ? { academyYears: asOf.academyYears } : {}),
+        ...(asOf?.freeAgentYears != null ? { freeAgentYears: asOf.freeAgentYears } : {}),
+        ...(yearOrg ? { affiliateTeam: yearOrg } : {}),
       });
     }
   }
@@ -1385,6 +1420,8 @@ export interface TeamProfile {
   record: TeamRecord | null;
   seasons: TeamSeasonLine[]; // newest first
   hallOfFame: HallOfFamer[]; // players who played the most for this team
+  /** International events played per event (play-in included). */
+  intlAppearances: Partial<Record<InternationalId, number>>;
 }
 
 export function teamProfile(entries: SeasonHistoryEntry[], key: string): TeamProfile | null {
@@ -1513,7 +1550,8 @@ export function teamProfile(entries: SeasonHistoryEntry[], key: string): TeamPro
     .map((f) => ({ ...(f.playerId ? { playerId: f.playerId } : {}), name: f.name, lane: f.lane, seasons: f.seasons.size, stages: f.stages }))
     .sort((a, b) => b.seasons - a.seasons || b.stages - a.stages || a.name.localeCompare(b.name))
     .slice(0, 10);
-  return { team: teamRef, star, record, seasons, hallOfFame };
+  const intlAppearances = computeIntlAppearances(entries).find((a) => a.key === key)?.byEvent ?? {};
+  return { team: teamRef, star, record, seasons, hallOfFame, intlAppearances };
 }
 
 // ─── Coach profile ───────────────────────────────────────────────────────────

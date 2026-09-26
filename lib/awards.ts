@@ -193,7 +193,8 @@ function collectPlayerStats(
     seriesGameProgression = false,
   } = options;
   const maxRound = weightTier === "none" ? 0 : maxCompletedRound(tournament);
-  // key = `${teamId}:${lane}`
+  // key = `${teamId}:${lane}:${playerId}` — a backup who subs in mid-event is
+  // their own entry, not merged into the starter's line.
   const map = new Map<string, PlayerStats>();
 
   const ensurePlayer = (
@@ -203,7 +204,7 @@ function collectPlayerStats(
     playerName?: string,
     playerId?: string,
   ): PlayerStats => {
-    const key = `${teamId}:${lane}`;
+    const key = `${teamId}:${lane}:${playerId ?? ""}`;
     if (!map.has(key)) {
       map.set(key, { teamId, lane, teamName, playerName, playerId, ratings: [], peakRating: 0, peakContext: "" });
     }
@@ -216,9 +217,9 @@ function collectPlayerStats(
     if (!match.blueTeamId || !match.redTeamId) continue;
     if (matchFilter && !matchFilter(match)) continue;
 
-    const blueTeam = tournament.teams.find((t) => t.id === match.blueTeamId);
-    const redTeam = tournament.teams.find((t) => t.id === match.redTeamId);
-    if (!blueTeam || !redTeam) continue;
+    const matchBlue = tournament.teams.find((t) => t.id === match.blueTeamId);
+    const matchRed = tournament.teams.find((t) => t.id === match.redTeamId);
+    if (!matchBlue || !matchRed) continue;
 
     const { series } = match;
     const completedGames = series.games.filter(
@@ -237,6 +238,11 @@ function collectPlayerStats(
         gameRatings = computeGameRatings(recap, game.winner);
       }
       if (!gameRatings) continue;
+      // Sides can swap within a series: credit each side to the team that
+      // actually played it this game, not the match's game-1 sides.
+      const swapped = game.blueTeam === matchRed.name && game.redTeam === matchBlue.name;
+      const blueTeam = swapped ? matchRed : matchBlue;
+      const redTeam = swapped ? matchBlue : matchRed;
 
       const gameWeight =
         roundWeight *
@@ -364,8 +370,8 @@ interface PickMvpOptions {
 const INTL_MVP_LANE_BIAS: Partial<Record<Lane, number>> = {
   top: 0.03,
   jungle: 0.08,
-  middle: 0.04,
-  bottom: -0.08,
+  middle: 0.0,
+  bottom: 0.05,
   support: 0.02,
 };
 
@@ -373,8 +379,8 @@ const INTL_MVP_LANE_BIAS: Partial<Record<Lane, number>> = {
 const TOURNAMENT_MVP_LANE_BIAS: Partial<Record<Lane, number>> = {
   top: -0.06,
   jungle: 0.08,
-  middle: 0.04,
-  bottom: -0.14,
+  middle: 0.0,
+  bottom: -0.11,
   support: 0.0,
 };
 
@@ -384,7 +390,7 @@ const FINALS_MVP_LANE_BIAS: Partial<Record<Lane, number>> = {
   jungle: 0.08,
   middle: -0.12,
   bottom: -0.08,
-  support: -0.02,
+  support: -0.09,
 };
 
 /**
@@ -483,10 +489,9 @@ export function computeTournamentAwards(
     depthWeight: true,
     laneBias: TOURNAMENT_MVP_LANE_BIAS,
   });
-  const mvp: PlayerAward | null = tournament.seasonStageKind === "split"
-    ? computeFinalsMvp(tournament)
-    : tournament.seasonStageKind === "international"
-    ? computeChampionTeamTournamentMvp(tournament)
+  const stageKind = seasonStageKindOf(tournament);
+  const mvp: PlayerAward | null = stageKind
+    ? computeStageMvp(tournament, stageKind)
     : bestMvp ? makePlayerAward(bestMvp) : null;
 
   // ─── All-Pro team ────────────────────────────────────────────────────────
@@ -581,7 +586,7 @@ export function computeTournamentAwards(
     }
   }
 
-  return { mvp, allPro: tournament.seasonStageKind === "international" ? [] : allPro, awards };
+  return { mvp, allPro: stageKind === "international" ? [] : allPro, awards };
 }
 
 // ─── Finals MVP (splits & international events) ──────────────────────────────
@@ -626,6 +631,41 @@ export function computeChampionTeamTournamentMvp(
     laneBias: INTL_MVP_LANE_BIAS,
   });
   return best ? makePlayerAward(best) : null;
+}
+
+/**
+ * Season stage of a tournament. Season tournaments created before the
+ * `seasonStageKind` tag existed are recognised by name (domestic splits are
+ * "<League> <Split> Split"; everything else a season runs is international),
+ * so old saves use the same MVP rule as the stats and the Hall.
+ */
+export function seasonStageKindOf(
+  t: TournamentState,
+): "split" | "international" | undefined {
+  if (t.seasonStageKind) return t.seasonStageKind;
+  if (!t.seasonId) return undefined;
+  return t.name?.endsWith(" Split") ? "split" : "international";
+}
+
+/** Play-ins qualify teams for an event; they never crown an event MVP. */
+export function isPlayInTournament(t: TournamentState): boolean {
+  return t.seasonSubStage === "play-in" || !!t.name?.includes("Play-In");
+}
+
+/**
+ * The single MVP rule for a season stage — every surface (tournament recap,
+ * season dashboard, live results, Hall) resolves through here so they agree.
+ * `kind` overrides the tournament's own tag (legacy saves lack it).
+ */
+export function computeStageMvp(
+  tournament: TournamentState,
+  kind: "split" | "international" | undefined = seasonStageKindOf(tournament),
+): PlayerAward | null {
+  if (kind === "split") return computeFinalsMvp(tournament);
+  if (kind === "international") {
+    return isPlayInTournament(tournament) ? null : computeChampionTeamTournamentMvp(tournament);
+  }
+  return null;
 }
 
 export function computeFinalsMvp(

@@ -210,3 +210,35 @@ it("archives and validates the explicitly recorded demotion destination", () => 
   archive.marketNews[0].departedDestination = "invented";
   expect(validHistoryEntry(archive)).toBe(false);
 });
+
+describe("coach moves", () => {
+  it("records post-Worlds coach moves in the archive, the next year's feed, and Hall rows", async () => {
+    const { buildPostWorldsMovesEntry } = await import("./simResultsSummary");
+    const { swapCoaches } = await import("./coach");
+    const { season } = fixture();
+    season.status = "complete";
+    season.franchise!.aging = false;
+    season.config.playerTransfers = false;
+    const [a, b] = season.teams;
+    season.phaseRosters = [{ phaseIndex: 9, label: "Worlds", kind: "international", event: "worlds",
+      teams: season.teams.map(t => ({ teamId: t.id, teamName: t.name, leagueId: t.leagueId,
+        ...(t.coach ? { coach: { id: t.coach.id, name: t.coach.name, rating: t.coach.rating } } : {}), players: [] })) }];
+    // The user hires b's coach in the offseason shop.
+    season.teams = swapCoaches(season.teams, a.id, b.id);
+    const { season: next, archived } = startNextSeasonWithArchive(JSON.parse(JSON.stringify(season)), localChampions(), () => 0.5);
+    const expected = [
+      { coachName: b.coach!.name, fromTeamId: b.id, toTeamId: a.id },
+      { coachName: a.coach!.name, fromTeamId: a.id, toTeamId: b.id },
+    ];
+    expect(next.offseasonCoachMoves).toEqual(expect.arrayContaining(expected.map(m => expect.objectContaining(m))));
+    expect(next.offseasonCoachMoves).toHaveLength(2);
+    expect(archived!.coachMoves).toEqual(expect.arrayContaining([
+      expect.objectContaining({ coachName: b.coach!.name, from: expect.objectContaining({ name: b.name }), to: expect.objectContaining({ name: a.name }) }),
+    ]));
+    expect(validHistoryEntry(JSON.parse(JSON.stringify(archived)))).toBe(true);
+    const coachRows = collectMarketHistory([archived!], next).filter(r => r.kind === "coach");
+    expect(coachRows).toHaveLength(2);
+    expect(coachRows.every(r => r.lane === null && r.window === "Offseason")).toBe(true);
+    expect(buildPostWorldsMovesEntry(next)?.coaches).toHaveLength(2);
+  });
+});

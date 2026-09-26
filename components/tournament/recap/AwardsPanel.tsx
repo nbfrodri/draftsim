@@ -4,7 +4,7 @@ import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdenti
 
 import { useMemo } from "react";
 import { useDraftStore } from "@/store/draftStore";
-import { computeTournamentAwards } from "@/lib/awards";
+import { computeTournamentAwards, seasonStageKindOf } from "@/lib/awards";
 import type { TournamentAwards, PlayerAward, SpecialAward } from "@/lib/awards";
 import type { TournamentTeam, TournamentState } from "@/lib/tournament";
 import type { Lane } from "@/lib/types";
@@ -164,11 +164,12 @@ export function AwardsPanel({ tournament }: { tournament: TournamentState }) {
   const playerForms = useDraftStore((s) => s.playerForms);
   const phaseKind = useDraftStore(s => s.season?.id === tournament.seasonId ? s.season?.phases.find(p => p.tournamentIds.includes(tournament.id))?.kind : undefined);
   const teams = useMemo(() => new Map(tournament.teams.map(team => [team.id, team])), [tournament.teams]);
-  const showAllPro = (phaseKind ?? tournament.seasonStageKind) !== "international";
+  const stageKind = phaseKind === "split" || phaseKind === "international" ? phaseKind : seasonStageKindOf(tournament);
+  const showAllPro = stageKind !== "international";
 
   const awards = useMemo(
-    () => computeTournamentAwards(phaseKind === "split" || phaseKind === "international" ? { ...tournament, seasonStageKind: phaseKind } : tournament, playerForms),
-    [tournament, playerForms, phaseKind],
+    () => computeTournamentAwards(stageKind ? { ...tournament, seasonStageKind: stageKind } : tournament, playerForms),
+    [tournament, playerForms, stageKind],
   );
 
   // Hide the whole panel when there is no data (all-manual tournament or
@@ -181,7 +182,7 @@ export function AwardsPanel({ tournament }: { tournament: TournamentState }) {
     <div className="space-y-3">
       {awards.mvp && <MVPCard mvp={awards.mvp} teams={teams} />}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {showAllPro && <AllProStrip teams={teams} allPro={awards.allPro} label={(phaseKind ?? tournament.seasonStageKind) === "split" ? "Domestic Split All-Pro" : "All-Pro Team"} />}
+        {showAllPro && <AllProStrip teams={teams} allPro={awards.allPro} label={stageKind === "split" ? "Domestic Split All-Pro" : "All-Pro Team"} />}
         <AwardsList awards={awards.awards} teams={teams} />
       </div>
     </div>

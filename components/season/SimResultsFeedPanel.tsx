@@ -19,6 +19,7 @@ type SimIntlResultEntry,
 type SimResultEntry,
 type SimResultTeamRef,
 type SimResultYearGroup,
+type SimCoachMoveSummary,
 type SimRosterMoveSummary,
 type SimRosterMovesEntry,
 type SimRosterPlayer,
@@ -34,6 +35,7 @@ type InternationalId,
 type SplitId
 } from "@/lib/season/types";
 import type { Lane,PlayerTier,Roster } from "@/lib/types";
+import CoachNameLink from "../coach/CoachNameLink";
 import LaneIcon from "../LaneIcon";
 import LeagueIcon from "../LeagueIcon";
 import PlayerNameLink from "../player/PlayerNameLink";
@@ -939,7 +941,7 @@ const RosterMoveRow = memo(function RosterMoveRow({
   logoSize: number;
 }) {
   const isInbound = move.kind === "callup" || move.kind === "fa-sign";
-  const isExit = move.kind === "retire" || move.kind === "demotion";
+  const isExit = move.kind === "retire" || move.kind === "demotion" || move.kind === "release";
 
   return (
     <div className="flex items-center gap-1 min-w-0 text-[8px] text-rift-mutedbright/75">
@@ -960,10 +962,12 @@ const RosterMoveRow = memo(function RosterMoveRow({
             className={`px-1 py-px border text-[7px] uppercase tracking-[0.1em] flex-shrink-0 ${
               move.kind === "retire"
                 ? "border-red-400/40 text-red-300/70 bg-red-400/[0.05]"
-                : "border-amber-500/40 text-amber-300/75 bg-amber-500/[0.05]"
+                : move.kind === "release"
+                  ? "border-rift-blue/40 text-rift-bluebright/85 bg-rift-blue/[0.06]"
+                  : "border-amber-500/40 text-amber-300/75 bg-amber-500/[0.05]"
             }`}
           >
-            {move.kind === "retire" ? "RET" : "ACY"}
+            {move.kind === "retire" ? "RET" : move.kind === "release" ? "FA" : "ACY"}
           </span>
         </>
       ) : isInbound ? (
@@ -1025,6 +1029,31 @@ const RosterMoveRow = memo(function RosterMoveRow({
   );
 });
 
+const CoachMoveRow = memo(function CoachMoveRow({
+  move,
+  logoSize,
+}: {
+  move: SimCoachMoveSummary;
+  logoSize: number;
+}) {
+  return (
+    <div className="flex items-center gap-1 min-w-0 text-[8px] text-rift-mutedbright/75">
+      <span className="px-1 py-px border border-rift-gold/35 text-rift-gold/75 text-[7px] uppercase tracking-[0.1em] flex-shrink-0">
+        Coach
+      </span>
+      <SimTeamName team={move.fromTeam} logoSize={logoSize} />
+      <span className="text-rift-gold/30 flex-shrink-0 text-[9px]" aria-hidden>→</span>
+      <SimTeamName team={move.toTeam} logoSize={logoSize} />
+      <CoachNameLink
+        name={move.coachName}
+        renderAs="span"
+        className="truncate text-[7px] text-rift-goldbright/85"
+      />
+      <span className="text-[7px] tabular-nums text-rift-muted/70 flex-shrink-0">{move.rating.toFixed(1)}★</span>
+    </div>
+  );
+});
+
 const ROSTER_MOVES_DEFAULT_VISIBLE = 5;
 
 const RosterMovesCard = memo(function RosterMovesCard({
@@ -1069,6 +1098,13 @@ const RosterMovesCard = memo(function RosterMovesCard({
         }
       />
       <div className="space-y-0.5">
+        {entry.coaches?.map((move) => (
+          <CoachMoveRow
+            key={`coach-${move.coachId ?? move.coachName}`}
+            move={move}
+            logoSize={logoSize}
+          />
+        ))}
         {visibleMoves.map((move, i) => (
           <RosterMoveRow
             key={rosterMoveKey(move, i)}
