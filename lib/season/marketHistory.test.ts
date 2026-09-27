@@ -242,3 +242,31 @@ describe("coach moves", () => {
     expect(buildPostWorldsMovesEntry(next)?.coaches).toHaveLength(2);
   });
 });
+
+it("orders an offseason chronologically and shows the starter demoted by a free-agent signing", () => {
+  const { season, news } = fixture();
+  const [a, b, c] = season.teams;
+  const off = marketOrigin(season, "Offseason");
+  const hope = { id: "hope", name: "Hope", tier: "B" as const, grade: null, goodChamps: [] };
+  season.rosterNews = [
+    // Year-end lifecycle: Strensh signs, Hope drops to the academy; later Hope is released and signs elsewhere.
+    { ...news, teamId: a.id, origin: off, entrantSource: "free-agent", marketNote: "fa-sign", entrantName: "Strensh", entrantId: "strensh", departedId: "hope", departedName: "Hope", departedDestination: "academy" },
+    { ...news, teamId: a.id, origin: off, entrantSource: "free-agent", marketNote: "academy-release", entrantName: "Hope", entrantId: "hope", departedId: "hope", departedName: "Hope" },
+    { ...news, teamId: b.id, origin: off, entrantSource: "free-agent", marketNote: "fa-sign", entrantName: "Hope", entrantId: "hope" },
+    { ...news, teamId: b.id, origin: off, entrantSource: "academy", marketNote: "academy-rookie", entrantName: "Called up", entrantId: "called-up" },
+  ];
+  // The AI offseason transfer pass runs after the lifecycle.
+  season.transfersByEvent = { worlds: [{ event: "worlds", origin: off, lane: "top", fromTeamId: b.id, toTeamId: c.id, star: hope,
+    swap: { id: "other", name: "Other", tier: "B", grade: null, goodChamps: [] } }] };
+  season.transfersByEvent.worlds!.unshift({ event: "worlds", origin: off, beforeLifecycle: true, lane: "support", fromTeamId: a.id, toTeamId: c.id,
+    star: { id: "shop-in", name: "Shop in", tier: "A", grade: null, goodChamps: [] }, swap: { id: "shop-out", name: "Shop out", tier: "B", grade: null, goodChamps: [] } });
+  const archive = JSON.parse(JSON.stringify(buildSeasonHistoryEntry(season, 1)));
+  expect(validHistoryEntry(archive)).toBe(true);
+  expect(filterMarketHistory(collectMarketHistory([archive]), { ...DEFAULT_MARKET_FILTERS, order: "oldest" }).slice(0, 2).map(r => r.playerName)).toEqual(["Shop in", "Shop out"]);
+  season.transfersByEvent.worlds!.shift();
+  const rows = filterMarketHistory(collectMarketHistory([], season), { ...DEFAULT_MARKET_FILTERS, order: "oldest" });
+  expect(rows.map(r => [r.playerName, r.kind])).toEqual([
+    ["Hope", "demotion"], ["Strensh", "signing"], ["Hope", "release"], ["Hope", "signing"], ["Called up", "rookie"], ["Hope", "transfer"], ["Other", "transfer"],
+  ]);
+  expect(rows.find(r => r.playerName === "Called up")?.to.status).toBe("main");
+});

@@ -169,55 +169,60 @@ export function settle(
 }
 
 // ── Split grades (per team, per lane slot) ─────────────────────────────────
-// Average 1-10 match rating for each roster slot across the split's
-// tournaments. Scoped variant of teamSeasonGrades(); kept here to avoid the
-// engine↔stats import cycle. ponytail: if a third caller appears, fold the two.
+// Average 1-10 match rating of each team's CURRENT slot occupant across the
+// given tournaments. Notes follow the player who actually played
+// (recap.perPickIds) and each game's own sides, as teamSeasonGrades() does;
+// kept here to avoid the engine↔stats import cycle.
+// ponytail: if a third caller appears, fold the two.
 function splitLaneGrades(
   season: SeasonState,
   tournamentIds: string[],
 ): Map<string, (number | null)[]> {
-  const sums = new Map<string, number[]>();
-  const counts = new Map<string, number[]>();
-  const ensure = (m: Map<string, number[]>, id: string) => {
-    let row = m.get(id);
-    if (!row) {
-      row = [0, 0, 0, 0, 0];
-      m.set(id, row);
-    }
-    return row;
-  };
+  const teams = new Map(season.teams.map((t) => [t.id, t]));
+  const sum = new Map<string, number>();
+  const count = new Map<string, number>();
   for (const tid of tournamentIds) {
     const t = season.tournaments[tid];
     if (!t) continue;
     for (const match of t.matches) {
       if (match.isBye || !match.series) continue;
+      const games = match.series.games;
       for (const teamId of [match.blueTeamId, match.redTeamId]) {
         if (!teamId) continue;
-        const side: "blue" | "red" = teamId === match.blueTeamId ? "blue" : "red";
-        for (const game of match.series.games) {
+        const team: SeasonTeam | undefined = teams.get(teamId);
+        for (const game of games) {
           if (game.status !== "complete" || game.winner == null) continue;
           const recap = game.recap;
           if (!recap) continue;
           let ratings = recap.ratings ?? null;
           if (!ratings && recap.perPickKDA) ratings = computeGameRatings(recap, game.winner);
           if (!ratings) continue;
+          // Sides can swap between games of a series.
+          const side: "blue" | "red" =
+            team && game.blueTeam === team.name ? "blue"
+              : team && game.redTeam === team.name ? "red"
+                : teamId === match.blueTeamId ? "blue" : "red";
           const notes = side === "blue" ? ratings.blue : ratings.red;
-          const s = ensure(sums, teamId);
-          const c = ensure(counts, teamId);
+          const ids = recap.perPickIds?.[side];
           for (let i = 0; i < 5; i++) {
             const v = notes[i];
-            if (typeof v !== "number" || !Number.isFinite(v)) continue;
-            s[i] += v;
-            c[i] += 1;
+            // Legacy recaps without perPickIds fall back to the current slot.
+            const pid = ids?.[i] ?? team?.players[i]?.id;
+            if (!pid || typeof v !== "number" || !Number.isFinite(v)) continue;
+            sum.set(pid, (sum.get(pid) ?? 0) + v);
+            count.set(pid, (count.get(pid) ?? 0) + 1);
           }
         }
       }
     }
   }
   const out = new Map<string, (number | null)[]>();
-  for (const [teamId, s] of sums) {
-    const c = counts.get(teamId)!;
-    out.set(teamId, s.map((sum, i) => (c[i] > 0 ? sum / c[i] : null)));
+  for (const team of season.teams) {
+    out.set(team.id, [0, 1, 2, 3, 4].map((i) => {
+      const id = team.players[i]?.id;
+      const c = id ? count.get(id) : undefined;
+      return id && c ? sum.get(id)! / c : null;
+    }));
   }
   return out;
 }
@@ -502,6 +507,13 @@ export function resolveTransfer(
   const b = teams.find((t) => t.id === prop.otherTeamId);
   if (!a || !b) return { ...season, proposedTransfers: remaining };
   const li = prop.laneIndex;
+  // The proposal was priced on specific players. A slot that has since been
+  // vacated (demotion stub) or refilled is a different deal: drop it.
+  const stale = (p: Player | undefined, snap: TransferPlayer) =>
+    !p || isVacancyStub(p) || (!!snap.id && p.id !== snap.id);
+  if (stale(a.players[li], prop.mine) || stale(b.players[li], prop.theirs)) {
+    return { ...season, proposedTransfers: remaining };
+  }
   const toA = settle(b.players[li], b.leagueId, a.leagueId);
   const toB = settle(a.players[li], a.leagueId, b.leagueId);
   a.players[li] = toA;
@@ -755,7 +767,7 @@ export function transferCandidates(
   if (!event || !controlledId || !season.config.playerTransfers) return [];
   const me = season.teams.find((t) => t.id === controlledId);
   const li = LANE_ORDER.indexOf(lane);
-  if (!me || li < 0 || !me.players[li]) return [];
+  if (!me || li < 0 || !me.players[li] || isVacancyStub(me.players[li])) return [];
   // One move per role: nothing to shop once your team has used this lane.
   if (teamMovedAtLane(season, event, controlledId, lane)) return [];
   // Hit the per-window cap → nothing more to shop on any lane.
@@ -770,7 +782,7 @@ export function transferCandidates(
     // A team that already used this role this window can't trade it again.
     if (teamMovedAtLane(season, event, team.id, lane)) continue;
     const p = team.players[li];
-    if (!p) continue;
+    if (!p || isVacancyStub(p)) continue;
     const grade = grades.get(team.id)?.[li] ?? null;
     const v = transferValue(p, grade, byId, meta);
     out.push({
@@ -802,7 +814,7 @@ export function executeUserTransfer(
   const li = LANE_ORDER.indexOf(lane);
   const me = season.teams.find((t) => t.id === controlledId);
   const other = season.teams.find((t) => t.id === otherTeamId);
-  if (li < 0 || !me || !other || !me.players[li] || !other.players[li]) return season;
+  if (li < 0 || !me || !other || !me.players[li] || !other.players[li] || isVacancyStub(me.players[li]) || isVacancyStub(other.players[li])) return season;
   // One move per role per window — for both sides.
   if (
     teamMovedAtLane(season, event, controlledId, lane) ||
@@ -962,7 +974,7 @@ export function offseasonCandidates(
   const controlledId = season.config.controlledTeamId;
   const me = season.teams.find((t) => t.id === controlledId);
   const li = LANE_ORDER.indexOf(lane);
-  if (!controlledId || !me || li < 0 || !me.players[li]) return [];
+  if (!controlledId || !me || li < 0 || !me.players[li] || isVacancyStub(me.players[li])) return [];
   if (teamMovedAtLane(season, OFFSEASON, controlledId, lane)) return [];
   if (userTransferCapReached(season, OFFSEASON, controlledId)) return [];
   const byId = new Map(champions.map((c) => [c.id, c]));
@@ -974,7 +986,7 @@ export function offseasonCandidates(
     if (team.id === controlledId) continue;
     if (teamMovedAtLane(season, OFFSEASON, team.id, lane)) continue;
     const p = team.players[li];
-    if (!p) continue;
+    if (!p || isVacancyStub(p)) continue;
     const grade = grades.get(team.id)?.[li] ?? null;
     const v = transferValue(p, grade, byId, meta);
     out.push({
@@ -1001,7 +1013,7 @@ export function executeOffseasonUserTransfer(
   const li = LANE_ORDER.indexOf(lane);
   const me = season.teams.find((t) => t.id === controlledId);
   const other = season.teams.find((t) => t.id === otherTeamId);
-  if (!controlledId || li < 0 || !me || !other || !me.players[li] || !other.players[li]) return season;
+  if (!controlledId || li < 0 || !me || !other || !me.players[li] || !other.players[li] || isVacancyStub(me.players[li]) || isVacancyStub(other.players[li])) return season;
   if (
     teamMovedAtLane(season, OFFSEASON, controlledId, lane) ||
     teamMovedAtLane(season, OFFSEASON, otherTeamId, lane)
@@ -1033,6 +1045,7 @@ export function executeOffseasonUserTransfer(
     teamSnapshots: captureMarketTeamSnapshots(season.teams, teams, [m2.id, o2.id], { before: season.franchise?.inactivePool ?? [], after: season.franchise?.inactivePool ?? [] }),
     origin: marketOrigin(season, OFFSEASON),
     event: OFFSEASON,
+    beforeLifecycle: true,
     lane,
     fromTeamId: themBetter ? otherTeamId : controlledId,
     toTeamId: themBetter ? controlledId : otherTeamId,

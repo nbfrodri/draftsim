@@ -52,6 +52,9 @@ describe("nested payload contracts", () => {
     (s: ReturnType<typeof makeAuditSeason>) => ({ ...s, franchise: { ...s.franchise, inactivePool: [null] } }),
     (s: ReturnType<typeof makeAuditSeason>) => ({ ...s, franchise: { ...s.franchise, agencyDemands: [{}] } }),
     (s: ReturnType<typeof makeAuditSeason>) => ({ ...s, currentMeta: { ...s.currentMeta, metaOverride: { ahri: { middle: "invalid" } } } }),
+    // Roster moves readers dereference star/swap and the team ids.
+    (s: ReturnType<typeof makeAuditSeason>) => ({ ...s, transfersByEvent: { msi: [{ event: "msi", lane: "top", fromTeamId: "a", toTeamId: "b", swap: { tier: "B" } }] } }),
+    (s: ReturnType<typeof makeAuditSeason>) => ({ ...s, rosterNews: [{ teamId: "a", lane: "nowhere" }] }),
   ])("rejects malformed optional season fields", corrupt => {
     expect(validSeason(corrupt(makeAuditSeason()))).toBe(false);
   });

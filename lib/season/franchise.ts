@@ -410,7 +410,11 @@ export function applyMidSplitDemotions(
   for (const entry of result.inactivePool) {
     if (entry.player.name) usedNames.add(entry.player.name);
   }
-  const mark = rosterTimeMarkForSeason(season, { split });
+  // A deferred checkpoint runs as the transfer window closes, after that
+  // window's transfers and signings: stamp the window, not the split.
+  const mark = season.franchise.pendingMidSplitDemotion
+    ? rosterTimeMarkForSeason(season)
+    : rosterTimeMarkForSeason(season, { split });
   const rosterNews = [
     ...(season.rosterNews ?? []),
     ...withRosterTimeMark(result.news, mark, season, teams, result.inactivePool),
@@ -700,7 +704,13 @@ export function startNextSeasonWithArchive(
   if (prev.config.playerTransfers) {
     const { teams: shuffledTeams, moves: autoMoves } = offseasonTransferPass(
       evolvedTeams,
-      (teamId, li) => gradesOf(teamId)[li] ?? null,
+      // Grades are keyed to last year's slot occupant; a lifecycle newcomer
+      // must not inherit the demoted starter's note.
+      (teamId, li) => {
+        const now = evolvedTeams.find((t) => t.id === teamId)?.players[li]?.id;
+        const then = prev.teams.find((t) => t.id === teamId)?.players[li]?.id;
+        return now && now === then ? gradesOf(teamId)[li] ?? null : null;
+      },
       byId,
       prev.currentMeta,
       prev.config.controlledTeamId,
@@ -1478,6 +1488,8 @@ export function fillRosterVacancies(
     >
   >();
   const priorNews: Array<RosterNewsEvent & { teamId: string }> = [];
+  const leaveRows = new Map<string, RosterNewsEvent & { teamId: string }>();
+  const churnKeys = new Set<string>();
   for (const [newsIndex, n] of (season.rosterNews ?? []).entries()) {
     const key = `${n.teamId}:${n.lane}`;
     if (
@@ -1493,7 +1505,8 @@ export function fillRosterVacancies(
         ...(n.departedAge != null ? { departedAge: n.departedAge } : {}),
         ...(n.departedId ? { departedId: n.departedId } : {}),
       });
-      continue;
+      // Keep the leave itself: main → FA is a real movement of its own.
+      leaveRows.set(key, n);
     }
     priorNews.push(n);
   }
@@ -1503,7 +1516,8 @@ export function fillRosterVacancies(
       const d = leaveDeparted.get(key);
       if (!d) return n;
       if (d.departedId && n.entrantId && d.departedId === n.entrantId) {
-        return null; // same-player churn — drop the row
+        churnKeys.add(key);
+        return null; // same-player churn — drop both rows
       }
       const merged = {
         ...n,
@@ -1529,7 +1543,7 @@ export function fillRosterVacancies(
       sameWindowRookieIds,
     },
     rosterNews: [
-      ...priorNews,
+      ...priorNews.filter((n) => ![...churnKeys].some((key) => leaveRows.get(key) === n)),
       ...withRosterTimeMark(mergedNews, rosterTimeMarkForSeason(season), season, teams, pool),
     ],
     updatedAt: Date.now(),

@@ -815,6 +815,22 @@ describe("post-Worlds offseason entries", () => {
     expect(entry?.moves[0]?.toTeam.name).toBe("Beta");
   });
 
+  it("buildPostWorldsMovesEntry lists lifecycle fills (incl. minted call-ups) before the AI transfer pass", () => {
+    const season = fabricate({
+      id: "pw-order",
+      franchise: { id: "r1", name: "Reality", year: 2 },
+      transfersByEvent: { worlds: [{ event: "worlds", lane: "top", fromTeamId: "t1", toTeamId: "t2",
+        star: { name: "Swapped", tier: "A", grade: null, goodChamps: [] }, swap: { tier: "B", grade: null, goodChamps: [] } }] },
+      rosterNews: [
+        { teamId: "t1", lane: "middle", entrantName: "Signed", entrantTier: "B", entrantPotential: "B", entrantSource: "free-agent", marketNote: "fa-sign", timeMark: "Offseason" },
+        { teamId: "t2", lane: "support", entrantName: "Minted", entrantTier: "C", entrantPotential: "A", entrantSource: "academy", marketNote: "academy-rookie", timeMark: "Offseason" },
+        { teamId: "t2", lane: "jungle", entrantName: "Stashed", entrantTier: "C", entrantPotential: "A", entrantSource: "rookie", marketNote: "academy-rookie", timeMark: "Offseason" },
+      ],
+    });
+    const names = buildPostWorldsMovesEntry(season)?.moves.map(m => m.starName);
+    expect(names).toEqual(["Signed", "Minted", "Swapped"]);
+  });
+
   it("buildPostWorldsMovesEntry includes Offseason-tagged rosterNews call-ups", () => {
     const season = fabricate({
       id: "pw-rn",

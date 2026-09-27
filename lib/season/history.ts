@@ -57,6 +57,8 @@ export interface HistoryTransfer {
   inName?: string;
   inId?: string;
   inTier: PlayerTier;
+  /** User offseason-shop swap: happened before the year-end lifecycle. */
+  beforeLifecycle?: true;
   /** Player going the other way (to→from). */
   outName?: string;
   outId?: string;
@@ -676,6 +678,7 @@ export function buildSeasonHistoryEntry(
       ...(m.swap.name ? { outName: m.swap.name } : {}),
       ...(m.swap.id ? { outId: m.swap.id } : {}),
       outTier: m.swap.tier,
+      ...(m.beforeLifecycle ? { beforeLifecycle: true as const } : {}),
     });
   }
   // Templated narrative recap (only attach when it found at least one

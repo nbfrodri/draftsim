@@ -533,8 +533,12 @@ export default function TransferWindowPanel() {
       ? userTransferCount(season, phase.event, controlled.id)
       : 0;
   const capReached = usedCount >= USER_MAX_TRANSFERS_PER_WINDOW;
-  // Hide any leftover proposal on a role already transacted.
-  const proposals = (season.proposedTransfers ?? []).filter((p) => !movedLanes.has(p.lane));
+  // Hide leftover proposals on a role already transacted or whose slot changed
+  // since (demoted/refilled). Keep the store index: resolve uses the full list.
+  const proposals = (season.proposedTransfers ?? [])
+    .map((pr, index) => ({ pr, index }))
+    .filter(({ pr }) => !movedLanes.has(pr.lane)
+      && (!pr.mine.id || controlled?.players[pr.laneIndex]?.id === pr.mine.id));
 
   // Retirements + demotions + roster entries from mid-split checkpoints and
   // the post-Worlds offseason (aging on), league-wide.
@@ -681,7 +685,7 @@ export default function TransferWindowPanel() {
             </div>
           ) : (
             <div className="space-y-1.5 mb-2">
-              {proposals.map((pr, i) => {
+              {proposals.map(({ pr, index: i }) => {
                 const other = seasonTeam(season, pr.otherTeamId);
                 const incoming = pr.kind === "incoming";
                 return (

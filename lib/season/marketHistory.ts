@@ -27,6 +27,8 @@ export interface MarketHistoryRow {
   replacedName?: string;
   replacedId?: string;
   teamSnapshots?: MarketTeamSnapshot[];
+  /** User offseason-shop swap, ordered before the year-end lifecycle. */
+  beforeLifecycle?: true;
   sequence: number;
 }
 export const MARKET_KIND_LABELS: Record<string, string> = {
@@ -55,19 +57,22 @@ function frozenTeam(season: SeasonState, id: string): SeasonHistoryTeamRef | nul
 function rowsForSource(entry: Pick<SeasonHistoryEntry, "id" | "franchiseYear" | "marketNews" | "transfers" | "coachMoves">): MarketHistoryRow[] {
   const rows: MarketHistoryRow[] = [];
   const occurrences = new Map<string, number>();
-  const demotions: Omit<MarketHistoryRow, "id" | "sequence">[] = [];
+  const demotions: Array<{ row: Omit<MarketHistoryRow, "id" | "sequence">; before: MarketHistoryRow }> = [];
   function add(row: Omit<MarketHistoryRow, "id" | "sequence">) {
     const key = JSON.stringify([row.seasonId, row.window, row.kind, row.playerId ?? row.playerName,
       row.from.status, row.from.team && marketTeamKey(row.from.team), row.to.status,
       row.to.team && marketTeamKey(row.to.team), row.contextTeam && marketTeamKey(row.contextTeam), row.replacedName]);
     const count = occurrences.get(key) ?? 0;
     occurrences.set(key, count + 1);
-    rows.push({ ...row, id: `${key}:${count}`, sequence: rows.length });
+    const added = { ...row, id: `${key}:${count}`, sequence: 0 };
+    rows.push(added);
+    return added;
   }
   for (const transfer of entry.transfers ?? []) {
     const origin = transfer.origin;
     const timing = { seasonId: origin?.seasonId ?? entry.id, year: origin?.year ?? entry.franchiseYear ?? null,
-      window: origin ? origin.windowId.slice(origin.seasonId.length + 1) : eventWindow(transfer.event) };
+      window: origin ? origin.windowId.slice(origin.seasonId.length + 1) : eventWindow(transfer.event),
+      ...(transfer.beforeLifecycle ? { beforeLifecycle: true as const } : {}) };
     add({ ...timing, teamSnapshots: transfer.teamSnapshots, lane: transfer.lane, kind: "transfer", playerName: transfer.inName || "Unknown player", playerId: transfer.inId, tier: transfer.inTier,
       from: { status: "main", team: transfer.from }, to: { status: "main", team: transfer.to }, contextTeam: null });
     add({ ...timing, teamSnapshots: transfer.teamSnapshots, lane: transfer.lane, kind: "transfer", playerName: transfer.outName || "Unknown player", playerId: transfer.outId, tier: transfer.outTier,
@@ -95,6 +100,9 @@ function rowsForSource(entry: Pick<SeasonHistoryEntry, "id" | "franchiseYear" | 
     } else if (note === "retired") {
       // Pressure valves can retire either academy players or free agents.
       from = { status: news.retirement?.from ?? "unknown", team: news.retirement?.from === "academy" ? news.team : null }; to = { status: "retired", team: null }; kind = "retirement";
+    } else if (note === "academy-rookie" && news.entrantSource === "academy") {
+      // Minted into the academy and called straight up into a starter slot.
+      from = { status: "rookie", team: null }; kind = "rookie";
     } else if (note === "academy-rookie" || note === "fa-academy" || note === "academy-stash") {
       to = { status: "academy", team: news.team }; kind = note === "academy-rookie" ? "rookie" : "academy";
     } else if (note === "agency-leave") {
@@ -103,33 +111,47 @@ function rowsForSource(entry: Pick<SeasonHistoryEntry, "id" | "franchiseYear" | 
       from = { status: "academy", team: news.entrantSource === "academy" ? null : news.team };
       to = { status: news.entrantSource === "academy" ? "academy" : "free-agent", team: news.entrantSource === "academy" ? news.team : null }; kind = "academy";
     }
-    add({ seasonId: origin?.seasonId ?? entry.id, year: origin?.year ?? null,
+    const added = add({ seasonId: origin?.seasonId ?? entry.id, year: origin?.year ?? null,
       window: origin ? origin.windowId.slice(origin.seasonId.length + 1) : news.timeMark ?? null,
       retirement: kind === "retirement" ? { age: news.retirement?.age ?? news.departedAge, academyYears: news.retirement?.academyYears, freeAgentYears: news.retirement?.freeAgentYears } : undefined,
       teamSnapshots: news.teamSnapshots, lane: news.lane, playerName, playerId, tier: kind === "demotion" ? news.departedTier : news.entrantTier, kind, from, to, contextTeam: news.team,
       ...(news.departedName && news.departedName !== playerName && news.entrantName ? { replacedName: news.departedName, replacedId: news.departedId } : {}) });
-    if (kind === "promotion" && news.departedId && news.departedId !== playerId) {
-      // A promotion can fill an empty slot. Only an explicitly frozen academy
-      // destination proves the replaced main-roster player was demoted.
+    if (from.status !== "main" && to.status === "main" && news.departedId && news.departedId !== playerId) {
+      // A promotion/signing/call-up can fill an empty slot. Only an explicitly
+      // frozen academy destination proves the replaced starter was demoted.
       const snapshot = news.teamSnapshots?.find(s => news.team && s.name === news.team.name && s.leagueId === news.team.leagueId);
       const departed = snapshot?.academyAfter?.find(p => p.id === news.departedId);
-      if (news.departedDestination === "academy" || (departed && snapshot?.before.some(p => p.id === news.departedId))) demotions.push({
+      if (news.departedDestination === "academy" || (departed && snapshot?.before.some(p => p.id === news.departedId))) demotions.push({ before: added, row: {
         seasonId: origin?.seasonId ?? entry.id, year: origin?.year ?? null,
         window: origin ? origin.windowId.slice(origin.seasonId.length + 1) : news.timeMark ?? null,
         lane: departed?.lane ?? news.lane, playerName: news.departedName || departed?.name || "Unknown player", playerId: news.departedId,
         tier: news.departedTier ?? departed?.tier, kind: "demotion", from: { status: "main", team: news.team },
         to: { status: "academy", team: news.team }, contextTeam: news.team, teamSnapshots: news.teamSnapshots,
-      });
+      } });
     }
   }
   const signature = (r: Omit<MarketHistoryRow, "id" | "sequence">) => JSON.stringify([r.seasonId, r.window, r.playerId ?? r.playerName, r.to.team && marketTeamKey(r.to.team)]);
   const explicit = new Map<string, number>();
   for (const row of rows) if (row.kind === "demotion") explicit.set(signature(row), (explicit.get(signature(row)) ?? 0) + 1);
-  for (const row of demotions) {
+  const demotedBefore = new Map<MarketHistoryRow, MarketHistoryRow>();
+  for (const { row, before } of demotions) {
     const key = signature(row), count = explicit.get(key) ?? 0;
-    if (count) explicit.set(key, count - 1); else add(row);
+    if (count) explicit.set(key, count - 1); else demotedBefore.set(before, add(row));
   }
-  return rows;
+  // Within a window: in-season transfers fire as the window opens, then news.
+  // Offseason AI transfers run after the year-end lifecycle, coaches last.
+  // User shop swaps precede the lifecycle; unflagged legacy rows count as AI.
+  const band = (r: MarketHistoryRow) => r.kind === "coach" ? 3 : r.kind !== "transfer" ? 1
+    : r.window === "Offseason" && !r.beforeLifecycle ? 2 : 0;
+  const synthetic = new Set(demotedBefore.values());
+  const ordered: MarketHistoryRow[] = [];
+  for (const row of rows.filter(r => !synthetic.has(r)).sort((a, b) => band(a) - band(b))) {
+    const demotion = demotedBefore.get(row);
+    if (demotion) ordered.push(demotion); // The starter leaves before the replacement arrives.
+    ordered.push(row);
+  }
+  ordered.forEach((row, index) => { row.sequence = index; });
+  return ordered;
 }
 
 /** Read-only normalization; never fills missing provenance on legacy saves. */
@@ -147,6 +169,7 @@ export function collectMarketHistory(entries: readonly SeasonHistoryEntry[], liv
     const freezeTransfer = (m: PlayerTransfer): HistoryTransfer => ({
       teamSnapshots: m.teamSnapshots, origin: m.origin, event: m.event, lane: m.lane, from: frozenTeam(live, m.fromTeamId), to: frozenTeam(live, m.toTeamId),
       inName: m.star.name, inId: m.star.id, inTier: m.star.tier, outName: m.swap.name, outId: m.swap.id, outTier: m.swap.tier,
+      ...(m.beforeLifecycle ? { beforeLifecycle: true as const } : {}),
     });
     const freezeNews = ({ teamId, ...news }: NonNullable<SeasonState["rosterNews"]>[number]) => ({ ...news, team: frozenTeam(live, teamId) });
     sources.push({ id: live.id, franchiseYear: live.franchise?.year,
@@ -160,7 +183,8 @@ export function collectMarketHistory(entries: readonly SeasonHistoryEntry[], liv
   for (const row of [...archivedRows, ...sources.flatMap(rowsForSource)]) {
     const previous = rows.get(row.id);
     // Preserve richer archived timing when live legacy carry has less context.
-    rows.set(row.id, previous ? { ...row, year: previous.year ?? row.year } : row);
+    // Sequences from different sources don't compare; keep the archived one.
+    rows.set(row.id, previous ? { ...row, year: previous.year ?? row.year, sequence: previous.sequence } : row);
   }
   const signature = (row: MarketHistoryRow) => JSON.stringify([row.window, row.kind, row.lane, row.playerName,
     row.from.status, row.from.team && marketTeamKey(row.from.team), row.to.status, row.to.team && marketTeamKey(row.to.team), row.replacedName]);

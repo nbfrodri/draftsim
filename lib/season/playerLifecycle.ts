@@ -853,6 +853,7 @@ export function runDemotionPass(
           ...(withStreak.age != null ? { departedAge: withStreak.age } : {}),
           departedId: withStreak.id,
           departedGrade: grade,
+          departedDestination: "academy",
         });
         nextPlayers.push(null);
       } else {
@@ -887,6 +888,7 @@ export function runDemotionPass(
         ...(fill.vacancy.departedTier ? { departedTier: fill.vacancy.departedTier } : {}),
         ...(fill.vacancy.departedAge != null ? { departedAge: fill.vacancy.departedAge } : {}),
         ...(fill.vacancy.departedId ? { departedId: fill.vacancy.departedId } : {}),
+        ...(fill.vacancy.departedDestination ? { departedDestination: fill.vacancy.departedDestination } : {}),
         entrantName: fill.entrant.name ?? "",
         entrantTier: fill.entrant.tier,
         entrantPotential: fill.entrant.potential ?? fill.entrant.tier,
@@ -930,6 +932,7 @@ export function runDemotionPass(
         ...(v.departedTier ? { departedTier: v.departedTier } : {}),
         ...(v.departedAge != null ? { departedAge: v.departedAge } : {}),
         ...(v.departedId ? { departedId: v.departedId } : {}),
+        ...(v.departedDestination ? { departedDestination: v.departedDestination } : {}),
         entrantName: entrant.name ?? "",
         entrantTier: entrant.tier,
         entrantPotential: entrant.potential ?? entrant.tier,
@@ -974,6 +977,7 @@ export function runDemotionPass(
         ...(vac?.departedTier ? { departedTier: vac.departedTier } : {}),
         ...(vac?.departedAge != null ? { departedAge: vac.departedAge } : {}),
         ...(vac?.departedId ? { departedId: vac.departedId } : {}),
+        ...(vac?.departedDestination ? { departedDestination: vac.departedDestination } : {}),
         entrantName: rook.name ?? "",
         entrantTier: rook.tier,
         entrantPotential: rook.potential ?? rook.tier,
@@ -1003,6 +1007,7 @@ export function runDemotionPass(
         ...(vac?.departedTier ? { departedTier: vac.departedTier } : {}),
         ...(vac?.departedAge != null ? { departedAge: vac.departedAge } : {}),
         ...(vac?.departedId ? { departedId: vac.departedId } : {}),
+        ...(vac?.departedDestination ? { departedDestination: vac.departedDestination } : {}),
         entrantName: rook.name ?? "",
         entrantTier: rook.tier,
         entrantPotential: rook.potential ?? rook.tier,
@@ -1083,6 +1088,10 @@ export function runDemotionPass(
     news.push(...promoted.news);
     const teamInputs = makeTeamInputs(finalTeams);
     // Rare declutter: strategic academy→FA near the cap (feeds FA pool).
+    // Anyone who started this pass on a main roster was just cut.
+    const cutThisPass = new Set(
+      teamsIn.flatMap((t) => t.players.flatMap((p) => (p.id ? [p.id] : []))),
+    );
     const released = runAiAcademyReleasePass(
       teamInputs,
       pool,
@@ -1090,7 +1099,7 @@ export function runDemotionPass(
       meta,
       rng,
       year,
-      skipOpts,
+      { ...(skipOpts ?? {}), excludePlayerIds: cutThisPass },
     );
     pool = released.inactivePool;
     news.push(...released.news);

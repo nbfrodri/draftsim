@@ -1507,10 +1507,13 @@ describe("no vacancy stubs on main roster", () => {
         (e) => e.player.id === incumbent.id && e.status === "free-agent",
       ),
     ).toBe(true);
-    // No empty agency-leave stub row left behind.
+    // The walk (main → FA) is recorded once, and the fill names who left.
     expect(
-      next!.rosterNews?.some((n) => n.marketNote === "agency-leave" && !n.entrantName),
-    ).toBeFalsy();
+      next!.rosterNews?.filter((n) => n.marketNote === "agency-leave" && n.departedId === incumbent.id),
+    ).toHaveLength(1);
+    expect(
+      next!.rosterNews?.some((n) => n.marketNote !== "agency-leave" && n.departedId === incumbent.id && n.entrantId === slot.id),
+    ).toBe(true);
   });
 
   it("startNextSeason scrubs leftover vacancies before lifecycle/transfers", () => {

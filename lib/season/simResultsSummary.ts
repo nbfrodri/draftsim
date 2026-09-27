@@ -411,12 +411,9 @@ function buildFollowedTeamSummary(
  */
 function isMainRosterFill(n: RosterNewsEvent): boolean {
   const note = n.marketNote;
-  if (
-    note === "fa-academy" ||
-    note === "academy-stash" ||
-    note === "academy-rookie"
-  )
-    return false;
+  if (note === "fa-academy" || note === "academy-stash") return false;
+  // academy-rookie from source "academy" is a mint called straight up.
+  if (note === "academy-rookie" && n.entrantSource !== "academy") return false;
   if (
     note === "academy-release" ||
     note === "became-fa" ||
@@ -867,6 +864,22 @@ export function buildPostWorldsMovesEntry(
 
   const out: SimRosterMoveSummary[] = [];
 
+  // Lifecycle first: the AI transfer pass runs after it.
+  // Academy call-ups and FA signings from the offseason lifecycle pass.
+  const offseasonFills = fillsByWindow
+    ? (fillsByWindow.get("Offseason") ?? [])
+    : (season.rosterNews ?? []).filter(
+        (n) => n.timeMark === "Offseason" && isMainRosterFill(n),
+      );
+
+  // Retirements, demotions and releases from the offseason lifecycle pass.
+  const offseasonExits = exitsByWindow
+    ? (exitsByWindow.get("Offseason") ?? [])
+    : (season.rosterNews ?? []).filter(
+        (n) => n.timeMark === "Offseason" && isExitEvent(n),
+      );
+  pushNewsMoves(out, season, offseasonFills, offseasonExits);
+
   // Bilateral swaps carried from the prior year's offseason market.
   // Only rows stamped `worlds` — FS/MSI leaks in the carry array stay out.
   for (const m of transfersForDigestEvent(season, "worlds")) {
@@ -885,21 +898,6 @@ export function buildPostWorldsMovesEntry(
       starTier: m.star.tier,
     });
   }
-
-  // Academy call-ups and FA signings from the offseason lifecycle pass.
-  const offseasonFills = fillsByWindow
-    ? (fillsByWindow.get("Offseason") ?? [])
-    : (season.rosterNews ?? []).filter(
-        (n) => n.timeMark === "Offseason" && isMainRosterFill(n),
-      );
-
-  // Retirements, demotions and releases from the offseason lifecycle pass.
-  const offseasonExits = exitsByWindow
-    ? (exitsByWindow.get("Offseason") ?? [])
-    : (season.rosterNews ?? []).filter(
-        (n) => n.timeMark === "Offseason" && isExitEvent(n),
-      );
-  pushNewsMoves(out, season, offseasonFills, offseasonExits);
 
   const coaches: SimCoachMoveSummary[] = [];
   for (const m of season.offseasonCoachMoves ?? []) {

@@ -839,6 +839,8 @@ export interface MarketVacancy {
   retirement?: { from: "academy" | "free-agent"; age?: number; academyYears?: number; freeAgentYears?: number };
   departedId?: string;
   departedGrade?: number | null;
+  /** The departed starter was parked in the org academy. */
+  departedDestination?: "academy";
 }
 
 export interface MarketFill {
@@ -1195,6 +1197,7 @@ export function runOpenFaReplacePass(
         ? { departedAge: best.incumbent.age }
         : {}),
       ...(!vacant && best.incumbent.id ? { departedId: best.incumbent.id } : {}),
+      ...(!vacant ? { departedDestination: "academy" as const } : {}),
       entrantName: entrant.name ?? "",
       entrantTier: entrant.tier,
       entrantPotential: entrant.potential ?? entrant.tier,
@@ -1663,6 +1666,7 @@ export function executeUserFaSign(
         ...(!vacant ? { departedTier: incumbent.tier } : {}),
         ...(!vacant && incumbent.age != null ? { departedAge: incumbent.age } : {}),
         ...(!vacant && incumbent.id ? { departedId: incumbent.id } : {}),
+        ...(!vacant ? { departedDestination: "academy" as const } : {}),
         entrantName: entrant.name ?? "",
         entrantTier: entrant.tier,
         entrantPotential: entrant.potential ?? entrant.tier,
@@ -1961,7 +1965,8 @@ export function runAiAcademyReleasePass(
   rng: RNG,
   /** Closing / current franchise year — restarts the released FA · 1y clock. */
   releaseYear?: number,
-  opts?: { skipTeamIds?: ReadonlySet<string> },
+  /** `excludePlayerIds`: starters cut this pass (no main → academy → FA same day). */
+  opts?: { skipTeamIds?: ReadonlySet<string>; excludePlayerIds?: ReadonlySet<string> },
 ): {
   inactivePool: MarketInactive[];
   news: Array<MarketNewsEvent>;
@@ -1969,6 +1974,7 @@ export function runAiAcademyReleasePass(
   let working = [...pool];
   const news: Array<MarketNewsEvent> = [];
   const skip = opts?.skipTeamIds;
+  const exclude = opts?.excludePlayerIds;
   const releasedByTeam = new Map<string, number>();
 
   for (const team of teams) {
@@ -1985,6 +1991,7 @@ export function runAiAcademyReleasePass(
     for (let i = 0; i < working.length; i++) {
       const e = working[i]!;
       if (e.status !== "academy" || e.lastTeamId !== team.id || !e.player.id) continue;
+      if (exclude?.has(e.player.id)) continue;
       const s = academyReleaseScore(e, org, byId, meta);
       if (s < AI_ACADEMY_RELEASE_MIN_SCORE) continue;
       if (s > bestScore || (s === bestScore && rng() < 0.5)) {

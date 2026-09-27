@@ -192,7 +192,11 @@ export function validSeason(v: unknown): v is SeasonState {
     (p.kind === "split" || enumeration(p.event, ["first-stand", "msi", "worlds", "global-cup"])) &&
     (p.status === "pending" || p.tournamentIds.every(id => Object.hasOwn(v.tournaments as Obj, id))))) return false;
   const originRows = (rows: unknown) => Array.isArray(rows) && rows.every(row => record(row) && optional(row.origin, validMarketOrigin) && optional(row.retirement, retirement) && optional(row.departedDestination, x => x === "academy") && optional(row.teamSnapshots, marketSnapshots));
-  if (!optional(v.rosterNews, originRows) || !optional(v.transfersByEvent, value => record(value) && Object.values(value).every(originRows))) return false;
+  // Readers dereference these fields directly (Hall, digests, archive).
+  const transferRows = (rows: unknown) => originRows(rows) && (rows as Obj[]).every(m => record(m.star) && record(m.swap) &&
+    text(m.fromTeamId) && text(m.toTeamId) && enumeration(m.lane, lanes) && optional(m.beforeLifecycle, x => x === true));
+  const newsRows = (rows: unknown) => originRows(rows) && (rows as Obj[]).every(n => enumeration(n.lane, lanes));
+  if (!optional(v.rosterNews, newsRows) || !optional(v.transfersByEvent, value => record(value) && Object.values(value).every(transferRows))) return false;
   const coachMove = (m: unknown) => record(m) && text(m.coachName) && finite(m.rating) &&
     text(m.fromTeamId) && text(m.toTeamId) && optional(m.coachId, text);
   if (!optional(v.offseasonCoachMoves, x => arrayOf(x, coachMove))) return false;
@@ -265,7 +269,7 @@ export function validHistoryEntry(v: unknown): boolean {
       optional(n.origin, validMarketOrigin) && optional(n.retirement, retirement) && optional(n.departedDestination, x => x === "academy") &&
       ["entrantId", "departedId", "departedName", "timeMark", "marketNote"].every(k => optional(n[k], x => typeof x === "string")))) ||
     !optional(v.transfers, rows => arrayOf(rows, t => record(t) && optional(t.teamSnapshots, marketSnapshots) && team(t.from) && team(t.to) &&
-      optional(t.inId, text) && optional(t.outId, text) && optional(t.origin, validMarketOrigin) && enumeration(t.lane, lanes) && enumeration(t.inTier, tiers) && enumeration(t.outTier, tiers))) ||
+      optional(t.inId, text) && optional(t.outId, text) && optional(t.origin, validMarketOrigin) && optional(t.beforeLifecycle, x => x === true) && enumeration(t.lane, lanes) && enumeration(t.inTier, tiers) && enumeration(t.outTier, tiers))) ||
     !optional(v.inactivePlayers, rows => arrayOf(rows, p => record(p) && text(p.playerId) &&
       enumeration(p.lane, lanes) && enumeration(p.tier, tiers) &&
       enumeration(p.status, ["academy", "free-agent", "retired"]) && integer(p.inactiveYears) && integer(p.demotedYear) && optional(p.inactiveTenure, inactiveTenure)))) return false;

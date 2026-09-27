@@ -176,6 +176,22 @@ describe("resolveTransfer", () => {
     expect(out.transfersByEvent?.["first-stand"]).toHaveLength(1);
   });
 
+  it("drops a proposal whose slot was vacated or refilled since it was priced", () => {
+    const priced = { ...prop, mine: { ...prop.mine, id: "weak" } };
+    const withSlot = (player: Player): SeasonState => {
+      const s = season();
+      s.teams[0].players[2] = player;
+      return { ...s, proposedTransfers: [priced] };
+    };
+    for (const player of [{ ...p("D"), id: "__vacancy__middle" }, { ...p("B"), id: "fa1" }]) {
+      const out = resolveTransfer(withSlot(player), 0, true);
+      expect(out.teams[1].players[2].tier).toBe("S"); // rival keeps its star
+      expect(out.proposedTransfers).toHaveLength(0);
+      expect(out.transfersByEvent?.["first-stand"]).toHaveLength(1);
+    }
+    expect(resolveTransfer(withSlot({ ...p("C"), id: "weak" }), 0, true).teams[1].players[2].id).toBe("weak");
+  });
+
   it("refuses to accept once the followed team's per-window cap is reached", () => {
     // Two moves already involve "mine" this window (in-season cap is 2), on
     // OTHER lanes so the one-per-role rule doesn't fire instead.

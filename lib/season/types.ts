@@ -453,6 +453,8 @@ export interface PlayerTransfer {
   toTeamId: string;
   star: TransferPlayer;
   swap: TransferPlayer;
+  /** User offseason-shop swap: happened before the year-end lifecycle. */
+  beforeLifecycle?: true;
 }
 
 // A transfer awaiting the user's decision because it touches the followed

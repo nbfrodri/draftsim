@@ -317,7 +317,18 @@ export function honorAgencyDemand(
           },
         ],
       ]);
-      next = fillRosterVacancies(walked.season, champions, rng, {
+      // Record the walk itself; the fill row then names who replaced them.
+      const withLeave = {
+        ...walked.season,
+        rosterNews: [
+          ...(walked.season.rosterNews ?? []),
+          ...withRosterTimeMark(
+            [agencyLeaveNews(walked.vacated, demand)],
+            rosterTimeMarkForSeason(season), season, walked.season.teams, walked.season.franchise?.inactivePool
+          ),
+        ],
+      };
+      next = fillRosterVacancies(withLeave, champions, rng, {
         teamIds: new Set([walked.vacated.teamId]),
         departedBySlot,
       });
