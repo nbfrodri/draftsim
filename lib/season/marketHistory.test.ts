@@ -270,3 +270,20 @@ it("orders an offseason chronologically and shows the starter demoted by a free-
   ]);
   expect(rows.find(r => r.playerName === "Called up")?.to.status).toBe("main");
 });
+
+it("shows the origin academy of an academy → academy agency move, and keeps legacy rows unknown", () => {
+  const { season, news } = fixture();
+  const [from, to] = season.teams;
+  const depart = { ...news, teamId: to.id, entrantSource: "academy" as const, marketNote: "agency-depart" as const, entrantName: "Mover", entrantId: "mover" };
+  season.rosterNews = [{ ...depart, fromTeamId: from.id }, { ...depart, entrantName: "Legacy", entrantId: "legacy" }];
+  const archive = JSON.parse(JSON.stringify(buildSeasonHistoryEntry(season, 1)));
+  expect(validHistoryEntry(archive)).toBe(true);
+  expect(archive.marketNews[0].fromTeamId).toBeUndefined();
+  for (const rows of [collectMarketHistory([], season), collectMarketHistory([archive])]) {
+    expect(rows.map(r => [r.playerName, r.from.status, r.from.team?.name ?? null, r.to.status, r.to.team?.name])).toEqual([
+      ["Mover", "academy", from.name, "academy", to.name], ["Legacy", "academy", null, "academy", to.name],
+    ]);
+  }
+  archive.marketNews[0].fromTeam = { name: "No region" };
+  expect(validHistoryEntry(archive)).toBe(false);
+});

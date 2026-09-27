@@ -1516,6 +1516,27 @@ describe("no vacancy stubs on main roster", () => {
     ).toBe(true);
   });
 
+  it("honorAgencyDemand records the origin org of an academy → academy move", () => {
+    const base = makeReality(true);
+    const [from, to] = base.teams;
+    const player = { ...from!.players[0]!, id: "acy-mover", name: "Acy Mover" };
+    const season = {
+      ...base,
+      franchise: {
+        ...base.franchise!,
+        inactivePool: [{ player, status: "academy" as const, inactiveYears: 1, clockYear: 1, lastTeamId: from!.id, lastTeamName: from!.name }],
+        agencyDemands: [{
+          id: "d2", kind: "depart-academy" as const, status: "pending" as const, playerId: player.id, playerName: player.name,
+          playerTier: player.tier, lane: player.lane, fromTeamId: from!.id, fromTeamName: from!.name, preferenceGap: 2,
+          wantRole: "academy" as const, wantTeamId: to!.id, wantTeamName: to!.name,
+        }],
+      },
+    };
+    const next = honorAgencyDemand(season, champions, "d2", rngFrom(3));
+    expect(next!.franchise!.inactivePool!.find((e) => e.player.id === player.id)?.lastTeamId).toBe(to!.id);
+    expect(next!.rosterNews?.find((n) => n.marketNote === "agency-depart")).toMatchObject({ teamId: to!.id, fromTeamId: from!.id });
+  });
+
   it("startNextSeason scrubs leftover vacancies before lifecycle/transfers", () => {
     const base = makeReality(true);
     const me = base.teams[0]!.id;

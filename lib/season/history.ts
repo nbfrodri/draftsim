@@ -246,7 +246,8 @@ export interface SeasonHistoryEntry {
   /** Known simulation year; absent in legacy/one-off archives. */
   franchiseYear?: number;
   /** Explicitly captured news, including an empty array when no events occurred. */
-  marketNews?: Array<import("./playerLifecycle").RosterNewsEvent & { team: SeasonHistoryTeamRef | null }>;
+  /** `fromTeam` freezes `fromTeamId` (academy → academy agency moves). */
+  marketNews?: Array<Omit<import("./playerLifecycle").RosterNewsEvent, "fromTeamId"> & { team: SeasonHistoryTeamRef | null; fromTeam?: SeasonHistoryTeamRef | null }>;
   /** Per-league strength score at archive time (the evolved region tide).
    *  Optional — only present on seasons that ran with Region Tides on.
    *  Carried into the next season's starting tides (decayed toward
@@ -740,7 +741,8 @@ export function buildSeasonHistoryEntry(
     marketNews: (season.rosterNews ?? []).filter((n, index) => n.origin
       ? n.origin.seasonId === season.id && n.origin.year === (season.franchise?.year ?? 1)
       : n.timeMark !== "Offseason" || (season.offseasonRosterNewsBaseline != null && index >= season.offseasonRosterNewsBaseline)
-    ).map(({ teamId, ...news }) => ({ ...structuredClone(news), team: teamRef(season, teamId) })),
+    ).map(({ teamId, fromTeamId, ...news }) => ({ ...structuredClone(news), team: teamRef(season, teamId),
+      ...(fromTeamId ? { fromTeam: teamRef(season, fromTeamId) } : {}) })),
     ...(rivalryArchive.length > 0 ? { rivalries: rivalryArchive } : {}),
     ...(headToHeadArchive.length > 0 ? { headToHead: headToHeadArchive } : {}),
     // Starting tier table (undefined when the season pre-dates

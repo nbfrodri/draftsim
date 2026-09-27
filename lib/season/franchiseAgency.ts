@@ -232,6 +232,7 @@ function agencyHonorDepart(
           ...(entry.player.id ? { entrantId: entry.player.id } : {}),
           entrantSource: "academy",
           marketNote: "agency-depart",
+          fromTeamId: demand.fromTeamId,
           ...(demand.fromTeamName ? { beatenNames: [demand.fromTeamName] } : {}),
         });
         return {

@@ -195,7 +195,7 @@ export function validSeason(v: unknown): v is SeasonState {
   // Readers dereference these fields directly (Hall, digests, archive).
   const transferRows = (rows: unknown) => originRows(rows) && (rows as Obj[]).every(m => record(m.star) && record(m.swap) &&
     text(m.fromTeamId) && text(m.toTeamId) && enumeration(m.lane, lanes) && optional(m.beforeLifecycle, x => x === true));
-  const newsRows = (rows: unknown) => originRows(rows) && (rows as Obj[]).every(n => enumeration(n.lane, lanes));
+  const newsRows = (rows: unknown) => originRows(rows) && (rows as Obj[]).every(n => enumeration(n.lane, lanes) && optional(n.fromTeamId, text));
   if (!optional(v.rosterNews, newsRows) || !optional(v.transfersByEvent, value => record(value) && Object.values(value).every(transferRows))) return false;
   const coachMove = (m: unknown) => record(m) && text(m.coachName) && finite(m.rating) &&
     text(m.fromTeamId) && text(m.toTeamId) && optional(m.coachId, text);
@@ -262,7 +262,7 @@ export function validHistoryEntry(v: unknown): boolean {
       optional(r.byScope, scopes => arrayOf(scopes, q => record(q) && text(q.scope) &&
         ["meetings", "aWins", "bWins"].every(k => integer(q[k]))))))) ||
     !optional(v.franchiseYear, x => integer(x) && (x as number) >= 1) ||
-    !optional(v.marketNews, rows => arrayOf(rows, n => record(n) && optional(n.teamSnapshots, marketSnapshots) && team(n.team) &&
+    !optional(v.marketNews, rows => arrayOf(rows, n => record(n) && optional(n.teamSnapshots, marketSnapshots) && team(n.team) && optional(n.fromTeam, team) &&
       enumeration(n.lane, lanes) && typeof n.entrantName === "string" &&
       enumeration(n.entrantSource, ["rookie", "academy", "free-agent"]) &&
       enumeration(n.entrantTier, tiers) && enumeration(n.entrantPotential, tiers) &&

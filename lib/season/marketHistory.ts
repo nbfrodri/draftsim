@@ -108,7 +108,8 @@ function rowsForSource(entry: Pick<SeasonHistoryEntry, "id" | "franchiseYear" | 
     } else if (note === "agency-leave") {
       from = { status: "main", team: news.team }; to = { status: "free-agent", team: null }; kind = "release";
     } else if (note === "agency-depart") {
-      from = { status: "academy", team: news.entrantSource === "academy" ? null : news.team };
+      // Academy → academy moves record the origin org since 1.1.2; older rows stay unknown.
+      from = { status: "academy", team: news.entrantSource === "academy" ? news.fromTeam ?? null : news.team };
       to = { status: news.entrantSource === "academy" ? "academy" : "free-agent", team: news.entrantSource === "academy" ? news.team : null }; kind = "academy";
     }
     const added = add({ seasonId: origin?.seasonId ?? entry.id, year: origin?.year ?? null,
@@ -171,7 +172,8 @@ export function collectMarketHistory(entries: readonly SeasonHistoryEntry[], liv
       inName: m.star.name, inId: m.star.id, inTier: m.star.tier, outName: m.swap.name, outId: m.swap.id, outTier: m.swap.tier,
       ...(m.beforeLifecycle ? { beforeLifecycle: true as const } : {}),
     });
-    const freezeNews = ({ teamId, ...news }: NonNullable<SeasonState["rosterNews"]>[number]) => ({ ...news, team: frozenTeam(live, teamId) });
+    const freezeNews = ({ teamId, fromTeamId, ...news }: NonNullable<SeasonState["rosterNews"]>[number]) => ({ ...news, team: frozenTeam(live, teamId),
+      ...(fromTeamId ? { fromTeam: frozenTeam(live, fromTeamId) } : {}) });
     sources.push({ id: live.id, franchiseYear: live.franchise?.year,
       transfers: Object.values(live.transfersByEvent ?? {}).flatMap(moves => (moves ?? []).filter(m => !carrySet.has(m)).map(freezeTransfer)),
       marketNews: (live.rosterNews ?? []).filter(n => !carryNewsSet.has(n)).map(freezeNews) });

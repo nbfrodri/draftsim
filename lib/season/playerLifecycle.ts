@@ -442,6 +442,8 @@ export interface RosterNewsEvent {
   departedTier?: PlayerTier;
   /** Recorded when an occupied starter slot is exchanged with an academy player. */
   departedDestination?: "academy";
+  /** Origin org of an academy → academy agency move (`teamId` is the destination). */
+  fromTeamId?: string;
   departedAge?: number;
   retirement?: { from: "academy" | "free-agent"; age?: number; academyYears?: number; freeAgentYears?: number };
   departedId?: string;
