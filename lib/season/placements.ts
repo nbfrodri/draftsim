@@ -137,6 +137,42 @@ export function archivedSplitsWithPlacements(
   );
 }
 
+/** Full ordered placement list for one international event (best first), with
+ * each org's logo taken from the event's phase snapshot when archived.
+ * Falls back to champion / runner-up only for legacy archives. */
+export function archivedIntlPlacements(
+  entry: SeasonHistoryEntry,
+  event: InternationalId,
+): SeasonHistoryTeamRef[] {
+  let refs = entry.intlPlacements?.[event];
+  if (!refs?.length) {
+    const champ =
+      entry.intlChampions[event] ?? (event === "worlds" ? entry.champion : null);
+    const runner =
+      entry.intlRunnersUp?.[event] ?? (event === "worlds" ? entry.runnerUp : null);
+    refs = [champ, runner].filter((r): r is SeasonHistoryTeamRef => r != null);
+  }
+  const phase = entry.phaseRosters?.find(
+    (p) => p.kind === "international" && p.event === event,
+  );
+  if (!phase) return refs;
+  return refs.map((ref) => {
+    const snap = phase.teams.find(
+      (t) => t.teamName === ref.name && t.leagueId === ref.leagueId,
+    );
+    return snap?.logoUrl ? { ...ref, logoUrl: snap.logoUrl } : ref;
+  });
+}
+
+/** International events with any placement evidence, in display order. */
+export function archivedIntlsWithPlacements(
+  entry: SeasonHistoryEntry,
+): InternationalId[] {
+  return INTERNATIONAL_DISPLAY_ORDER.filter(
+    (event) => archivedIntlPlacements(entry, event).length > 0,
+  );
+}
+
 /** 1-based domestic split finish, or null when unplaced / unknown. */
 export function teamSplitPlacement(
   entry: SeasonHistoryEntry,

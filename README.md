@@ -27,6 +27,8 @@ Desktop saves include unfinished seasons. Inactive realities load on demand; Bac
 
 The Hall also includes **Roster Moves**: chronological market history per reality, including the current year, with year/window/team/region/role filters and player-status badges. Older archives show only the events they actually retained. Within a window, moves follow the simulation order: in-season transfers first, then signings, promotions and releases; in the offseason, year-end releases and signings come before the AI transfer pass, with coach moves last. A starter pushed to the academy by a promotion, signing or rookie call-up appears as a demotion just before their replacement, when the archive recorded that destination. Agency walks from the main roster to free agency are listed as releases, and checkpoint demotions deferred to a transfer window are dated to that window. Agency moves from one academy to another show the origin academy for moves recorded from v1.1.2; older ones keep it unknown.
 
+Timeline → By Season also shows **International Placements**: the full finishing order of First Stand, MSI, Worlds and the Global Cup, with each org's region and logo as snapshotted at that event and play-in exits marked. Legacy archives show champion and runner-up only.
+
 Team strength supports **half stars (1 to 5)** throughout setup, roster displays, rankings, market decisions and interactive/bulk simulation. Existing saves remain compatible; completed results are preserved. See [the team-strength contract](docs/technical-design.md#half-star-team-strength).
 
 - **Single series:** pick/ban against another player or the AI, or watch AI vs AI; best-of series, fearless drafting and optional player rosters.

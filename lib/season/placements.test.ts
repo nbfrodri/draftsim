@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { SeasonHistoryEntry } from "./history";
 import {
+  archivedIntlPlacements,
+  archivedIntlsWithPlacements,
   archivedSplitPlacements,
   archivedSplitsWithPlacements,
   intlOutcomeLabel,
@@ -61,6 +63,34 @@ describe("archivedSplitPlacements", () => {
     ]);
     expect(archivedSplitPlacements(e, "spring", "LCK")).toEqual([]);
     expect(archivedSplitsWithPlacements(e)).toEqual(["spring"]);
+  });
+});
+
+describe("archivedIntlPlacements", () => {
+  it("returns the full event order with logos from the event snapshot", () => {
+    const e = entry({
+      intlPlacements: { msi: [teamRef("T1"), teamRef("G2", "LEC")] },
+      phaseRosters: [
+        {
+          phaseIndex: 3,
+          label: "MSI",
+          kind: "international",
+          event: "msi",
+          teams: [{ teamId: "t1", teamName: "T1", leagueId: "LCK", logoUrl: "/msi-t1.png", players: [] }],
+        },
+      ],
+    } as Partial<SeasonHistoryEntry>);
+    const refs = archivedIntlPlacements(e, "msi");
+    expect(refs.map((t) => t.name)).toEqual(["T1", "G2"]);
+    expect(refs[0].logoUrl).toBe("/msi-t1.png");
+    expect(refs[1].logoUrl).toBeUndefined();
+    expect(archivedIntlsWithPlacements(e)).toEqual(["msi"]);
+  });
+
+  it("falls back to champion and runner-up for legacy archives", () => {
+    const e = entry({ champion: teamRef("T1"), runnerUp: teamRef("BLG", "LPL") });
+    expect(archivedIntlPlacements(e, "worlds").map((t) => t.name)).toEqual(["T1", "BLG"]);
+    expect(archivedIntlsWithPlacements(e)).toEqual(["worlds"]);
   });
 });
 

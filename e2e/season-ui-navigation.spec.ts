@@ -105,7 +105,7 @@ test("live split and international stats show role/champion icons without longes
 
 test("timeline region order matches for champions and MVPs and region strength has logos", async ({ page }) => {
   const teams = LEAGUE_IDS.map(leagueId => ({ name: `${leagueId} Winner`, leagueId, iconKey: "shield", color: "#c8aa6e" }));
-  const entry = { id: "order-year", name: "Region Order Year", archivedAt: 1, complete: true, champion: teams[0], runnerUp: null, intlChampions: { worlds: teams[0] }, splitChampions: { winter: Object.fromEntries(teams.map(t => [t.leagueId, t])) }, splitMvps: [...teams].reverse().map(team => ({ split: "winter", leagueId: team.leagueId, team, lane: "top", playerId: team.leagueId, playerName: `${team.leagueId} MVP`, avgRating: 8, games: 3 })) };
+  const entry = { id: "order-year", name: "Region Order Year", archivedAt: 1, complete: true, champion: teams[0], runnerUp: null, intlChampions: { worlds: teams[0] }, intlPlacements: { worlds: teams }, intlMainBracketSizes: { worlds: teams.length - 1 }, splitChampions: { winter: Object.fromEntries(teams.map(t => [t.leagueId, t])) }, splitMvps: [...teams].reverse().map(team => ({ split: "winter", leagueId: team.leagueId, team, lane: "top", playerId: team.leagueId, playerName: `${team.leagueId} MVP`, avgRating: 8, games: 3 })) };
   await seed(page, { seasonHistory: [entry] });
   await page.goto("/"); await page.getByRole("button", { name: /^Season History/ }).click();
   await page.getByText("Region Order Year", { exact: true }).first().click();
@@ -124,6 +124,11 @@ test("timeline region order matches for champions and MVPs and region strength h
   await expect(placements.locator('img[src*="league-logos"]')).toHaveCount(LEAGUE_IDS.length);
   await expect(placements.getByText("1.", { exact: true })).toHaveCount(LEAGUE_IDS.length);
   await placements.screenshot({ path: "test-results/playwright/split-placements.png" });
+  const intlPlacements = page.getByRole("region", { name: "International placements", exact: true });
+  await expect(intlPlacements.getByText("Worlds", { exact: true })).toBeVisible();
+  await expect(intlPlacements.locator("li")).toHaveCount(LEAGUE_IDS.length);
+  await expect(intlPlacements.getByText("Play-In", { exact: true })).toHaveCount(1);
+  await intlPlacements.screenshot({ path: "test-results/playwright/intl-placements.png" });
   const mvps = page.getByText("Split MVPs", { exact: true }).locator("..");
   const logos = await mvps.locator('img[src*="league-logos"]').evaluateAll(nodes => nodes.map(n => n.getAttribute("src")));
   expect(logos).toEqual(LEAGUE_IDS.map(id => `/league-logos/${id}.png`));
