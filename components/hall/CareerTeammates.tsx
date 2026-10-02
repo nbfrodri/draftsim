@@ -1,6 +1,6 @@
 "use client";
 import { useId, useState } from "react";
-import type { CareerTeammate } from "@/lib/season/teammates";
+import type { CareerTeammate, SharedTeammateEvent } from "@/lib/season/teammates";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
@@ -9,6 +9,75 @@ import LeagueIcon from "../LeagueIcon";
 import SplitIcon from "../season/SplitIcon";
 import GoToSeasonButton from "./GoToSeasonButton";
 import { TROPHY_LABELS } from "@/lib/season/titlePlayground";
+import { intlOutcomeLabel, splitPlacementLabel } from "@/lib/season/placements";
+import RosterSnapshotCards from "./RosterSnapshotCards";
+
+function SharedEvent({
+  stage,
+  seasonId,
+  peerId,
+}: {
+  stage: SharedTeammateEvent;
+  seasonId: string;
+  peerId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const phaseScope = stage.split ?? stage.event;
+  const result = stage.splitPlacement != null
+    ? splitPlacementLabel(stage.splitPlacement)
+    : stage.intlOutcome ? intlOutcomeLabel(stage.intlOutcome) : "Placement unavailable";
+  const champion = stage.splitPlacement === 1 || stage.intlOutcome?.kind === "champion";
+  const resultLabel = champion ? `Champion · ${result}`
+    : stage.splitPlacement === 2 || stage.intlOutcome?.kind === "finalist" ? `Runner-up · ${result}`
+    : stage.intlOutcome?.kind === "playins-exit" ? `Play-in exit · ${result}` : result;
+  return (
+    <details
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="border border-rift-line/30 bg-rift-bg/20"
+    >
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 p-2 focus-visible:outline focus-visible:outline-rift-gold">
+        <span className="inline-flex items-center gap-1.5 text-rift-goldbright">
+          {stage.kind === "split" && stage.split ? (
+            <SplitIcon split={stage.split} size={12} />
+          ) : stage.event ? (
+            <LeagueIcon league={stage.event} size={12} />
+          ) : null}
+          <span>{phaseScope ? TROPHY_LABELS[phaseScope] : stage.label}</span>
+        </span>
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <TeamNameLink
+            renderAs="span"
+            noNavigate
+            name={stage.team.name}
+            leagueId={stage.team.leagueId}
+            logoUrl={stage.team.logoUrl ?? resolveTeamLogo(stage.team.name)}
+            seasonId={seasonId}
+            phaseScope={phaseScope}
+          />
+          <LeagueIcon league={stage.team.leagueId} size={12} />
+        </span>
+        <span className={`ml-auto tabular-nums ${champion ? "text-rift-goldbright" : "text-rift-mutedbright"}`}>
+          {resultLabel}
+        </span>
+        <span aria-hidden className="text-rift-gold/70">{open ? "▴" : "▾"}</span>
+      </summary>
+      {open && (
+        <div className="p-2 pt-0">
+          <RosterSnapshotCards
+            label={phaseScope ? TROPHY_LABELS[phaseScope] : stage.label}
+            team={stage.team}
+            roster={stage.rosterSnapshot.players}
+            coach={stage.rosterSnapshot.coach?.name}
+            seasonId={seasonId}
+            phaseScope={phaseScope}
+            highlightPlayerId={peerId}
+            preserveArchivedLogo
+          />
+        </div>
+      )}
+    </details>
+  );
+}
 
 export default function CareerTeammates({
   rows,
@@ -19,6 +88,7 @@ export default function CareerTeammates({
 }) {
   const listId = useId();
   const [all, setAll] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const visible = all ? rows : rows.slice(0, 10);
   return (
     <section
@@ -57,7 +127,16 @@ export default function CareerTeammates({
         >
           {visible.map((peer, i) => (
             <li key={peer.id} className="border-b border-rift-line/25 py-2">
-              <details className="group">
+              <details className="group" onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setExpanded((previous) => {
+                  if (previous.has(peer.id) === open) return previous;
+                  const next = new Set(previous);
+                  if (open) next.add(peer.id);
+                  else next.delete(peer.id);
+                  return next;
+                });
+              }}>
                 <summary className="flex cursor-pointer list-none items-center gap-2 focus-visible:outline focus-visible:outline-rift-gold">
                   <span className="w-5 text-[10px] tabular-nums text-rift-mutedbright">
                     {i + 1}
@@ -108,10 +187,11 @@ export default function CareerTeammates({
                     ▾
                   </span>
                 </summary>
-                <div className="mt-2 ml-7 border-l border-rift-gold/30 pl-3 text-[10px] text-rift-mutedbright">
+                {expanded.has(peer.id) && <div className="mt-2 ml-7 border-l border-rift-gold/30 pl-3 text-[10px] text-rift-mutedbright">
                   <p className="mb-2 text-[8px] uppercase tracking-[0.15em] text-rift-gold/70">
-                    Shared seasons & titles
+                    Shared seasons, rosters & results
                   </p>
+                  <p className="mb-2 text-[9px]">Expand a split or event to see the roster.</p>
                   <div className="space-y-2">
                     {peer.seasons.map((season) => (
                       <div
@@ -149,6 +229,11 @@ export default function CareerTeammates({
                             </span>
                           )}
                         </div>
+                        <div className="mt-2 space-y-1" aria-label={`${season.name} shared events`}>
+                          {season.stages.map((stage) => (
+                            <SharedEvent key={stage.id} stage={stage} seasonId={season.id} peerId={peer.id} />
+                          ))}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -159,7 +244,7 @@ export default function CareerTeammates({
                   >
                     Open player profile
                   </PlayerNameLink>
-                </div>
+                </div>}
               </details>
             </li>
           ))}

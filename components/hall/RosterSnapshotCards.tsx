@@ -18,6 +18,7 @@ export default function RosterSnapshotCards({
   coach,
   seasonId,
   phaseScope,
+  preserveArchivedLogo = false,
 }: {
   roster?: TeamRosterSnapshot["players"];
   label: string;
@@ -25,6 +26,7 @@ export default function RosterSnapshotCards({
   highlightPlayerId?: string;
   coach?: string;
   seasonId: string;
+  preserveArchivedLogo?: boolean;
   phaseScope?:
     | import("@/lib/season/types").SplitId
     | import("@/lib/season/types").InternationalId;
@@ -47,7 +49,9 @@ export default function RosterSnapshotCards({
               phaseScope={phaseScope}
               iconKey={team.iconKey}
               color={team.color}
-              logoUrl={resolveTeamLogo(team.name, team.logoUrl)}
+              logoUrl={preserveArchivedLogo
+                ? team.logoUrl ?? resolveTeamLogo(team.name)
+                : resolveTeamLogo(team.name, team.logoUrl)}
               logoSize={15}
             />
             <LeagueIcon league={team.leagueId} size={12} />

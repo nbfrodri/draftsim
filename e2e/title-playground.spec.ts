@@ -397,9 +397,9 @@ test("title playground filters teams, player winning regions, years and realitie
   const shared = teammates.getByRole("listitem").first();
   for (const year of [1,2,3,4]) await expect(shared.getByText(`Alpha — Year ${year}`,{exact:true})).toBeVisible();
   await expect(shared.getByRole("button",{name:"Open player profile",exact:true})).toBeVisible();
-  await expect(shared.getByText("Winter",{exact:true})).toHaveCount(4);
-  await expect(shared.getByText("Worlds",{exact:true})).toHaveCount(4);
-  await expect(shared.getByRole("img",{name:"Global Cup",exact:true})).toHaveCount(1);
+  await expect(shared.getByText("Winter",{exact:true})).toHaveCount(8);
+  await expect(shared.getByText("Worlds",{exact:true})).toHaveCount(8);
+  await expect(shared.getByRole("img",{name:"Global Cup",exact:true})).toHaveCount(2);
   await expect(shared.getByRole("button",{name:"View Alpha — Year 1 in timeline",exact:true})).toBeVisible();
   const pool = page.getByText("Champion Pool · Career",{exact:true}).locator("..");
   const gamesBox = await pool.getByText("4000000g",{exact:true}).boundingBox();

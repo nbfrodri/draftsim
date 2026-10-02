@@ -1306,6 +1306,7 @@ describe("career teammates", () => {
     expect(rows.find(p => p.id === "buddy")!.seasons[0].titles).toEqual(["winter","spring"]);
     expect(rows.find(p => p.id === "one")!.seasons[0].titles).toEqual(["winter"]);
     expect(rows.find(p => p.id === "two")!.seasons[0].titles).toEqual(["spring"]);
+    expect(rows.find(p => p.id === "buddy")!.seasons[0].stages.map(s => s.split)).toEqual(["winter", "spring"]);
 
     expect(playerProfile(entries,"vet")!.teammates).toEqual(careerTeammates(entries,"vet"));
   });
@@ -1321,6 +1322,89 @@ describe("career teammates", () => {
     unfinished.complete = false;
     expect(careerTeammates([...entries,unfinished],"vet").map(p => p.id)).toEqual(["old"]);
     expect(careerTeammates([{...entries[0],phaseRosters:[]}],"vet")).toEqual([]);
+  });
+  it("keeps each shared event's club, full roster, coach and result through transfers", () => {
+    const [entry] = retiredFixture([["vet", "buddy", "mid", "bot", "support"]]);
+    const winter = entry.phaseRosters![0];
+    winter.teams[0].logoUrl = "/winter-logo.png";
+    const spring = structuredClone(winter);
+    spring.phaseIndex = 2;
+    spring.split = "spring";
+    spring.label = "Spring Split";
+    // Same club name in another region is a separate historical team.
+    spring.teams[0].leagueId = "LEC";
+    spring.teams[0].logoUrl = "/spring-logo.png";
+    spring.teams[0].coach!.name = "New coach";
+    spring.teams[0].players[2] = { id: "replacement", name: "Replacement", lane: "middle", tier: "S" };
+    const msi = structuredClone(spring);
+    msi.phaseIndex = 3;
+    msi.kind = "international";
+    delete msi.split;
+    msi.event = "msi";
+    msi.label = "MSI";
+    const summer = structuredClone(spring);
+    summer.phaseIndex = 4;
+    summer.split = "summer";
+    summer.teams[0].players[1].id = "new-buddy";
+    entry.phaseRosters!.push(spring, msi, summer);
+    const lck = { name: "T1", leagueId: "LCK", iconKey: "shield", color: "#fff" } as const;
+    const lec = { ...lck, leagueId: "LEC" } as const;
+    const g2 = { ...lec, name: "G2" };
+    const genG = { ...lck, name: "Gen.G" };
+    entry.splitPlacements = { winter: { LCK: [genG, lck] }, spring: { LEC: [g2, lec] } };
+    entry.splitChampions = { winter: { LCK: genG }, spring: { LEC: g2 }, summer: { LEC: lec } };
+    entry.intlPlacements = { msi: [lck, g2, lec] };
+    entry.intlMainBracketSizes = { msi: 3 };
+    entry.intlChampions = { msi: lck };
+    const [season] = careerTeammates([entry], "vet").find(p => p.id === "buddy")!.seasons;
+    expect(season.titles).toEqual([]);
+    expect(season.stages.map(s => [s.split ?? s.event, s.team.leagueId, s.team.logoUrl])).toEqual([
+      ["winter", "LCK", "/winter-logo.png"], ["spring", "LEC", "/spring-logo.png"], ["msi", "LEC", "/spring-logo.png"],
+    ]);
+    expect(season.stages[0].rosterSnapshot).toEqual(winter.teams[0]);
+    expect(season.stages[1].rosterSnapshot).toEqual(spring.teams[0]);
+    expect(season.stages[0].rosterSnapshot.players.map(p => p.id)).toContain("mid");
+    expect(season.stages[1].rosterSnapshot.players.map(p => p.id)).toContain("replacement");
+    expect(season.stages[1].rosterSnapshot.coach?.name).toBe("New coach");
+    expect(season.stages.map(s => s.splitPlacement)).toEqual([2, 2, undefined]);
+    expect(season.stages[2].intlOutcome).toEqual({ kind: "playoffs-exit", placement: 3 });
+  });
+  it("excludes recorded non-entrants, retains unknown legacy results and identifies play-in exits", () => {
+    const [entry] = retiredFixture([["vet", "buddy"]]);
+    const team = { name: "T1", leagueId: "LCK", iconKey: "shield", color: "#fff" } as const;
+    const other = { ...team, name: "Other" };
+    const event = structuredClone(entry.phaseRosters![0]);
+    event.kind = "international";
+    delete event.split;
+    event.event = "msi";
+    event.phaseIndex = 3;
+    event.label = "MSI";
+    const worlds = structuredClone(event);
+    worlds.event = "worlds";
+    worlds.phaseIndex = 5;
+    const cup = structuredClone(event);
+    cup.event = "global-cup";
+    cup.phaseIndex = 6;
+    entry.phaseRosters!.push(event, worlds, cup);
+    entry.intlPlacements = { msi: [other], worlds: [other, { ...other, name: "Finalist" }, team] };
+    entry.intlMainBracketSizes = { worlds: 2 };
+    entry.intlChampions = { msi: other, worlds: other };
+    const peer = careerTeammates([entry], "vet")[0];
+    expect(peer.events).toBe(3);
+    expect(peer.seasons[0].stages.map(s => s.split ?? s.event)).toEqual(["winter", "worlds", "global-cup"]);
+    expect(peer.seasons[0].stages[0].splitPlacement).toBeUndefined();
+    expect(peer.seasons[0].stages[1].intlOutcome).toEqual({ kind: "playins-exit", placement: 3 });
+    expect(peer.seasons[0].stages[2].intlOutcome).toBeUndefined();
+  });
+  it("uses the newest archive revision without duplicate or stale shared rosters", () => {
+    const [entry] = retiredFixture([["vet", "buddy", "old"]]);
+    const revision = structuredClone(entry);
+    revision.archivedAt += 1;
+    revision.phaseRosters![0].teams[0].players[2].id = "new";
+    const peer = careerTeammates([revision, entry, revision], "vet").find(p => p.id === "buddy")!;
+    expect(peer.events).toBe(1);
+    expect(peer.seasons[0].stages).toHaveLength(1);
+    expect(peer.seasons[0].stages[0].rosterSnapshot.players.map(p => p.id)).toEqual(["vet", "buddy", "new"]);
   });
 });
 
