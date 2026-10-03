@@ -23,11 +23,13 @@ DraftSim utiliza Microsoft Edge WebView2. El instalador gestiona su instalación
 
 El guardado de escritorio incluye temporadas sin terminar. Las realidades inactivas se cargan bajo demanda; Backups ofrece diagnósticos locales optativos. Consulta la [guía de persistencia](docs/persistence-and-recovery.md) para la migración al formato 8 y su recuperación.
 
+**Continue playing** y las demás vistas muestran la pantalla de carga centrada de DraftSim, con un spinner, mientras se carga su interfaz. Comparte la presentación del arranque y desaparece cuando la vista solicitada está lista. Consulta la [carga de vistas](docs/interaction-and-execution.md#carga-de-vistas).
+
 El Hall incluye **Roster Moves**: historial cronológico de mercado por realidad, también del año en curso, con filtros por año, ventana, equipo, región y rol, e insignias de estado del jugador. Los archivos antiguos muestran únicamente los eventos que conservaron. Dentro de una ventana, los movimientos siguen el orden de la simulación: primero los transfers de mitad de temporada y luego fichajes, promociones y releases; en el offseason, los releases y fichajes de fin de año van antes que el pase de transfers de la IA, y los cambios de coach al final. Un titular enviado a la academy por una promoción, un fichaje o la subida de un rookie aparece como demotion justo antes de su sustituto, cuando el archivo registró ese destino. Las salidas por agency del main roster a free agency aparecen como releases, y las demotions de checkpoint aplazadas a una ventana de transfers se fechan en esa ventana. Los movimientos por agency de una academy a otra muestran la academy de origen si se registraron desde la v1.1.2; en los anteriores sigue siendo desconocida.
 
 Timeline → By Season muestra también **International Placements**: el orden final completo de First Stand, MSI, Worlds y la Global Cup, con la región y el logo de cada organización según el snapshot de ese evento y las eliminaciones en play-in marcadas. Los archivos antiguos muestran solo campeón y subcampeón.
 
-Consulta las [notas de v0.9.0](docs/releases/v0.9.0.md) para los nuevos destacados de torneos, resultados más claros, cards de rosters y tipografía uniforme.
+Consulta las [notas de v1.3.1](docs/releases/v1.3.1.md) para la carga visual uniforme, y las de [v1.3.0](docs/releases/v1.3.0.md) para los rosters compartidos con compañeros, los logos históricos y los resultados por split o evento.
 
 La fuerza de los equipos admite **medias estrellas (de 1 a 5)** en la configuración, las tarjetas, los rankings, el mercado y la simulación normal y masiva. Los guardados anteriores siguen siendo compatibles y los resultados terminados se conservan. Consulta el [contrato técnico](docs/technical-design.md#half-star-team-strength).
 
@@ -60,7 +62,7 @@ Funciona con realidades existentes y mantiene separados sus historiales. Los arc
 
 El gráfico circular de equipos muestra su porcentaje de los títulos seleccionados, con logos o nombres en los sectores y porcentajes opcionales. Respeta los filtros de región, competición, años y comparación.
 
-Los perfiles incluyen Most frequent teammates: temporadas compartidas contadas una vez por año, eventos compartidos y años desplegables con los títulos ganados juntos y accesos a Timeline. Ambos jugadores deben figurar en el roster ganador del evento para atribuirles un título compartido.
+Los perfiles incluyen **Most frequent teammates**: las temporadas compartidas cuentan una vez por año archivado y los empates se resuelven por eventos compartidos. Despliega un compañero para ver los títulos de cada año y su acceso a Timeline, además de los splits e internacionales registrados juntos. Cada evento muestra el club, la región, el logo histórico y la posición final; al desplegarlo aparecen el roster completo de ese momento, los tiers, las edades registradas y el coach. **Close roster** devuelve el foco a la fila del evento. Los transfers dentro del año conservan la alineación de cada fase. Un título exige ambos IDs en el roster ganador; se excluyen los equipos cuya no participación internacional está registrada, y los resultados desconocidos muestran **Placement unavailable**. Consulta las [reglas de historial compartido](docs/title-playground.md#shared-career-history) para los detalles de cómputo y los límites de los archivos antiguos.
 
 Los nombres de equipos y jugadores muestran sus cards. En el desglose, pulsa cantidades, competiciones, años, equipos o regiones para filtrar la tabla; el botón junto al año lo abre en Timeline.
 

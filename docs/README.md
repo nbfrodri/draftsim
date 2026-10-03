@@ -1,6 +1,6 @@
 # Documentación técnica de DraftSim
 
-Esta documentación describe el código de la versión 0.8.0. Distingue contratos implementados de propuestas de evolución. Los resultados de CI y el estado de publicación deben consultarse en la ejecución correspondiente de GitHub.
+Esta documentación distingue contratos implementados de propuestas de evolución. Las notas de versión registran los cambios publicados; los planes y auditorías conservan su contexto histórico. Los resultados de CI y el estado de publicación deben consultarse en la ejecución correspondiente de GitHub.
 
 ## Recorridos de lectura
 
@@ -26,6 +26,10 @@ Esta documentación describe el código de la versión 0.8.0. Distingue contrato
 Los documentos de `plans/` y las auditorías registran objetivos y decisiones de un momento concreto; no certifican por sí solos el comportamiento actual. Si una descripción contradice el código, debe investigarse y actualizarse junto con las pruebas pertinentes.
 
 ## Versiones
+
+- [v1.3.1: pantalla de carga centrada al continuar y abrir vistas](releases/v1.3.1.md).
+
+- [v1.3.0: rosters compartidos, logos históricos y resultados de compañeros](releases/v1.3.0.md).
 
 - [v0.9.1: logos y badges de Latest Matchday](releases/v0.9.1.md).
 

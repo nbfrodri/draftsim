@@ -35,6 +35,57 @@ test("continue reality appears before game modes and opens the existing season",
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("draftsim-store")!).state.season.id)).toBe(season.id);
 });
 
+for (const destination of ["continue reality", "realities hub"] as const) {
+  test(`${destination} shows the centered spinner while its view loads`, async ({ page }) => {
+    const season = makeAuditSeason("Loading fixture");
+    await page.addInitScript(season => {
+      localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state: {
+        season, seasonViewOpen: false, activeRealityId: season.franchise.id,
+        realities: [{ id: season.franchise.id, name: season.franchise.name, year: 1, season, history: [] }],
+      } }));
+    }, season);
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/");
+    await expect(page.getByRole("region", { name: "Continue playing" })).toBeVisible();
+
+    // Hold view code downloads so the transient fallback can be inspected.
+    let releaseView!: () => void;
+    const viewDownload = new Promise<void>(resolve => { releaseView = resolve; });
+    await page.route("**/_next/static/chunks/*.js", async route => {
+      await viewDownload;
+      await route.continue();
+    });
+    try {
+      if (destination === "continue reality") {
+        await page.getByRole("region", { name: "Continue playing" }).getByRole("button").click();
+      } else {
+        await page.getByRole("region", { name: "Game modes" }).getByRole("button", { name: /Realities/ }).click();
+      }
+      const loading = page.getByRole("status", { name: "Loading DraftSim view", exact: true });
+      await expect(loading).toBeVisible();
+      await expect(loading).toHaveAttribute("aria-busy", "true");
+      await expect(loading).toContainText("Preparing your view");
+      await expect(loading).toContainText("Loading…");
+      const spinner = loading.locator(".animate-spin");
+      await expect(spinner).toBeVisible();
+      const bounds = (await spinner.boundingBox())!;
+      expect(Math.abs(bounds.x + bounds.width / 2 - 512)).toBeLessThan(2);
+      expect(bounds.y).toBeGreaterThan(256);
+      expect(bounds.y + bounds.height).toBeLessThan(600);
+      await page.screenshot({ path: `test-results/playwright/${destination.replaceAll(" ", "-")}-loading.png` });
+    } finally {
+      releaseView();
+    }
+    await expect(page.getByRole("status", { name: "Loading DraftSim view", exact: true })).toHaveCount(0);
+    if (destination === "continue reality") {
+      await expect(page.getByRole("heading", { name: season.name, exact: true })).toBeVisible();
+      expect(await page.evaluate(() => JSON.parse(localStorage.getItem("draftsim-store")!).state.season.id)).toBe(season.id);
+    } else {
+      await expect(page.getByRole("heading", { name: "Realities", exact: true })).toBeVisible();
+    }
+  });
+}
+
 
 test("Hall opens from the initial menu and timeline cards keep event-specific winners", async ({ page }) => {
   const team = { name: "Snapshot Winners", leagueId: "LCK", iconKey: "shield", color: "#c8aa6e" };

@@ -118,6 +118,16 @@ Dato ausente no equivale a cero. Convertirlo puede crear falsos líderes o míni
 
 Los equipos se identifican dentro del contexto de competición. Azul y rojo pueden intercambiarse entre partidas; las victorias de serie y los logos de recap se resuelven con los equipos de cada partida.
 
+### Compañeros, rosters compartidos y resultados
+
+`careerTeammates` en `lib/season/teammates.ts` usa solo archivos completos y coincidencias de ambos IDs estables en el mismo roster de fase. Cada ID de archivo cuenta una temporada; las revisiones duplicadas conservan la de mayor `archivedAt`. El ranking ordena por temporadas y después por eventos distintos. Compartir varios eventos o clubes dentro de un año no multiplica la temporada.
+
+`SharedTeammateSeason.stages` conserva el equipo por nombre y región, el snapshot completo y el resultado de cada fase compartida, en orden de `phaseIndex`. El mismo nombre de club en otra región no identifica al mismo equipo. Los cambios posteriores de roster, coach o club no sustituyen ese snapshot. La vista de compañeros prioriza el logo guardado en la fase y contextualiza las cards con `seasonId` y `phaseScope`.
+
+Los snapshots internacionales también pueden incluir clubes no participantes. Si existe una lista completa `intlPlacements`, se excluyen los clubes sin evidencia de participación. Sin cobertura de resultado, la fase antigua puede seguir visible, pero la UI muestra `Placement unavailable`; no deduce una eliminación, un cero ni un `Didn't qualify`. Las posiciones usan `teamSplitPlacement` y `teamIntlOutcome`, incluida la evidencia de tamaño del cuadro para distinguir salidas de play-in. Un título compartido exige que ambos jugadores estén en el snapshot del campeón registrado de ese evento y que coincidan nombre y región.
+
+Estos datos se derivan al leer el perfil: no se añaden campos persistidos ni se migran o completan los archivos antiguos. La guía de [historial compartido](title-playground.md#shared-career-history) describe los controles y la cobertura de regresión.
+
 ## 8. Contratos visuales compartidos
 
 - Campeones y MVPs de split usan `LEAGUE_IDS` para mantener el mismo orden regional, salvo rankings ordenados explícitamente por valor.

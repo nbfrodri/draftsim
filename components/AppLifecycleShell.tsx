@@ -6,14 +6,14 @@ import { formatElapsed } from "@/lib/operationProgress";
 type Props = {
   ornament: string;
   message: string;
-  /** Fixed full-screen overlay (exit) vs in-flow shell (startup). */
+  /** Fixed full-screen overlay (exit) vs in-flow shell (startup/view loading). */
   overlay?: boolean;
   status?: "busy" | "error";
   "aria-label": string;
 };
 
 /**
- * Shared branded shell for startup and shutdown — rift-gold typography,
+ * Shared branded shell for startup, shutdown and view loading — rift-gold typography,
  * spinner, and ornament line used by boot and close overlays.
  */
 export default function AppLifecycleShell({
@@ -69,7 +69,7 @@ export default function AppLifecycleShell({
           >
             {message}
           </p>
-          {status === "busy" && <p className="text-xs tabular-nums text-rift-mutedbright">Elapsed {formatElapsed(elapsed)} ? Please wait</p>}
+          {status === "busy" && <p className="text-xs tabular-nums text-rift-mutedbright">Elapsed {formatElapsed(elapsed)} · Please wait</p>}
         </div>
       </div>
     </div>

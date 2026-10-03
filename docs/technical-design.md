@@ -164,6 +164,12 @@ A regression exercises five real franchise rollovers and SQLite save/load bounda
 New inactive spells carry optional `inactiveTenure` counters. Each year-end observation increments the player's previous Academy or Free Agent status, independently of the resettable badge clock. Moving between those inactive states preserves counts; returning to a main roster and leaving again starts a new spell. These are observed simulation year-end counts, not exact fractional durations or lifetime career totals. Legacy missing counters remain unknown. Retirement news freezes the previous committed status, age and available counters before the inactive record is lost or altered.
 
 
+### Shared teammate event history
+
+`playerProfile` includes `careerTeammates` from `lib/season/teammates.ts`. The pure helper builds shared years and event rows from `phaseRosters` in completed archives, joining stable player IDs and preserving each event's team identity, full lineup, coach and placement evidence. Archive revisions and repeated events are deduplicated. Full international placement lists distinguish participants from non-entrants; missing legacy results stay unknown. The derived `SharedTeammateSeason` and `SharedTeammateEvent` structures are profile data, not new save fields.
+
+`components/hall/CareerTeammates.tsx` renders those rows without rescanning history on expansion. Year/event content and roster cards mount when opened. `RosterSnapshotCards` receives the captured lineup and the archived season/event context; teammate details opt into `preserveArchivedLogo`. Its Close roster control closes the nearest event disclosure and restores summary focus. See [domain contracts](domain-contracts.md#compañeros-rosters-compartidos-y-resultados) and the [user guide](title-playground.md#shared-career-history).
+
 ### Shared lazy history loading in the Hall
 
 `SeasonHistoryView` loads a selected reality's complete archive once for every tab through `loadHallRealityHistory`. Previously only the Roster Moves child performed a private read, leaving Timeline/Records/Search with an empty in-memory placeholder. The shared loader preserves active reality and season body, checks target identity and cancellation, drains pending snapshots before authorizing history writes, and installs the full archive before any destructive history action is offered. Loading and retry UI are shared across tabs; a failed read cannot be presented as an empty archive.

@@ -18,7 +18,15 @@ The team **Pie chart** shows counts and percentages among the displayed title-wi
 
 ## Shared career history
 
-Player profiles rank **Most frequent teammates** by distinct archived seasons together, then by shared events. Sharing only part of a season counts as one shared season. Expand a player to see exact seasons, titles won together and a shortcut to each year in Timeline. Only simultaneous main-roster snapshots count; a transfer after a title does not inherit shared credit. Missing historical identities are not inferred. Profile cards and a separate profile link remain available.
+Player profiles rank **Most frequent teammates** by distinct completed archived seasons together, then by shared splits and international events. Sharing only part of a season counts as one shared season. The list initially shows ten teammates; **Show all** includes the rest. The collapsed row's club icon represents the latest shared team.
+
+Expand a teammate to see each shared year's titles and Timeline shortcut. Under each year, event rows follow phase order and show the competition, club, region, logo and recorded finish. Results include **Champion · #1**, **Runner-up · #2**, other placements and **Play-in exit** when archived bracket-size evidence identifies that exit. A missing finish is **Placement unavailable**, rather than an inferred zero or qualification failure.
+
+Expand a split or event to see its complete roster snapshot, grouped by position, with player names, tiers, recorded ages and coach. The selected teammate is highlighted. Player and team cards use that season and event context. **Close roster** closes only that event's snapshot and returns focus to its summary. Roster cards mount when opened; the view reads the existing archive and needs no save migration.
+
+Only simultaneous main-roster snapshots containing both stable player IDs count. A transfer after a title does not inherit shared credit. Each event retains its own club and lineup, including within-year roster or region changes. The saved event logo takes precedence over today's bundled logo; missing artwork uses the existing bundled/icon fallback. Profile cards and a separate **Open player profile** link remain available.
+
+Completed duplicate archive IDs use the newest `archivedAt` revision. Repeated snapshots of the same event do not add another shared-event count or duplicate that club's event row. Clubs with the same name in different regions remain separate. Where a full international placement list is retained, clubs without participation evidence are excluded even if the phase snapshot stamped their roster. Legacy snapshots with missing placement coverage remain visible with an unavailable result; missing player identities, rosters or results are not reconstructed from current teams.
 
 ## Counting rules
 
@@ -34,4 +42,4 @@ This view is read-only, lazily loaded, and needs no save migration or new runtim
 
 Reference inspected on 2026-09-15: [Horizontal bar chart with gradient by smknstd on Dribbble](https://dribbble.com/shots/11352990-Horizontal-bar-chart-with-gradient). Adapted the aligned identity column, common baseline and visible end totals. Competition colors replace the decorative gradient so segments encode actual data; DraftSim's existing dark/gold theme, region icons and team assets remain in use.
 
-Unit tests cover winning-region attribution, shared names, phase and archive deduplication, inclusive years, Global Cup, zero-title participants and missing legacy rosters. The browser test exercises source isolation, filtering, comparison selection, keyboard breakdown access and the cumulative view, with captures at desktop and the 1024px minimum window width.
+Unit tests cover winning-region attribution, shared names, phase and archive deduplication, inclusive years, Global Cup, zero-title participants and missing legacy rosters. Teammate tests additionally cover within-year transfers, same-named clubs across regions, full frozen lineups and coaches, non-entrants, play-in exits, unknown results and replacement archive revisions. Browser regressions exercise source isolation, filtering, comparison selection, keyboard breakdown access, the cumulative view, the top-ten teammate toggle, archived-logo precedence, event-specific lineups and Close roster focus. Captures cover desktop and the 1024px minimum window width. See [v1.3.0 release notes](releases/v1.3.0.md) for publication validation.

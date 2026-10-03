@@ -44,6 +44,16 @@ Los modales que representan una acción destructiva no deben convertir Esc en ac
 
 ## 4. Operaciones bloqueantes
 
+### Carga de vistas
+
+Los fallbacks de `next/dynamic` en `components/DraftApp.tsx` reutilizan `AppViewLoading`, que presenta `AppLifecycleShell`: marca DraftSim, spinner y estado de carga centrados en la ventana. Se aplica al continuar la temporada o realidad y al abrir configuraciones, torneos, partidas, bibliotecas, Hall y Realities. La vista conserva su carga diferida y sustituye el shell al terminar de cargar su código.
+
+El shell anuncia `Loading DraftSim view` con `role="status"`, `aria-live="polite"` y `aria-busy`. Es presentación de carga de interfaz; no inicia restauración, modifica el guardado ni reutiliza el timeout de hidratación de `AppStartupLoading`. El cierre nativo y las operaciones de datos conservan sus overlays y guardas independientes.
+
+Las regresiones de `e2e/main-menu.spec.ts` retienen las descargas del código de la vista para comprobar el spinner centrado tanto en Continue playing como en Realities, y verifican que la pantalla solicitada aparece después sin cambiar la identidad de la temporada.
+
+### Operaciones de datos
+
 Una transacción en curso no se cancela de forma segura ocultando su overlay. Guardado, restauración, importación o mantenimiento tienen sus propios límites de cancelación. La capa bloqueante consume Esc mientras el flujo no permite salir.
 
 `lib/desktopStorage.ts` separa el estado de cierre nativo de otras operaciones; `lib/operationProgress.ts` describe fases de progreso. La interfaz debe distinguir trabajo pendiente, en ejecución, error y éxito. Una animación o una estimación no confirma un commit.

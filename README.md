@@ -21,9 +21,11 @@ DraftSim uses Microsoft Edge WebView2. The installer handles its installation wh
 
 ## What you can play
 
-Read the [v0.9.0 release notes](docs/releases/v0.9.0.md) for tournament highlights, clearer results, roster cards and consistent typography.
+Read the [v1.3.1 release notes](docs/releases/v1.3.1.md) for consistent view loading, and [v1.3.0](docs/releases/v1.3.0.md) for shared teammate rosters, historical team logos and results by split or event.
 
 Desktop saves include unfinished seasons. Inactive realities load on demand; Backups offers optional local save diagnostics. See the [persistence guide](docs/persistence-and-recovery.md) for storage format 8 migration and recovery.
+
+**Continue playing** and other views show the centered DraftSim loading screen with a spinner while their interface loads. It shares the startup presentation and disappears when the requested view is ready. See [view loading](docs/interaction-and-execution.md#carga-de-vistas).
 
 The Hall also includes **Roster Moves**: chronological market history per reality, including the current year, with year/window/team/region/role filters and player-status badges. Older archives show only the events they actually retained. Within a window, moves follow the simulation order: in-season transfers first, then signings, promotions and releases; in the offseason, year-end releases and signings come before the AI transfer pass, with coach moves last. A starter pushed to the academy by a promotion, signing or rookie call-up appears as a demotion just before their replacement, when the archive recorded that destination. Agency walks from the main roster to free agency are listed as releases, and checkpoint demotions deferred to a transfer window are dated to that window. Agency moves from one academy to another show the origin academy for moves recorded from v1.1.2; older ones keep it unknown.
 
@@ -60,7 +62,7 @@ Works with existing realities and keeps their histories separate. Older archives
 
 The team Pie chart shows each visible team's share of selected titles, with logos or names on sectors and optional percentage labels. It follows the region, competition, year and comparison filters.
 
-Player profiles include Most frequent teammates: shared seasons counted once per year, shared events and expandable years with titles won together and Timeline shortcuts. Titles require both players on the winning event's recorded roster.
+Player profiles include **Most frequent teammates**, ranked by shared seasons and then shared events; each archived year counts once. Expand a teammate to see each shared year's titles and Timeline shortcut, plus the splits and international events recorded together. Every event shows the club, region, historical logo and finish; expand it to inspect the full captured roster, player tiers, recorded ages and coach. **Close roster** returns focus to the event row. Within-year transfers retain each event's lineup. Titles require both player IDs on the winning roster; recorded international non-entrants are excluded, and missing results show **Placement unavailable**. See [shared career history](docs/title-playground.md#shared-career-history) for the counting and legacy-data rules.
 
 Hover team and player names for profile cards. In the breakdown, click counts, competitions, years, teams or regions to filter the table; the button beside each year opens it in Timeline.
 

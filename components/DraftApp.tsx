@@ -32,23 +32,35 @@ useSyncExternalStore,
 import AppClosingScreen from "./AppClosingScreen";
 import AppDesktopOperationOverlay from "./AppDesktopOperationOverlay";
 import AppStartupLoading from "./AppStartupLoading";
+import AppLifecycleShell from "./AppLifecycleShell";
 import { LiveCoachCardProvider } from "./coach/CoachCardContext";
 import Modal from "./Modal";
 import { LivePlayerCardProvider } from "./player/PlayerCardContext";
 import { LiveTeamCardProvider } from "./team/TeamCardContext";
-const CreateSimulationForm = dynamic(() => import("./CreateSimulationForm"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const DraftView = dynamic(() => import("./DraftView"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const StrategyView = dynamic(() => import("./StrategyView"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const BetweenGamesView = dynamic(() => import("./BetweenGamesView"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const SeriesCompleteView = dynamic(() => import("./SeriesCompleteView"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const TournamentSetup = dynamic(() => import("./TournamentSetup"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const TournamentDashboard = dynamic(() => import("./TournamentDashboard"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const MetaLibrary = dynamic(() => import("./MetaLibrary"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const PairingsLibrary = dynamic(() => import("./PairingsLibrary"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const SeasonSetup = dynamic(() => import("./SeasonSetup"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const SeasonDashboard = dynamic(() => import("./SeasonDashboard"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const SeasonHistoryGate = dynamic(() => import("./SeasonHistoryGate"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
-const RealitiesHub = dynamic(() => import("./RealitiesHub"), { loading: () => <p role="status" className="p-8 text-rift-gold">Loading...</p> });
+
+function AppViewLoading() {
+  return (
+    <AppLifecycleShell
+      ornament="Preparing your view"
+      message="Loading…"
+      aria-label="Loading DraftSim view"
+    />
+  );
+}
+
+const CreateSimulationForm = dynamic(() => import("./CreateSimulationForm"), { loading: AppViewLoading });
+const DraftView = dynamic(() => import("./DraftView"), { loading: AppViewLoading });
+const StrategyView = dynamic(() => import("./StrategyView"), { loading: AppViewLoading });
+const BetweenGamesView = dynamic(() => import("./BetweenGamesView"), { loading: AppViewLoading });
+const SeriesCompleteView = dynamic(() => import("./SeriesCompleteView"), { loading: AppViewLoading });
+const TournamentSetup = dynamic(() => import("./TournamentSetup"), { loading: AppViewLoading });
+const TournamentDashboard = dynamic(() => import("./TournamentDashboard"), { loading: AppViewLoading });
+const MetaLibrary = dynamic(() => import("./MetaLibrary"), { loading: AppViewLoading });
+const PairingsLibrary = dynamic(() => import("./PairingsLibrary"), { loading: AppViewLoading });
+const SeasonSetup = dynamic(() => import("./SeasonSetup"), { loading: AppViewLoading });
+const SeasonDashboard = dynamic(() => import("./SeasonDashboard"), { loading: AppViewLoading });
+const SeasonHistoryGate = dynamic(() => import("./SeasonHistoryGate"), { loading: AppViewLoading });
+const RealitiesHub = dynamic(() => import("./RealitiesHub"), { loading: AppViewLoading });
 
 interface Props {
   champions: Champion[];
