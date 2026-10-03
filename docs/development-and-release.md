@@ -29,11 +29,18 @@ No modificar manualmente `.next/`, `out/`, el worker empaquetado ni `src-tauri/t
 | `npm run test:e2e` | Playwright sobre `out/` |
 | `npm run test:desktop` | Tests Rust con lockfile |
 | `npm run check:version` | Coherencia de versiones |
-| `npm run test:release` | Tests del verificador de versiones |
-| `npm run check` | Versiones, tests de release, lint, tipos, unitarios y build |
+| `npm run test:release` | Tests del verificador de versiones y la política de auditoría |
+| `npm run audit:dependencies` | Auditoría estricta de producción y avisos de desarrollo |
+| `npm run check` | Versiones, tests de release, auditoría, lint, tipos, unitarios y build |
 | `npm run desktop:build` | Generar NSIS y MSI con Tauri |
 
-`npm run check` no incluye toda prueba posible: E2E, instalación nativa y auditoría de dependencias son controles adicionales. No debe describirse como validación completa de un instalador.
+`npm run check` no incluye toda prueba posible: E2E e instalación nativa son controles adicionales. No debe describirse como validación completa de un instalador.
+
+### Excepción temporal de auditoría de desarrollo
+
+Hasta el 3 de noviembre de 2026, `npm run audit:dependencies` acepta únicamente [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) para `braces` 3.0.3 y su cadena conocida en Tailwind 3 y ESLint/Next. No hay versión corregida publicada. El aviso sigue presente; esto es una excepción acotada, no una corrección del paquete. Las herramientas reciben patrones del repositorio controlado y no se distribuyen en el frontend estático de Tauri.
+
+La auditoría de producción no tiene excepciones. Cada copia afectada debe estar marcada como `dev` en el lockfile. Otros avisos, versiones, dependencias, errores de auditoría o la fecha de caducidad bloquean CI. Los siete paquetes señalados por npm corresponden al mismo aviso raíz. Retirar la excepción cuando exista una versión corregida compatible; mientras tanto, `npm audit` conserva el informe completo.
 
 ## 3. Elegir verificaciones según el cambio
 
