@@ -284,6 +284,7 @@ export function CoachCardBody({
 export default function CoachHoverCard({
   coachName,
   seasonId,
+  phaseScope,
   hint,
   disabled,
   className = "",
@@ -291,6 +292,7 @@ export default function CoachHoverCard({
 }: {
   coachName?: string;
   seasonId?: string;
+  phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: CoachCardHint;
   disabled?: boolean;
   className?: string;
@@ -331,6 +333,7 @@ export default function CoachHoverCard({
       const run = () => {
         const resolved = ctx.resolve(coachName, {
           ...(seasonId ? { seasonId } : {}),
+          ...(phaseScope ? { phaseScope } : {}),
           ...(hint ? { hint } : {}),
         });
         if (resolved) setData(resolved);
@@ -338,7 +341,7 @@ export default function CoachHoverCard({
       if (immediate) run();
       else showTimer.current = setTimeout(run, SHOW_DELAY_MS);
     },
-    [active, ctx, coachName, seasonId, hint],
+    [active, ctx, coachName, seasonId, phaseScope, hint],
   );
 
   const close = useCallback((immediate = false) => {

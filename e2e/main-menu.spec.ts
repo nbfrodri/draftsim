@@ -101,7 +101,8 @@ test("Hall opens from the initial menu and timeline cards keep event-specific wi
   await page.getByRole("button", { name: /^Season History/ }).click();
   await page.getByRole("button", { name: "Overall", exact: true }).click();
   const timeline = page.locator("ol").filter({ hasText: "Snapshot Year" });
-  await timeline.getByText("MSI", { exact: true }).locator("..").getByRole("button", { name: /Snapshot Winners/ }).hover();
+  const msi = timeline.locator(".border").filter({ has: page.getByText("MSI", { exact: true }) });
+  await msi.getByRole("button", { name: /Snapshot Winners/ }).hover();
   await expect(page.getByRole("tooltip")).toContainText("msi Player 0");
   await expect(page.getByRole("tooltip")).not.toContainText("worlds Player 0");
   await page.mouse.move(0, 0);

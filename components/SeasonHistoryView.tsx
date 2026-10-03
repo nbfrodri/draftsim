@@ -58,6 +58,8 @@ exportAllSeasonsXlsx,
 exportSeasonXlsx,
 } from "@/lib/season/historyExport";
 import { parseHistoryWorkbook } from "@/lib/season/historyImport";
+import { overallTimelineEvents, type HistoryTimelineFinalist } from "@/lib/season/historyTimeline";
+import { internationalHonor, type InternationalHonor } from "@/lib/season/internationalHonors";
 import {
 bestTeamPerRegion,
 careerWinLoss,
@@ -126,6 +128,7 @@ import CoachNameLink from "./coach/CoachNameLink";
 import DynastyTimelinePanel from "./DynastyTimelinePanel";
 import GlobalCupBadge from "./GlobalCupBadge";
 import GoldenRoadBadge from "./GoldenRoadBadge";
+import InternationalHonorsBadge from "./InternationalHonorsBadge";
 import GoToSeasonButton from "./hall/GoToSeasonButton";
 import HallPanelLoading from "./hall/HallPanelLoading";
 import LaneIcon from "./LaneIcon";
@@ -483,20 +486,6 @@ function intlChampRoster(entry: SeasonHistoryEntry, event: InternationalId) {
     players: [...team.players].sort(
       (a, b) => LANE_ORDER.indexOf(a.lane) - LANE_ORDER.indexOf(b.lane),
     ),
-    coach: team.coach?.name,
-  };
-}
-
-// The split champion's roster (lane-ordered) + coach for a region, from the
-// archived phase snapshot. null when the snapshot doesn't cover it.
-function splitChampRoster(entry: SeasonHistoryEntry, split: SplitId, league: LeagueId) {
-  const champ = entry.splitChampions[split]?.[league];
-  if (!champ) return null;
-  const phase = (entry.phaseRosters ?? []).find((p) => p.kind === "split" && p.split === split);
-  const team = phase?.teams.find((t) => t.teamName === champ.name && t.leagueId === league);
-  if (!team) return null;
-  return {
-    players: [...team.players].sort((a, b) => LANE_ORDER.indexOf(a.lane) - LANE_ORDER.indexOf(b.lane)),
     coach: team.coach?.name,
   };
 }
@@ -2869,12 +2858,71 @@ function RecordsPanel({
 // top), threaded on a vertical rail. The region filter switches what each
 // node shows: "Internationals" lists the season's First Stand / MSI /
 // Worlds winners; a league lists that region's split winners.
+function OverallFinalist({ finalist, label, seasonId, phaseScope, onNavigate }: {
+  finalist: HistoryTimelineFinalist | null;
+  label: "Champion" | "Runner-up";
+  seasonId: string;
+  phaseScope: InternationalId | SplitId;
+  onNavigate?: NavFn;
+}) {
+  return (
+    <div className="min-w-0 py-1.5">
+      <div className="mb-1 text-[7px] uppercase tracking-[0.15em] text-rift-mutedbright/70">{label}</div>
+      {finalist ? (
+        <>
+          <TeamRef seasonId={seasonId} phaseScope={phaseScope} team={finalist.team} size={12} muted={label === "Runner-up"} onNavigate={onNavigate} />
+          {finalist.roster?.players.length ? (
+            <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
+              {LANE_ORDER.flatMap((lane) => finalist.roster!.players.filter((player) => player.lane === lane)).map((player, index) => (
+                <span key={player.id ?? index} className="inline-flex items-center gap-0.5 text-[8px]">
+                  <LaneIcon lane={player.lane} size="xs" />
+                  <NavPlayerName
+                    phaseScope={phaseScope}
+                    name={player.name ?? "Unknown player"}
+                    playerId={player.id}
+                    onNavigate={onNavigate}
+                    className="text-rift-mutedbright truncate max-w-[64px]"
+                    hint={{ teamName: finalist.team.name, lane: player.lane }}
+                  />
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {finalist.roster?.coach && (
+            <div className="mt-1 text-[8px] text-rift-bluebright/70">
+              Coach · {" "}
+              <CoachNameLink
+                name={finalist.roster.coach.name}
+                seasonId={seasonId}
+                phaseScope={phaseScope}
+                hint={{
+                  teamName: finalist.team.name,
+                  leagueId: finalist.team.leagueId,
+                  rating: finalist.roster.coach.rating,
+                  playstyle: finalist.roster.coach.playstyle,
+                }}
+              />
+            </div>
+          )}
+          {!finalist.roster && (
+            <p className="mt-1 text-[8px] italic text-rift-muted">No roster snapshot was recorded for this event.</p>
+          )}
+        </>
+      ) : (
+        <span className="text-[9px] italic text-rift-muted">Not recorded</span>
+      )}
+    </div>
+  );
+}
+
 function OverallTimeline({
   entries,
   onNavigate,
+  onGoToSeason,
 }: {
   entries: SeasonHistoryEntry[];
   onNavigate?: NavFn;
+  onGoToSeason: GoToSeasonFn;
 }) {
   const [filter, setFilter] = useState<"intl" | LeagueId>("intl");
   const chrono = useMemo(
@@ -2887,21 +2935,10 @@ function OverallTimeline({
     ...LEAGUE_IDS.map((l) => ({ id: l, label: l })),
   ];
 
-  // The winner rows for one season under the current filter.
-  const rowsFor = (entry: SeasonHistoryEntry) => {
-    if (filter === "intl") {
-      return INTL_ORDER.map((event) => ({
-        key: event,
-        label: INTERNATIONAL_LABELS[event],
-        team: entry.intlChampions[event] ?? null,
-      }));
-    }
-    return SPLIT_ORDER.map((split) => ({
-      key: split,
-      label: SPLIT_LABELS[split],
-      team: entry.splitChampions[split]?.[filter] ?? null,
-    }));
-  };
+  const eventsBySeason = useMemo(
+    () => new Map(chrono.map((entry) => [entry.id, overallTimelineEvents(entry, filter)])),
+    [chrono, filter],
+  );
 
   return (
     <div>
@@ -2930,11 +2967,11 @@ function OverallTimeline({
           {chrono.map((entry) => {
             const date = new Date(entry.archivedAt);
             const dateLabel = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-            const rows = rowsFor(entry);
+            const rows = eventsBySeason.get(entry.id)!;
             const champ = entry.champion;
             return (
               <SeasonScope.Provider key={entry.id} value={entry.id}>
-              <li className="relative pl-5">
+              <li className="relative pl-5" aria-label={entry.name}>
                 {/* Node on the rail */}
                 <span
                   className="absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full bg-rift-gold/80 ring-2 ring-rift-bg"
@@ -2948,6 +2985,7 @@ function OverallTimeline({
                     >
                       {entry.name}
                     </span>
+                    <GoToSeasonButton seasonId={entry.id} seasonLabel={entry.name} onGoToSeason={onGoToSeason} />
                     {filter === "intl" && champ && (
                       <span
                         className="text-[10px] tracking-normal text-rift-mutedbright truncate min-w-0"
@@ -2966,11 +3004,6 @@ function OverallTimeline({
                     would clip it. */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5 cv-auto">
                   {rows.map((row) => {
-                    const roster = !row.team
-                      ? null
-                      : filter === "intl"
-                        ? intlChampRoster(entry, row.key as InternationalId)
-                        : splitChampRoster(entry, row.key as SplitId, filter);
                     return (
                       <div
                         key={row.key}
@@ -2983,52 +3016,11 @@ function OverallTimeline({
                           <span className="text-[7px] uppercase tracking-[0.2em] text-rift-gold/60 w-12 flex-shrink-0">
                             {row.label}
                           </span>
-                          {row.team ? (
-                            <span className="min-w-0 flex-1 overflow-hidden">
-                              <TeamRef phaseScope={row.key} team={row.team} size={12} onNavigate={onNavigate} />
-                            </span>
-                          ) : (
-                            <span className="italic text-rift-muted/60">—</span>
-                          )}
                         </div>
-                        {roster && roster.players.length > 0 && (
-                          <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1 pl-1">
-                            {roster.players.map((p, i) => (
-                              <span key={i} className="inline-flex items-center gap-0.5 text-[8px]">
-                                <LaneIcon lane={p.lane} size="xs" />
-                                <NavPlayerName
-                                  phaseScope={row.key}
-                                  name={p.name ?? "—"}
-                                  playerId={p.id}
-                                  onNavigate={onNavigate}
-                                  className="text-rift-mutedbright truncate max-w-[64px]"
-                                  hint={
-                                    row.team
-                                      ? { teamName: row.team.name, lane: p.lane }
-                                      : undefined
-                                  }
-                                />
-                              </span>
-                            ))}
-                            {roster.coach && (
-                              <span className="text-[7px] uppercase tracking-[0.15em] text-rift-blue/70 w-full">
-                                coach{" "}
-                                <NavCoachName
-                                  name={roster.coach}
-                                  onNavigate={onNavigate}
-                                  hint={
-                                    row.team
-                                      ? {
-                                          teamName: row.team.name,
-                                          leagueId: row.team.leagueId,
-                                        }
-                                      : undefined
-                                  }
-                                />
-                              </span>
-                            )}
-                          </div>
-                        )}
+                        <div className="divide-y divide-rift-line/20">
+                          <OverallFinalist finalist={row.champion} label="Champion" seasonId={entry.id} phaseScope={row.key} onNavigate={onNavigate} />
+                          <OverallFinalist finalist={row.runnerUp} label="Runner-up" seasonId={entry.id} phaseScope={row.key} onNavigate={onNavigate} />
+                        </div>
                         {(() => {
                           const mvp =
                             filter === "intl"
@@ -3475,6 +3467,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
           className="font-display text-lg tracking-wide text-rift-goldbright"
           hint={p.lane ? { lane: p.lane } : undefined}
         />
+        <InternationalHonorsBadge honor={internationalHonor(p.intlTitles)} />
         {p.age != null && (
           <span className="text-[9px] uppercase tracking-[0.2em] text-rift-muted/70 border border-rift-line/40 px-1.5 py-0.5">
             Age {p.age}
@@ -3752,6 +3745,7 @@ const TeamProfileView = memo(function TeamProfileView({
         <span className="min-w-0 flex-1 overflow-hidden">
           <TeamRef team={t.team} size={20} />
         </span>
+        <InternationalHonorsBadge honor={internationalHonor(r?.intlTitles ?? {})} />
         <span className="text-[9px] uppercase tracking-[0.2em] text-rift-muted/60 flex-shrink-0">{t.team.leagueId}</span>
         {t.star != null && (
           <span className="ml-auto text-[11px] text-rift-gold/85 tabular-nums flex-shrink-0" title="Most-recent roster rating">
@@ -4276,6 +4270,7 @@ type SearchRow = {
   freeAgentYears?: number;
   debutYear?: number;
   sortVals: Record<string, number>;
+  internationalHonor?: InternationalHonor | null;
 };
 
 // One row of the result list. Memoized because the list holds up to 200 of
@@ -4426,6 +4421,7 @@ const SearchResultRow = memo(function SearchResultRow({
           Rk Y{r.debutYear}
         </span>
       )}
+      <InternationalHonorsBadge honor={r.internationalHonor ?? null} compact />
       <CareerStatusBadge
         status={r.careerStatus}
         academyYears={r.academyYears}
@@ -4477,6 +4473,7 @@ function SearchPanel({
   const [sortKey, setSortKey] = useState("name"); // order-by within the result list
   const [intlTitleFilter, setIntlTitleFilter] = useState(false);
   const [splitTitleFilter, setSplitTitleFilter] = useState(false);
+  const [intlEventMatch, setIntlEventMatch] = useState<"any" | "all">("any");
   const [intlEventFilter, setIntlEventFilter] = useState<Set<InternationalId>>(
     () => new Set(INTL_ORDER),
   );
@@ -4490,11 +4487,12 @@ function SearchPanel({
     if (splitTitleFilter) kinds.push("split");
     return {
       kinds,
+      intlEventMatch,
       ...(intlTitleFilter
         ? { intlEvents: INTL_ORDER.filter((e) => intlEventFilter.has(e)) }
         : {}),
     };
-  }, [intlTitleFilter, splitTitleFilter, intlEventFilter]);
+  }, [intlTitleFilter, splitTitleFilter, intlEventFilter, intlEventMatch]);
 
   const toggleIntlEvent = useCallback((event: InternationalId) => {
     setIntlEventFilter((prev) => {
@@ -4587,6 +4585,7 @@ function SearchPanel({
           id: p.id,
           playerId: p.id,
           label: p.name,
+          internationalHonor: internationalHonor(p.intlByEvent),
           sub: p.leagueId ?? "",
           lane: p.lane,
           tier: p.tier,
@@ -4631,6 +4630,7 @@ function SearchPanel({
           return {
             id: key,
             label: t.name,
+            internationalHonor: internationalHonor(rec?.intlTitles ?? {}),
             sub: t.leagueId,
             lane: null as Lane | null,
             tier: null as PlayerTier | null,
@@ -4683,10 +4683,8 @@ function SearchPanel({
     searchPage * SEARCH_PAGE_SIZE,
     (searchPage + 1) * SEARCH_PAGE_SIZE,
   );
-  const [previousResultKey, setPreviousResultKey] = useState(
-    `${kind}|${q}|${laneFilter}|${regionFilter}|${statusFilter}|${sortKey}|${intlTitleFilter}|${splitTitleFilter}|${minGoldAdv}`,
-  );
-  const resultKey = `${kind}|${q}|${laneFilter}|${regionFilter}|${statusFilter}|${sortKey}|${intlTitleFilter}|${splitTitleFilter}|${minGoldAdv}`;
+  const resultKey = `${kind}|${q}|${laneFilter}|${regionFilter}|${statusFilter}|${sortKey}|${intlTitleFilter}|${splitTitleFilter}|${intlEventMatch}|${titleFilters.intlEvents?.join(",")}|${minGoldAdv}`;
+  const [previousResultKey, setPreviousResultKey] = useState(resultKey);
   if (previousResultKey !== resultKey) {
     setPreviousResultKey(resultKey);
     setResultPage(0);
@@ -4846,6 +4844,7 @@ function SearchPanel({
               <button
                 type="button"
                 onClick={() => setIntlTitleFilter((v) => !v)}
+                aria-pressed={intlTitleFilter}
                 className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
                   intlTitleFilter
                     ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
@@ -4857,6 +4856,7 @@ function SearchPanel({
               <button
                 type="button"
                 onClick={() => setSplitTitleFilter((v) => !v)}
+                aria-pressed={splitTitleFilter}
                 className={`px-2 py-0.5 border text-[8px] uppercase tracking-[0.15em] transition-all ${
                   splitTitleFilter
                     ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
@@ -4867,12 +4867,32 @@ function SearchPanel({
               </button>
             </div>
             {intlTitleFilter && (
-              <div className="flex flex-wrap gap-1">
+              <div className="space-y-1.5" role="group" aria-label="International title filters">
+                <div className="flex flex-wrap gap-1" role="group" aria-label="Match international events">
+                  {([
+                    { id: "any", label: "Match any (OR)" },
+                    { id: "all", label: "Match all (AND)" },
+                  ] as const).map((mode) => (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      aria-pressed={intlEventMatch === mode.id}
+                      onClick={() => setIntlEventMatch(mode.id)}
+                      className={`border px-1.5 py-0.5 text-[8px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold ${intlEventMatch === mode.id
+                        ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                        : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"}`}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-1" role="group" aria-label="Select international events">
                 {INTL_ORDER.map((ev) => (
                   <button
                     key={ev}
                     type="button"
                     onClick={() => toggleIntlEvent(ev)}
+                    aria-pressed={intlEventFilter.has(ev)}
                     className={`px-1.5 py-0.5 border text-[8px] uppercase tracking-[0.12em] transition-all ${
                       intlEventFilter.has(ev)
                         ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
@@ -4882,6 +4902,14 @@ function SearchPanel({
                     {INTERNATIONAL_LABELS[ev]}
                   </button>
                 ))}
+                </div>
+                <p className="text-[8px] leading-relaxed text-rift-mutedbright/70">
+                  {intlEventFilter.size === 0
+                    ? "No events selected: matches any international title."
+                    : intlEventMatch === "all"
+                      ? "Requires a career title in every selected event."
+                      : "Requires a career title in at least one selected event."}
+                </p>
               </div>
             )}
             {kind === "players" && (
@@ -5458,7 +5486,7 @@ export default function SeasonHistoryView({
                 }
               />
             ) : deferredTimelineView === "overall" ? (
-              <OverallTimeline entries={seasonHistory} onNavigate={hallNavigate} />
+              <OverallTimeline entries={seasonHistory} onNavigate={hallNavigate} onGoToSeason={goToSeasonInTimeline} />
             ) : (
             <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-5 items-start">
             {/* Timeline list — scrollable so every season stays reachable

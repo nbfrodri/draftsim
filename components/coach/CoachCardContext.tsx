@@ -40,6 +40,7 @@ export type { CoachCardHint };
 export interface CoachCardResolveOpts {
   /** Archived season entry id — render THAT year's snapshot. */
   seasonId?: string;
+  phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: CoachCardHint;
 }
 
@@ -303,7 +304,7 @@ function resolveHistory(
   if (!name) return null;
 
   const entry = opts?.seasonId ? idx.entryById.get(opts.seasonId) : undefined;
-  const snap = entry ? archivedCoachSnapshot(entry, name) : null;
+  const snap = entry ? archivedCoachSnapshot(entry, name, opts?.phaseScope) : null;
   const hit = idx.hits().get(name);
   const rec = idx.records().get(name);
   const prof = idx.profile(name);

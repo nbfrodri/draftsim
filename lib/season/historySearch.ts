@@ -1654,6 +1654,8 @@ export interface TitleFilters {
   kinds: TitleKindFilter[];
   /** Intl events that count; empty / omitted ⇒ all international events. */
   intlEvents?: InternationalId[];
+  /** Require every selected event rather than at least one. Defaults to any. */
+  intlEventMatch?: "any" | "all";
 }
 
 export const EMPTY_TITLE_FILTERS: TitleFilters = { kinds: [] };
@@ -1674,7 +1676,9 @@ export function matchesTitleFilters(
   if (filters.kinds.length === 0) return true;
   let ok = true;
   if (filters.kinds.includes("intl")) {
-    ok = ok && intlTitleCount(intlByEvent, filters.intlEvents) > 0;
+    ok = ok && (filters.intlEventMatch === "all" && filters.intlEvents?.length
+      ? filters.intlEvents.every((event) => (intlByEvent[event] ?? 0) > 0)
+      : intlTitleCount(intlByEvent, filters.intlEvents) > 0);
   }
   if (filters.kinds.includes("split")) {
     ok = ok && splitTitles > 0;

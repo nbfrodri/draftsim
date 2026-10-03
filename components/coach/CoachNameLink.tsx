@@ -10,6 +10,7 @@ export interface CoachNameLinkProps {
   name?: string | null;
   /** Archived season entry id — pins the card to that year's snapshot. */
   seasonId?: string;
+  phaseScope?: import("@/lib/season/types").SplitId | import("@/lib/season/types").InternationalId;
   hint?: CoachCardHint;
   fallback?: string;
   className?: string;
@@ -32,6 +33,7 @@ const NAV_CLS =
 function CoachNameLink({
   name,
   seasonId,
+  phaseScope,
   hint,
   fallback = "—",
   className = "",
@@ -62,6 +64,7 @@ function CoachNameLink({
     <CoachHoverCard
       coachName={coachName}
       seasonId={seasonId}
+      phaseScope={phaseScope}
       hint={hint}
       className={className}
     >

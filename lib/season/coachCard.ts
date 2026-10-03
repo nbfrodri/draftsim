@@ -121,16 +121,18 @@ export interface ArchivedCoachSnapshot {
   stage: string;
 }
 
-/** That year's end-of-season (latest phase) snapshot for a coach. */
+/** The selected event's snapshot, or the year's latest appearance when unscoped. */
 export function archivedCoachSnapshot(
   entry: SeasonHistoryEntry,
   coachName: string,
+  phaseScope?: SplitId | InternationalId,
 ): ArchivedCoachSnapshot | null {
   const phases = [...(entry.phaseRosters ?? [])].sort(
     (a, b) => a.phaseIndex - b.phaseIndex,
   );
   let latest: ArchivedCoachSnapshot | null = null;
   for (const phase of phases) {
+    if (phaseScope && !(phase.kind === "split" ? phase.split === phaseScope : phase.event === phaseScope)) continue;
     for (const t of phase.teams) {
       if (t.coach?.name !== coachName) continue;
       latest = {

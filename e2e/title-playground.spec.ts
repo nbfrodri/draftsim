@@ -433,9 +433,10 @@ test("title playground filters teams, player winning regions, years and realitie
   await champions.locator("summary").first().click();
   await expect(champions.getByRole("button",{name:"Traveller",exact:true})).toBeVisible();
   await expect(champions.locator('img[alt="middle"]')).toHaveCount(1);
-  await expect(champions.getByText("4,000,000",{exact:true})).toHaveCount(2);
-  await expect(champions.getByText("2,172,840",{exact:true})).toHaveCount(2);
-  await expect(champions.getByText("1,827,160",{exact:true})).toHaveCount(2);
+  const formattedCounts = await page.evaluate(() => [4_000_000, 2_172_840, 1_827_160].map((count) => count.toLocaleString()));
+  for (const count of formattedCounts) {
+    await expect(champions.getByText(count, { exact: true })).toHaveCount(2);
+  }
   await expect(champions.getByText("54.3%",{exact:true})).toHaveCount(2);
   await champions.getByRole("combobox",{name:"Players per champion",exact:true}).click();
   await champions.getByRole("option",{name:"Top 10",exact:true}).click();
