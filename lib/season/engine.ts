@@ -57,6 +57,8 @@ import {
   type SplitId,
 } from "./types";
 import type { SeasonHistoryEntry } from "./history";
+import { championshipPoints, INTL_PLACEMENT_POINTS, INTL_PARTICIPATION_POINTS } from "./championshipPoints";
+export { championshipPoints } from "./championshipPoints";
 import { applyTransfers, awardStabilityBonus, rebucketTransfersByStamp } from "./transfers";
 import {
   coachDifficulty,
@@ -515,39 +517,6 @@ export function tournamentPlacements(t: TournamentState): string[] {
 // season — placements in all three splits plus international results
 // (First Stand, MSI). Worlds itself is excluded (it's the event being
 // qualified for).
-
-// Points per final split placement, best first (9th/10th score 0).
-const SPLIT_PLACEMENT_POINTS = [10, 8, 6, 5, 4, 3, 2, 1] as const;
-// Points per international placement, best first; any deeper placement
-// still earns 2 participation points (qualifying at all is a result).
-const INTL_PLACEMENT_POINTS = [15, 12, 10, 8, 6, 5, 4, 3] as const;
-const INTL_PARTICIPATION_POINTS = 2;
-
-/** Season-long championship points per team id, from every recorded
- *  split placement and international result so far. */
-export function championshipPoints(
-  season: SeasonState,
-): Record<string, number> {
-  const pts: Record<string, number> = {};
-  const add = (teamId: string, n: number) => {
-    if (n > 0) pts[teamId] = (pts[teamId] ?? 0) + n;
-  };
-  for (const split of Object.keys(SPLIT_LABELS) as SplitId[]) {
-    const byLeague = season.splitResults[split];
-    if (!byLeague) continue;
-    for (const league of LEAGUE_IDS) {
-      (byLeague[league] ?? []).forEach((id, i) =>
-        add(id, SPLIT_PLACEMENT_POINTS[i] ?? 0),
-      );
-    }
-  }
-  for (const event of ["first-stand", "msi"] as InternationalId[]) {
-    (season.intlResults[event] ?? []).forEach((id, i) =>
-      add(id, INTL_PLACEMENT_POINTS[i] ?? INTL_PARTICIPATION_POINTS),
-    );
-  }
-  return pts;
-}
 
 const GLOBAL_CUP_FIELD_SIZE = 32;
 

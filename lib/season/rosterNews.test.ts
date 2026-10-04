@@ -1,9 +1,32 @@
 import { makeAuditSeason } from "../auditFixtures";
 import { applyTournamentUpdate } from "./engine";
 import { expect, it } from "vitest";
-import { currentOffseasonRosterNews, initializeOffseasonRosterNewsBoundary, rosterNewsForDigest } from "./rosterNews";
+import { currentOffseasonRosterNews, groupRosterNewsByTime, initializeOffseasonRosterNewsBoundary, rosterNewsForDigest } from "./rosterNews";
 import { marketOrigin } from "./marketOrigin";
 import type { SeasonState } from "./types";
+
+it("keeps the previous offseason above every new split, and the closing offseason last", () => {
+  const season = makeAuditSeason("Chronology");
+  const old = marketOrigin(season, "Offseason");
+  season.id = "next-year";
+  season.franchise.year = 2;
+  const news = { teamId: season.teams[0].id, lane: "top" as const, entrantName: "Player",
+    entrantTier: "A" as const, entrantPotential: "A" as const, entrantSource: "rookie" as const };
+  season.rosterNews = ["Spring", "Offseason", "Winter", "Summer"].map(timeMark => ({
+    ...news, timeMark, origin: timeMark === "Offseason" ? old : marketOrigin(season, timeMark),
+  }));
+  const groups = () => groupRosterNewsByTime(rosterNewsForDigest(season), season).map(([, group]) => group.timeMark);
+  expect(groups()).toEqual(["Offseason", "Winter", "Spring", "Summer"]);
+  expect(groupRosterNewsByTime(rosterNewsForDigest(season), season)[0][1].year).toBe(1);
+  // Legacy carry also sorts first, without guessing its year.
+  delete season.rosterNews[1].origin;
+  expect(groups()[0]).toBe("Offseason");
+  expect(groupRosterNewsByTime(rosterNewsForDigest(season), season)[0][1].year).toBeUndefined();
+  season.status = "complete";
+  season.offseasonRosterNewsBaseline = season.rosterNews.length;
+  season.rosterNews.push({ ...news, timeMark: "Offseason", origin: marketOrigin(season, "Offseason") });
+  expect(groups()).toEqual(["Winter", "Spring", "Summer", "Offseason"]);
+});
 
 it("keeps all carried offseason news visible during the next year without changing its ownership", () => {
   const season = makeAuditSeason("Live offseason");

@@ -210,7 +210,7 @@ function sanitizeEntry(v: unknown, now: number): SeasonHistoryEntry | null {
   // Preserve validated award/career detail from newer embedded exports.
   // Validate each optional field separately so a malformed field cannot erase
   // otherwise usable legacy history or inject unchecked rows into the store.
-  for (const key of ["playerCareers", "allProTeams", "intlMvps", "splitMvps", "rookieOfYear"] as const) {
+  for (const key of ["playerCareers", "allProTeams", "intlMvps", "splitMvps", "rookieOfYear", "championshipPoints"] as const) {
     if (o[key] !== undefined && validHistoryEntry({ ...entry, [key]: o[key] })) {
       Object.assign(entry, { [key]: o[key] });
     }

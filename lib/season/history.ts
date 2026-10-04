@@ -25,6 +25,7 @@ import {
   type SplitId,
 } from "./types";
 import { isGlobalCupYear } from "./engine";
+import { championshipPointsRows, type ChampionshipPointsRow } from "./championshipPoints";
 import { inactiveSnapshotsForArchivedYear } from "./playerLifecycle";
 import {
   computeSeasonStats,
@@ -169,6 +170,8 @@ export interface SeasonHistoryRookieOfYear {
 }
 
 export interface SeasonHistoryEntry {
+  /** Frozen Worlds-qualification points. Absent on legacy archives, not evidence of zero. */
+  championshipPoints?: ChampionshipPointsRow[];
   /** Mirrors season.id — archiving the same season upserts its entry. */
   id: string;
   archivedAt: number;
@@ -696,6 +699,7 @@ export function buildSeasonHistoryEntry(
     runnerUp: teamRef(season, worlds[1]),
     intlChampions,
     splitChampions,
+    championshipPoints: championshipPointsRows(season),
     ...(Object.keys(intlRunnersUp).length > 0 ? { intlRunnersUp } : {}),
     ...(Object.keys(splitRunnersUp).length > 0 ? { splitRunnersUp } : {}),
     ...(Object.keys(splitPlacements).length > 0 ? { splitPlacements } : {}),

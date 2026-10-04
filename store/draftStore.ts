@@ -17,6 +17,7 @@ export type { MetaSource,MetaTierListPreset,PairingsPreset,SavedReality,SavedSea
 import { browserSaveStorage } from "@/lib/quotaSafeStorage";
 
 import { setActivePowerSpikeOverride } from "@/lib/championBuilds";
+import { createQualificationClinchDetector } from "@/lib/season/qualificationClinch";
 import {
 setActiveCounterOverride,
 setActiveMetaOverride,
@@ -1667,6 +1668,7 @@ export const useDraftStore = create<DraftStore>()(
           const ids = matchdayIds(t);
           if (ids.length === 0) continue;
           const results: SeasonMatchdayMatch[] = [];
+          const qualificationClinches = createQualificationClinchDetector(cur0, t);
           for (const id of ids) {
           if (get().bulkYearsCancelRequested) break;
             const liveT = get().season?.tournaments[tid];
@@ -1714,6 +1716,7 @@ export const useDraftStore = create<DraftStore>()(
                       : "regular",
                 ...(fm.groupId ? { group: fm.groupId } : {}),
                 ...(isReverseSweep(fm) ? { tags: ["reverse-sweep"] } : {}),
+                qualifications: wasPlayIn ? [] : qualificationClinches(liveT, after),
                 tournamentId: tid,
                 matchId: fm.id,
                 hasReplay: Boolean(fm.series),

@@ -41,6 +41,8 @@ test("year-end retirements stay visible after a real rollover and reload, and ma
   await page.getByRole("button", { name: /Finalize Offseason.*Year 9/ }).click();
   const digest = page.getByRole("button", { name: /^Transfer Window/ }).locator("..");
   await expect(digest.getByRole("button", { name: /Offseason · Year 8/ })).toBeVisible();
+  await expect(digest.getByRole("button", { name: /Offseason · Year 8/ })).toHaveAttribute("aria-expanded", "false");
+  await digest.getByRole("button", { name: /Offseason · Year 8/ }).click();
   for (const name of retirees) await expect(digest.getByText(name, { exact: true })).toBeVisible();
   await digest.screenshot({ path: `${screenshots}/offseason-all-moves.png`, style: screenshotStyle });
   await digest.getByRole("tab", { name: /^Retired\s*3$/ }).click();
@@ -60,6 +62,8 @@ test("year-end retirements stay visible after a real rollover and reload, and ma
   await page.reload();
   await digest.getByRole("tab", { name: /^Retired\s*3$/ }).click();
   await expect(digest.getByRole("button", { name: /Offseason · Year 8/ })).toBeVisible();
+  await expect(digest.getByRole("button", { name: /Offseason · Year 8/ })).toHaveAttribute("aria-expanded", "false");
+  await digest.getByRole("button", { name: /Offseason · Year 8/ }).click();
   for (const name of retirees) await expect(digest.getByText(name, { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1024, height: 700 });
   await digest.getByRole("button", { name: /^Roster moves/ }).locator("..").screenshot({

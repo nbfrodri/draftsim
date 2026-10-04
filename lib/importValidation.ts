@@ -2,6 +2,7 @@ import { validMarketOrigin } from "./season/marketOrigin";
 import { TOTAL_ACTIONS } from "./draftOrder";
 import type { SeasonState } from "./season/types";
 import { LEAGUE_IDS } from "./season/types";
+import { CHAMPIONSHIP_POINT_STAGES } from "./season/championshipPoints";
 import type { TournamentState } from "./tournament";
 
 type Obj = Record<string, unknown>;
@@ -239,6 +240,20 @@ export function validHistoryEntry(v: unknown): boolean {
   if (!optional(v.allProTeams, rows => arrayOf(rows, row => record(row) &&
     arrayOf(row.members, member => record(member) && enumeration(member.lane, lanes) && team(member.team))))) return false;
   const requiredTeam = (t: unknown) => t !== null && team(t);
+  if (!optional(v.championshipPoints, rows => {
+    if (!Array.isArray(rows)) return false;
+    const ids = new Set<string>();
+    return rows.every(row => {
+      if (!record(row) || !text(row.teamId) || ids.has(row.teamId) || !requiredTeam(row.team)
+        || !record(row.team) || !optional(row.team.logoUrl, text)
+        || !record(row.stages) || !integer(row.total)
+        || !optional(row.summerPlace, place => integer(place) && place >= 1)) return false;
+      ids.add(row.teamId);
+      const points = Object.entries(row.stages);
+      return points.every(([stage, value]) => enumeration(stage, CHAMPIONSHIP_POINT_STAGES) && integer(value))
+        && points.reduce((sum, [, value]) => sum + (value as number), 0) === row.total;
+    });
+  })) return false;
   const ratingAward = (a: unknown): boolean => record(a) && enumeration(a.lane, lanes) &&
     requiredTeam(a.team) && finite(a.avgRating) && integer(a.games);
   const teamMap = (x: unknown): boolean => record(x) && Object.values(x).every(requiredTeam);

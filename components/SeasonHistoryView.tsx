@@ -1,6 +1,7 @@
 "use client";
 
 import { formatAggregateKda } from "@/lib/formatKda";
+import ChampionshipPointsPanel from "./season/ChampionshipPointsPanel";
 import { isRealityHistoryLoaded } from "@/lib/desktopSqlite";
 import { loadHallRealityHistory } from "@/lib/loadHallRealityHistory";
 import RecordRows, { HallPager } from "./hall/RecordRows";
@@ -795,6 +796,8 @@ function SeasonDetail({
           </div>
         </div>
       )}
+
+      <ChampionshipPointsPanel key={entry.id} rows={entry.championshipPoints} seasonId={entry.id} archived />
 
       {/* Split champions board */}
       {splits.length > 0 && (

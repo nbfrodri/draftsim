@@ -88,6 +88,7 @@ type QualifierTagInfo,
 import BulkYearsControl from "./season/BulkYearsControl";
 import SimResultsFeedPanel from "./season/SimResultsFeedPanel";
 import SeasonMetaPanel from "./SeasonMetaPanel";
+import { LiveChampionshipPointsPanel } from "./season/ChampionshipPointsPanel";
 import SeasonStoryCard from "./SeasonStoryCard";
 import {
 buildLiveTeamStatsMap,
@@ -622,6 +623,8 @@ export default function SeasonDashboard() {
           </div>
         )}
 
+        <LiveChampionshipPointsPanel season={season} />
+
         {/* Season-wide stats, available any time once games exist. */}
         {season.status !== "complete" && statsOpen && (
           <div className="cv-auto">
@@ -1121,9 +1124,49 @@ function LatestMatchdayPanel({
                     </div>
                     </div>
                   );
+                  const qualificationBadges = m.qualifications?.map(q => {
+                    const participant = q.teamId === m.blue.id ? m.blue : q.teamId === m.red.id ? m.red : undefined;
+                    const feeder = feederEventOf(q.event);
+                    const reason = q.via === "champion" && feeder ? `${INTERNATIONAL_LABELS[feeder]} champion`
+                      : q.via === "points" ? "Points" : q.via === "finalist" ? "Finalist" : "Top 3";
+                    return (
+                    <span
+                      key={`${q.event}:${q.teamId}`}
+                      data-testid="qualification-badge"
+                      data-qualification-status={q.alreadyQualified ? "existing" : "new"}
+                      className="block border border-emerald-400/30 bg-emerald-400/[0.08] px-2 py-1 text-center text-[10px] leading-relaxed text-emerald-200"
+                      title={q.via === "points" ? q.pointsProvisional
+                        ? "Minimum championship points secured. The final total can still increase during Summer."
+                        : "Berth secured across every remaining outcome, including championship points and Summer finalists."
+                        : q.via === "champion" ? "Automatic berth as international champion."
+                        : q.via === "finalist" ? "Finalist berth secured." : "Top-three finish secured."}
+                    >
+                      <span className="inline-flex items-center gap-1 align-middle font-semibold">
+                        <TeamLogoLink
+                          teamId={q.teamId}
+                          name={q.teamName}
+                          leagueId={q.teamLeague ?? r.league ?? undefined}
+                          logoUrl={q.teamLogoUrl ?? participant?.logoUrl ?? logoForTeamName(q.teamName)}
+                          iconKey={q.teamIconKey ?? participant?.iconKey}
+                          color={q.teamColor ?? participant?.color}
+                          size={18}
+                          renderAs="span"
+                        />
+                        {q.teamName}
+                      </span>
+                      {" · "}
+                      <span className="inline-flex items-center gap-1 align-middle">
+                        <LeagueIcon league={q.event} size={16} className="shrink-0" />
+                        {INTERNATIONAL_LABELS[q.event]} {q.alreadyQualified ? "already qualified" : "qualified"}
+                      </span>
+                      <span className="text-emerald-200/65"> · {reason}
+                        {q.via === "points" && q.points != null && <span className="tabular-nums"> · {q.pointsProvisional ? "≥" : ""}{q.points} pts</span>}
+                      </span>
+                    </span>
+                  ); });
                   if (!canReplay) {
                     return (
-                      <div key={i}>{row}</div>
+                      <div key={i}>{row}{qualificationBadges}</div>
                     );
                   }
                   return (
@@ -1137,6 +1180,7 @@ function LatestMatchdayPanel({
                       title="View match recap"
                     >
                       {row}
+                      {qualificationBadges}
                     </button>
                   );
                 })}

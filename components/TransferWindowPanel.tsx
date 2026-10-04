@@ -1,5 +1,5 @@
 "use client";
-import { rosterNewsForDigest } from "@/lib/season/rosterNews";
+import { groupRosterNewsByTime, rosterNewsForDigest } from "@/lib/season/rosterNews";
 
 import { useMemo,useState } from "react";
 
@@ -54,7 +54,6 @@ type FilterTeam,
 import RosterNewsRow,{
 classifyRosterNews,
 rosterNewsKindCounts,
-type RosterNewsItem,
 type RosterNewsKind,
 } from "./season/RosterNewsRow";
 import TierChip from "./season/TierChip";
@@ -65,17 +64,6 @@ import TeamLogoLink from "./team/TeamLogoLink";
 // (after First Stand and MSI), plus the followed team's pending decisions with
 // full player detail — skill tier, this split's grade, and champion pool. The
 // season pauses on a transfer phase only while the user has decisions to make.
-
-/** Chronological order for Demotions & Roster Entries section headers. */
-const ROSTER_TIME_SORT: Record<string, number> = {
-  Winter: 1,
-  "First Stand window": 2,
-  Spring: 3,
-  "MSI window": 4,
-  Summer: 5,
-  "Worlds window": 6,
-  Offseason: 7,
-};
 
 /**
  * Display labels for timeMark values in the Roster Moves section.
@@ -98,25 +86,6 @@ const PRE_INTL_ROSTER_TIMEMARKS = new Set(["Winter", "Spring", "Summer"]);
 
 function isPreIntlRosterTimeMark(timeMark: string) {
   return PRE_INTL_ROSTER_TIMEMARKS.has(timeMark);
-}
-
-function groupRosterNewsByTime(items: readonly RosterNewsItem[]) {
-  const groups = new Map<string, { timeMark: string; year?: number; items: RosterNewsItem[] }>();
-  for (const n of items) {
-    const timeMark = n.timeMark?.trim() || "Unknown";
-    const year = timeMark === "Offseason" ? n.origin?.year : undefined;
-    const key = year == null ? timeMark : `${timeMark}:${year}`;
-    const group = groups.get(key);
-    if (group) group.items.push(n);
-    else groups.set(key, { timeMark, year, items: [n] });
-  }
-  return [...groups.entries()].sort(([a, groupA], [b, groupB]) => {
-    const ra = ROSTER_TIME_SORT[groupA.timeMark] ?? 50;
-    const rb = ROSTER_TIME_SORT[groupB.timeMark] ?? 50;
-    if (ra !== rb) return ra - rb;
-    if (groupA.year != null && groupB.year != null) return groupA.year - groupB.year;
-    return a.localeCompare(b);
-  });
 }
 
 type PanelTab = "yours" | "league";
@@ -383,16 +352,15 @@ export default function TransferWindowPanel() {
   );
   const [leagueFilter, setLeagueFilter] = useState<LeagueId | null>(null);
   const [teamFilter, setTeamFilter] = useState<string | null>(null);
+  const [laneFilter, setLaneFilter] = useState<Lane | null>(null);
   // Keep the completed year visible until the user advances to the next year.
   const [splitFilter, setSplitFilter] = useState<RosterTimeSplit | null>(null);
   /** Whole panel disclosure — expanded by default (decisions + recap). */
   const [panelOpen, setPanelOpen] = useState(true);
   /** Demotions & roster entries disclosure — expanded by default. */
   const [rosterNewsOpen, setRosterNewsOpen] = useState(true);
-  /** Per timeMark group in Roster moves — pre-intl sections start collapsed. */
-  const [collapsedRosterGroups, setCollapsedRosterGroups] = useState<Set<string>>(
-    () => new Set(PRE_INTL_ROSTER_TIMEMARKS),
-  );
+  /** Explicit disclosure choices, scoped to the season/window being viewed. */
+  const [rosterGroupOpen, setRosterGroupOpen] = useState<Record<string, boolean>>({});
   const [panelTab, setPanelTab] = useState<PanelTab>("yours");
   const [newsKindFilter, setNewsKindFilter] = useState<NewsKindFilter>("all");
 
@@ -556,6 +524,7 @@ export default function TransferWindowPanel() {
 
   const baseFilteredRosterNews = rosterNews.filter((n) => {
     if (isSamePlayerReplaceNoise(n)) return false;
+    if (laneFilter && n.lane !== laneFilter) return false;
     if (!matchesTeamFilters(n.teamId, teamsById, leagueFilter, teamFilter)) {
       return false;
     }
@@ -572,7 +541,7 @@ export default function TransferWindowPanel() {
       : baseFilteredRosterNews.filter(
           (n) => classifyRosterNews(n) === newsKindFilter,
         );
-  const rosterNewsGroups = groupRosterNewsByTime(filteredRosterNews);
+  const rosterNewsGroups = groupRosterNewsByTime(filteredRosterNews, season);
   const newsCounts = rosterNewsKindCounts(baseFilteredRosterNews);
 
   const transferMatchesFilter = (tr: Pick<PlayerTransfer, "fromTeamId" | "toTeamId">) => {
@@ -1022,6 +991,8 @@ export default function TransferWindowPanel() {
               teamFilter={teamFilter}
               onLeagueFilter={setLeagueFilter}
               onTeamFilter={setTeamFilter}
+              laneFilter={laneFilter}
+              onLaneFilter={setLaneFilter}
               splitFilter={rosterNews.length > 0 ? splitFilter : null}
               onSplitFilter={rosterNews.length > 0 ? setSplitFilter : undefined}
             />
@@ -1079,10 +1050,10 @@ export default function TransferWindowPanel() {
               ) : (
                 windows.map((e) => {
                   const allForEvent = digestMovesByEvent[e] ?? [];
-                  const moves = allForEvent.filter(transferMatchesFilter);
+                  const moves = allForEvent.filter(tr => transferMatchesFilter(tr) && (!laneFilter || tr.lane === laneFilter));
                   // Last offseason's coach moves ride along in the carried Post Worlds section.
                   const coachMoves =
-                    e === "worlds" && season.status !== "complete"
+                    e === "worlds" && season.status !== "complete" && !laneFilter
                       ? (season.offseasonCoachMoves ?? []).filter(transferMatchesFilter)
                       : [];
                   const isOpen =
@@ -1101,7 +1072,7 @@ export default function TransferWindowPanel() {
                           {moves.length === 1 ? "" : "s"}
                           {coachMoves.length > 0 &&
                             ` · ${coachMoves.length} coach move${coachMoves.length === 1 ? "" : "s"}`}
-                          {(leagueFilter || teamFilter) &&
+                          {(leagueFilter || teamFilter || laneFilter) &&
                           allForEvent.length !== moves.length
                             ? ` of ${allForEvent.length}`
                             : ""}
@@ -1143,7 +1114,7 @@ export default function TransferWindowPanel() {
                 </span>
                 <span className="ml-1.5 text-[8px] text-rift-muted/45 tabular-nums">
                   {filteredRosterNews.length}
-                  {(leagueFilter || teamFilter || splitFilter || newsKindFilter !== "all") &&
+                  {(leagueFilter || teamFilter || laneFilter || splitFilter || newsKindFilter !== "all") &&
                   filteredRosterNews.length !== rosterNews.length
                     ? ` / ${rosterNews.length}`
                     : ""}
@@ -1171,18 +1142,16 @@ export default function TransferWindowPanel() {
                       const displayLabel =
                         (ROSTER_TIMEMARK_LABEL[timeMark] ?? timeMark) +
                         (timeMark === "Offseason" ? ` · ${year == null ? "Unknown year" : `Year ${year}`}` : "");
-                      const isCollapsed = collapsedRosterGroups.has(groupKey);
+                      const isPriorOffseason = timeMark === "Offseason" && season.status !== "complete";
+                      const stateKey = `${season.id}:${groupKey}:${isPriorOffseason ? "carry" : "current"}`;
+                      const defaultOpen = !isPreIntl && !isPriorOffseason;
+                      const isCollapsed = !(rosterGroupOpen[stateKey] ?? defaultOpen);
                       return (
                       <div key={groupKey}>
                         <button
                           type="button"
                           onClick={() =>
-                            setCollapsedRosterGroups((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(groupKey)) next.delete(groupKey);
-                              else next.add(groupKey);
-                              return next;
-                            })
+                            setRosterGroupOpen(prev => ({ ...prev, [stateKey]: !(prev[stateKey] ?? defaultOpen) }))
                           }
                           aria-expanded={!isCollapsed}
                           className={`w-full px-2.5 py-1 border-b flex items-center gap-2 text-left transition-colors ${

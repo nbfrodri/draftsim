@@ -618,7 +618,7 @@ describe("computeBracketFinishOrder", () => {
     return s;
   }
 
-  it("orders DE finishers by advancement (series wins), not by seed", () => {
+  it("orders DE finishers by elimination round even when a lower-bracket run has more wins", () => {
     for (let s = 0; s < 30; s++) {
       const state = playOut(
         createTournament(baseTournamentParams("double-elim", 8)),
@@ -626,18 +626,18 @@ describe("computeBracketFinishOrder", () => {
       );
       expect(state.status).toBe("complete");
       const order = computeBracketFinishOrder(state).map((t) => t.id);
-      // Ordered by series wins (desc) — i.e. how far each team advanced.
-      const wins = new Map<string, number>();
+      expect(order[0]).toBe(tournamentChampion(state)!.id);
+      const exits = new Map<string, number>();
       for (const m of state.matches) {
-        if (m.winner && !m.isBye) {
-          wins.set(m.winner.teamId, (wins.get(m.winner.teamId) ?? 0) + 1);
+        if (m.winner && !m.isBye && !m.losersFeedsInto) {
+          exits.set(m.winner.teamId === m.blueTeamId ? m.redTeamId! : m.blueTeamId!, m.round);
         }
       }
-      for (let i = 1; i < order.length; i++) {
-        expect(wins.get(order[i - 1]) ?? 0).toBeGreaterThanOrEqual(
-          wins.get(order[i]) ?? 0,
-        );
+      for (let i = 2; i < order.length; i++) {
+        expect(exits.get(order[i - 1])!).toBeGreaterThanOrEqual(exits.get(order[i])!);
       }
+      const lowerFinal = state.matches.filter(m => m.bracket === "losers").sort((a, b) => b.round - a.round)[0];
+      expect(order[2]).toBe(lowerFinal.winner!.teamId === lowerFinal.blueTeamId ? lowerFinal.redTeamId : lowerFinal.blueTeamId);
     }
   });
 });

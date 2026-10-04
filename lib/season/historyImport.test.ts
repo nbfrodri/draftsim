@@ -6,6 +6,8 @@ import {
 } from "./historyExport";
 import { HISTORY_DATA_SHEET, parseHistoryWorkbook } from "./historyImport";
 import type { SeasonHistoryEntry, SeasonHistoryTeamRef } from "./history";
+import { makeAuditSeason } from "../auditFixtures";
+import { championshipPointsRows } from "./championshipPoints";
 
 const team = (
   name: string,
@@ -51,6 +53,17 @@ async function workbookBytes(wb: Workbook): Promise<ArrayBuffer> {
 }
 
 describe("parseHistoryWorkbook — embedded data sheet (lossless)", () => {
+  it("preserves the frozen points breakdown and team logos in workbook exports/imports", async () => {
+    const season = makeAuditSeason("Workbook points");
+    season.teams[0].logoUrl = "/team-logos/t1.png";
+    season.splitResults = { winter: { LCK: [season.teams[0].id] } };
+    const entry = fabricateEntry({ championshipPoints: championshipPointsRows(season) });
+    const wb = await buildAllSeasonsWorkbook([entry], NAMES, NOW);
+    const parsed = await parseHistoryWorkbook(await workbookBytes(wb), NOW);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(parsed.entries[0].championshipPoints).toEqual(entry.championshipPoints);
+  });
   it("round-trips the all-seasons workbook exactly", async () => {
     const entries = [
       fabricateEntry(),

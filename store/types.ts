@@ -116,6 +116,8 @@ export interface SeasonMatchdayMatch {
   group?: string;
   /** Match result tags (e.g. reverse sweep on a 3-2 comeback). */
   tags?: string[];
+  /** New berths and already-qualified participants, captured before the phase advances. */
+  qualifications?: import("@/lib/season/qualificationClinch").QualificationClinch[];
   /** Live tournament + match ids for opening the replay modal. */
   tournamentId?: string;
   matchId?: string;

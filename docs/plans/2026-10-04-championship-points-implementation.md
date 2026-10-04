@@ -1,0 +1,8 @@
+# Championship points in live seasons and the Hall
+
+1. Extract the existing scoring rules from `lib/season/engine.ts` into a pure `lib/season/championshipPoints.ts` helper. Preserve current qualification totals and expose a per-team stage breakdown using stable team IDs and frozen region/name/logo identities.
+2. Capture exact points, or the minimum secured when later Summer results can increase them, in `lib/season/qualificationClinch.ts`. Display the number in Worlds points badges without presenting an uncertain final score as exact.
+3. Add a reusable `components/season/ChampionshipPointsPanel.tsx`, with regional/team logos, six regions in canonical order, totals ranked within each region, and a Winter/First Stand/Spring/MSI/Summer breakdown. Show it in Season Mode and Timeline > By Season.
+4. Add an optional `championshipPoints` snapshot to `SeasonHistoryEntry`, built on archival/rollover. Validate imported rows and preserve them through embedded workbook round-trips. Missing legacy snapshots remain explicitly unavailable.
+5. Keep the existing persistence lifecycle: archive builders feed the Zustand state, `compactEncodeRealitiesForPersist` preserves history objects, SQLite stores the full entry JSON through its existing queue/transaction, and hydration/backup/restore continue unchanged. No schema migration or personal AppData access is needed.
+6. Test score parity, zero/missing values, cross-region identities, frozen archive data, malformed imports, workbook round-trips and SQLite reloads. Exercise live/Hall panels and badges in Playwright, inspect screenshots, and regenerate Windows NSIS/MSI desktop builds.

@@ -188,8 +188,12 @@ for (const stamped of [true, false]) {
     await page.goto("/");
     for (let reload = 0; reload < 2; reload++) {
       const digest = page.getByRole("button", { name: /^Transfer Window/ }).locator("..");
+      const previousOffseason = digest.getByRole("button", { name: stamped ? /Offseason · Year 1/ : /Offseason · Unknown year/ });
+      await expect(previousOffseason).toBeVisible();
+      await expect(previousOffseason).toHaveAttribute("aria-expanded", "false");
+      await expect(digest.getByText("Offseason retired", { exact: true })).toHaveCount(0);
+      await previousOffseason.click();
       await expect(digest.getByText("Offseason retired", { exact: true })).toBeVisible();
-      await expect(digest.getByRole("button", { name: stamped ? /Offseason · Year 1/ : /Offseason · Unknown year/ })).toBeVisible();
       await digest.getByRole("button", { name: "Offseason", exact: true }).click();
       await expect(digest.getByRole("tab", { name: /^All moves\s*6$/ })).toBeVisible();
       for (const news of season.rosterNews!) {
@@ -239,6 +243,8 @@ test("completed-year digest retains split moves until advancing and excludes old
   await expect(page.getByRole("button", { name: /Sim Matchday/ }).first()).toBeVisible({ timeout: 60000 });
   const nextDigest = page.getByRole("button", { name: /^Transfer Window/ }).locator("..");
   await nextDigest.getByRole("button", { name: "Offseason", exact: true }).click();
+  await expect(nextDigest.getByRole("button", { name: /^Offseason ·/ })).toHaveAttribute("aria-expanded", "false");
+  await nextDigest.getByRole("button", { name: /^Offseason ·/ }).click();
   await expect(nextDigest.getByText("CurrentOffseasonRookie", { exact: true })).toBeVisible();
   for (const split of ["Winter", "Spring", "Summer"]) {
     await expect(nextDigest.getByRole("button", { name: new RegExp(`After ${split} Split`) })).toHaveCount(0);

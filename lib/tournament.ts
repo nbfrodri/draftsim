@@ -1400,6 +1400,7 @@ export function computeTripleElimStandings(
 function playoffBracketMatches(
   tournament: TournamentState,
 ): TournamentMatch[] {
+  if (tournament.format === "single-elim" || tournament.format === "double-elim") return tournament.matches;
   const fedIntoIds = new Set<string>();
   for (const m of tournament.matches) {
     if (m.feedsInto?.matchId) fedIntoIds.add(m.feedsInto.matchId);
@@ -1428,8 +1429,9 @@ export function playoffParticipantIds(
 // Finish order for a single/double-elim BRACKET, best first. Computed
 // from the bracket matches only (which computeStandings skips) so the
 // order reflects how far each team actually advanced — i.e. WHERE it was
-// eliminated: more series wins = further; fewer losses; eliminated in a
-// later round. For a double-elim bracket this puts the grand-final
+// eliminated: later elimination rounds rank ahead of earlier exits.
+// Series wins only break ties within the same elimination round.
+// For a double-elim bracket this puts the grand-final
 // winner first, then the grand-final loser, then the losers-final loser
 // (3rd — knocked out one round from the final), then the team that lost
 // to that losers-finalist (4th), and so on down by elimination depth —
@@ -1441,22 +1443,31 @@ export function computeBracketFinishOrder(
 ): TournamentTeam[] {
   const wins = new Map<string, number>();
   const losses = new Map<string, number>();
-  const lastRound = new Map<string, number>();
-  for (const m of playoffBracketMatches(tournament)) {
+  const eliminatedRound = new Map<string, number>();
+  const matches = playoffBracketMatches(tournament);
+  const participants = playoffParticipantIds(tournament);
+  const champion = tournamentChampion(tournament)?.id;
+  for (const m of matches) {
     if (!m.winner || m.isBye) continue;
     if (m.blueTeamId == null || m.redTeamId == null) continue;
     wins.set(m.winner.teamId, (wins.get(m.winner.teamId) ?? 0) + 1);
     const loser =
       m.winner.teamId === m.blueTeamId ? m.redTeamId : m.blueTeamId;
     losses.set(loser, (losses.get(loser) ?? 0) + 1);
-    lastRound.set(m.blueTeamId, Math.max(lastRound.get(m.blueTeamId) ?? 0, m.round));
-    lastRound.set(m.redTeamId, Math.max(lastRound.get(m.redTeamId) ?? 0, m.round));
+    if (!m.losersFeedsInto) eliminatedRound.set(loser, m.round);
   }
+  // A pending grand-final reset gives both finalists one more series.
+  for (const m of matches) if (!m.winner && m.bracket === "grand-final-reset") {
+    if (m.blueTeamId) eliminatedRound.delete(m.blueTeamId);
+    if (m.redTeamId) eliminatedRound.delete(m.redTeamId);
+  }
+  const finish = (id: string) => id === champion ? Number.MAX_SAFE_INTEGER
+    : eliminatedRound.get(id) ?? (participants.has(id) ? Number.MAX_SAFE_INTEGER - 1 : -1);
   return [...tournament.teams].sort(
     (a, b) =>
+      finish(b.id) - finish(a.id) ||
       (wins.get(b.id) ?? 0) - (wins.get(a.id) ?? 0) ||
       (losses.get(a.id) ?? 0) - (losses.get(b.id) ?? 0) ||
-      (lastRound.get(b.id) ?? 0) - (lastRound.get(a.id) ?? 0) ||
       a.seed - b.seed,
   );
 }

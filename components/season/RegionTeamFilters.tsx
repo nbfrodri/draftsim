@@ -7,6 +7,13 @@ import {
 import type { RosterTimeSplit } from "@/lib/season/franchise";
 import LeagueIcon from "@/components/LeagueIcon";
 import TeamNameLink from "@/components/team/TeamNameLink";
+import LaneIcon from "@/components/LaneIcon";
+import { LANE_ORDER } from "@/lib/players";
+import type { Lane } from "@/lib/types";
+
+const ROLE_LABELS: Record<Lane, string> = {
+  top: "Top", jungle: "Jungle", middle: "Mid", bottom: "Bot", support: "Support",
+};
 
 export type FilterTeam = {
   id: string;
@@ -37,6 +44,8 @@ export default function RegionTeamFilters({
   onTeamFilter,
   splitFilter = null,
   onSplitFilter,
+  laneFilter = null,
+  onLaneFilter,
 }: {
   teams: readonly FilterTeam[];
   leagueFilter: LeagueId | null;
@@ -46,6 +55,8 @@ export default function RegionTeamFilters({
   /** Active split chip; null = all splits. Only rendered when `onSplitFilter` is set. */
   splitFilter?: RosterTimeSplit | null;
   onSplitFilter?: (split: RosterTimeSplit | null) => void;
+  laneFilter?: Lane | null;
+  onLaneFilter?: (lane: Lane | null) => void;
 }) {
   const teamOptions = leagueFilter
     ? teams.filter((t) => t.leagueId === leagueFilter)
@@ -130,6 +141,26 @@ export default function RegionTeamFilters({
                   color: t.color,
                 }}
               />
+            </button>
+          ))}
+        </div>
+      )}
+      {onLaneFilter && (
+        <div role="group" aria-label="Player roles" className="flex flex-wrap gap-1">
+          {([null, ...LANE_ORDER] as const).map(lane => (
+            <button
+              key={lane ?? "all"}
+              type="button"
+              aria-pressed={laneFilter === lane}
+              onClick={() => onLaneFilter(laneFilter === lane ? null : lane)}
+              className={`inline-flex items-center gap-1.5 px-2 py-1 border text-[10px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold ${
+                laneFilter === lane
+                  ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright"
+                  : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40"
+              }`}
+            >
+              {lane && <LaneIcon lane={lane} size="sm" />}
+              {lane ? ROLE_LABELS[lane] : "All roles"}
             </button>
           ))}
         </div>
