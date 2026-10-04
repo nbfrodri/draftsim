@@ -46,10 +46,10 @@ function history(): SeasonHistoryEntry[] {
     return entry;
   });
 }
-async function openHistory(page: Page) {
+async function openHistory(page: Page, archived = history()) {
   await page.addInitScript(({ season, history }) => localStorage.setItem("draftsim-store", JSON.stringify({ version: 7,
     state: { season: null, seasonViewOpen: false, seasonHistory: [], realities: [{ id: "honors", name: "Honors", year: 3, season, history }] },
-  })), { season: makeAuditSeason("Honors"), history: history() });
+  })), { season: makeAuditSeason("Honors"), history: archived });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await page.getByRole("button", { name: /^Season History/ }).click();
@@ -117,4 +117,46 @@ test("players and teams show distinct international honors and support AND event
   await expect(page.getByRole("button", { name: /Single Team/ })).toHaveCount(1);
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.screenshot({ path: "test-results/playwright/international-honors.png" });
+});
+
+test("player profiles show the same international appearance breakdown and event logos as teams", async ({ page }) => {
+  const archived = history();
+  const latest = archived[0];
+  latest.playerCareers!.find(player => player.playerId === "Grand Player")!.intlAppearances = 4;
+  await openHistory(page, archived);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await page.getByRole("button", { name: /Grand Player/ }).first().click();
+  const appearances = page.getByRole("group", { name: "International Appearances", exact: true });
+  await expect(appearances).toContainText("Total: 4");
+  for (const event of ["First Stand", "MSI", "Worlds", "Global Cup"]) {
+    await expect(appearances).toContainText(`${event}×1`);
+  }
+  for (const event of ["first-stand", "msi", "worlds"]) {
+    await expect(appearances.locator(`img[src="/league-logos/${event}.png"]`)).toBeVisible();
+  }
+  await expect(appearances.locator("svg")).toHaveCount(1);
+  for (const width of [1440, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await appearances.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await appearances.locator("..").screenshot({ path: `test-results/player-international-appearances/player-profile-${width}.png` });
+  }
+  await page.getByRole("button", { name: "Teams", exact: true }).click();
+  await page.getByRole("button", { name: /Grand Team/ }).first().click();
+  await expect(appearances).toContainText("Total: 4");
+});
+
+test("legacy player appearances retain the aggregate total without inventing event counts", async ({ page }) => {
+  const archived = history();
+  const latest = archived[0];
+  latest.playerCareers!.find(player => player.playerId === "Grand Player")!.intlAppearances = 4;
+  latest.phaseRosters = latest.phaseRosters!.filter(phase => phase.kind === "split" || phase.event === "worlds");
+  await openHistory(page, archived);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await page.getByRole("button", { name: /Grand Player/ }).first().click();
+  const appearances = page.getByRole("group", { name: "International Appearances", exact: true });
+  await expect(appearances).toContainText("Recorded: 1");
+  await expect(appearances).toContainText("Worlds×1");
+  await expect(appearances).not.toContainText("MSI");
+  await expect(page.getByText(/International appearance breakdown is incomplete/)).toBeVisible();
+  await expect(page.getByText("Intl Appearances", { exact: true }).locator("..")).toContainText("4");
 });

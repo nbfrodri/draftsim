@@ -1052,6 +1052,8 @@ describe("playerProfile", () => {
     expect(p.name).toBe("Faker");
     expect(p.career?.intlTitles).toBe(2); // aggregated from both seasons' careers
     expect(p.career?.intlAppearances).toBe(2); // both rostered events follow the same player ID
+    expect(p.intlAppearances).toEqual({ worlds: 2 });
+    expect(p.intlAppearancesIncomplete).toBe(false);
     // Newest first: Year 2 on GEN (won Worlds + Winter), Year 1 on T1 (won both).
     // One stint per season here (no mid-year transfer in the fixture).
     expect(p.tenures.map((t) => t.stints[0].team.name)).toEqual(["GEN", "T1"]);
@@ -1065,6 +1067,39 @@ describe("playerProfile", () => {
     expect(p.tenures[0].stints[0].team.color).toBe("#0e0");
     expect(p.tenures[1].stints[0].team.iconKey).toBe("sword");
     expect(p.lane).toBe("jungle"); // primary position (fixture seats them at idx 1)
+  });
+
+  it("counts each international once per year across play-in snapshots and transfers", () => {
+    const es = entries();
+    const worlds = es[0].phaseRosters![1];
+    es[0].phaseRosters!.push({ ...worlds, phaseIndex: 2, label: "Worlds Play-In" });
+    for (const [index, event] of (["first-stand", "msi", "global-cup"] as const).entries()) {
+      es[0].phaseRosters!.push({ ...worlds, event, phaseIndex: index + 3, label: event });
+    }
+    es[1].phaseRosters!.push({ ...es[1].phaseRosters![1], event: "msi", phaseIndex: 2, label: "MSI" });
+    const p = playerProfile(es, "faker")!;
+    expect(p.intlAppearances).toEqual({ "first-stand": 1, msi: 2, worlds: 2, "global-cup": 1 });
+    expect(p.intlAppearancesIncomplete).toBe(false);
+  });
+
+  it("does not credit a namesake or an inactive player's affiliated team", () => {
+    const es = entries().slice(0, 1);
+    const worlds = es[0].phaseRosters![1];
+    worlds.teams = worlds.teams.map(team => ({ ...team, players: team.players.map(player =>
+      player.id === "faker" ? { ...player, id: "namesake", name: "Faker" } : player) }));
+    worlds.inactive = [{ playerId: "faker", status: "academy", teamId: "T1", teamName: "T1" }];
+    expect(playerProfile(es, "faker")!.intlAppearances).toEqual({});
+    expect(playerProfile(es, "namesake")!.intlAppearances).toEqual({ worlds: 1 });
+  });
+
+  it("keeps legacy aggregate appearances without inventing their event breakdown", () => {
+    const es = entries();
+    delete es[0].phaseRosters;
+    es[0].playerCareers![0].intlAppearances = 3;
+    const p = playerProfile(es, "faker")!;
+    expect(p.career?.intlAppearances).toBe(4);
+    expect(p.intlAppearances).toEqual({ worlds: 1 });
+    expect(p.intlAppearancesIncomplete).toBe(true);
   });
 });
 

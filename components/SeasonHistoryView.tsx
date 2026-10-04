@@ -3177,18 +3177,20 @@ function SplitFinalsReachedChips({
 function IntlFinalsReachedChips({
   intlFinalsReached,
   label = "International Finals Reached",
+  totalLabel = "Total",
 }: {
   intlFinalsReached: Partial<Record<InternationalId, number>>;
   label?: string;
+  totalLabel?: string;
 }) {
   const total = totalIntlFinalsReached(intlFinalsReached);
   if (!INTERNATIONAL_DISPLAY_ORDER.some((ev) => (intlFinalsReached[ev] ?? 0) > 0)) return null;
   return (
-    <div>
+    <div role="group" aria-label={label}>
       <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
         {label}
         <span className="ml-2 text-rift-goldbright tabular-nums normal-case tracking-normal">
-          Total: {total}
+          {totalLabel}: {total}
         </span>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -3547,6 +3549,9 @@ const PlayerProfileView = memo(function PlayerProfileView({
       )}
       {c?.allProIncomplete && <p className="text-[10px] text-rift-muted">All-Pro history is incomplete: + indicates recorded selections only; older unscoped tournament awards are excluded.</p>}
       <IntlTitleChips splitTitles={p.splitTitles} intl={p.intlTitles} />
+      <IntlFinalsReachedChips intlFinalsReached={p.intlAppearances} label="International Appearances"
+        totalLabel={p.intlAppearancesIncomplete ? "Recorded" : "Total"} />
+      {p.intlAppearancesIncomplete && <p className="text-[10px] text-rift-muted">International appearance breakdown is incomplete: older appearances without recorded event rosters are not assigned to a tournament.</p>}
       <IntlFinalsReachedChips intlFinalsReached={p.intlFinalsReached} />
       <SplitFinalsReachedChips splitFinalsReached={p.splitFinalsReached} />
       <RegionTitleGroups groups={p.titlesByRegion} onNavigate={onNavigate} />
