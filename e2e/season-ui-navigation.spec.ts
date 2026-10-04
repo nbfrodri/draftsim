@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { makeAuditSeason } from "../lib/auditFixtures";
 import { createSeries } from "../lib/series";
 import { LEAGUE_IDS, type SeasonState } from "../lib/season/types";
+import { marketOrigin } from "../lib/season/marketOrigin";
 
 async function seed(page: Page, state: unknown) {
   await page.addInitScript(state => localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state })), state);
@@ -169,6 +170,39 @@ test("manual season save confirms durable success and exposes a failed write for
 });
 
 
+for (const stamped of [true, false]) {
+  test(`live digest shows offseason retirements and academy moves after reload (${stamped ? "recorded origin" : "legacy"})`, async ({ page }) => {
+    const season = makeAuditSeason("Offseason visibility");
+    const origin = marketOrigin(season, "Offseason");
+    season.id = "next-season";
+    season.franchise.year = 2;
+    season.config.playerTransfers = true;
+    season.rosterNews = (["retired", "became-fa", "academy-rookie", "fa-academy", "manual-demote", "fa-sign"] as const).map(note => ({
+      teamId: season.teams[0].id, lane: "top", entrantName: `Offseason ${note}`, entrantId: note,
+      ...(note === "retired" || note === "became-fa" || note === "manual-demote"
+        ? { departedName: `Offseason ${note}`, departedId: note, departedTier: "A" as const } : {}),
+      entrantTier: "A", entrantPotential: "A", entrantSource: "free-agent", marketNote: note,
+      timeMark: "Offseason", ...(stamped ? { origin } : {}),
+    }));
+    await seed(page, { season, seasonViewOpen: true });
+    await page.goto("/");
+    for (let reload = 0; reload < 2; reload++) {
+      const digest = page.getByRole("button", { name: /^Transfer Window/ }).locator("..");
+      await expect(digest.getByText("Offseason retired", { exact: true })).toBeVisible();
+      await expect(digest.getByRole("button", { name: stamped ? /Offseason · Year 1/ : /Offseason · Unknown year/ })).toBeVisible();
+      await digest.getByRole("button", { name: "Offseason", exact: true }).click();
+      await expect(digest.getByRole("tab", { name: /^All moves\s*6$/ })).toBeVisible();
+      for (const news of season.rosterNews!) {
+        await expect(digest.getByText(news.entrantName, { exact: true })).toBeVisible();
+      }
+      await digest.getByRole("tab", { name: /^Retired\s*1$/ }).click();
+      await expect(digest.getByText("Offseason retired", { exact: true })).toBeVisible();
+      await expect(digest.getByText("Offseason fa-sign", { exact: true })).toHaveCount(0);
+      if (reload === 0) await page.reload();
+    }
+  });
+}
+
 test("completed-year digest retains split moves until advancing and excludes old offseason carry", async ({ page }) => {
   const season: SeasonState = makeAuditSeason("Offseason attribution");
   season.status = "complete";
@@ -204,6 +238,8 @@ test("completed-year digest retains split moves until advancing and excludes old
   await page.getByRole("button", { name: /Finalize Offseason.*Year 3/ }).click();
   await expect(page.getByRole("button", { name: /Sim Matchday/ }).first()).toBeVisible({ timeout: 60000 });
   const nextDigest = page.getByRole("button", { name: /^Transfer Window/ }).locator("..");
+  await nextDigest.getByRole("button", { name: "Offseason", exact: true }).click();
+  await expect(nextDigest.getByText("CurrentOffseasonRookie", { exact: true })).toBeVisible();
   for (const split of ["Winter", "Spring", "Summer"]) {
     await expect(nextDigest.getByRole("button", { name: new RegExp(`After ${split} Split`) })).toHaveCount(0);
     await expect(nextDigest.getByText(`${split}OnlyRookie`, { exact: true })).toHaveCount(0);

@@ -1,5 +1,5 @@
 "use client";
-import { currentOffseasonRosterNews } from "@/lib/season/rosterNews";
+import { rosterNewsForDigest } from "@/lib/season/rosterNews";
 
 import { useMemo,useState } from "react";
 
@@ -101,17 +101,20 @@ function isPreIntlRosterTimeMark(timeMark: string) {
 }
 
 function groupRosterNewsByTime(items: readonly RosterNewsItem[]) {
-  const groups = new Map<string, RosterNewsItem[]>();
+  const groups = new Map<string, { timeMark: string; year?: number; items: RosterNewsItem[] }>();
   for (const n of items) {
-    const key = n.timeMark?.trim() || "Unknown";
-    const list = groups.get(key);
-    if (list) list.push(n);
-    else groups.set(key, [n]);
+    const timeMark = n.timeMark?.trim() || "Unknown";
+    const year = timeMark === "Offseason" ? n.origin?.year : undefined;
+    const key = year == null ? timeMark : `${timeMark}:${year}`;
+    const group = groups.get(key);
+    if (group) group.items.push(n);
+    else groups.set(key, { timeMark, year, items: [n] });
   }
-  return [...groups.entries()].sort(([a], [b]) => {
-    const ra = ROSTER_TIME_SORT[a] ?? 50;
-    const rb = ROSTER_TIME_SORT[b] ?? 50;
+  return [...groups.entries()].sort(([a, groupA], [b, groupB]) => {
+    const ra = ROSTER_TIME_SORT[groupA.timeMark] ?? 50;
+    const rb = ROSTER_TIME_SORT[groupB.timeMark] ?? 50;
     if (ra !== rb) return ra - rb;
+    if (groupA.year != null && groupB.year != null) return groupA.year - groupB.year;
     return a.localeCompare(b);
   });
 }
@@ -397,6 +400,7 @@ export default function TransferWindowPanel() {
     () => new Map(champions.map((c) => [c.id, c] as const)),
     [champions],
   );
+  const rosterNews = useMemo(() => season ? rosterNewsForDigest(season) : [], [season]);
   // Candidate swaps for the lane the user is shopping (willing teams first).
   const candidates = useMemo(
     () => (season && shopLane ? transferCandidates(season, champions, shopLane) : []),
@@ -540,11 +544,6 @@ export default function TransferWindowPanel() {
     .filter(({ pr }) => !movedLanes.has(pr.lane)
       && (!pr.mine.id || controlled?.players[pr.laneIndex]?.id === pr.mine.id));
 
-  // Retirements + demotions + roster entries from mid-split checkpoints and
-  // the post-Worlds offseason (aging on), league-wide.
-  const currentOffseasonNews = new Set(currentOffseasonRosterNews(season));
-  const rosterNews = (season.rosterNews ?? []).filter(n => season.status !== "complete" || n.timeMark !== "Offseason" || currentOffseasonNews.has(n));
-
   const filterTeams: FilterTeam[] = season.teams.map((t) => ({
     id: t.id,
     name: t.name,
@@ -561,11 +560,6 @@ export default function TransferWindowPanel() {
       return false;
     }
     const derivedSplit = splitFromRosterTimeMark(n.timeMark);
-    // Prefer to show the "Offseason roster move" only at the real end of
-    // the year (after Worlds), not at the start of the next year.
-    if (derivedSplit === "offseason" && season?.status !== "complete") {
-      return false;
-    }
     if (splitFilter && derivedSplit !== splitFilter) {
       return false;
     }
@@ -1172,20 +1166,21 @@ export default function TransferWindowPanel() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {rosterNewsGroups.map(([timeMark, items]) => {
+                    {rosterNewsGroups.map(([groupKey, { timeMark, year, items }]) => {
                       const isPreIntl = isPreIntlRosterTimeMark(timeMark);
                       const displayLabel =
-                        ROSTER_TIMEMARK_LABEL[timeMark] ?? timeMark;
-                      const isCollapsed = collapsedRosterGroups.has(timeMark);
+                        (ROSTER_TIMEMARK_LABEL[timeMark] ?? timeMark) +
+                        (timeMark === "Offseason" ? ` · ${year == null ? "Unknown year" : `Year ${year}`}` : "");
+                      const isCollapsed = collapsedRosterGroups.has(groupKey);
                       return (
-                      <div key={timeMark}>
+                      <div key={groupKey}>
                         <button
                           type="button"
                           onClick={() =>
                             setCollapsedRosterGroups((prev) => {
                               const next = new Set(prev);
-                              if (next.has(timeMark)) next.delete(timeMark);
-                              else next.add(timeMark);
+                              if (next.has(groupKey)) next.delete(groupKey);
+                              else next.add(groupKey);
                               return next;
                             })
                           }

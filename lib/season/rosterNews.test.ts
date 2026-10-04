@@ -1,8 +1,64 @@
 import { makeAuditSeason } from "../auditFixtures";
 import { applyTournamentUpdate } from "./engine";
 import { expect, it } from "vitest";
-import { currentOffseasonRosterNews, initializeOffseasonRosterNewsBoundary } from "./rosterNews";
+import { currentOffseasonRosterNews, initializeOffseasonRosterNewsBoundary, rosterNewsForDigest } from "./rosterNews";
+import { marketOrigin } from "./marketOrigin";
 import type { SeasonState } from "./types";
+
+it("keeps all carried offseason news visible during the next year without changing its ownership", () => {
+  const season = makeAuditSeason("Live offseason");
+  const origin = marketOrigin(season, "Offseason");
+  season.id = "next-season";
+  season.franchise.year = 2;
+  season.rosterNews = (["retired", "became-fa", "academy-rookie", "fa-academy", "manual-demote", "fa-sign"] as const).map(note => ({
+    teamId: season.teams[0].id, lane: "top", entrantName: note, entrantId: note,
+    entrantTier: "A", entrantPotential: "A", entrantSource: "free-agent", marketNote: note,
+    timeMark: "Offseason", origin,
+  }));
+  const saved = JSON.stringify(season);
+  const reloaded: SeasonState = JSON.parse(saved);
+  expect(rosterNewsForDigest(reloaded)).toEqual(season.rosterNews);
+  expect(rosterNewsForDigest(reloaded).every(news => news.origin?.year === 1)).toBe(true);
+  expect(currentOffseasonRosterNews(reloaded)).toEqual([]);
+  expect(JSON.stringify(reloaded)).toBe(saved);
+});
+
+it("uses recorded windows and keeps only the new offseason once the current year finishes", () => {
+  const season = makeAuditSeason("Digest origin");
+  const oldOrigin = marketOrigin(season, "Offseason");
+  season.id = "next-season";
+  season.franchise.year = 2;
+  season.status = "complete";
+  const news = { teamId: season.teams[0].id, lane: "top" as const, entrantName: "Current offseason",
+    entrantTier: "A" as const, entrantPotential: "A" as const, entrantSource: "rookie" as const };
+  season.rosterNews = [
+    { ...news, entrantName: "Previous offseason", timeMark: "Winter", origin: oldOrigin },
+    { ...news, entrantName: "Winter move", timeMark: "Offseason", origin: marketOrigin(season, "Winter") },
+    { ...news, timeMark: "Summer", origin: marketOrigin(season, "Offseason") },
+  ];
+  // Provenance takes precedence over both legacy marks and the array boundary.
+  season.offseasonRosterNewsBaseline = season.rosterNews.length;
+  expect(rosterNewsForDigest(season).map(news => [news.entrantName, news.timeMark])).toEqual([
+    ["Winter move", "Winter"], ["Current offseason", "Offseason"],
+  ]);
+  expect(season.rosterNews.map(news => news.timeMark)).toEqual(["Winter", "Offseason", "Summer"]);
+});
+
+it("shows legacy carry while playing without inventing a year and respects the closing boundary", () => {
+  const season = makeAuditSeason("Legacy digest");
+  season.franchise.year = 2;
+  const row = { teamId: season.teams[0].id, lane: "top" as const, entrantName: "Old retirement",
+    entrantTier: "A" as const, entrantPotential: "A" as const, entrantSource: "free-agent" as const,
+    marketNote: "retired" as const, timeMark: "Offseason" };
+  season.rosterNews = [row, { ...row, entrantName: "Winter release", marketNote: "became-fa", timeMark: "Winter" }];
+  expect(rosterNewsForDigest(season)).toEqual(season.rosterNews);
+  expect(rosterNewsForDigest(season)[0].origin).toBeUndefined();
+  season.status = "complete";
+  season.offseasonRosterNewsBaseline = 2;
+  season.rosterNews.push({ ...row, entrantName: "New retirement" });
+  expect(rosterNewsForDigest(season).map(news => news.entrantName)).toEqual(["Winter release", "New retirement"]);
+});
+
 it("keeps previous offseason carry and Winter changes out of the current offseason", () => {
   const season = { offseasonRosterNewsBaseline: 2, rosterNews: [
     { entrantName: "Old carry", timeMark: "Offseason" },

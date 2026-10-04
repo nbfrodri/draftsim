@@ -910,23 +910,24 @@ const SimMovePlayer = memo(function SimMovePlayer({
   );
   const nameCls =
     tone === "out"
-      ? "text-rift-muted/60"
+      ? "text-rift-mutedbright"
       : tone === "in"
-        ? "text-rift-goldbright/75"
-        : "text-rift-mutedbright/80";
+        ? "text-rift-goldbright"
+        : "text-rift-mutedbright";
 
   if (!displayName && !playerId) {
     return <TierChip tier={tier} size="xs" />;
   }
 
   return (
-    <span className="inline-flex items-center gap-0.5 min-w-0 max-w-[4.5rem]">
+    <span className="inline-flex shrink-0 items-center gap-1 min-w-0 max-w-[12rem]">
       <PlayerNameLink
         playerId={playerId}
         name={displayName ?? "Unknown"}
         hint={hint}
         renderAs="span"
-        className={`truncate text-[7px] cursor-pointer ${nameCls}`}
+        title={displayName ?? "Unknown"}
+        className={`truncate text-xs font-semibold leading-5 cursor-pointer ${nameCls}`}
       />
       <TierChip tier={tier} size="xs" />
     </span>
@@ -944,7 +945,7 @@ const RosterMoveRow = memo(function RosterMoveRow({
   const isExit = move.kind === "retire" || move.kind === "demotion" || move.kind === "release";
 
   return (
-    <div className="flex items-center gap-1 min-w-0 text-[8px] text-rift-mutedbright/75">
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0 py-0.5 text-[10px] text-rift-mutedbright">
       <LaneIcon lane={move.lane} size="xs" className="flex-shrink-0 opacity-60" />
 
       {isExit ? (
@@ -959,7 +960,7 @@ const RosterMoveRow = memo(function RosterMoveRow({
           />
           <span className="text-rift-gold/30 flex-shrink-0 text-[9px]" aria-hidden>→</span>
           <span
-            className={`px-1 py-px border text-[7px] uppercase tracking-[0.1em] flex-shrink-0 ${
+            className={`px-1 py-px border text-[9px] uppercase tracking-[0.1em] flex-shrink-0 ${
               move.kind === "retire"
                 ? "border-red-400/40 text-red-300/70 bg-red-400/[0.05]"
                 : move.kind === "release"
@@ -967,7 +968,7 @@ const RosterMoveRow = memo(function RosterMoveRow({
                   : "border-amber-500/40 text-amber-300/75 bg-amber-500/[0.05]"
             }`}
           >
-            {move.kind === "retire" ? "RET" : move.kind === "release" ? "FA" : "ACY"}
+            {move.kind === "retire" ? "Retired" : move.kind === "release" ? "FA" : "ACY"}
           </span>
         </>
       ) : isInbound ? (
@@ -986,7 +987,7 @@ const RosterMoveRow = memo(function RosterMoveRow({
             </>
           ) : null}
           <span
-            className={`px-1 py-px border text-[7px] uppercase tracking-[0.1em] flex-shrink-0 ${
+            className={`px-1 py-px border text-[9px] uppercase tracking-[0.1em] flex-shrink-0 ${
               move.kind === "callup"
                 ? "border-sky-500/40 text-sky-300/85 bg-sky-500/[0.06]"
                 : "border-rift-blue/40 text-rift-bluebright/85 bg-rift-blue/[0.06]"
@@ -1063,7 +1064,7 @@ const RosterMovesCard = memo(function RosterMovesCard({
   entry: SimRosterMovesEntry;
   dense: boolean;
 }) {
-  const logoSize = dense ? 10 : 11;
+  const logoSize = dense ? 12 : 14;
   const [expanded, setExpanded] = useState(false);
   const hasMore = entry.moves.length > ROSTER_MOVES_DEFAULT_VISIBLE;
   const visibleMoves = useMemo(
@@ -1116,7 +1117,7 @@ const RosterMovesCard = memo(function RosterMovesCard({
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="mt-0.5 text-[7px] text-rift-muted/55 pl-5 hover:text-rift-goldbright/80 transition-colors uppercase tracking-[0.15em]"
+            className="mt-1 text-[10px] text-rift-mutedbright pl-5 hover:text-rift-goldbright transition-colors"
           >
             {expanded
               ? "Show less"
