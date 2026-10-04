@@ -432,7 +432,7 @@ test("title playground filters teams, player winning regions, years and realitie
   await expect(champions.getByText("Showing 1 of 1 champions", {exact:false})).toBeVisible();
   await champions.locator("summary").first().click();
   await expect(champions.getByRole("button",{name:"Traveller",exact:true})).toBeVisible();
-  await expect(champions.locator('img[alt="middle"]')).toHaveCount(1);
+  await expect(champions.locator('details img[alt="middle"]')).toHaveCount(1);
   const formattedCounts = await page.evaluate(() => [4_000_000, 2_172_840, 1_827_160].map((count) => count.toLocaleString()));
   for (const count of formattedCounts) {
     await expect(champions.getByText(count, { exact: true })).toHaveCount(2);

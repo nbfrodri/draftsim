@@ -33,4 +33,48 @@ describe("global champion records",()=>{
     expect(rows[0].championId).toBe(60);
     expect(rows.at(-1)!.championId).toBe(1);
   });
+  it("counts only seasons played in the selected role when a player changes roles", () => {
+    const old = archive("old", 1, 10);
+    const recent = archive("recent", 2, 20);
+    recent.playerCareers![0].lane = "top";
+
+    const mid = championRecords([old, recent], "middle");
+    expect(mid.rows[0]).toMatchObject({ championId: 1, games: 10, wins: 9, losses: 1 });
+    expect(mid.rows[0].players).toEqual([
+      expect.objectContaining({ id: "a", lane: "middle", games: 10, seasonId: "old" }),
+    ]);
+    const top = championRecords([old, recent], "top");
+    expect(top.rows[0]).toMatchObject({ games: 24, wins: 19, losses: 5 });
+    expect(top.rows[0].players.map(p => [p.id, p.games])).toEqual([["a", 20], ["b", 4]]);
+    expect(championRecords([old, recent]).rows[0].games).toBe(34);
+  });
+  it("reranks champions by filtered games and preserves history coverage for empty roles", () => {
+    const e = archive("one", 1, 100);
+    e.playerCareers![1].games = 30;
+    e.playerCareers![1].champs = [
+      { championId: 1, games: 10, wins: 5 },
+      { championId: 2, games: 20, wins: 12 },
+    ];
+    expect(championRecords([e]).rows.map(r => r.championId)).toEqual([1, 2]);
+    expect(championRecords([e], "top").rows.map(r => [r.championId, r.games, r.wins, r.losses]))
+      .toEqual([[2, 20, 12, 8], [1, 10, 5, 5]]);
+    expect(championRecords([e], "support")).toEqual({ rows: [], seasons: 1, incompleteSeasons: 0 });
+  });
+  it("uses archived roster roles for legacy careers and leaves unknown roles unassigned", () => {
+    const e = archive("legacy", 1, 10);
+    delete e.playerCareers![0].lane;
+    delete e.playerCareers![1].lane;
+    e.phaseRosters = [{
+      phaseIndex: 0, label: "Winter", kind: "split", split: "winter",
+      teams: [{
+        teamId: "t1", teamName: "T1", leagueId: "LCK",
+        players: [{ id: "a", name: "Same name", lane: "jungle", tier: "S" }],
+      }],
+    }];
+    expect(championRecords([e], "jungle").rows[0]).toMatchObject({ games: 10, wins: 9, losses: 1 });
+    expect(championRecords([e], "top").rows).toEqual([]);
+    expect(championRecords([e]).rows[0].games).toBe(12);
+    e.playerCareers![1].champs = undefined;
+    expect(championRecords([e], "support").incompleteSeasons).toBe(1);
+  });
 });

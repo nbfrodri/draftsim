@@ -19,7 +19,7 @@ export interface ChampionRecord {
 }
 
 /** Aggregate archived picks, scoped to one Hall source. Re-archived years replace older copies. */
-export function championRecords(entries: readonly SeasonHistoryEntry[]) {
+export function championRecords(entries: readonly SeasonHistoryEntry[], role?: Lane) {
   const unique = new Map<string, SeasonHistoryEntry>();
   for (const e of entries)
     if (
@@ -49,6 +49,8 @@ export function championRecords(entries: readonly SeasonHistoryEntry[]) {
         player.champs.reduce((sum, c) => sum + c.games, 0) < player.games
       )
         incomplete = true;
+      const lane = player.lane ?? lanes.get(player.playerId);
+      if (role && lane !== role) continue;
       for (const champ of player.champs ?? []) {
         if (champ.games <= 0) continue;
         let players = byChampion.get(champ.championId);
@@ -61,7 +63,7 @@ export function championRecords(entries: readonly SeasonHistoryEntry[]) {
           row = {
             id: player.playerId,
             name: player.playerName,
-            lane: player.lane ?? lanes.get(player.playerId),
+            lane,
             seasonId: entry.id,
             games: 0,
             wins: 0,

@@ -2,6 +2,8 @@
 import { useMemo, useState } from "react";
 import { championRecords } from "@/lib/season/championRecords";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
+import type { Lane } from "@/lib/types";
+import { LANE_ORDER } from "@/lib/players";
 import { useDraftStore } from "@/store/draftStore";
 import PlaygroundSelect from "./PlaygroundSelect";
 import PlayerNameLink from "../player/PlayerNameLink";
@@ -10,6 +12,9 @@ import LaneIcon from "../LaneIcon";
 const columns =
   "grid grid-cols-[minmax(140px,1fr)_repeat(4,6rem)] items-center gap-3";
 const number = (n: number) => n.toLocaleString();
+const roleLabels: Record<Lane, string> = {
+  top: "Top", jungle: "Jungle", middle: "Mid", bottom: "Bot", support: "Support",
+};
 const winRateTone = (wins: number, games: number) =>
   wins * 2 > games ? "text-rift-bluebright" : wins * 2 < games ? "text-rift-redbright" : "text-rift-mutedbright";
 export default function ChampionRecords({
@@ -19,12 +24,13 @@ export default function ChampionRecords({
 }) {
   const [limit, setLimit] = useState("10");
   const [playersLimit, setPlayersLimit] = useState("3");
+  const [role, setRole] = useState<Lane>();
   const champions = useDraftStore((s) => s.champions);
   const catalogue = useMemo(
     () => new Map(champions.map((c) => [c.id, c])),
     [champions],
   );
-  const data = useMemo(() => championRecords(entries), [entries]);
+  const data = useMemo(() => championRecords(entries, role), [entries, role]);
   const rows = limit === "all" ? data.rows : data.rows.slice(0, Number(limit));
   return (
     <section
@@ -65,6 +71,35 @@ export default function ChampionRecords({
           />
         </div>
       </div>
+      <div
+        role="group"
+        aria-label="Champion roles"
+        className="mb-3 flex flex-wrap items-center gap-1.5"
+      >
+        <span className="mr-1 text-[10px] text-rift-mutedbright">Role</span>
+        {([undefined, ...LANE_ORDER] as const).map((lane) => {
+          const selected = role === lane;
+          const label = lane ? roleLabels[lane] : "All roles";
+          return (
+            <button
+              key={lane ?? "all"}
+              type="button"
+              aria-label={label}
+              aria-pressed={selected}
+              title={label}
+              onClick={() => setRole(lane)}
+              className={`inline-flex h-8 min-w-8 items-center justify-center rounded-sm border px-2 text-[10px] transition-colors focus-visible:outline focus-visible:outline-rift-gold ${selected ? "border-rift-gold/60 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright"}`}
+            >
+              {lane ? <LaneIcon lane={lane} size="sm" /> : label}
+            </button>
+          );
+        })}
+      </div>
+      {role && (
+        <p className="mb-2 text-[9px] text-rift-mutedbright">
+          Only picks from seasons with a recorded {roleLabels[role]} role are counted.
+        </p>
+      )}
       {data.incompleteSeasons > 0 && (
         <p
           role="status"
@@ -81,7 +116,9 @@ export default function ChampionRecords({
       </p>
       {!rows.length ? (
         <p className="py-6 text-center text-[11px] text-rift-mutedbright">
-          No champion usage recorded in this history yet.
+          {role
+            ? `No champion usage recorded for ${roleLabels[role]} in this history.`
+            : "No champion usage recorded in this history yet."}
         </p>
       ) : (
         <div className="overflow-x-auto">
