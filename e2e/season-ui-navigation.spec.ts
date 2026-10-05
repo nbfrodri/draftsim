@@ -82,15 +82,19 @@ test("live split and international stats show role/champion icons without longes
   tournament.status = "complete";
   season.phases[0].status = "complete";
   season.phases[0].tournamentIds = [tournament.id];
-  const intl = { ...structuredClone(tournament), id: "test-international", name: "Test International", seasonStageKind: "international" as const };
-  season.tournaments[intl.id] = intl;
-  season.phases.splice(1, 0, { kind: "international", event: "first-stand", label: "Test International", status: "complete", tournamentIds: [intl.id] });
-  season.phaseIndex = 2;
+  const names = [tournament.name];
+  for (const [index, event] of (["first-stand", "msi", "worlds", "global-cup"] as const).entries()) {
+    const intl = { ...structuredClone(tournament), id: `test-${event}`, name: event, seasonStageKind: "international" as const };
+    season.tournaments[intl.id] = intl;
+    season.phases.splice(index + 1, 0, { kind: "international", event, label: event, status: "complete", tournamentIds: [intl.id] });
+    names.push(intl.name);
+  }
+  season.phaseIndex = 5;
   await seed(page, { season, seasonViewOpen: true });
   await page.goto("/");
-  for (const index of [0, 1]) {
+  for (const [index, name] of names.entries()) {
     await page.getByRole("button", { name: /^Stats/ }).nth(index).click();
-    const stats = page.getByRole("region", { name: `${index === 0 ? tournament.name : intl.name} statistics`, exact: true });
+    const stats = page.getByRole("region", { name: `${name} statistics`, exact: true });
     const mvp = stats.getByText("MVP", { exact: true }).locator("..");
     await expect(mvp.locator('img[src*="icon-position-"]')).toHaveCount(1);
     for (const label of ["Most Contested", "Best Win Rate"]) {

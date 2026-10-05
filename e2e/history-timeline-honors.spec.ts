@@ -160,3 +160,101 @@ test("legacy player appearances retain the aggregate total without inventing eve
   await expect(page.getByText(/International appearance breakdown is incomplete/)).toBeVisible();
   await expect(page.getByText("Intl Appearances", { exact: true }).locator("..")).toContainText("4");
 });
+
+test("attendance excludes DNQ and combines player/team event filters with search, region, role and titles", async ({ page }) => {
+  const archived = history().slice(0, 1);
+  const entry = archived[0];
+  const absent = team("DNQ Team");
+  const visitor = team("Visitor Team");
+  entry.intlPlacements = {};
+  for (const phase of entry.phaseRosters!) {
+    if (phase.event) entry.intlPlacements[phase.event] = [entry.intlChampions[phase.event]!, entry.intlRunnersUp![phase.event]!,
+      ...(phase.event === "msi" ? [visitor] : [])];
+    // Engine snapshots stamp every roster, including teams that did not qualify.
+    phase.teams.push(snapshot(absent, "dnq", "DNQ Player"), snapshot(visitor, "visitor", "Visitor Player"));
+  }
+  for (const [playerId, playerName, ref] of [["dnq", "DNQ Player", absent], ["visitor", "Visitor Player", visitor]] as const) {
+    entry.playerCareers!.push({ playerId, playerName, leagueId: ref.leagueId, teamName: ref.name, lane: "top",
+      games: 1, kills: 0, mvps: 0, allPro: 0, splitTitles: 0, intlTitles: 0, intlAppearances: 4 });
+  }
+  await openHistory(page, archived);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await page.getByRole("button", { name: /DNQ Player/ }).first().click();
+  await expect(page.getByText("Intl Appearances", { exact: true }).locator("..")).toContainText("0");
+  await expect(page.getByText("Didn't qualify", { exact: true }).first()).toBeVisible();
+  await page.screenshot({ path: "test-results/international-attendance/dnq-player.png", fullPage: true });
+  const filters = page.getByRole("group", { name: "International appearance filters", exact: true });
+  await filters.getByRole("button", { name: "Intl appearances", exact: true }).click();
+  await expect(page.getByRole("button", { name: /DNQ Player/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Visitor Player/ })).toHaveCount(1);
+  await filters.getByRole("button", { name: "Match all (AND)", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Visitor Player/ })).toHaveCount(0);
+  for (const event of ["First Stand", "Worlds", "Global Cup"]) await filters.getByRole("button", { name: event, exact: true }).click();
+  await expect(page.getByRole("button", { name: /Visitor Player/ })).toHaveCount(1);
+  await filters.getByLabel("Min appearances").fill("2");
+  await expect(page.getByRole("button", { name: /Visitor Player/ })).toHaveCount(0);
+  await filters.getByLabel("Min appearances").fill("1");
+  await page.getByRole("button", { name: "LCK", exact: true }).click();
+  await page.getByTitle("middle", { exact: true }).click();
+  await expect(page.getByRole("button", { name: /Visitor Player/ })).toHaveCount(0);
+  await page.getByTitle("top", { exact: true }).click();
+  await expect(page.getByRole("button", { name: /Visitor Player/ })).toHaveCount(1);
+  await page.getByRole("button", { name: "Intl titles", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Visitor Player/ })).toHaveCount(0);
+  await page.getByPlaceholder(/Search by player/).fill("Grand");
+  await expect(page.getByRole("button", { name: /Grand Player/ }).first()).toBeVisible();
+  await page.getByLabel("Order results by").selectOption("intlAppearances");
+  await page.getByRole("button", { name: /Grand Player/ }).first().click();
+  for (const width of [1440, 1024]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.screenshot({ path: `test-results/international-attendance/player-filters-${width}.png`, fullPage: true });
+  }
+  await page.getByRole("button", { name: "Teams", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Grand Team/ }).first()).toBeVisible();
+  await page.getByPlaceholder(/Search by team/).fill("");
+  await page.getByRole("button", { name: "Intl titles", exact: true }).click();
+  await expect(page.getByRole("button", { name: /DNQ Team/ })).toHaveCount(0);
+  await page.getByRole("button", { name: /Visitor Team/ }).first().click();
+  await expect(page.getByRole("group", { name: "International Appearances", exact: true })).toContainText("Total: 1");
+  await filters.getByRole("button", { name: "Worlds", exact: true }).click();
+  await filters.getByLabel("Min appearances").fill("2");
+  await expect(page.getByPlaceholder(/Search by team/).locator("..").getByRole("button", { name: /Visitor Team/ })).toHaveCount(0);
+  await page.getByRole("button", { name: /Grand Team/ }).first().click();
+  await page.screenshot({ path: "test-results/international-attendance/team-filters.png", fullPage: true });
+});
+
+test("academy players retain only the internationals they attended before demotion", async ({ page }) => {
+  const archived = history().slice(0, 1);
+  const entry = archived[0];
+  entry.intlPlacements = {};
+  for (const phase of entry.phaseRosters!) {
+    if (phase.event) entry.intlPlacements[phase.event] = [entry.intlChampions[phase.event]!, entry.intlRunnersUp![phase.event]!];
+    phase.inactive = [{ playerId: "prospect", status: "academy", teamId: "Grand Team", teamName: "Grand Team" }];
+    if (phase.event !== "first-stand") {
+      phase.teams[0].players = [{ id: "replacement", name: "Replacement", tier: "S", lane: "top" }];
+      phase.inactive.push({ playerId: "Grand Player", status: "academy", teamId: "Grand Team", teamName: "Grand Team" });
+    }
+  }
+  entry.inactivePlayers = ["Grand Player", "prospect"].map(playerId => ({ playerId, playerName: playerId, lane: "top", tier: "S",
+    status: "academy", inactiveYears: 1, demotedYear: 2, lastTeamId: "Grand Team", lastTeamName: "Grand Team" }));
+  entry.playerCareers!.find(player => player.playerId === "Grand Player")!.intlAppearances = 4;
+  entry.playerCareers!.push({ ...entry.playerCareers![0], playerId: "prospect", playerName: "prospect", intlAppearances: 4 });
+  await openHistory(page, archived);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await page.getByRole("button", { name: "Academy", exact: true }).click();
+  await page.getByRole("button", { name: /prospect/ }).first().click();
+  await expect(page.getByText("Intl Appearances", { exact: true }).locator("..")).toContainText("0");
+  await page.getByRole("button", { name: /Grand Player/ }).first().click();
+  const appearances = page.getByRole("group", { name: "International Appearances", exact: true });
+  await expect(appearances).toContainText("Total: 1");
+  await expect(appearances).toContainText("First Stand");
+  await expect(appearances).not.toContainText("MSI");
+  await page.screenshot({ path: "test-results/international-attendance/academy-player.png", fullPage: true });
+  const filters = page.getByRole("group", { name: "International appearance filters", exact: true });
+  await filters.getByRole("button", { name: "Intl appearances", exact: true }).click();
+  const results = page.getByPlaceholder(/Search by player/).locator("..");
+  await expect(results.getByRole("button", { name: /prospect/ })).toHaveCount(0);
+  await expect(results.getByRole("button", { name: /Grand Player/ })).toHaveCount(1);
+  for (const event of ["First Stand", "Worlds", "Global Cup"]) await filters.getByRole("button", { name: event, exact: true }).click();
+  await expect(results.getByRole("button", { name: /Grand Player/ })).toHaveCount(0);
+});

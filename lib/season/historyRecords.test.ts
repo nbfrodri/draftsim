@@ -1003,7 +1003,7 @@ describe("computeIntlAppearances", () => {
   });
   it("counts each event once per season, keeps regions apart, and includes play-in exits", () => {
     const s1 = entry("s1", "Season 1", 1000, {
-      intlPlacements: { worlds: [team("T1"), team("G2", "LEC")] },
+      intlPlacements: { worlds: [team("T1"), team("G2", "LEC"), team("Fnatic", "LEC")], msi: [team("T1"), team("T1", "LEC")] },
       phaseRosters: [
         { phaseIndex: 5, label: "Worlds Play-In", kind: "international", event: "worlds", teams: [roster("T1", "LCK"), roster("Fnatic", "LEC")] },
         { phaseIndex: 3, label: "MSI", kind: "international", event: "msi", teams: [roster("T1", "LCK"), roster("T1", "LEC")] },

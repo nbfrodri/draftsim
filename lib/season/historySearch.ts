@@ -24,6 +24,7 @@ import {
   computePlayerCareers,
   computePlayerTitlesByEvent,
   computeIntlAppearances,
+  computePlayerIntlAppearances,
   computeTeamRecords,
   type PlayerCareerLine,
   type PlayerTitleTotals,
@@ -1051,8 +1052,11 @@ export function playerProfile(
   const ordered = [...completedEntries(entries)].sort((a, b) => b.archivedAt - a.archivedAt);
   const tenures: PlayerTenure[] = [];
   const intlTitles: Partial<Record<InternationalId, number>> = {};
-  const intlAppearances: Partial<Record<InternationalId, number>> = {};
-  let intlAppearancesIncomplete = false;
+  const appearances = career
+    ? { byEvent: career.intlAppearancesByEvent ?? {}, incomplete: career.intlAppearancesIncomplete ?? false }
+    : computePlayerIntlAppearances(ordered).get(playerId);
+  const intlAppearances = appearances?.byEvent ?? {};
+  const intlAppearancesIncomplete = appearances?.incomplete ?? false;
   const intlFinalsReached: Partial<Record<InternationalId, number>> = {};
   const splitFinalsReached: SplitFinalsReachedMap = {};
   const byRegion = new Map<LeagueId, PlayerRegionTitles>();
@@ -1093,7 +1097,6 @@ export function playerProfile(
   for (const e of ordered) {
     // Walk stages in PLAY ORDER so within-year transfers read left→right.
     const phases = [...(e.phaseRosters ?? [])].sort((a, b) => a.phaseIndex - b.phaseIndex);
-    const appearedEvents = new Set<InternationalId>();
     const stints: PlayerStint[] = [];
     const titles = emptyTally();
     const windows: PlayerCareerWindow[] = [];
@@ -1139,10 +1142,6 @@ export function playerProfile(
         continue;
       }
       const ref = refFor(identity, me.t.teamName, me.t.leagueId, me.t.logoUrl);
-      if (phase.kind === "international" && phase.event && !appearedEvents.has(phase.event)) {
-        appearedEvents.add(phase.event);
-        intlAppearances[phase.event] = (intlAppearances[phase.event] ?? 0) + 1;
-      }
       const k = teamKey({ name: me.t.teamName, leagueId: me.t.leagueId });
       const last = stints[stints.length - 1];
       if (last && teamKey(last.team) === k) last.stages.push(phase.label);
@@ -1198,10 +1197,6 @@ export function playerProfile(
           ...(intlOutcome ? { intlOutcome } : {}),
         });
       }
-    }
-
-    if ((e.playerCareers?.find(row => row.playerId === playerId)?.intlAppearances ?? 0) > appearedEvents.size) {
-      intlAppearancesIncomplete = true;
     }
 
     // End-of-season lifecycle status (prefer inactive pool over roster).
@@ -1676,6 +1671,29 @@ export interface TitleFilters {
 }
 
 export const EMPTY_TITLE_FILTERS: TitleFilters = { kinds: [] };
+
+export interface IntlAppearanceFilters {
+  enabled: boolean;
+  events: InternationalId[];
+  match: "any" | "all";
+  minimum: number;
+}
+
+/** Appearance filters are independent of titles and combine with all search criteria. */
+export function matchesIntlAppearanceFilters(
+  appearances: { byEvent: Partial<Record<InternationalId, number>>; total: number } | undefined,
+  filters: IntlAppearanceFilters,
+): boolean {
+  if (!filters.enabled) return true;
+  const events = filters.events.length ? filters.events : INTERNATIONAL_DISPLAY_ORDER;
+  const counts = appearances?.byEvent ?? {};
+  if (filters.match === "all" && !events.every(event => (counts[event] ?? 0) > 0)) return false;
+  // Legacy aggregates can prove an appearance somewhere, but never a particular event.
+  const total = events.length === INTERNATIONAL_DISPLAY_ORDER.length
+    ? appearances?.total ?? 0
+    : events.reduce((sum, event) => sum + (counts[event] ?? 0), 0);
+  return total >= Math.max(1, filters.minimum);
+}
 
 export function intlTitleCount(
   byEvent: Partial<Record<InternationalId, number>>,

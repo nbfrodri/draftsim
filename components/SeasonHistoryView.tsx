@@ -10,6 +10,7 @@ import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
 import dynamic from "next/dynamic";
 import { ComparePanel } from "./hall/ComparePanel";
+import InternationalAppearanceFilters from "./hall/InternationalAppearanceFilters";
 import { acyBadgeYears,CareerStatus,CareerStatusBadge,DynastyBadge,LANES,NavFn,NavPlayerName,PlayerTeamIcon,SeasonScope,TeamRef } from "./hall/shared";
 
 import {
@@ -71,6 +72,7 @@ computePlayerTitlesByEvent,
 computeRegionStrength,
 computeRegionTitleLeaders,
 computeIntlAppearances,
+computePlayerIntlAppearances,
 computeTeamRecords,
 computeTitleStreaks,
 DYNASTY_WINDOW,
@@ -88,6 +90,7 @@ formatGoldAdvAvg,
 listCoachesRich,
 listPlayers,
 listTeams,
+matchesIntlAppearanceFilters,
 passesMinGoldAdv,
 playerCareerStatuses,
 playerMatchesTitleFilters,
@@ -96,6 +99,7 @@ teamMatchesTitleFilters,
 teamProfile,
 teamStars,
 type CoachRecord,
+type IntlAppearanceFilters,
 type PlayerCareerWindow,
 type PlayerRegionTitles,
 type TitleFilters
@@ -4234,6 +4238,7 @@ const SORT_OPTIONS: Record<
     { key: "grade", label: "Avg Grade" },
     { key: "titles", label: "Titles" },
     { key: "intlTitles", label: "International Titles" },
+    { key: "intlAppearances", label: "International Appearances" },
     { key: "mvps", label: "MVPs" },
     { key: "allPro", label: "Total All-Pro Selections" },
     { key: "pentakills", label: "Pentakills" },
@@ -4248,6 +4253,7 @@ const SORT_OPTIONS: Record<
     { key: "totalTitles", label: "Total Titles" },
     { key: "worldsTitles", label: "Worlds Titles" },
     { key: "intlTotal", label: "Intl Titles" },
+    { key: "intlAppearances", label: "International Appearances" },
     { key: "splitTitles", label: "Split Titles" },
     { key: "star", label: "Star Rating" },
   ],
@@ -4486,6 +4492,9 @@ function SearchPanel({
     () => new Set(INTL_ORDER),
   );
   const [minGoldAdv, setMinGoldAdv] = useState("");
+  const [appearanceFilters, setAppearanceFilters] = useState<IntlAppearanceFilters>(() => ({
+    enabled: false, events: [...INTERNATIONAL_DISPLAY_ORDER], match: "any", minimum: 1,
+  }));
   const [resultPage, setResultPage] = useState(0);
   const SEARCH_PAGE_SIZE = 40;
 
@@ -4539,6 +4548,8 @@ function SearchPanel({
     [liveInactive, liveRosterIds],
   );
   const players = useMemo(() => listPlayers(entries, liveOpts), [entries, liveOpts]);
+  const playerAppearances = useMemo(() => computePlayerIntlAppearances(entries), [entries]);
+  const teamAppearances = useMemo(() => new Map(computeIntlAppearances(entries).map(row => [row.key, row])), [entries]);
   const teams = useMemo(() => listTeams(entries), [entries]);
   const stars = useMemo(() => teamStars(entries), [entries]);
   const coaches = useMemo(() => listCoachesRich(entries), [entries]);
@@ -4579,6 +4590,7 @@ function SearchPanel({
             (!regionFilter || p.leagueId === regionFilter) &&
             (statusFilter === "all" || p.careerStatus === statusFilter) &&
             playerMatchesTitleFilters(p, titleFilters) &&
+            matchesIntlAppearanceFilters(playerAppearances.get(p.id), appearanceFilters) &&
             passesMinGoldAdv(
               playerCareersById.get(p.id)?.goldDiffSum ?? 0,
               playerCareersById.get(p.id)?.goldDiffGames ?? 0,
@@ -4610,6 +4622,7 @@ function SearchPanel({
             grade: p.grade,
             titles: p.titles,
             intlTitles: playerCareersById.get(p.id)?.intlTitles ?? 0,
+            intlAppearances: playerAppearances.get(p.id)?.total ?? 0,
             mvps: p.mvps,
             allPro: playerCareersById.get(p.id)?.allProIncomplete ? -Infinity : p.allPro,
             pentakills: p.pentakills,
@@ -4625,6 +4638,7 @@ function SearchPanel({
         .filter(
           (t) =>
             (!regionFilter || t.leagueId === regionFilter) &&
+            matchesIntlAppearanceFilters(teamAppearances.get(`${t.leagueId}:${t.name}`), appearanceFilters) &&
             teamMatchesTitleFilters(
               teamRecords.get(`${t.leagueId}:${t.name}`),
               titleFilters,
@@ -4650,6 +4664,7 @@ function SearchPanel({
               totalTitles: rec?.totalTitles ?? 0,
               worldsTitles: rec?.worldsTitles ?? 0,
               intlTotal: rec?.intlTotal ?? 0,
+              intlAppearances: teamAppearances.get(key)?.total ?? 0,
               splitTitles: rec?.splitTitles ?? 0,
               star: star ?? 0,
             },
@@ -4682,7 +4697,7 @@ function SearchPanel({
       );
     }
     return rows;
-  }, [kind, q, laneFilter, regionFilter, statusFilter, sortKey, titleFilters, minGoldAdvNum, players, teams, stars, coaches, teamRecords, playerCareersById]);
+  }, [kind, q, laneFilter, regionFilter, statusFilter, sortKey, titleFilters, appearanceFilters, playerAppearances, teamAppearances, minGoldAdvNum, players, teams, stars, coaches, teamRecords, playerCareersById]);
 
   const sortLabel = SORT_OPTIONS[kind].find((o) => o.key === sortKey)?.label;
   const searchPageCount = Math.max(1, Math.ceil(results.length / SEARCH_PAGE_SIZE));
@@ -4691,7 +4706,7 @@ function SearchPanel({
     searchPage * SEARCH_PAGE_SIZE,
     (searchPage + 1) * SEARCH_PAGE_SIZE,
   );
-  const resultKey = `${kind}|${q}|${laneFilter}|${regionFilter}|${statusFilter}|${sortKey}|${intlTitleFilter}|${splitTitleFilter}|${intlEventMatch}|${titleFilters.intlEvents?.join(",")}|${minGoldAdv}`;
+  const resultKey = `${kind}|${q}|${laneFilter}|${regionFilter}|${statusFilter}|${sortKey}|${intlTitleFilter}|${splitTitleFilter}|${intlEventMatch}|${titleFilters.intlEvents?.join(",")}|${minGoldAdv}|${appearanceFilters.enabled}|${appearanceFilters.events.join(",")}|${appearanceFilters.match}|${appearanceFilters.minimum}`;
   const [previousResultKey, setPreviousResultKey] = useState(resultKey);
   if (previousResultKey !== resultKey) {
     setPreviousResultKey(resultKey);
@@ -4842,6 +4857,7 @@ function SearchPanel({
             </button>
           ))}
         </div>
+        {(kind === "players" || kind === "teams") && <InternationalAppearanceFilters value={appearanceFilters} onChange={setAppearanceFilters} />}
         {/* Title filters (players & teams) */}
         {(kind === "players" || kind === "teams") && (
           <div className="mb-2 space-y-2">

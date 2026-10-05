@@ -1075,8 +1075,10 @@ describe("playerProfile", () => {
     es[0].phaseRosters!.push({ ...worlds, phaseIndex: 2, label: "Worlds Play-In" });
     for (const [index, event] of (["first-stand", "msi", "global-cup"] as const).entries()) {
       es[0].phaseRosters!.push({ ...worlds, event, phaseIndex: index + 3, label: event });
+      es[0].intlPlacements = { ...es[0].intlPlacements, [event]: worlds.teams.map(t => ({ name: t.teamName, leagueId: t.leagueId })) };
     }
     es[1].phaseRosters!.push({ ...es[1].phaseRosters![1], event: "msi", phaseIndex: 2, label: "MSI" });
+    es[1].intlPlacements = { msi: es[1].phaseRosters![1].teams.map(t => ({ name: t.teamName, leagueId: t.leagueId })) };
     const p = playerProfile(es, "faker")!;
     expect(p.intlAppearances).toEqual({ "first-stand": 1, msi: 2, worlds: 2, "global-cup": 1 });
     expect(p.intlAppearancesIncomplete).toBe(false);

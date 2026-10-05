@@ -25,6 +25,7 @@ import {
 } from "./types";
 import {
   bumpSplitFinalsReached,
+  teamParticipatedIntl,
   SPLIT_IDS,
   type SplitFinalsReachedMap,
 } from "./placements";
@@ -846,9 +847,8 @@ export interface TeamIntlAppearances {
   total: number;
 }
 
-/** International appearances per franchise, most first. Sources, per season ×
- *  event: placements ∪ the event's stage rosters, else (legacy) the finalists.
- *  Seasons with none of these are unknown and add nothing. */
+/** International appearances per franchise, once per season × event. Phase
+ * rosters also contain DNQ teams: participation must agree with event results. */
 export function computeIntlAppearances(
   entries: SeasonHistoryEntry[],
 ): TeamIntlAppearances[] {
@@ -857,22 +857,19 @@ export function computeIntlAppearances(
   const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
   for (const e of ordered) {
     for (const event of INTERNATIONAL_DISPLAY_ORDER) {
-      // Union: older placements can miss play-in exits the stage rosters kept.
-      let teams: SeasonHistoryTeamRef[] = [
+      const champ = event === "worlds" ? (e.intlChampions.worlds ?? e.champion) : e.intlChampions[event];
+      const runner = event === "worlds" ? (e.intlRunnersUp?.worlds ?? e.runnerUp) : e.intlRunnersUp?.[event];
+      const teams: SeasonHistoryTeamRef[] = [
         ...(e.intlPlacements?.[event] ?? []).filter(Boolean),
+        ...[champ, runner].filter((t): t is SeasonHistoryTeamRef => !!t),
         ...(e.phaseRosters ?? [])
           .filter((p) => p.kind === "international" && p.event === event)
           .flatMap((p) => p.teams.map((t): SeasonHistoryTeamRef => ({ name: t.teamName, leagueId: t.leagueId, color: "", iconKey: "shield", ...(t.logoUrl ? { logoUrl: t.logoUrl } : {}) }))),
       ];
-      if (teams.length === 0) {
-        const champ = event === "worlds" ? (e.intlChampions.worlds ?? e.champion) : e.intlChampions[event];
-        const runner = event === "worlds" ? (e.intlRunnersUp?.worlds ?? e.runnerUp) : e.intlRunnersUp?.[event];
-        teams = [champ, runner].filter((t): t is SeasonHistoryTeamRef => !!t);
-      }
       const seen = new Set<string>();
       for (const team of teams) {
         const key = teamRecordKey(team);
-        if (seen.has(key)) continue;
+        if (seen.has(key) || !teamParticipatedIntl(e, team, event)) continue;
         seen.add(key);
         let row = byKey.get(key);
         if (!row) byKey.set(key, (row = { key, team: identity.get(key) ?? team, byEvent: {}, total: 0 }));
@@ -892,16 +889,7 @@ function countIntlAppearances(
 ): number {
   let count = 0;
   for (const e of entries) {
-    const appeared = (e.phaseRosters ?? []).some(
-      (phase) =>
-        phase.kind === "international" &&
-        phase.teams.some((t) =>
-          franchiseKeysMatch(
-            franchiseKeyFromParts(t.teamName, t.leagueId),
-            key,
-          ),
-        ),
-    );
+    const appeared = computeIntlAppearances([e]).some(row => franchiseKeysMatch(row.key, key));
     if (appeared) count += 1;
   }
   return count;
@@ -1128,6 +1116,8 @@ export interface PlayerCareerLine {
   champs: PlayerChampStat[];
   splitTitles: number;
   intlAppearances: number;
+  intlAppearancesByEvent?: Partial<Record<InternationalId, number>>;
+  intlAppearancesIncomplete?: boolean;
   intlTitles: number;
   // Summed richer stats (only from seasons archived after they existed). Use
   // the *Games denominators to average correctly; 0 → unknown, render "—".
@@ -1140,12 +1130,74 @@ export interface PlayerCareerLine {
   goldDiffGames: number;
 }
 
+export interface PlayerIntlAppearances {
+  byEvent: Partial<Record<InternationalId, number>>;
+  total: number;
+  incomplete: boolean;
+}
+
+/** Reconcile recorded player totals with actual entrants, without changing saves.
+ * A phase snapshot alone is not attendance: it also stamps every DNQ roster. */
+function playerIntlAppearancesForSeason(entry: SeasonHistoryEntry): Map<string, PlayerIntlAppearances> {
+  const attended = new Map<string, Set<InternationalId>>();
+  const known = new Map<string, Set<InternationalId>>();
+  const events = new Set<InternationalId>(INTERNATIONAL_DISPLAY_ORDER.filter(event =>
+    entry.intlPlacements?.[event] != null || entry.intlChampions?.[event] || entry.intlRunnersUp?.[event]
+    || (event === "worlds" && (entry.champion || entry.runnerUp))));
+  const mark = (map: Map<string, Set<InternationalId>>, id: string, event: InternationalId) => {
+    const set = map.get(id) ?? new Set<InternationalId>();
+    set.add(event);
+    map.set(id, set);
+  };
+  for (const phase of entry.phaseRosters ?? []) {
+    if (phase.kind !== "international" || !phase.event) continue;
+    const event = phase.event;
+    events.add(event);
+    const fullResults = (entry.intlPlacements?.[event]?.length ?? 0) > 0;
+    for (const team of phase.teams) {
+      const participated = teamParticipatedIntl(entry, { name: team.teamName, leagueId: team.leagueId }, event);
+      for (const player of team.players) {
+        if (!player.id) continue;
+        if (fullResults || participated) mark(known, player.id, event);
+        if (participated) mark(attended, player.id, event);
+      }
+    }
+    // An explicit academy/FA snapshot proves non-participation even when an
+    // older archive lacks the full event standings.
+    for (const player of phase.inactive ?? []) mark(known, player.playerId, event);
+  }
+  const saved = new Map((entry.playerCareers ?? []).map(row => [row.playerId, row.intlAppearances]));
+  const out = new Map<string, PlayerIntlAppearances>();
+  for (const id of new Set([...saved.keys(), ...known.keys(), ...attended.keys()])) {
+    const played = attended.get(id) ?? new Set<InternationalId>();
+    const complete = events.size > 0 && [...events].every(event => known.get(id)?.has(event));
+    const total = complete ? played.size : Math.max(played.size, saved.get(id) ?? 0);
+    out.set(id, { byEvent: Object.fromEntries([...played].map(event => [event, 1])), total, incomplete: total > played.size });
+  }
+  return out;
+}
+
+export function computePlayerIntlAppearances(entries: SeasonHistoryEntry[]): Map<string, PlayerIntlAppearances> {
+  const out = new Map<string, PlayerIntlAppearances>();
+  for (const entry of entries) for (const [id, row] of playerIntlAppearancesForSeason(entry)) {
+    const current = out.get(id) ?? { byEvent: {}, total: 0, incomplete: false };
+    for (const event of INTERNATIONAL_DISPLAY_ORDER) if (row.byEvent[event]) {
+      current.byEvent[event] = (current.byEvent[event] ?? 0) + row.byEvent[event]!;
+    }
+    current.total += row.total;
+    current.incomplete ||= row.incomplete;
+    out.set(id, current);
+  }
+  return out;
+}
+
 /** Aggregate per-season player records into true careers, keyed by stable
  *  player id. Newest archived season sets the displayed name/league. Empty
  *  until a season archived with player ids. */
 export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCareerLine[] {
   const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
   const byId = new Map<string, PlayerCareerLine>();
+  const appearances = computePlayerIntlAppearances(entries);
   // playerId → championId → summed {games, wins}, finalized into champs at the end.
   const champAcc = new Map<string, Map<number, { games: number; wins: number }>>();
   const mergeChamps = (playerId: string, champs: PlayerChampStat[] | undefined) => {
@@ -1235,6 +1287,13 @@ export function computePlayerCareers(entries: SeasonHistoryEntry[]): PlayerCaree
     line.champs = [...m.entries()]
       .map(([championId, v]) => ({ championId, games: v.games, wins: v.wins }))
       .sort((a, b) => b.games - a.games || b.wins - a.wins || a.championId - b.championId);
+  }
+  for (const [id, line] of byId) {
+    const row = appearances.get(id);
+    if (!row) continue;
+    line.intlAppearances = row.total;
+    line.intlAppearancesByEvent = row.byEvent;
+    line.intlAppearancesIncomplete = row.incomplete;
   }
   return [...byId.values()];
 }
