@@ -5027,6 +5027,7 @@ function SearchPanel({
           />
         ) : kind === "teams" ? (
           <TeamProfileView
+            key={selected}
             entries={entries}
             teamKey={selected}
             onNavigate={navigate}

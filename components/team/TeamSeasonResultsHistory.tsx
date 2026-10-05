@@ -1,9 +1,10 @@
 "use client";
 
 import { IconTrophy } from "@tabler/icons-react";
-import { memo, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 
 import LeagueIcon from "@/components/LeagueIcon";
+import CareerHistoryControls, { type CareerEvent } from "@/components/hall/CareerHistoryControls";
 import RosterSnapshotCards from "@/components/hall/RosterSnapshotCards";
 import GoToSeasonButton from "@/components/hall/GoToSeasonButton";
 import SplitIcon from "@/components/season/SplitIcon";
@@ -83,7 +84,7 @@ function ResultChip({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 border px-1.5 py-0.5 text-[8px] uppercase tracking-[0.12em] ${CHIP_TONE_CLS[tone]}`}
+      className={`inline-flex items-center gap-1 border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] ${CHIP_TONE_CLS[tone]}`}
       title={title}
       aria-label={`${label}: ${result}`}
     >
@@ -104,13 +105,7 @@ function ResultChip({
   );
 }
 
-const TeamSeasonRow = memo(function TeamSeasonRow({
-  season,
-  onGoToSeason,
-}: {
-  season: TeamSeasonLine;
-  onGoToSeason?: (seasonId: string) => void;
-}) {
+function teamSeasonChips(season: TeamSeasonLine) {
   const chips: { scope: SplitId | InternationalId; chip: ReactNode }[] = [];
   const addChip = (scope: SplitId | InternationalId, chip: ReactNode) =>
     chips.push({ scope, chip });
@@ -183,13 +178,22 @@ const TeamSeasonRow = memo(function TeamSeasonRow({
     );
   }
 
+  return chips;
+}
+
+const TeamSeasonRow = memo(function TeamSeasonRow({ season, chips, highlighted, onGoToSeason }: {
+  season: TeamSeasonLine;
+  chips: ReturnType<typeof teamSeasonChips>;
+  highlighted: ReadonlySet<CareerEvent>;
+  onGoToSeason?: (seasonId: string) => void;
+}) {
   const empty = chips.length === 0;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border border-rift-line/25 bg-rift-bg/15 px-2.5 py-1.5">
+    <div role="group" aria-label={`${season.season} results history`} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border border-rift-line/25 bg-rift-bg/15 px-2.5 py-1.5">
       <div className="flex items-center gap-1 flex-shrink-0">
         <span
-          className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 tabular-nums whitespace-nowrap"
+          className="text-[10px] font-display text-rift-mutedbright tabular-nums whitespace-nowrap"
           title={season.season}
         >
           {season.season.replace(/^Year\s+/i, "Y")}
@@ -213,7 +217,8 @@ const TeamSeasonRow = memo(function TeamSeasonRow({
             );
             return (
               <details key={scope} className="group open:w-full">
-                <summary className="inline-flex cursor-pointer list-none items-center gap-1">
+                <summary data-career-event={scope} data-highlighted={highlighted.has(scope) ? "true" : undefined}
+                  className="inline-flex cursor-pointer list-none items-center gap-1 border border-transparent px-0.5 py-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rift-gold data-[highlighted=true]:border-rift-gold/80 data-[highlighted=true]:bg-rift-gold/10 data-[highlighted=true]:shadow-[0_0_12px_rgba(200,170,110,0.3)]">
                   {chip}
                   <span aria-hidden className="text-[9px] text-rift-gold/60">
                     ▾
@@ -252,23 +257,41 @@ export default function TeamSeasonResultsHistory({
   seasons: TeamSeasonLine[];
   onGoToSeason?: (seasonId: string) => void;
 }) {
+  const rows = useMemo(() => seasons.map(season => ({ season, chips: teamSeasonChips(season) })), [seasons]);
+  const [highlighted, setHighlighted] = useState<Set<CareerEvent>>(() => new Set());
+  const [range, setRange] = useState({ from: "", to: "" });
+  const choices = useMemo(() => [...seasons].reverse().map(s => ({ id: s.seasonId, label: s.season })), [seasons]);
+  const fromIndex = Math.max(0, choices.findIndex(s => s.id === range.from));
+  const toIndex = range.to ? choices.findIndex(s => s.id === range.to) : choices.length - 1;
+  const visibleIds = new Set(choices.slice(fromIndex, (toIndex < 0 ? choices.length - 1 : toIndex) + 1).map(s => s.id));
+  const visibleRows = rows.filter(row => visibleIds.has(row.season.seasonId));
+  const matches = visibleRows.reduce((count, row) => count + row.chips.filter(chip => highlighted.has(chip.scope)).length, 0);
   if (seasons.length === 0) return null;
 
   return (
-    <div>
-      <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
+    <section aria-label="Results History">
+      <h3 className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-2">
         Results History
-      </div>
+      </h3>
+      <CareerHistoryControls seasons={choices} from={range.from} to={range.to}
+        onFrom={from => setRange(current => ({ from, to: from && choices.findIndex(s => s.id === from) > toIndex ? from : current.to }))}
+        onTo={to => setRange(current => ({ to, from: to && choices.findIndex(s => s.id === to) < fromIndex ? to : current.from }))}
+        onAllSeasons={() => setRange({ from: "", to: "" })}
+        selected={highlighted} onToggle={event => setHighlighted(current => {
+          const next = new Set(current); if (next.has(event)) next.delete(event); else next.add(event); return next;
+        })} onClear={() => setHighlighted(new Set())} matches={matches} visibleSeasons={visibleRows.length} />
       <div className="space-y-1">
-        {seasons.map((s) => (
+        {visibleRows.map(({ season: s, chips }) => (
           <TeamSeasonRow
             key={`${s.seasonId}-${s.archivedAt}`}
             season={s}
+            chips={chips}
+            highlighted={highlighted}
             onGoToSeason={onGoToSeason}
           />
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
