@@ -11,6 +11,7 @@ import { backupBeforeDestructiveChange } from "@/lib/backups";
 import dynamic from "next/dynamic";
 import { ComparePanel } from "./hall/ComparePanel";
 import InternationalAppearanceFilters from "./hall/InternationalAppearanceFilters";
+import CareerHistoryControls, { type CareerEvent } from "./hall/CareerHistoryControls";
 import { acyBadgeYears,CareerStatus,CareerStatusBadge,DynastyBadge,LANES,NavFn,NavPlayerName,PlayerTeamIcon,SeasonScope,TeamRef } from "./hall/shared";
 
 import {
@@ -3292,14 +3293,16 @@ const WINDOW_TONE: Record<CareerStatus, string> = {
 // every window of the calendar (Winter → First Stand → … → Offseason) and
 // which of them he lifted. Only rendered for archives that stamped their
 // academy / FA pool at each checkpoint; older years stay year-only.
-function CareerWindowChips({ windows, playerId, seasonId }: { windows: PlayerCareerWindow[]; playerId: string; seasonId: string }) {
+function CareerWindowChips({ windows, playerId, seasonId, highlighted }: { windows: PlayerCareerWindow[]; playerId: string; seasonId: string; highlighted: ReadonlySet<CareerEvent> }) {
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-1">
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
       {windows.map((w, i) => (
         <details key={`${w.key}-${i}`} className="group open:w-full">
         <summary
-
-          className={`inline-flex cursor-pointer list-none items-center gap-1 border px-1 py-0.5 text-[7px] uppercase tracking-[0.15em] ${WINDOW_TONE[w.status]}`}
+          data-career-event={w.key}
+          data-highlighted={highlighted.has(w.key as CareerEvent) ? "true" : undefined}
+          aria-label={`${w.label}${highlighted.has(w.key as CareerEvent) ? ", highlighted" : ""}, ${w.status === "academy" ? "academy" : w.status === "active" ? "main roster" : w.status}${w.team ? `, ${w.team.name}` : ""}${w.splitPlacement != null ? `, ${splitPlacementLabel(w.splitPlacement)}` : ""}${w.intlOutcome ? `, ${intlOutcomeLabel(w.intlOutcome)}` : ""}`}
+          className={`inline-flex cursor-pointer list-none items-center gap-1.5 border px-2 py-1 text-[9px] uppercase tracking-[0.08em] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rift-gold data-[highlighted=true]:border-rift-gold/80 data-[highlighted=true]:bg-rift-gold/10 data-[highlighted=true]:shadow-[0_0_12px_rgba(200,170,110,0.3)] ${WINDOW_TONE[w.status]}`}
           title={
             `${w.label} — ` +
             (w.status === "active"
@@ -3316,10 +3319,14 @@ function CareerWindowChips({ windows, playerId, seasonId }: { windows: PlayerCar
             (w.intlOutcome ? ` · ${intlOutcomeLabel(w.intlOutcome)}` : "")
           }
         >
+          <span aria-hidden className="inline-flex shrink-0">{w.kind === "split"
+            ? <SplitIcon split={w.key as SplitId} size={13} className="shrink-0 text-rift-bluebright" />
+            : w.kind === "international" ? <LeagueIcon league={w.key as InternationalId} size={13} /> : null}</span>
           {w.kind !== "offseason" && w.team && w.status === "active" && (
             <NavTeamLogo team={w.team} size={10} nested />
           )}
-          {w.label}
+          <span className={highlighted.has(w.key as CareerEvent) ? "font-display text-rift-goldbright" : undefined}>{w.label}</span>
+          {w.status !== "active" && <span className="text-[8px] font-display">{w.status === "academy" ? "ACY" : w.status === "free-agent" ? "FA" : "Retired"}</span>}
           {w.splitPlacement != null && (
             <span
               className={
@@ -3455,6 +3462,14 @@ const PlayerProfileView = memo(function PlayerProfileView({
   };
 }) {
   const p = useMemo(() => playerProfile(entries, id, liveOpts), [entries, id, liveOpts]);
+  const [highlightedEvents, setHighlightedEvents] = useState<Set<CareerEvent>>(() => new Set());
+  const [careerRange, setCareerRange] = useState({ from: "", to: "" });
+  const careerSeasons = useMemo(() => [...(p?.tenures ?? [])].reverse().map(t => ({ id: t.seasonId, label: t.season })), [p]);
+  const fromIndex = Math.max(0, careerSeasons.findIndex(s => s.id === careerRange.from));
+  const toIndex = careerRange.to ? careerSeasons.findIndex(s => s.id === careerRange.to) : careerSeasons.length - 1;
+  const visibleCareerIds = new Set(careerSeasons.slice(fromIndex, (toIndex < 0 ? careerSeasons.length - 1 : toIndex) + 1).map(s => s.id));
+  const visibleTenures = p?.tenures.filter(t => visibleCareerIds.has(t.seasonId)) ?? [];
+  const highlightedCount = visibleTenures.reduce((sum, tenure) => sum + (tenure.windows?.filter(w => highlightedEvents.has(w.key as CareerEvent)).length ?? 0), 0);
   const champions = useDraftStore((s) => s.champions);
   const champById = useMemo(
     () => new Map(champions.map((ch) => [ch.id, ch])),
@@ -3609,15 +3624,22 @@ const PlayerProfileView = memo(function PlayerProfileView({
         </div>
       )}
       <CareerTeammates key={id} rows={p.teammates} onGoToSeason={onGoToSeason} />
-      <div>
-        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Career History</div>
+      <section aria-label="Career History">
+        <h3 className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-2">Career History</h3>
+        <CareerHistoryControls seasons={careerSeasons} from={careerRange.from} to={careerRange.to}
+          onFrom={from => setCareerRange(range => ({ from, to: from && careerSeasons.findIndex(s => s.id === from) > toIndex ? from : range.to }))}
+          onTo={to => setCareerRange(range => ({ to, from: to && careerSeasons.findIndex(s => s.id === to) < fromIndex ? to : range.from }))}
+          onAllSeasons={() => setCareerRange({ from: "", to: "" })}
+          selected={highlightedEvents} onToggle={event => setHighlightedEvents(current => {
+            const next = new Set(current); if (next.has(event)) next.delete(event); else next.add(event); return next;
+          })} onClear={() => setHighlightedEvents(new Set())} matches={highlightedCount} visibleSeasons={visibleTenures.length} />
         <div className="space-y-1.5">
-          {p.tenures.map((t, i) => (
+          {visibleTenures.map((t, i) => (
             <SeasonScope.Provider key={t.seasonId || i} value={t.seasonId}>
-            <div className="border border-rift-line/30 bg-rift-bg/20 px-2.5 py-1.5 text-[10px]">
+            <div role="group" aria-label={`${t.season} career history`} className="border border-rift-line/30 bg-rift-bg/20 px-2.5 py-2 text-[10px]">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  <span className="text-[8px] uppercase tracking-[0.2em] text-rift-muted/55 tabular-nums whitespace-nowrap">
+                  <span className="text-[10px] font-display text-rift-mutedbright tabular-nums whitespace-nowrap">
                     {t.season}
                   </span>
                   <GoToSeasonButton
@@ -3679,12 +3701,13 @@ const PlayerProfileView = memo(function PlayerProfileView({
                 />
                 <TitleTallyInline titles={t.titles} />
               </div>
-              {t.windows && <CareerWindowChips windows={t.windows} playerId={id} seasonId={t.seasonId} />}
+              {t.windows?.length ? <CareerWindowChips windows={t.windows} playerId={id} seasonId={t.seasonId} highlighted={highlightedEvents} />
+                : <p className="mt-2 text-[10px] text-rift-mutedbright/70">Event history was not recorded for this season.</p>}
             </div>
             </SeasonScope.Provider>
           ))}
         </div>
-      </div>
+      </section>
     </div>
   );
 });
@@ -4995,6 +5018,7 @@ function SearchPanel({
           <p className="text-[11px] italic text-rift-muted">Pick a {kind.slice(0, -1)} to see their full history.</p>
         ) : kind === "players" ? (
           <PlayerProfileView
+            key={selected}
             entries={entries}
             id={selected}
             onNavigate={navigate}
