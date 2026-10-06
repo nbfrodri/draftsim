@@ -3322,7 +3322,7 @@ function CareerWindowChips({ windows, playerId, seasonId, highlighted }: { windo
           <span aria-hidden className="inline-flex shrink-0">{w.kind === "split"
             ? <SplitIcon split={w.key as SplitId} size={13} className="shrink-0 text-rift-bluebright" />
             : w.kind === "international" ? <LeagueIcon league={w.key as InternationalId} size={13} /> : null}</span>
-          {w.kind !== "offseason" && w.team && w.status === "active" && (
+          {w.kind !== "offseason" && w.team && (w.status === "active" || w.status === "academy") && (
             <NavTeamLogo team={w.team} size={10} nested />
           )}
           <span className={highlighted.has(w.key as CareerEvent) ? "font-display text-rift-goldbright" : undefined}>{w.label}</span>
@@ -3663,7 +3663,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
                         <span className={`px-1 border font-display text-[8px] flex-shrink-0 ${STAGE_TIER_CLS[st.tier] ?? ""}`}>{st.tier}</span>
                       </span>
                     ))
-                  ) : t.affiliateTeam ? (
+                  ) : t.affiliateTeam && t.careerStatus !== "free-agent" ? (
                     <span className="inline-flex items-center gap-1 min-w-0 max-w-full overflow-hidden">
                       <button
                         type="button"
@@ -3676,11 +3676,9 @@ const PlayerProfileView = memo(function PlayerProfileView({
                       <span className="text-[7px] uppercase tracking-[0.15em] text-rift-muted/45">
                         {t.careerStatus === "academy"
                           ? "Academy"
-                          : t.careerStatus === "free-agent"
-                            ? "Free agent"
-                            : t.careerStatus === "retired"
-                              ? "Retired"
-                              : "Affiliate"}
+                          : t.careerStatus === "retired"
+                            ? "Retired"
+                            : "Affiliate"}
                       </span>
                     </span>
                   ) : (

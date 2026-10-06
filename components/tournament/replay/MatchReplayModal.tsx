@@ -18,6 +18,7 @@ import TeamNameLink from "@/components/team/TeamNameLink";
 import { getChampionMeta } from "@/lib/championMeta";
 import { LANES } from "@/lib/lanes";
 import { computeGameRatings } from "@/lib/matchSimulator";
+import { roleGaps, type RoleGap } from "@/lib/roleGap";
 import { gameKillTotals } from "@/lib/recapStats";
 import { syntheticDamage } from "@/lib/sim/descriptions";
 import type { TournamentMatch,TournamentState,TournamentTeam } from "@/lib/tournament";
@@ -452,6 +453,23 @@ export function MatchReplayModal({
               )}
             </div>
           )}
+          {showSeriesStats && blueSummaries && redSummaries && (
+            <div className="mt-2">
+              <RoleGapRow
+                label="Series role gaps"
+                gaps={roleGaps(blueSummaries.map(p => p.avgRating), redSummaries.map(p => p.avgRating))}
+                teamFor={side => {
+                  const team = side === "blue" ? blueTeam : redTeam;
+                  return team ? <TeamLogoLink teamId={team.id} name={team.name} iconKey={team.iconKey} logoUrl={team.logoUrl} color={team.color} size={14} renderAs="span"
+                    hint={{ name: team.name, iconKey: team.iconKey, logoUrl: team.logoUrl, color: team.color }} /> : null;
+                }}
+                playerFor={g => {
+                  const p = (g.side === "blue" ? blueSummaries : redSummaries).find(row => row.lane === g.lane);
+                  return { name: p?.name ?? null, id: p?.playerId ?? null };
+                }}
+              />
+            </div>
+          )}
         </div>
 
         {/* Game tab strip — only when more than one game played. */}
@@ -517,6 +535,30 @@ export function MatchReplayModal({
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+// "Mid Gap"-style callouts: lanes where one player clearly out-rated their
+// opponent, with the rating difference and the team that won the lane.
+function RoleGapRow({ gaps, teamFor, playerFor, label }: {
+  gaps: RoleGap[];
+  teamFor: (side: Side) => ReactNode;
+  playerFor: (gap: RoleGap) => { name: string | null; id: string | null };
+  label: string;
+}) {
+  if (gaps.length === 0) return null;
+  return (
+    <div role="group" aria-label={label} className="flex flex-wrap items-center gap-1.5">
+      {gaps.map(g => (
+        <span key={g.lane} className={`inline-flex items-center gap-1.5 border px-2 py-1 text-[10px] ${g.side === "blue" ? "border-rift-blue/40 bg-rift-blue/10" : "border-rift-red/40 bg-rift-red/10"}`}>
+          <LaneIcon lane={g.lane} size="xs" />
+          <span className="font-display uppercase tracking-[0.12em] text-rift-goldbright">{g.label}</span>
+          <span className="inline-flex h-4 items-center leading-none">{teamFor(g.side)}</span>
+          <PlayerNameLink playerId={playerFor(g).id ?? undefined} name={playerFor(g).name} fallback={LANES.find(l => l.key === g.lane)?.label} className="text-rift-mutedbright" />
+          <span className="tabular-nums text-rift-mutedbright">+{g.diff.toFixed(1)}</span>
+        </span>
+      ))}
     </div>
   );
 }
@@ -747,6 +789,18 @@ function ReplayGamePanel({
           playerIds={recap?.perPickIds?.red}
         />
       </div>
+
+      {perGameRatings && (
+        <RoleGapRow
+          label="Game role gaps"
+          gaps={roleGaps(perGameRatings.blue, perGameRatings.red)}
+          teamFor={side => <MatchTeamMark side={side} />}
+          playerFor={g => {
+            const i = LANES.findIndex(l => l.key === g.lane);
+            return { name: recap?.perPickNames?.[g.side]?.[i] ?? null, id: recap?.perPickIds?.[g.side]?.[i] ?? null };
+          }}
+        />
+      )}
 
       {/* Heavy chart blocks mount one frame after picks/header paint. */}
       <DeferredMount key={`charts-${game.id}`}>

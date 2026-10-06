@@ -2414,6 +2414,7 @@ function StageStatsRow({
           {stats.specials.map((a) => (
             <span key={a.kind} className="inline-flex items-center gap-1 text-[10px]">
               <span className="text-rift-gold/70">{a.title}:</span>
+              <LaneIcon lane={a.player.lane} size="xs" />
               <AwardTeamIcon season={season} teamId={a.player.teamId} />
               <PlayerNameLink
                 playerId={a.player.playerId}

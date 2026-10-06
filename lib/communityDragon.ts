@@ -175,7 +175,7 @@ export async function refreshChampions(): Promise<Champion[]> {
 
   const fetched = raw
     .filter((c) => c.id > 0) // drop the "None" sentinel (id -1)
-    .filter((c) => !c.alias.startsWith("Ruby_")) // drop Doom Bot variants
+    .filter((c) => !c.alias.includes("_")) // drop mode variants (Ruby_ Doom Bots, Jade_ LoL Classic)
     .map((c) => ({
       id: c.id,
       name: c.name,
@@ -196,7 +196,7 @@ export function validChampions(value: unknown): value is Champion[] {
   const ids = new Set<number>();
   return value.every(c => {
     if (!c || !Number.isSafeInteger(c.id) || c.id <= 0 || ids.has(c.id) || typeof c.name !== "string" || !c.name ||
-      typeof c.alias !== "string" || !c.alias || !Array.isArray(c.roles) || !c.roles.every((r: unknown) => typeof r === "string") ||
+      typeof c.alias !== "string" || !c.alias || c.alias.includes("_") || !Array.isArray(c.roles) || !c.roles.every((r: unknown) => typeof r === "string") ||
       typeof c.iconUrl !== "string" || !Array.isArray(c.lanes) || !c.lanes.every((lane: Lane) => ALL_LANES.includes(lane))) return false;
     ids.add(c.id); return true;
   });

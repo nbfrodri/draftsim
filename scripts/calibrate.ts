@@ -84,7 +84,7 @@ async function fetchChampions(): Promise<Champion[]> {
   ]);
   return rawArr
     .filter((c) => c.id > 0)
-    .filter((c) => !c.alias.startsWith("Ruby_"))
+    .filter((c) => !c.alias.includes("_"))
     .map<Champion>((c) => ({
       id: c.id,
       name: c.name,
