@@ -95,8 +95,10 @@ function roster(team: SeasonHistoryTeamRef, withAtlas: boolean): TeamRosterSnaps
       name: team === t1 && i === 2 && withAtlas ? "Atlas" : `${team.name} ${lane}`, lane, tier: "S" as const, age: 21 })) };
 }
 // Year 1: T1 starter. Year 2: T1 academy all year. Year 3: free agent all year.
+// Year 4: free agent all year, retires at year end.
 function careerHistory(): SeasonHistoryEntry[] {
-  const status = [null, "academy", "free-agent"] as const;
+  const status = [null, "academy", "free-agent", "free-agent"] as const;
+  const yearEnd = [null, "academy", "free-agent", "retired"] as const;
   return status.map((st, index) => {
     const year = index + 1;
     const entry: SeasonHistoryEntry = { id: `vf-${year}`, name: `Verify Year ${year}`, archivedAt: year, complete: true,
@@ -104,7 +106,7 @@ function careerHistory(): SeasonHistoryEntry[] {
       splitChampions: {}, splitRunnersUp: {}, splitPlacements: {}, phaseRosters: [],
       playerCareers: [{ playerId: "atlas", playerName: "Atlas", leagueId: "LCK", teamName: "T1", lane: "middle",
         games: st ? 0 : 40, kills: 80, mvps: 0, allPro: 0, intlTitles: 0, splitTitles: 0, intlAppearances: 0 }],
-      ...(st ? { inactivePlayers: [{ playerId: "atlas", playerName: "Atlas", lane: "middle" as const, tier: "S" as const, status: st,
+      ...(st ? { inactivePlayers: [{ playerId: "atlas", playerName: "Atlas", lane: "middle" as const, tier: "S" as const, status: yearEnd[index]!,
         inactiveYears: year - 1, demotedYear: 2, lastTeamId: "T1", lastTeamName: "T1" }] } : {}),
     };
     for (const event of calendar) {
@@ -121,7 +123,7 @@ function careerHistory(): SeasonHistoryEntry[] {
   });
 }
 
-test("2 · career history shows academy team logos and no club beside an FA year", async ({ page }) => {
+test("2 · career history shows academy team logos and no club beside FA or FA-then-retired years", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.addInitScript(({ season, history }) => localStorage.setItem("draftsim-store", JSON.stringify({ version: 7,
     state: { season: null, seasonViewOpen: false, seasonHistory: [], realities: [{ id: "vf", name: "Verify", year: 4, season, history }] },
@@ -146,6 +148,13 @@ test("2 · career history shows academy team logos and no club beside an FA year
   await expect(fa.getByRole("button", { name: /^View T1/ })).toHaveCount(0);
   await expect(fa.getByText("Free agent", { exact: true })).toBeVisible();
   await expect(fa.locator('[data-career-event="winter"] img[src="' + t1.logoUrl + '"]')).toHaveCount(0);
+  // The last club's international result is not a free agent's result.
+  await expect(fa.locator('[data-career-event="msi"]')).not.toContainText("#1");
+
+  // Retiring after a free-agent year: still no club beside the year.
+  const retired = career.getByRole("group", { name: "Verify Year 4 career history", exact: true });
+  await expect(retired.getByRole("button", { name: /^View T1/ })).toHaveCount(0);
+  await expect(retired.getByText("Retired", { exact: true }).first()).toBeVisible();
 
   await career.scrollIntoViewIfNeeded();
   await career.screenshot({ path: `${SHOTS}/2-career-history-academy-fa.png` });
@@ -214,4 +223,29 @@ test("4 · season results stats show role icons on Performance / Most Consistent
   }
   await stats.scrollIntoViewIfNeeded();
   await stats.screenshot({ path: `${SHOTS}/4-season-results-award-roles.png` });
+});
+
+// ── 5. Hall records: event logos in Most International Trophies ─────────────
+test("5 · Most International Trophies shows each event's logo with its count", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const gen = { name: "Gen.G Esports", leagueId: "LCK" as const, logoUrl: resolveTeamLogo("Gen.G Esports"), color: "#c8aa6e", iconKey: "shield" };
+  // T1: 2× Worlds + 1× MSI; Gen.G: 1× First Stand + 1× MSI.
+  const wins = [{ worlds: t1, msi: gen }, { worlds: t1, "first-stand": gen }, { msi: t1 }];
+  const entries = wins.map((intlChampions, i) => ({ id: `rec-${i}`, name: `Record Year ${i + 1}`, archivedAt: i + 1, complete: true,
+    champion: (intlChampions as { worlds?: typeof t1 }).worlds ?? null, runnerUp: null, intlChampions, splitChampions: {} }));
+  await page.addInitScript(history => localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state: { seasonHistory: history, realities: [], season: null } })), entries);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await page.getByRole("button", { name: /^Season History/ }).click();
+  await page.getByRole("button", { name: "Records & Dynasties", exact: true }).click();
+  const board = page.getByText("Most International Trophies", { exact: true }).locator("..");
+  const t1Row = board.locator(".cv-row").filter({ hasText: "T1" });
+  await expect(t1Row.locator('[data-intl-trophy="worlds"]')).toHaveText(/^2/);
+  await expect(t1Row.locator('[data-intl-trophy="msi"]')).toHaveText(/^1/);
+  await expect(t1Row.locator('[data-intl-trophy] img[src="/league-logos/worlds.png"]')).toHaveCount(1);
+  const genRow = board.locator(".cv-row").filter({ hasText: "Gen.G" });
+  await expect(genRow.locator("[data-intl-trophy]")).toHaveCount(2);
+  await expect(genRow.locator("[data-intl-trophy] img")).toHaveCount(2);
+  await board.scrollIntoViewIfNeeded();
+  await board.screenshot({ path: `${SHOTS}/5-records-intl-trophy-logos.png` });
 });

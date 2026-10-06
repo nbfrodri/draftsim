@@ -1126,8 +1126,10 @@ export function playerProfile(
                   ...(stamp.teamName ? { lastTeamName: stamp.teamName } : {}),
                 })
               : null;
+          // A free agent's last club is not their team: only an academy
+          // org's result describes this window.
           const intlOutcome =
-            phase.kind === "international" && phase.event && org
+            phase.kind === "international" && phase.event && org && stamp.status === "academy"
               ? teamIntlOutcome(e, org, phase.event)
               : undefined;
           windows.push({

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BRACES_ADVISORY, EXCEPTION_EXPIRES, evaluateAudit } from "./audit-dependencies.mjs";
+import { BRACES_ADVISORY, EXCEPTION_EXPIRES, SELECTOR_PARSER_ADVISORY, evaluateAudit } from "./audit-dependencies.mjs";
 
 const beforeExpiry = new Date("2026-10-03T00:00:00Z");
 function fixture() {
@@ -62,4 +62,34 @@ test("fails closed for registry errors, malformed reports, missing lock entries 
   assert.equal(evaluateAudit(report, lock, beforeExpiry).allowed.length, 0);
   report.vulnerabilities.braces.via = ["missing"];
   assert.equal(evaluateAudit(report, lock, beforeExpiry).allowed.length, 0);
+});
+
+function selectorFixture() {
+  const advisory = { url: SELECTOR_PARSER_ADVISORY, name: "postcss-selector-parser", dependency: "postcss-selector-parser", severity: "moderate", range: "<7.1.6" };
+  const report = { auditReportVersion: 2, vulnerabilities: {
+    "postcss-selector-parser": { name: "postcss-selector-parser", severity: "moderate", nodes: ["node_modules/postcss-selector-parser"], via: [advisory] },
+    "postcss-nested": { name: "postcss-nested", severity: "moderate", nodes: ["node_modules/postcss-nested"], via: ["postcss-selector-parser"] },
+    tailwindcss: { name: "tailwindcss", severity: "high", nodes: ["node_modules/tailwindcss"], via: ["postcss-nested", "postcss-selector-parser"] },
+  } };
+  const lock = { packages: Object.fromEntries(Object.keys(report.vulnerabilities).map((name) =>
+    [`node_modules/${name}`, { dev: true, version: name === "postcss-selector-parser" ? "6.1.4" : "1.0.0" }],
+  )) };
+  return { report, lock };
+}
+test("accepts the documented postcss-selector-parser advisory only for its dev-only Tailwind chain", () => {
+  const { report, lock } = selectorFixture();
+  assert.deepEqual(evaluateAudit(report, lock, beforeExpiry), { allowed: ["postcss-selector-parser", "postcss-nested", "tailwindcss"], blocked: [] });
+  lock.packages["node_modules/postcss-selector-parser"].dev = false;
+  assert.equal(evaluateAudit(report, lock, beforeExpiry).allowed.length, 0);
+});
+test("blocks postcss-selector-parser on another version, severity or advisory", () => {
+  for (const mutate of [
+    ({ lock }) => { lock.packages["node_modules/postcss-selector-parser"].version = "6.1.3"; },
+    ({ report }) => { report.vulnerabilities["postcss-selector-parser"].severity = "high"; },
+    ({ report }) => { report.vulnerabilities["postcss-selector-parser"].via[0].url = BRACES_ADVISORY; },
+  ]) {
+    const fixtureData = selectorFixture();
+    mutate(fixtureData);
+    assert.ok(evaluateAudit(fixtureData.report, fixtureData.lock, beforeExpiry).blocked.includes("postcss-selector-parser"));
+  }
 });

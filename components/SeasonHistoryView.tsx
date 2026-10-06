@@ -1669,7 +1669,7 @@ function RecordBoard({
   title: string;
   records: TeamRecord[];
   count: (r: TeamRecord) => number;
-  detail?: (r: TeamRecord) => string;
+  detail?: (r: TeamRecord) => ReactNode;
   onNavigate?: NavFn;
 }) {
   // Every franchise with at least one title — the list scrolls so no team
@@ -1954,10 +1954,17 @@ function RecordsPanel({
       })).filter((g) => g.rows.length > 0),
     [coachRecords],
   );
-  const intlDetail = (r: TeamRecord) =>
-    INTL_ORDER.filter((e) => (r.intlTitles[e] ?? 0) > 0)
-      .map((e) => `${r.intlTitles[e]}× ${INTERNATIONAL_LABELS[e]}`)
-      .join(" · ");
+  const intlDetail = (r: TeamRecord) => (
+    <span className="inline-flex items-center gap-2 normal-case tracking-normal text-[10px] text-rift-mutedbright">
+      {INTL_ORDER.filter((e) => (r.intlTitles[e] ?? 0) > 0).map((e) => (
+        <span key={e} data-intl-trophy={e} title={`${r.intlTitles[e]}× ${INTERNATIONAL_LABELS[e]}`} className="inline-flex items-center gap-0.5 tabular-nums">
+          <LeagueIcon league={e} size={13} />
+          {r.intlTitles[e]}
+          <span className="sr-only"> {INTERNATIONAL_LABELS[e]}</span>
+        </span>
+      ))}
+    </span>
+  );
   // Chronological roll of honour for each international — every season's
   // winner of First Stand, MSI, and Worlds, oldest first. Each row carries
   // seasonId so team hover cards resolve THAT year's roster snapshot.
@@ -3663,7 +3670,8 @@ const PlayerProfileView = memo(function PlayerProfileView({
                         <span className={`px-1 border font-display text-[8px] flex-shrink-0 ${STAGE_TIER_CLS[st.tier] ?? ""}`}>{st.tier}</span>
                       </span>
                     ))
-                  ) : t.affiliateTeam && t.careerStatus !== "free-agent" ? (
+                  ) : t.affiliateTeam && (t.careerStatus === "academy" || (t.careerStatus === "retired" &&
+                      t.windows?.filter(w => w.kind !== "offseason").at(-1)?.status === "academy")) ? (
                     <span className="inline-flex items-center gap-1 min-w-0 max-w-full overflow-hidden">
                       <button
                         type="button"

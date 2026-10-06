@@ -4,11 +4,19 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const BRACES_ADVISORY = "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm";
+export const SELECTOR_PARSER_ADVISORY = "https://github.com/advisories/GHSA-rj75-hqrm-r3gf";
 export const EXCEPTION_EXPIRES = "2026-11-03T00:00:00Z";
-const DEVELOPMENT_CHAIN = new Set([
-  "braces", "chokidar", "micromatch", "fast-glob", "tailwindcss",
-  "@next/eslint-plugin-next", "eslint-config-next",
+// Known dev-only chains (Tailwind 3, ESLint/Next) and the severity npm reports for each.
+const DEVELOPMENT_CHAIN = new Map([
+  ["braces", "high"], ["chokidar", "high"], ["micromatch", "high"], ["fast-glob", "high"], ["tailwindcss", "high"],
+  ["@next/eslint-plugin-next", "high"], ["eslint-config-next", "high"],
+  ["postcss-nested", "moderate"], ["postcss-selector-parser", "moderate"],
 ]);
+// The only advisories accepted at the end of those chains, pinned to the audited version.
+const DEVELOPMENT_ADVISORIES = {
+  braces: { url: BRACES_ADVISORY, severity: "high", range: "<=3.0.3", version: "3.0.3" },
+  "postcss-selector-parser": { url: SELECTOR_PARSER_ADVISORY, severity: "moderate", range: "<7.1.6", version: "6.1.4" },
+};
 
 function vulnerabilitiesFrom(report) {
   if (report?.error || report?.auditReportVersion !== 2 || !report.vulnerabilities ||
@@ -27,17 +35,18 @@ export function evaluateAudit(report, lock, now = new Date()) {
   const isAllowed = (name, visiting = new Set()) => {
     const finding = vulnerabilities[name];
     if (!notExpired || visiting.has(name) || !DEVELOPMENT_CHAIN.has(name) ||
-        !finding || finding.name !== name || finding.severity !== "high" ||
+        !finding || finding.name !== name || finding.severity !== DEVELOPMENT_CHAIN.get(name) ||
         !Array.isArray(finding.nodes) || !finding.nodes.length ||
         !finding.nodes.every((node) => lock?.packages?.[node]?.dev === true) ||
         !Array.isArray(finding.via) || !finding.via.length) return false;
     const next = new Set(visiting).add(name);
+    const advisory = Object.hasOwn(DEVELOPMENT_ADVISORIES, name) ? DEVELOPMENT_ADVISORIES[name] : undefined;
     return finding.via.every((cause) => typeof cause === "string"
       ? isAllowed(cause, next)
-      : name === "braces" && cause?.url === BRACES_ADVISORY &&
-        cause.name === "braces" && cause.dependency === "braces" &&
-        cause.severity === "high" && cause.range === "<=3.0.3" &&
-        finding.nodes.every((node) => lock.packages[node].version === "3.0.3"));
+      : advisory !== undefined && cause?.url === advisory.url &&
+        cause.name === name && cause.dependency === name &&
+        cause.severity === advisory.severity && cause.range === advisory.range &&
+        finding.nodes.every((node) => lock.packages[node].version === advisory.version));
   };
   for (const name of Object.keys(vulnerabilities)) {
     (isAllowed(name) ? allowed : blocked).push(name);
@@ -70,7 +79,7 @@ export function auditDependencies(npmCli, root = process.cwd()) {
   }
   console.log("Production audit: no vulnerabilities.");
   if (result.allowed.length) {
-    console.log(`Temporary development-only exception: ${BRACES_ADVISORY}`);
+    console.log(`Temporary development-only exceptions: ${BRACES_ADVISORY}, ${SELECTOR_PARSER_ADVISORY}`);
     console.log(`Still present in ${result.allowed.length} build-tool packages; expires ${EXCEPTION_EXPIRES}.`);
   } else {
     console.log("Development audit: no vulnerabilities.");
