@@ -5,71 +5,11 @@ import { applyMidSplitDemotions, buildSeasonOutcomes, buildSplitCheckpointOutcom
   fillRosterVacancies, resolveOffseasonPlayerMarket } from "./franchise";
 import { seedAgencyWindow } from "./franchiseAgency";
 import { GRADE_GAP_THRESHOLD, nextBadStreak, UNDERPERFORM_STREAK_TO_DEMOTE } from "./playerLifecycle";
-import { applyTransfers, rebucketTransfersByStamp, transferValue } from "./transfers";
-import { INTERNATIONAL_LABELS, QUALIFYING_SPLIT, SPLIT_LABELS,
-  type InternationalId, type LeagueId, type SeasonState, type SplitId } from "./types";
+import { applyTransfers, rebucketTransfersByStamp, teamMovedAtLane, transferValue, userTransferCapReached } from "./transfers";
+import { SPLIT_LABELS, type LeagueId, type SeasonState } from "./types";
 
-export const OUTLOOK_SAMPLES = 160;
-export type OutlookStatus = "main" | "academy" | "free-agent" | "retired";
-export type OutlookOutcome = "stay" | "transfer" | "academy" | "main" | "free-agent" | "retired" | "unknown";
-export const OUTLOOK_OUTCOMES: OutlookOutcome[] = ["stay", "transfer", "academy", "main", "free-agent", "retired", "unknown"];
-export const OUTLOOK_LABELS: Record<OutlookOutcome, string> = {
-  stay: "Stay", transfer: "Other team", academy: "To academy", main: "To main roster",
-  "free-agent": "Become FA", retired: "Retire", unknown: "Unknown",
-};
-export interface OutlookWindow {
-  kind: "split" | "transfer" | "offseason" | "none";
-  label: string;
-  opening: boolean;
-  split?: SplitId;
-  event?: InternationalId;
-}
-export interface OutlookSeat { status: OutlookStatus; teamId?: string }
-export interface OutlookRow {
-  id: string;
-  player: Player;
-  seat: OutlookSeat;
-  region?: LeagueId;
-  grade: number | null;
-  roleMean: number | null;
-  nextStreak: number | null;
-  value: number;
-  counts: Record<OutlookOutcome, number>;
-  manualChoiceCount: number;
-  destinations: Array<OutlookSeat & { count: number }>;
-}
-export interface RosterOutlook { window: OutlookWindow; samples: number; rows: OutlookRow[] }
-
-/** A checkpoint is the next place where this save can actually move players. */
-export function nextRosterWindow(season: SeasonState): OutlookWindow {
-  const aging = !!season.franchise?.aging;
-  const transfers = !!season.config.playerTransfers;
-  if (!aging && !transfers) return { kind: "none", opening: false, label: "Automatic roster moves are disabled" };
-  if (season.status === "complete") {
-    return season.franchise
-      ? { kind: "offseason", opening: false, label: "Current offseason · remaining decisions" }
-      : { kind: "none", opening: false, label: "Season complete · no franchise offseason" };
-  }
-  for (let i = season.phaseIndex; i < season.phases.length; i++) {
-    const phase = season.phases[i];
-    if (phase.status === "complete") continue;
-    if (aging && phase.kind === "split" && phase.split) {
-      const deferred = transfers && season.config.controlledTeamId && phase.split !== "summer";
-      if (!deferred) return { kind: "split", opening: true, split: phase.split, label: `After ${SPLIT_LABELS[phase.split]}` };
-    }
-    if (transfers && phase.kind === "transfer" && (phase.event === "first-stand" || phase.event === "msi")) {
-      const opening = i !== season.phaseIndex || phase.status === "pending";
-      const split = aging && season.config.controlledTeamId
-        ? season.franchise?.pendingMidSplitDemotion ?? (opening ? QUALIFYING_SPLIT[phase.event] : undefined)
-        : undefined;
-      return { kind: "transfer", opening, event: phase.event, split,
-        label: `Post ${INTERNATIONAL_LABELS[phase.event]}${opening ? "" : " · remaining decisions"}` };
-    }
-  }
-  return season.franchise
-    ? { kind: "offseason", opening: true, label: "End-of-year offseason" }
-    : { kind: "none", opening: false, label: "No remaining automatic roster window" };
-}
+import { nextRosterWindow, OUTLOOK_SAMPLES, type OutlookOutcome, type OutlookSeat, type OutlookRow, type OutlookWindow, type RosterOutlook } from "./rosterOutlookView";
+export { nextRosterWindow } from "./rosterOutlookView";
 
 /** Private deterministic stream: inspecting a forecast cannot advance live RNG. */
 function scenarioRng(seed: number): RNG {
@@ -105,10 +45,21 @@ export function classifyOutlook(before: OutlookSeat, after?: OutlookSeat): Outlo
 
 function manualPlayers(season: SeasonState) {
   const ids = new Set<string>();
+  const controlled = season.config.controlledTeamId;
+  if (!controlled) return ids;
+  if (season.status !== "complete" && season.phases[season.phaseIndex]?.kind !== "transfer") return ids;
+  const seats = rosterSeats(season);
   for (const demand of season.franchise?.agencyDemands ?? []) {
-    if (demand.status === "pending" && demand.fromTeamId === season.config.controlledTeamId) ids.add(demand.playerId);
+    if (demand.status === "pending" && demand.fromTeamId === controlled && seats.get(demand.playerId)?.teamId === controlled) ids.add(demand.playerId);
   }
+  const event = season.status === "complete" ? "worlds" : season.phases[season.phaseIndex]?.event;
   for (const proposal of season.proposedTransfers ?? []) {
+    if (proposal.controlledTeamId !== controlled || proposal.event !== event ||
+      userTransferCapReached(season, proposal.event, controlled) || teamMovedAtLane(season, proposal.event, controlled, proposal.lane)) continue;
+    const mine = season.teams.find(team => team.id === controlled)?.players[proposal.laneIndex];
+    const theirs = season.teams.find(team => team.id === proposal.otherTeamId)?.players[proposal.laneIndex];
+    if (!mine || !theirs || isRosterVacancy(mine) || isRosterVacancy(theirs) ||
+      (proposal.mine.id && mine.id !== proposal.mine.id) || (proposal.theirs.id && theirs.id !== proposal.theirs.id)) continue;
     if (proposal.mine.id) ids.add(proposal.mine.id);
     if (proposal.theirs.id) ids.add(proposal.theirs.id);
   }
@@ -160,8 +111,9 @@ export function sampleRosterWindow(season: SeasonState, champions: readonly Cham
 
 export function buildRosterOutlook(season: SeasonState, champions: readonly Champion[], samples = OUTLOOK_SAMPLES): RosterOutlook {
   if (!Number.isInteger(samples) || samples < 1 || samples > 2000) throw new Error("Invalid forecast sample count");
-  if (!champions.length) throw new Error("Champion data is not available yet");
   const window = nextRosterWindow(season);
+  if (window.kind === "none") return { window, samples: 0, rows: [] };
+  if (!champions.length) throw new Error("Champion data is not available yet");
   const seats = rosterSeats(season);
   const teams = new Map(season.teams.map(t => [t.id, t]));
   const byId = new Map(champions.map(c => [c.id, c]));
@@ -179,7 +131,7 @@ export function buildRosterOutlook(season: SeasonState, champions: readonly Cham
       nextStreak: hasDemotionCheckpoint && outcome && grade != null && roleMean != null && season.franchise?.aging
         ? nextBadStreak(player.badStreak, outcome, roleMean) : null,
       counts: { stay: 0, transfer: 0, academy: 0, main: 0, "free-agent": 0, retired: 0, unknown: 0 },
-      manualChoiceCount: 0, destinations: [] });
+      manualChoiceCount: 0, destinations: [], evidence: [] });
   };
   for (const team of season.teams) for (const player of team.players) {
     if (isRosterVacancy(player)) continue;
@@ -205,15 +157,18 @@ export function buildRosterOutlook(season: SeasonState, champions: readonly Cham
       }
     }
   }
-  for (const row of rows.values()) row.destinations.sort((a, b) => b.count - a.count);
+  for (const row of rows.values()) {
+    row.destinations.sort((a, b) => b.count - a.count);
+    row.evidence = outlookEvidence(row, window);
+  }
   return { window, samples, rows: [...rows.values()] };
 }
 
-export function outlookEvidence(row: OutlookRow): string[] {
+function outlookEvidence(row: OutlookRow, window: OutlookWindow): string[] {
   const evidence: string[] = [];
   if (row.grade == null) evidence.push("No recorded performance in this evaluation period.");
   else if (row.seat.status !== "main") evidence.push(`Market performance estimate: ${row.grade.toFixed(2)} (inactive development and last recorded grade).`);
-  else evidence.push(`Recorded average: ${row.grade.toFixed(2)}.`);
+  else evidence.push(`Recorded average (${window.split ? SPLIT_LABELS[window.split] : "season"} to date): ${row.grade.toFixed(2)}.`);
   if (row.roleMean != null && row.grade != null) {
     evidence.push(`Same-role mean: ${row.roleMean.toFixed(2)}. Gap: ${(row.roleMean - row.grade).toFixed(2)}; underperformance threshold: ${GRADE_GAP_THRESHOLD.toFixed(2)}.`);
   }

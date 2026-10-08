@@ -75,6 +75,17 @@ describe("next roster window", () => {
 });
 
 describe("role-relative demotion grades", () => {
+  it("does not give a replacement the former starter's legacy grades", () => {
+    const season = fixture();
+    const recap = season.tournaments.winter.matches[0].series!.games[0].recap!;
+    delete recap.perPickIds;
+    recap.perPickNames = { blue: season.teams[1].players.map(p => p.name!), red: season.teams[0].players.map(p => p.name!) };
+    season.teams[0].players[0] = { ...season.teams[0].players[0], id: "replacement", name: "Replacement" };
+    expect(seasonPlayerGrades(season).has("replacement")).toBe(false);
+    expect(seasonPlayerGrades(season).get("0-jungle")).toBe(7);
+    recap.perPickNames.red[1] = "";
+    expect(seasonPlayerGrades(season).has("0-jungle")).toBe(false);
+  });
   it("follows player IDs across teams and swapped sides, with genuinely empty scopes", () => {
     const season = fixture();
     const [a, b] = season.teams;
@@ -103,6 +114,34 @@ describe("role-relative demotion grades", () => {
 });
 
 describe("roster outlook sampling", () => {
+  it("does not require champions or sample retained seats when no automatic window exists", () => {
+    const season = fixture();
+    season.config.playerTransfers = false;
+    season.franchise!.aging = false;
+    expect(buildRosterOutlook(season, [])).toMatchObject({ window: { kind: "none" }, samples: 0, rows: [] });
+  });
+
+  it("ignores obsolete manual proposals and requests after the player has moved", () => {
+    const season = fixture();
+    season.config.controlledTeamId = "team-0";
+    season.phaseIndex = 2;
+    season.phases[2].status = "in-progress";
+    const mine = season.teams[0].players[0];
+    const theirs = season.teams[1].players[0];
+    season.proposedTransfers = [{ event: "first-stand", lane: "top", laneIndex: 0, kind: "outgoing",
+      controlledTeamId: "team-0", otherTeamId: "team-1", mine, theirs }];
+    expect(buildRosterOutlook(season, champions, 1).rows.find(row => row.id === mine.id)?.manualChoiceCount).toBe(1);
+    season.proposedTransfers[0].event = "msi";
+    expect(buildRosterOutlook(season, champions, 1).rows.find(row => row.id === mine.id)?.manualChoiceCount).toBe(0);
+    season.proposedTransfers[0].event = "first-stand";
+    season.teams[1].players[0] = { ...theirs, id: "new-starter" };
+    expect(buildRosterOutlook(season, champions, 1).rows.find(row => row.id === mine.id)?.manualChoiceCount).toBe(0);
+    season.proposedTransfers = [];
+    season.franchise!.agencyDemands = [{ id: "old", playerId: theirs.id!, playerTier: "B", lane: "top", kind: "leave",
+      fromTeamId: "team-0", wantRole: "fa", preferenceGap: 1.5, status: "pending" }];
+    season.teams[1].players[0] = theirs;
+    expect(buildRosterOutlook(season, champions, 1).rows.find(row => row.id === theirs.id)?.manualChoiceCount).toBe(0);
+  });
   it("is deterministic, leaves frozen inputs untouched and never consumes the live RNG", () => {
     const season = fixture();
     season.teams[0].players[0].badStreak = 4;

@@ -29409,6 +29409,11 @@
     const intlPhase = season.phases.find((p) => p.kind === "international" && p.event === event);
     return [...splitPhase?.tournamentIds ?? [], ...intlPhase?.tournamentIds ?? []];
   }
+  function activeWindowTransfers(season, event) {
+    const moves = season.transfersByEvent?.[event] ?? [];
+    const baseline = event === "worlds" ? season.worldsOffseasonBaseline ?? 0 : 0;
+    return moves.filter((move, index) => move.origin && season.id ? belongsToMarketWindow(move.origin, { id: season.id, franchise: season.franchise }, event) : index >= baseline && transferEventStamp(move, event) === event);
+  }
   function transferEventStamp(move, bucket) {
     return move.event ?? bucket;
   }
@@ -29459,10 +29464,23 @@
     }
     return next;
   }
+  function teamMovedAtLane(season, event, teamId, lane) {
+    return activeWindowTransfers(season, event).some(
+      (m) => m.lane === lane && (m.fromTeamId === teamId || m.toTeamId === teamId)
+    );
+  }
   var USER_MAX_TRANSFERS_PER_WINDOW = 2;
   var USER_MAX_TRANSFERS_OFFSEASON = 4;
   function maxUserTransfers(event) {
     return event === "worlds" ? USER_MAX_TRANSFERS_OFFSEASON : USER_MAX_TRANSFERS_PER_WINDOW;
+  }
+  function userTransferCount(season, event, teamId) {
+    return activeWindowTransfers(season, event).filter(
+      (m) => m.fromTeamId === teamId || m.toTeamId === teamId
+    ).length;
+  }
+  function userTransferCapReached(season, event, teamId) {
+    return userTransferCount(season, event, teamId) >= maxUserTransfers(event);
   }
   function offseasonTransferPass(teams, gradeOf, byId, meta, skipTeamId, movedLanes, priorMoves = [], inactivePool = []) {
     const map = new Map(teams.map((t) => [t.id, { ...t, players: [...t.players] }]));
@@ -32237,7 +32255,10 @@
             const team = side === "blue" !== swapped ? blue : red;
             const recordedIds = recap.perPickIds?.[side];
             ratings[side].forEach((grade, index) => {
-              const id = recordedIds ? recordedIds[index] : team?.players[index]?.id;
+              const player = team?.players[index];
+              const names = recap.perPickNames?.[side];
+              const legacyId = !names || names[index] && names[index] === player?.name ? player?.id : void 0;
+              const id = recordedIds ? recordedIds[index] : legacyId;
               if (!id || !Number.isFinite(grade) || grade <= 0) return;
               const total = totals.get(id) ?? { sum: 0, games: 0 };
               total.sum += grade;
@@ -33003,7 +33024,7 @@
     };
   }
 
-  // lib/season/rosterOutlook.ts
+  // lib/season/rosterOutlookView.ts
   var OUTLOOK_SAMPLES = 160;
   function nextRosterWindow(season) {
     const aging = !!season.franchise?.aging;
@@ -33033,6 +33054,8 @@
     }
     return season.franchise ? { kind: "offseason", opening: true, label: "End-of-year offseason" } : { kind: "none", opening: false, label: "No remaining automatic roster window" };
   }
+
+  // lib/season/rosterOutlook.ts
   function scenarioRng(seed) {
     let state = seed >>> 0;
     return () => {
@@ -33065,10 +33088,19 @@
   }
   function manualPlayers(season) {
     const ids = /* @__PURE__ */ new Set();
+    const controlled = season.config.controlledTeamId;
+    if (!controlled) return ids;
+    if (season.status !== "complete" && season.phases[season.phaseIndex]?.kind !== "transfer") return ids;
+    const seats = rosterSeats(season);
     for (const demand of season.franchise?.agencyDemands ?? []) {
-      if (demand.status === "pending" && demand.fromTeamId === season.config.controlledTeamId) ids.add(demand.playerId);
+      if (demand.status === "pending" && demand.fromTeamId === controlled && seats.get(demand.playerId)?.teamId === controlled) ids.add(demand.playerId);
     }
+    const event = season.status === "complete" ? "worlds" : season.phases[season.phaseIndex]?.event;
     for (const proposal of season.proposedTransfers ?? []) {
+      if (proposal.controlledTeamId !== controlled || proposal.event !== event || userTransferCapReached(season, proposal.event, controlled) || teamMovedAtLane(season, proposal.event, controlled, proposal.lane)) continue;
+      const mine = season.teams.find((team) => team.id === controlled)?.players[proposal.laneIndex];
+      const theirs = season.teams.find((team) => team.id === proposal.otherTeamId)?.players[proposal.laneIndex];
+      if (!mine || !theirs || isRosterVacancy(mine) || isRosterVacancy(theirs) || proposal.mine.id && mine.id !== proposal.mine.id || proposal.theirs.id && theirs.id !== proposal.theirs.id) continue;
       if (proposal.mine.id) ids.add(proposal.mine.id);
       if (proposal.theirs.id) ids.add(proposal.theirs.id);
     }
@@ -33137,8 +33169,9 @@
   }
   function buildRosterOutlook(season, champions, samples = OUTLOOK_SAMPLES) {
     if (!Number.isInteger(samples) || samples < 1 || samples > 2e3) throw new Error("Invalid forecast sample count");
-    if (!champions.length) throw new Error("Champion data is not available yet");
     const window = nextRosterWindow(season);
+    if (window.kind === "none") return { window, samples: 0, rows: [] };
+    if (!champions.length) throw new Error("Champion data is not available yet");
     const seats = rosterSeats(season);
     const teams = new Map(season.teams.map((t) => [t.id, t]));
     const byId = new Map(champions.map((c) => [c.id, c]));
@@ -33163,7 +33196,8 @@
         nextStreak: hasDemotionCheckpoint && outcome && grade != null && roleMean != null && season.franchise?.aging ? nextBadStreak(player.badStreak, outcome, roleMean) : null,
         counts: { stay: 0, transfer: 0, academy: 0, main: 0, "free-agent": 0, retired: 0, unknown: 0 },
         manualChoiceCount: 0,
-        destinations: []
+        destinations: [],
+        evidence: []
       });
     };
     for (const team of season.teams) for (const player of team.players) {
@@ -33188,8 +33222,23 @@
         }
       }
     }
-    for (const row of rows.values()) row.destinations.sort((a, b) => b.count - a.count);
+    for (const row of rows.values()) {
+      row.destinations.sort((a, b) => b.count - a.count);
+      row.evidence = outlookEvidence(row, window);
+    }
     return { window, samples, rows: [...rows.values()] };
+  }
+  function outlookEvidence(row, window) {
+    const evidence = [];
+    if (row.grade == null) evidence.push("No recorded performance in this evaluation period.");
+    else if (row.seat.status !== "main") evidence.push(`Market performance estimate: ${row.grade.toFixed(2)} (inactive development and last recorded grade).`);
+    else evidence.push(`Recorded average (${window.split ? SPLIT_LABELS[window.split] : "season"} to date): ${row.grade.toFixed(2)}.`);
+    if (row.roleMean != null && row.grade != null) {
+      evidence.push(`Same-role mean: ${row.roleMean.toFixed(2)}. Gap: ${(row.roleMean - row.grade).toFixed(2)}; underperformance threshold: ${GRADE_GAP_THRESHOLD.toFixed(2)}.`);
+    }
+    if (row.nextStreak != null) evidence.push(`Underperformance streak: ${row.player.badStreak ?? 0} \u2192 ${row.nextStreak}/${UNDERPERFORM_STREAK_TO_DEMOTE} checkpoints, before any year-end tier change.`);
+    evidence.push(`Value using this performance period: ${row.value.toFixed(2)}. Outcomes also depend on available replacements, academy space, player preferences and window caps.`);
+    return evidence;
   }
 
   // lib/sim/rosterOutlook.worker.ts

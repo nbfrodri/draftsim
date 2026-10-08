@@ -1,12 +1,12 @@
 "use client";
 
-import { Fragment, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { Fragment, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import { LANE_ORDER } from "@/lib/players";
 import { LEAGUE_IDS, type SeasonState, type SeasonTeam } from "@/lib/season/types";
 import type { Champion } from "@/lib/types";
-import { nextRosterWindow, outlookEvidence, OUTLOOK_LABELS,
-  type OutlookRow, type OutlookStatus, type RosterOutlook } from "@/lib/season/rosterOutlook";
+import { nextRosterWindow, OUTLOOK_LABELS,
+  type OutlookRow, type OutlookStatus, type RosterOutlook } from "@/lib/season/rosterOutlookView";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import PlaygroundSelect from "../hall/PlaygroundSelect";
 import LaneIcon from "../LaneIcon";
@@ -57,8 +57,9 @@ function OutlookContent() {
   const [calculation, setCalculation] = useState<Calculation | null>(null);
   const current = calculation?.source === season && calculation.champions === champions && calculation.attempt === attempt ? calculation : null;
   const window = nextRosterWindow(season);
+  const hasWindow = window.kind !== "none";
   useEffect(() => {
-    if (simulating || !champions.length) return;
+    if (!hasWindow || simulating || !champions.length) return;
     let worker: Worker | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let cancelled = false;
@@ -82,7 +83,7 @@ function OutlookContent() {
       }
     }, 300);
     return () => { cancelled = true; clearTimeout(debounce); clearTimeout(timeout); worker?.terminate(); };
-  }, [season, champions, simulating, attempt]);
+  }, [season, champions, simulating, attempt, hasWindow]);
 
   return <div className="border-t border-rift-line/60 p-4 md:p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -97,19 +98,17 @@ function OutlookContent() {
       Updates as the season advances. Future matches, patches and your manual choices can change the outcome.
       {season.config.controlledTeamId ? " Your pending choices are kept open; no manual moves are assumed." : ""}
     </p>
-    {window.kind === "none" && <p className="mt-3 text-sm text-rift-goldbright">{window.label}. Current seats are retained.</p>}
-    {simulating || !champions.length || !current ? <p role="status" className="py-8 text-center text-sm text-rift-mutedbright">
+    {!hasWindow ? <p className="mt-3 text-sm text-rift-goldbright">No automatic probabilities are available for this season.</p> :
+    <OutlookTable key={season.id} forecast={simulating ? undefined : current?.result} season={season} notice={
+    simulating || !champions.length || !current ? <p role="status" className="py-8 text-center text-sm text-rift-mutedbright">
       {simulating ? "Waiting for the current simulation to finish…" : !champions.length ? "Waiting for champion data…" : "Calculating roster probabilities…"}
     </p> : current.error ? <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 text-sm text-rift-redbright">
       <span>{current.error}</span><button type="button" className={CONTROL} onClick={() => setAttempt(value => value + 1)}>Retry forecast</button>
-    </div> : null}
-    {calculation?.result && <div hidden={simulating || !current?.result}>
-      <OutlookTable key={season.id} forecast={calculation.result} season={season} />
-    </div>}
+    </div> : null} />}
   </div>;
 }
 
-function OutlookTable({ forecast, season }: { forecast: RosterOutlook; season: SeasonState }) {
+function OutlookTable({ forecast, season, notice }: { forecast?: RosterOutlook; season: SeasonState; notice: ReactNode }) {
   const [search, setSearch] = useState("");
   const query = useDeferredValue(search.trim().toLocaleLowerCase());
   const [status, setStatus] = useState("");
@@ -120,7 +119,7 @@ function OutlookTable({ forecast, season }: { forecast: RosterOutlook; season: S
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
   const teamById = useMemo(() => new Map(season.teams.map(t => [t.id, t])), [season.teams]);
-  const filtered = useMemo(() => forecast.rows.filter(row =>
+  const filtered = useMemo(() => forecast ? forecast.rows.filter(row =>
     (!status || row.seat.status === status) && (!region || row.region === region) &&
     (!team || row.seat.teamId === team) && (!lane || row.player.lane === lane) &&
     (!query || (row.player.name ?? "").toLocaleLowerCase().includes(query)),
@@ -130,7 +129,7 @@ function OutlookTable({ forecast, season }: { forecast: RosterOutlook; season: S
     if (sort === "name") return (a.player.name ?? "").localeCompare(b.player.name ?? "");
     const key = sort as "transfer" | "academy" | "main" | "free-agent";
     return b.counts[key] - a.counts[key] || (a.player.name ?? "").localeCompare(b.player.name ?? "");
-  }), [forecast, status, region, team, lane, query, sort]);
+  }) : [], [forecast, status, region, team, lane, query, sort]);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages - 1);
   const visible = filtered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
@@ -141,7 +140,7 @@ function OutlookTable({ forecast, season }: { forecast: RosterOutlook; season: S
   return <>
     <div className="mt-5 grid grid-cols-1 gap-3 border-y border-rift-line/50 py-4 sm:grid-cols-2 lg:grid-cols-4">
       <label className="text-[10px] uppercase tracking-wider text-rift-mutedbright">Player search
-        <input aria-label="Search outlook players" placeholder="Search player…" value={search} onChange={event => update(setSearch, event.target.value)}
+        <input aria-label="Search outlook players" name="outlook-player" autoComplete="off" spellCheck={false} placeholder="Search player…" value={search} onChange={event => update(setSearch, event.target.value)}
           className="mt-1 w-full min-w-0 border border-rift-line bg-rift-bg px-3 py-2 text-xs normal-case tracking-normal text-rift-goldbright focus:border-rift-gold focus:outline-none" />
       </label>
       <PlaygroundSelect label="Roster status" value={status} onChange={value => update(setStatus, value)} options={[
@@ -168,14 +167,15 @@ function OutlookTable({ forecast, season }: { forecast: RosterOutlook; season: S
             </button>;
           })}
         </div>)}
-        <button type="button" onClick={reset} className="text-xs text-rift-gold underline underline-offset-4">Reset outlook filters</button>
+        <button type="button" onClick={reset} className="text-xs text-rift-gold underline underline-offset-4 focus-visible:outline focus-visible:outline-rift-gold">Reset outlook filters</button>
       </div>
     </div>
+    {forecast ? <>
     <div className="my-3 flex flex-wrap justify-between gap-2 text-[11px] text-rift-mutedbright">
       <span role="status">{filtered.length} {filtered.length === 1 ? "player" : "players"} · {forecast.samples} scenarios</span>
       <span>FA region = home region · Percentages rounded</span>
     </div>
-    <div className="overflow-x-auto">
+    <div role="region" aria-label="Roster probability table" tabIndex={0} className="overflow-x-auto focus-visible:outline focus-visible:outline-rift-gold">
       <table className="w-full min-w-[700px] text-left text-xs">
         <caption className="sr-only">Player probabilities for {forecast.window.label}</caption>
         <thead><tr className="border-b border-rift-line text-[10px] text-rift-mutedbright">
@@ -199,24 +199,26 @@ function OutlookTable({ forecast, season }: { forecast: RosterOutlook; season: S
                 {row.counts.retired > 0 && <p className="mt-1 text-[10px] text-rift-redbright">Retire {percent(row.counts.retired, forecast.samples)}</p>}
                 {row.counts.unknown > 0 && <p className="mt-1 text-[10px] text-rift-mutedbright">Unknown {percent(row.counts.unknown, forecast.samples)}</p>}
               </td>
-              {metrics.map(key => <td key={key} data-outcome={key} className={`px-2 py-3 text-right tabular-nums ${row.counts[key] ? key === "stay" ? "text-rift-mutedbright" : "font-semibold text-rift-goldbright" : "text-rift-mutedbright/50"}`}>
+              {metrics.map(key => <td key={key} data-outcome={key} className={`px-2 py-3 text-right tabular-nums ${row.counts[key] && key !== "stay" ? "font-semibold text-rift-goldbright" : "text-rift-mutedbright"}`}>
                 {percent(row.counts[key], forecast.samples)}
               </td>)}
-              <td className="px-2 py-3 text-right"><button type="button" className={CONTROL} aria-expanded={expanded === row.id}
+              <td className="px-2 py-3 text-right"><button type="button" className={CONTROL} aria-expanded={expanded === row.id} aria-controls={`outlook-explanation-${row.id}`}
                 aria-label={`Explain ${row.player.name ?? "player"} outlook`} onClick={() => setExpanded(expanded === row.id ? null : row.id)}>{expanded === row.id ? "Hide" : "Why?"}</button></td>
             </tr>
-            {expanded === row.id && <tr><td colSpan={7} className="border-b border-rift-gold/25 bg-rift-bg/60 p-4">
+            {expanded === row.id && <tr id={`outlook-explanation-${row.id}`}><td colSpan={7} className="border-b border-rift-gold/25 bg-rift-bg/60 p-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div><p className="mb-2 font-semibold text-rift-goldbright">Current evidence</p>
-                  <ul className="space-y-1.5 text-rift-mutedbright">{outlookEvidence(row).map(line => <li key={line}>{line}</li>)}</ul>
+                  <ul className="space-y-1.5 text-rift-mutedbright">{row.evidence.map(line => <li key={line}>{line}</li>)}</ul>
                   {row.manualChoiceCount > 0 && <p className="mt-2 text-amber-300">A pending transfer or player request needs your decision in {percent(row.manualChoiceCount, forecast.samples)} of scenarios. This is separate from the automatic destinations.</p>}
                 </div>
                 <div><p className="mb-2 font-semibold text-rift-goldbright">Sampled destinations</p>
-                  <ul className="space-y-2">{row.destinations.slice(0, 5).map(destination => <li key={`${destination.teamId}:${destination.status}`} className="flex flex-wrap items-center gap-2 text-rift-mutedbright">
+                  <ul aria-label="All sampled destinations" tabIndex={0} className="max-h-64 space-y-2 overflow-y-auto focus-visible:outline focus-visible:outline-rift-gold">{row.destinations.map(destination => <li key={`${destination.teamId}:${destination.status}`} className="flex flex-wrap items-center gap-2 text-rift-mutedbright">
+                    {destination.teamId && teamById.get(destination.teamId) && <span className="inline-flex items-center gap-1">
+                      <LeagueIcon league={teamById.get(destination.teamId)!.leagueId} size={14} />{teamById.get(destination.teamId)!.leagueId}
+                    </span>}
                     <TeamMark team={teamById.get(destination.teamId ?? "")} /><span>{STATUS_LABELS[destination.status]}</span>
                     <span className="ml-auto tabular-nums text-rift-goldbright">{percent(destination.count, forecast.samples)}</span>
                   </li>)}</ul>
-                  {row.destinations.length > 5 && <p className="mt-2 text-rift-mutedbright">Showing the five most frequent destinations.</p>}
                 </div>
               </div>
             </td></tr>}
@@ -235,5 +237,6 @@ function OutlookTable({ forecast, season }: { forecast: RosterOutlook; season: S
       Retirement and unknown outcomes, when present, appear beside the player. 0% means no sampled outcome, and 100% means every scenario; neither guarantees a future result.
       {" Each estimate uses only the current season snapshot."}
     </p>
+    </> : <div className="min-h-[240px]">{notice}</div>}
   </>;
 }

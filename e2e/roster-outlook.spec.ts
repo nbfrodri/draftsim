@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 import { makeAuditSeason } from "../lib/auditFixtures";
 import { createSeries } from "../lib/series";
 import type { SeasonState } from "../lib/season/types";
@@ -32,7 +32,7 @@ function fixture() {
   return season;
 }
 
-async function seed(page: Page, season: SeasonState) {
+async function seed(page: Page, season: SeasonState, waitForForecast = true) {
   await page.addInitScript(state => {
     if (!localStorage.getItem("draftsim-store")) localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state }));
   }, { season, seasonViewOpen: true, activeRealityId: season.franchise!.id,
@@ -42,7 +42,7 @@ async function seed(page: Page, season: SeasonState) {
   await page.goto("/");
   const panel = page.getByRole("region", { name: "Roster outlook", exact: true });
   await panel.getByRole("button", { name: /Roster outlook/ }).click();
-  await expect(panel.getByTestId("outlook-player").first()).toBeVisible({ timeout: 60_000 });
+  if (waitForForecast) await expect(panel.getByTestId("outlook-player").first()).toBeVisible({ timeout: 60_000 });
   return panel;
 }
 
@@ -104,11 +104,48 @@ test("an open transfer window updates automatically after Proceed and keeps choi
   await panel.screenshot({ path: `${SHOTS}/05-current-window-user-choice.png`, style: screenshotStyle });
   await panel.getByRole("button", { name: "Reset outlook filters" }).click();
   await panel.getByLabel("Search outlook players").fill("Atlas");
+  let nextWorker: Route | undefined;
+  await page.route("**/workers/rosterOutlook.worker.js", route => { nextWorker = route; });
   await page.getByRole("button", { name: /^Proceed to/ }).click();
   await expect(panel.getByRole("heading", { name: /Post MSI/ })).toBeVisible();
+  const search = panel.getByLabel("Search outlook players");
+  await expect(search).toBeVisible();
+  await expect(search).toHaveValue("Atlas");
+  await search.focus();
+  await expect(panel).toContainText("Calculating roster probabilities");
+  await expect(panel.getByTestId("outlook-player")).toHaveCount(0);
+  await expect.poll(() => !!nextWorker).toBe(true);
+  await panel.screenshot({ path: "docs/screenshots/roster-outlook-review/01-refresh-keeps-filters.png", style: screenshotStyle });
+  await nextWorker!.abort();
+  await expect(panel.getByRole("alert")).toContainText("could not run");
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue("Atlas");
+  await panel.screenshot({ path: "docs/screenshots/roster-outlook-review/02-error-keeps-filters.png", style: screenshotStyle });
+  await page.unroute("**/workers/rosterOutlook.worker.js");
+  await panel.getByRole("button", { name: "Retry forecast" }).click();
+  await search.focus();
   await expect(panel.getByTestId("outlook-player").first()).toBeVisible({ timeout: 60_000 });
-  await expect(panel.getByLabel("Search outlook players")).toHaveValue("Atlas");
+  await expect(search).toHaveValue("Atlas");
+  await expect(search).toBeFocused();
   await panel.screenshot({ path: `${SHOTS}/06-updated-next-window.png`, style: screenshotStyle });
+});
+
+test("disabled roster movement does not launch a worker or claim guaranteed retention", async ({ page }) => {
+  const season = fixture();
+  season.config.playerTransfers = false;
+  season.franchise!.aging = false;
+  let workers = 0;
+  await page.route("**/workers/rosterOutlook.worker.js", route => { workers++; return route.abort(); });
+  const panel = await seed(page, season, false);
+  await expect(panel.getByRole("heading", { name: "Automatic roster moves are disabled" })).toBeVisible();
+  await expect(panel).toContainText("No automatic probabilities are available");
+  await expect(panel.getByTestId("outlook-player")).toHaveCount(0);
+  // Observe beyond the worker's 300 ms debounce, including a collapse/reopen.
+  await panel.getByRole("button", { name: /Roster outlook/ }).click();
+  await panel.getByRole("button", { name: /Roster outlook/ }).click();
+  await page.waitForTimeout(700);
+  expect(workers).toBe(0);
+  await panel.screenshot({ path: "docs/screenshots/roster-outlook-review/03-no-automatic-window.png", style: screenshotStyle });
 });
 
 test("offseason probabilities load and a failed worker can be retried", async ({ page }) => {

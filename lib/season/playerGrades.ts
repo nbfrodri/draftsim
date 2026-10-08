@@ -23,7 +23,12 @@ export function seasonPlayerGrades(season: SeasonState, tournamentIds?: readonly
           const team = (side === "blue") !== swapped ? blue : red;
           const recordedIds = recap.perPickIds?.[side];
           ratings[side].forEach((grade, index) => {
-            const id = recordedIds ? recordedIds[index] : team?.players[index]?.id;
+            const player = team?.players[index];
+            const names = recap.perPickNames?.[side];
+            // Legacy saves may predate participant IDs. A recorded name must
+            // still match the current occupant; never grade their replacement.
+            const legacyId = !names || (names[index] && names[index] === player?.name) ? player?.id : undefined;
+            const id = recordedIds ? recordedIds[index] : legacyId;
             if (!id || !Number.isFinite(grade) || grade <= 0) return;
             const total = totals.get(id) ?? { sum: 0, games: 0 };
             total.sum += grade;
