@@ -1,6 +1,6 @@
 {
   "name": "draftsim",
-  "version": "1.4.9",
+  "version": "1.5.0",
   "private": true,
   "scripts": {
     "build:worker": "node scripts/build-bulk-sim-worker.mjs",
@@ -54,7 +54,7 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.4",
     "postcss": "^8.5.28",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "tailwindcss": "3.4.17",
     "tsx": "^4.23.13",
     "typescript": "5.7.3",

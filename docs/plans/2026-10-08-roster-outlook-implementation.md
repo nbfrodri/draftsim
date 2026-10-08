@@ -52,3 +52,27 @@ All images are in `docs/screenshots/roster-outlook/`. Panel crops omit the dashb
 9. [Second-game role gaps after swapping sides](../screenshots/roster-outlook/09-role-gap-swapped-sides.png)
 
 Visually inspected academy, offseason, filtered minimum-width and updated-window panels, plus the swapped-side replay. The thresholds remain 2.0 for replay labels and 0.9 / five rated underperformance checkpoints for demotions; fixes concern rounding, attribution and unknown-data handling, not a rebalance.
+
+## Post-implementation review and v1.5.0
+
+The review reproduced and fixed three domain regressions: legacy grades could be assigned to a replacement despite a different recorded name; obsolete transfer proposals and requests could be counted as pending user decisions; and a disabled roster market still required champion data and sampled misleading 100% retention. Regression tests failed before these fixes and pass afterward.
+
+Filter controls now stay mounted during refresh, errors and retry, preserving search and keyboard focus while stale probabilities remain hidden. Explanations name their performance period, show every sampled destination with region identity, and are computed inside the worker. The UI imports a lightweight view model instead of the simulation engine. Zero probabilities retain readable contrast; the table and destination list support keyboard scrolling.
+
+Release validation:
+
+- Full unit suite: **131 files / 1,508 tests passed** with two workers. Focused outlook and role-gap tests also passed after the final eligibility guard.
+- Full browser suite: **107 passed** using installed Edge and disposable browser saves. The final static export additionally passed **5 focused browser tests** covering outlook, worker recovery, disabled movement and replay role gaps.
+- Full lint and TypeScript passed; changed-file lint and the final production TypeScript build passed again after the last edits.
+- Release/version tests: **14 passed**. Package, npm lock, Tauri and Cargo metadata agree on **1.5.0** and validate against `v1.5.0`.
+- Production dependency audit is clean after updating only sharp and its platform binaries to **0.35.5**, which fixes [the upstream librsvg advisory](https://github.com/lovell/sharp/security/advisories/GHSA-wq5f-xc86-pv6w). The repository's existing development-only exceptions remain unchanged. Reinstalled with `npm ci` and rebuilt successfully.
+- Native Rust suite: **12 passed**. Final `npm run desktop:build -- --ci` passed and produced `src-tauri/target/release/app.exe`, `src-tauri/target/release/bundle/nsis/DraftSim_1.5.0_x64-setup.exe` and `src-tauri/target/release/bundle/msi/DraftSim_1.5.0_x64_en-US.msi`.
+- Local UI validation used a browser, not an interactive native WebView. No personal AppData or installed saves were used. Installation smoke verification runs separately in the release workflow's disposable Windows runner.
+
+Updated the main outlook screenshots above and added review captures in `docs/screenshots/roster-outlook-review/`:
+
+1. [Refresh preserves visible filters](../screenshots/roster-outlook-review/01-refresh-keeps-filters.png)
+2. [Worker error preserves search and focus](../screenshots/roster-outlook-review/02-error-keeps-filters.png)
+3. [No automatic window](../screenshots/roster-outlook-review/03-no-automatic-window.png)
+
+Inspected the academy destinations, error state and final 1024px filtered table visually. Existing unrelated `training/` data and the two `hope_*.png` captures remain outside these commits.
