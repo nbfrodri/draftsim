@@ -202,6 +202,12 @@ test("attendance excludes DNQ and combines player/team event filters with search
   await page.getByRole("button", { name: "Intl titles", exact: true }).click();
   await expect(page.getByRole("button", { name: /Visitor Player/ })).toHaveCount(0);
   await page.getByPlaceholder(/Search by player/).fill("Grand");
+  await page.getByRole("button", { name: "Clear history search", exact: true }).click();
+  await expect(page.getByPlaceholder(/Search by player/)).toHaveValue("");
+  await expect(page.getByPlaceholder(/Search by player/)).toBeFocused();
+  await expect(page.getByRole("button", { name: "LCK", exact: true })).toBeVisible();
+  await page.getByPlaceholder(/Search by player/).fill("Grand");
+  await page.screenshot({ path: "docs/screenshots/roster-outlook-v1.5.1/14-history-search-clear.png", fullPage: true });
   await expect(page.getByRole("button", { name: /Grand Player/ }).first()).toBeVisible();
   await page.getByLabel("Order results by").selectOption("intlAppearances");
   await page.getByRole("button", { name: /Grand Player/ }).first().click();
@@ -218,7 +224,7 @@ test("attendance excludes DNQ and combines player/team event filters with search
   await expect(page.getByRole("group", { name: "International Appearances", exact: true })).toContainText("Total: 1");
   await filters.getByRole("button", { name: "Worlds", exact: true }).click();
   await filters.getByLabel("Min appearances").fill("2");
-  await expect(page.getByPlaceholder(/Search by team/).locator("..").getByRole("button", { name: /Visitor Team/ })).toHaveCount(0);
+  await expect(page.getByPlaceholder(/Search by team/).locator("../..").getByRole("button", { name: /Visitor Team/ })).toHaveCount(0);
   await page.getByRole("button", { name: /Grand Team/ }).first().click();
   await page.screenshot({ path: "test-results/international-attendance/team-filters.png", fullPage: true });
 });
@@ -252,7 +258,7 @@ test("academy players retain only the internationals they attended before demoti
   await page.screenshot({ path: "test-results/international-attendance/academy-player.png", fullPage: true });
   const filters = page.getByRole("group", { name: "International appearance filters", exact: true });
   await filters.getByRole("button", { name: "Intl appearances", exact: true }).click();
-  const results = page.getByPlaceholder(/Search by player/).locator("..");
+  const results = page.getByPlaceholder(/Search by player/).locator("../..");
   await expect(results.getByRole("button", { name: /prospect/ })).toHaveCount(0);
   await expect(results.getByRole("button", { name: /Grand Player/ })).toHaveCount(1);
   for (const event of ["First Stand", "Worlds", "Global Cup"]) await filters.getByRole("button", { name: event, exact: true }).click();

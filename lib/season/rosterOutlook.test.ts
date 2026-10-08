@@ -3,7 +3,8 @@ import { makeAuditSeason } from "../auditFixtures";
 import { LANE_ORDER } from "../players";
 import type { Champion, GameDraft } from "../types";
 import type { SeasonState } from "./types";
-import { buildRosterOutlook, classifyOutlook, nextRosterWindow, sampleRosterWindow, rosterSeats } from "./rosterOutlook";
+import { buildRosterOutlook, classifyOutlook, nextRosterWindow, sampleRosterWindow, rosterSeats, rosterOutlookSteps } from "./rosterOutlook";
+import { isOutlookRookie } from "./rosterOutlookView";
 import { applyMidSplitDemotions, buildSplitCheckpointOutcomes, resolveOffseasonPlayerMarket } from "./franchise";
 import { seasonPlayerGrades } from "./playerGrades";
 import { computeRoleMeans, isUnderperformingSeason, nextBadStreak } from "./playerLifecycle";
@@ -114,6 +115,55 @@ describe("role-relative demotion grades", () => {
 });
 
 describe("roster outlook sampling", () => {
+  it("reports real progress without changing sampled outcomes", () => {
+    const season = fixture();
+    season.teams[0].players[0].badStreak = 4;
+    const steps = rosterOutlookSteps(season, champions, 19);
+    const progress = [];
+    let step = steps.next();
+    while (!step.done) { progress.push(step.value); step = steps.next(); }
+    expect(progress).toEqual([0, 8, 16, 19].map(completed => ({ completed, total: 19 })));
+    expect(step.value).toEqual(buildRosterOutlook(season, champions, 19));
+  });
+
+  it("keeps existing rookies in all roster statuses and samples their actual movements", () => {
+    const season = fixture();
+    const rookie = season.teams[0].players[0];
+    rookie.debutYear = season.franchise!.year;
+    rookie.badStreak = 4;
+    season.franchise!.inactivePool = [
+      { player: { ...rookie, id: "rookie-academy", tier: "S" }, status: "academy", inactiveYears: 0, demotedYear: 1, lastTeamId: "team-1", shadowGrade: 8 },
+      { player: { ...rookie, id: "rookie-fa", tier: "A" }, status: "free-agent", inactiveYears: 0, demotedYear: 1, lastTeamId: "", shadowGrade: 7 },
+    ];
+    const beforeIds = [...rosterSeats(season).keys()].sort();
+    const result = buildRosterOutlook(season, champions, 8);
+    expect(result.rows.map(row => row.id).sort()).toEqual(beforeIds);
+    expect(result.rows.find(row => row.id === rookie.id)?.counts.academy).toBe(8);
+    for (const id of [rookie.id, "rookie-academy", "rookie-fa"]) {
+      expect(isOutlookRookie(result.rows.find(row => row.id === id)!.player, season.franchise!.year)).toBe(true);
+    }
+    expect(isOutlookRookie(rookie, season.franchise!.year + 1)).toBe(false);
+    expect(isOutlookRookie({}, season.franchise!.year)).toBe(false);
+    expect(isOutlookRookie(rookie, undefined)).toBe(false);
+  });
+
+  it("reuses checkpoint evaluation only for the same source and split", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(123456789);
+    try {
+      const season = fixture();
+      const checkpoint = { source: season, split: "winter" as const, evaluation: buildSplitCheckpointOutcomes(season, "winter") };
+      expect(applyMidSplitDemotions(season, "winter", champions, () => 0.99, checkpoint))
+        .toEqual(applyMidSplitDemotions(season, "winter", champions, () => 0.99));
+      const changed = structuredClone(season);
+      changed.teams[0].players[0].badStreak = 4;
+      changed.tournaments.winter.matches[0].series!.games[0].recap!.ratings!.red[0] = 8;
+      expect(applyMidSplitDemotions(changed, "winter", champions, () => 0.99, checkpoint))
+        .toEqual(applyMidSplitDemotions(changed, "winter", champions, () => 0.99));
+      expect(applyMidSplitDemotions(season, "spring", champions, () => 0.99, checkpoint))
+        .toEqual(applyMidSplitDemotions(season, "spring", champions, () => 0.99));
+    } finally { clock.mockRestore(); }
+  });
+
   it("does not require champions or sample retained seats when no automatic window exists", () => {
     const season = fixture();
     season.config.playerTransfers = false;

@@ -1,4 +1,6 @@
 "use client";
+import ClearableSearch from "../ClearableSearch";
+import StatusBadge from "../player/RosterStatusBadge";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
@@ -23,14 +25,6 @@ import HallPanelLoading from "./HallPanelLoading";
 const PAGE_SIZE = 50;
 const ROLE_LABELS: Record<string, string> = { top: "Top", jungle: "Jungle", middle: "Mid", bottom: "Bot", support: "Support" };
 const fieldClass = "w-full min-w-0 border border-rift-line bg-rift-bg px-3 py-2 text-xs text-rift-goldbright focus:border-rift-gold focus:outline-none";
-const badgeColors: Record<MarketStatus, string> = {
-  main: "text-rift-goldbright border-rift-gold/40 bg-rift-gold/10", academy: "text-amber-300 border-amber-500/40 bg-amber-500/10",
-  "free-agent": "text-sky-300 border-sky-500/40 bg-sky-500/10", rookie: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10",
-  retired: "text-rift-redbright border-rift-red/40 bg-rift-red/10", unknown: "text-rift-mutedbright border-rift-line",
-};
-function StatusBadge({ status }: { status: MarketStatus }) {
-  return <span className={`inline-flex border px-1.5 py-0.5 text-[10px] whitespace-nowrap ${badgeColors[status]}`}>{MARKET_STATUS_LABELS[status]}</span>;
-}
 function Endpoint({ value, seasonId, snapshots }: { value: MarketEndpoint; seasonId: string; snapshots?: import("@/lib/season/marketSnapshots").MarketTeamSnapshot[] }) {
   return <div className="flex min-w-0 flex-wrap items-center gap-2">
     {value.team && <TeamRef marketSnapshot={snapshots?.find(s => s.name === value.team?.name && s.leagueId === value.team?.leagueId) ?? null} team={value.team} seasonId={seasonId} showRegion={false} size={18} />}
@@ -127,7 +121,7 @@ function MarketHistoryTable({ entries, season, onOpenSeason }: Omit<Props, "real
       {select("Player tiers", "tier", [...PLAYER_TIERS.map(tier => [tier, tier] as [string, string]), ["unknown", "Unknown tier"]])}
       {select("Statuses", "status", Object.entries(MARKET_STATUS_LABELS))}
       <label className="col-span-2 min-w-0 text-[10px] uppercase tracking-wider text-rift-mutedbright md:col-span-1">Player search
-        <input aria-label="Search roster players" value={filters.search} onChange={event => update("search", event.target.value)} placeholder="Player or replaced player..." className={`${fieldClass} mt-1 normal-case tracking-normal`} />
+        <ClearableSearch aria-label="Search roster players" value={filters.search} onValueChange={value => update("search", value)} clearLabel="Clear roster player search" placeholder="Player or replaced player..." containerClassName="mt-1" className={`${fieldClass} normal-case tracking-normal`} />
       </label>
 
       <div className="col-span-2 flex flex-wrap gap-x-6 gap-y-3 border-t border-rift-line/50 pt-3 md:col-span-3">

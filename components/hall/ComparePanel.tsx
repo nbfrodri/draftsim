@@ -1,4 +1,5 @@
 "use client";
+import ClearableSearch from "../ClearableSearch";
 import {
 type SeasonHistoryEntry,
 type SeasonHistoryTeamRef
@@ -257,12 +258,15 @@ export function TeamComparePanel({
         Pick two franchises to compare all-time head-to-head (splits and
         internationals) plus trophy counts across every archived season.
       </p>
-      <input
+      <ClearableSearch
         type="text"
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onValueChange={setQuery}
+        aria-label="Search comparison teams"
+        clearLabel="Clear team comparison search"
+        containerClassName="mb-2"
         placeholder="Search by team or region…"
-        className="w-full mb-2 px-2.5 py-1.5 border border-rift-line/60 bg-rift-bg/40 text-[11px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 focus:outline-none"
+        className="px-2.5 py-1.5 border border-rift-line/60 bg-rift-bg/40 text-[11px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 focus:outline-none"
       />
       <div className="flex flex-wrap gap-1 mb-2">
         <button
@@ -802,12 +806,15 @@ export function PlayerComparePanel({
         opposing teams in stages those franchises met, series H2H is inferred
         from the archive (not match-level player stats).
       </p>
-      <input
+      <ClearableSearch
         type="text"
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onValueChange={setQuery}
+        aria-label="Search comparison players"
+        clearLabel="Clear player comparison search"
+        containerClassName="mb-2"
         placeholder="Search by player, team, or region…"
-        className="w-full mb-2 px-2.5 py-1.5 border border-rift-line/60 bg-rift-bg/40 text-[11px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 focus:outline-none"
+        className="px-2.5 py-1.5 border border-rift-line/60 bg-rift-bg/40 text-[11px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 focus:outline-none"
       />
       <div className="flex flex-wrap gap-1 mb-2">
         <button

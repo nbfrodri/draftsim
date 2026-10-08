@@ -93,6 +93,27 @@ function historyFixture(): SeasonHistoryEntry[] {
   });
 }
 
+test("comparison search clearing keeps each picker open and returns typing focus", async ({ page }) => {
+  const season = makeAuditSeason("Alpha");
+  await page.addInitScript(({ season, history }) => {
+    localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state: {
+      season: null, seasonViewOpen: false, realities: [{ id: "alpha", name: "Alpha", year: 5, season, history }],
+    } }));
+  }, { season, history: historyFixture() });
+  await page.goto("/");
+  await page.getByRole("button", { name: /^Season History/ }).click();
+  await page.getByRole("button", { name: /Reality.*Alpha$/, exact: true }).click();
+  await page.getByRole("button", { name: "Compare", exact: true }).click();
+  for (const [label, clear] of [["Search comparison players", "Clear player comparison search"], ["Search comparison teams", "Clear team comparison search"]]) {
+    const input = page.getByRole("textbox", { name: label, exact: true });
+    await input.fill("No matching result");
+    await page.getByRole("button", { name: clear, exact: true }).click();
+    await expect(input).toHaveValue("");
+    await expect(input).toBeFocused();
+    await expect(page.getByRole("button", { name: clear, exact: true })).toHaveCount(0);
+  }
+});
+
 test("title playground filters teams, player winning regions, years and realities", async ({
   page,
 }) => {
@@ -244,6 +265,10 @@ test("title playground filters teams, player winning regions, years and realitie
     }),
   ).toBeVisible();
   await playground.getByRole("button", { name: "LEC", exact: true }).click();
+  await playground.getByRole("searchbox").fill("No matching competitor");
+  await playground.getByRole("button", { name: "Clear competitor search", exact: true }).click();
+  await expect(playground.getByRole("searchbox")).toHaveValue("");
+  await expect(playground.getByRole("searchbox")).toBeFocused();
   await expect(
     playground.getByRole("button", {
       name: "Traveller: 4 titles. View breakdown",

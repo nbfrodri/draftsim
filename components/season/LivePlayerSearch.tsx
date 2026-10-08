@@ -26,6 +26,7 @@ import LaneIcon from "../LaneIcon";
 import TeamIcon from "../TeamIcon";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TierChip from "./TierChip";
+import ClearableSearch from "../ClearableSearch";
 
 const EMPTY_TEAMS: SeasonState["teams"] = [];
 const EMPTY_POOL: MarketInactive[] = [];
@@ -141,12 +142,14 @@ function SearchPanel({
       className="max-h-[45vh] overflow-y-auto overscroll-contain px-3 pb-3 text-xs"
     >
       <div className="flex gap-2">
-        <input
+        <ClearableSearch
           autoFocus
           aria-label="Search player names"
           type="search"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onValueChange={setQuery}
+          clearLabel="Clear player search"
+          containerClassName="flex-1"
           placeholder="Search player names..."
           className="min-w-0 flex-1 border border-rift-line bg-rift-bg px-3 py-2 text-xs text-rift-mutedbright placeholder:text-rift-muted focus:border-rift-gold focus:outline-none"
         />

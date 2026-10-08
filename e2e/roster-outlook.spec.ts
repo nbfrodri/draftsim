@@ -3,20 +3,20 @@ import { makeAuditSeason } from "../lib/auditFixtures";
 import { createSeries } from "../lib/series";
 import type { SeasonState } from "../lib/season/types";
 
-const SHOTS = "docs/screenshots/roster-outlook";
+const SHOTS = "docs/screenshots/roster-outlook-v1.5.1";
 // Isolate this section from the dashboard's fixed menu/save controls in crops.
-const screenshotStyle = '[aria-label="Save status"], [class~="fixed"][class~="top-3"] { visibility: hidden !important; }';
+const screenshotStyle = '[class~="fixed"] { opacity: 0 !important; }';
 
 function fixture() {
   const season: SeasonState = makeAuditSeason("Roster Outlook Review");
   const [a, b] = season.teams;
   a.name = "T1";
   b.name = "Gen.G Esports";
-  a.players[0] = { ...a.players[0], id: "outlook-atlas", name: "Atlas", tier: "B", badStreak: 4 };
+  a.players[0] = { ...a.players[0], id: "outlook-atlas", name: "Atlas", tier: "B", badStreak: 4, debutYear: 1 };
   season.franchise!.inactivePool = season.teams.slice(0, 8).flatMap((team, index) => [
-    { player: { ...team.players[1], id: `prospect-${index}`, name: index === 1 ? "Nova" : `Prospect ${index}`, tier: "S" as const, potential: "S" as const, age: 19 },
+    { player: { ...team.players[1], id: `prospect-${index}`, name: index === 1 ? "Nova" : `Prospect ${index}`, tier: "S" as const, potential: "S" as const, age: 19, debutYear: 1 },
       status: "academy" as const, inactiveYears: 2, demotedYear: 1, lastTeamId: team.id, lastTeamName: team.name, shadowGrade: 8 },
-    { player: { ...team.players[2], id: `unsigned-${index}`, name: index === 0 ? "Comet" : `Free Agent ${index}`, tier: "A" as const, age: 23, homeRegion: team.leagueId },
+    { player: { ...team.players[2], id: `unsigned-${index}`, name: index === 0 ? "Comet" : `Free Agent ${index}`, tier: "A" as const, age: 23, homeRegion: team.leagueId, debutYear: 1 },
       status: "free-agent" as const, inactiveYears: 4, demotedYear: 1, lastTeamId: "", shadowGrade: 7 },
   ]);
   const tournament = Object.values(season.tournaments)[0];
@@ -55,21 +55,31 @@ test("live outlook covers all rosters, explains gaps, filters and fits the deskt
   await expect(panel).toContainText("Underperformance streak: 4 → 5/5");
   const atlas = panel.getByTestId("outlook-player").filter({ hasText: "Atlas" });
   await expect(atlas.locator('[data-outcome="academy"]')).toHaveText("100%");
+  await expect(atlas.getByText("Rookie", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("list", { name: "All sampled destinations" }).getByText("Rookie", { exact: true })).toHaveCount(0);
   await expect(atlas.locator('img[src*="icon-position-top"]')).toBeVisible();
   await expect(atlas.locator('img[src*="team-logos"]')).toBeVisible();
+  await panel.locator('#outlook-explanation-outlook-atlas').screenshot({ path: `${SHOTS}/15-why-and-destination-badges.png`, style: screenshotStyle });
   await panel.screenshot({ path: `${SHOTS}/01-main-roster-and-role-gap.png`, style: screenshotStyle });
 
   await panel.getByRole("combobox", { name: "Roster status", exact: true }).click();
   await panel.getByRole("option", { name: "Academy", exact: true }).click();
   await expect(panel.getByTestId("outlook-player")).toHaveCount(8);
+  await expect(panel.getByTestId("outlook-player").filter({ hasText: "Nova" }).getByText("Rookie", { exact: true })).toBeVisible();
   await panel.getByRole("button", { name: "Explain Nova outlook" }).click();
   await panel.screenshot({ path: `${SHOTS}/02-academy.png`, style: screenshotStyle });
   await panel.getByRole("combobox", { name: "Roster status", exact: true }).click();
   await panel.getByRole("option", { name: "Free agent", exact: true }).click();
   await expect(panel.getByTestId("outlook-player")).toHaveCount(8);
+  await expect(panel.getByTestId("outlook-player").filter({ hasText: "Comet" }).getByText("Rookie", { exact: true })).toBeVisible();
   await panel.screenshot({ path: `${SHOTS}/03-free-agents.png`, style: screenshotStyle });
   await panel.getByLabel("Search outlook players").fill("does not exist");
   await expect(panel).toContainText("No players match these filters.");
+  await panel.getByRole("button", { name: "Clear outlook player search" }).click();
+  await expect(panel.getByLabel("Search outlook players")).toHaveValue("");
+  await expect(panel.getByLabel("Search outlook players")).toBeFocused();
+  await expect(panel.getByTestId("outlook-player")).toHaveCount(8);
+  await expect(panel.getByRole("combobox", { name: "Roster status", exact: true })).toContainText("Free agent");
   await panel.getByRole("button", { name: "Reset outlook filters" }).click();
   await panel.getByRole("group", { name: "Outlook regions" }).getByRole("button", { name: "LCK", exact: true }).click();
   await panel.getByRole("group", { name: "Outlook roles" }).getByRole("button", { name: "Top", exact: true }).click();
@@ -78,6 +88,8 @@ test("live outlook covers all rosters, explains gaps, filters and fits the deskt
   await expect(panel.getByTestId("outlook-player")).toHaveCount(1);
   await page.setViewportSize({ width: 1024, height: 760 });
   await panel.screenshot({ path: `${SHOTS}/04-filtered-minimum-desktop.png`, style: screenshotStyle });
+  await panel.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${SHOTS}/16-season-context.png`, style: screenshotStyle });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   // Opening and filtering forecasts never applies the sampled demotion.
   const savedPlayer = await page.evaluate(() => JSON.parse(localStorage.getItem("draftsim-store")!).state.season.teams[0].players[0]);
@@ -115,12 +127,12 @@ test("an open transfer window updates automatically after Proceed and keeps choi
   await expect(panel).toContainText("Calculating roster probabilities");
   await expect(panel.getByTestId("outlook-player")).toHaveCount(0);
   await expect.poll(() => !!nextWorker).toBe(true);
-  await panel.screenshot({ path: "docs/screenshots/roster-outlook-review/01-refresh-keeps-filters.png", style: screenshotStyle });
+  await panel.screenshot({ path: `${SHOTS}/08-refresh-keeps-filters.png`, style: screenshotStyle });
   await nextWorker!.abort();
   await expect(panel.getByRole("alert")).toContainText("could not run");
   await expect(search).toBeFocused();
   await expect(search).toHaveValue("Atlas");
-  await panel.screenshot({ path: "docs/screenshots/roster-outlook-review/02-error-keeps-filters.png", style: screenshotStyle });
+  await panel.screenshot({ path: `${SHOTS}/09-error-keeps-filters.png`, style: screenshotStyle });
   await page.unroute("**/workers/rosterOutlook.worker.js");
   await panel.getByRole("button", { name: "Retry forecast" }).click();
   await search.focus();
@@ -140,26 +152,76 @@ test("disabled roster movement does not launch a worker or claim guaranteed rete
   await expect(panel.getByRole("heading", { name: "Automatic roster moves are disabled" })).toBeVisible();
   await expect(panel).toContainText("No automatic probabilities are available");
   await expect(panel.getByTestId("outlook-player")).toHaveCount(0);
-  // Observe beyond the worker's 300 ms debounce, including a collapse/reopen.
+  // Observe beyond the worker's 100 ms debounce, including a collapse/reopen.
   await panel.getByRole("button", { name: /Roster outlook/ }).click();
   await panel.getByRole("button", { name: /Roster outlook/ }).click();
   await page.waitForTimeout(700);
   expect(workers).toBe(0);
-  await panel.screenshot({ path: "docs/screenshots/roster-outlook-review/03-no-automatic-window.png", style: screenshotStyle });
+  await panel.screenshot({ path: `${SHOTS}/10-no-automatic-window.png`, style: screenshotStyle });
 });
 
-test("offseason probabilities load and a failed worker can be retried", async ({ page }) => {
+test("offseason forecasts reuse a completed snapshot and a failed worker can be retried", async ({ page }) => {
   const season = fixture();
   season.status = "complete";
   season.config.playerTransfers = true;
   const panel = await seed(page, season);
   await expect(panel.getByRole("heading", { name: /Current offseason/ })).toBeVisible();
   await panel.screenshot({ path: `${SHOTS}/07-offseason.png`, style: screenshotStyle });
+  await panel.getByLabel("Search outlook players").fill("Comet");
+  await panel.getByRole("button", { name: "Explain Comet outlook" }).click();
+  const destinations = panel.getByRole("list", { name: "All sampled destinations" });
+  expect(await destinations.evaluate(element => parseFloat(getComputedStyle(element).paddingRight))).toBeGreaterThanOrEqual(16);
+  await panel.screenshot({ path: `${SHOTS}/17-fa-destinations-and-scroll.png`, style: screenshotStyle });
   await panel.getByRole("button", { name: /Roster outlook/ }).click();
   await page.route("**/workers/rosterOutlook.worker.js", route => route.abort());
+  await panel.getByRole("button", { name: /Roster outlook/ }).click();
+  await expect(panel.getByTestId("outlook-player").first()).toBeVisible();
+  await expect(panel.getByRole("alert")).toHaveCount(0);
+  // A page reload discards the in-memory forecast and exercises a fresh failure.
+  await page.reload();
   await panel.getByRole("button", { name: /Roster outlook/ }).click();
   await expect(panel.getByRole("alert")).toContainText("could not run");
   await page.unroute("**/workers/rosterOutlook.worker.js");
   await panel.getByRole("button", { name: "Retry forecast" }).click();
   await expect(panel.getByTestId("outlook-player").first()).toBeVisible({ timeout: 60_000 });
+});
+
+test("probability headers sort both ways without recalculating the forecast", async ({ page }) => {
+  let workers = 0;
+  page.on("request", request => { if (request.url().endsWith("/workers/rosterOutlook.worker.js")) workers++; });
+  const panel = await seed(page, fixture());
+  const parse = (text: string) => text.startsWith("<") ? 0.5 : text.startsWith(">") ? 99.5 : Number.parseFloat(text);
+  for (const [label, key] of [["Stay", "stay"], ["Other team", "transfer"], ["To academy", "academy"], ["To main roster", "main"], ["Become FA", "free-agent"]]) {
+    for (const ascending of [false, true]) {
+      const order = ascending ? "ascending" : "descending";
+      await panel.getByRole("button", { name: `Sort by ${label}, ${order}`, exact: true }).click();
+      await expect(panel.getByRole("columnheader").filter({ hasText: label })).toHaveAttribute("aria-sort", order);
+      await expect(panel.getByRole("combobox", { name: "Outlook order", exact: true })).toContainText(label);
+      const values = (await panel.locator(`[data-outcome="${key}"]`).allTextContents()).map(parse);
+      expect(values).toEqual([...values].sort((a, b) => ascending ? a - b : b - a));
+    }
+  }
+  await panel.getByRole("button", { name: "Sort by Stay, descending", exact: true }).click();
+  await panel.getByLabel("Search outlook players").fill("Atlas");
+  await panel.screenshot({ path: `${SHOTS}/11-sort-and-clear-search.png`, style: screenshotStyle });
+  await panel.getByRole("button", { name: /Roster outlook/ }).click();
+  await panel.getByRole("button", { name: /Roster outlook/ }).click();
+  await expect(panel.getByTestId("outlook-player").first()).toBeVisible();
+  await page.waitForTimeout(350);
+  expect(workers).toBe(1);
+});
+
+test("loading shows scenario progress and leaves search usable", async ({ page }) => {
+  await page.route("**/workers/rosterOutlook.worker.js", route => route.fulfill({
+    contentType: "application/javascript", body: "self.onmessage = () => self.postMessage({progress:{completed:80,total:160}})",
+  }));
+  const panel = await seed(page, fixture(), false);
+  const progress = panel.getByRole("progressbar", { name: "Roster forecast scenarios" });
+  await expect(progress).toHaveAttribute("aria-valuenow", "80");
+  await expect(progress).toHaveAttribute("aria-valuemax", "160");
+  await panel.getByLabel("Search outlook players").fill("Atlas");
+  await panel.screenshot({ path: `${SHOTS}/12-scenario-progress.png`, style: screenshotStyle });
+  await panel.getByRole("button", { name: "Clear outlook player search" }).click();
+  await expect(panel.getByLabel("Search outlook players")).toBeFocused();
+  await expect(panel.getByLabel("Search outlook players")).toHaveValue("");
 });

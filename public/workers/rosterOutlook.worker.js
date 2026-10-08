@@ -32687,14 +32687,14 @@
     }
     return taken;
   }
-  function applyMidSplitDemotions(season, split, champions, rng = Math.random) {
+  function applyMidSplitDemotions(season, split, champions, rng = Math.random, checkpoint) {
     if (!season.franchise?.aging) return season;
     const taken = reservedRealityNames(season);
     for (const t of season.teams) {
       for (const p of t.players) if (p.name) taken.add(p.name);
       if (t.coach?.name) taken.add(t.coach.name);
     }
-    const { outcomes, roleMeans } = buildSplitCheckpointOutcomes(season, split);
+    const { outcomes, roleMeans } = checkpoint?.source === season && checkpoint.split === split ? checkpoint.evaluation : buildSplitCheckpointOutcomes(season, split);
     const skipFollowed = season.franchise.pendingMidSplitDemotion && season.config.controlledTeamId ? /* @__PURE__ */ new Set([season.config.controlledTeamId]) : void 0;
     const result = runDemotionPass(
       season.teams.map((t) => ({
@@ -33026,6 +33026,21 @@
 
   // lib/season/rosterOutlookView.ts
   var OUTLOOK_SAMPLES = 160;
+  var OUTLOOK_LABELS = {
+    stay: "Stay",
+    transfer: "Other team",
+    academy: "To academy",
+    main: "To main roster",
+    "free-agent": "Become FA",
+    retired: "Retire",
+    unknown: "Unknown"
+  };
+  function outlookPercent(count, samples) {
+    if (count === 0 || samples === 0) return "0%";
+    if (count === samples) return "100%";
+    const rounded = Math.round(100 * count / samples);
+    return rounded === 0 ? "<1%" : rounded === 100 ? ">99%" : `${rounded}%`;
+  }
   function nextRosterWindow(season) {
     const aging = !!season.franchise?.aging;
     const transfers = !!season.config.playerTransfers;
@@ -33106,10 +33121,10 @@
     }
     return ids;
   }
-  function sampleRosterWindow(season, champions, window, rng) {
+  function sampleRosterWindow(season, champions, window, rng, checkpoint) {
     let next = season;
     let manual = manualPlayers(next);
-    if (window.kind === "split" && window.split) next = applyMidSplitDemotions(next, window.split, champions, rng);
+    if (window.kind === "split" && window.split) next = applyMidSplitDemotions(next, window.split, champions, rng, checkpoint);
     if (window.kind === "transfer") {
       if (window.opening) {
         const phaseIndex = next.phases.findIndex((p) => p.kind === "transfer" && p.event === window.event);
@@ -33167,15 +33182,17 @@
     }
     return { season: next, manual };
   }
-  function buildRosterOutlook(season, champions, samples = OUTLOOK_SAMPLES) {
+  function* rosterOutlookSteps(season, champions, samples = OUTLOOK_SAMPLES) {
     if (!Number.isInteger(samples) || samples < 1 || samples > 2e3) throw new Error("Invalid forecast sample count");
     const window = nextRosterWindow(season);
     if (window.kind === "none") return { window, samples: 0, rows: [] };
     if (!champions.length) throw new Error("Champion data is not available yet");
+    yield { completed: 0, total: samples };
     const seats = rosterSeats(season);
     const teams = new Map(season.teams.map((t) => [t.id, t]));
     const byId = new Map(champions.map((c) => [c.id, c]));
     const evaluation = window.split ? buildSplitCheckpointOutcomes(season, window.split) : buildSeasonOutcomes(season);
+    const checkpoint = window.kind === "split" && window.split ? { source: season, split: window.split, evaluation } : void 0;
     const hasDemotionCheckpoint = window.kind === "split" || window.kind === "offseason" || !!window.split;
     const rows = /* @__PURE__ */ new Map();
     const add = (player, grade, value) => {
@@ -33193,10 +33210,11 @@
         grade,
         roleMean,
         value,
-        nextStreak: hasDemotionCheckpoint && outcome && grade != null && roleMean != null && season.franchise?.aging ? nextBadStreak(player.badStreak, outcome, roleMean) : null,
+        nextStreak: hasDemotionCheckpoint && outcome && season.franchise?.aging ? nextBadStreak(player.badStreak, outcome, roleMean) : null,
         counts: { stay: 0, transfer: 0, academy: 0, main: 0, "free-agent": 0, retired: 0, unknown: 0 },
         manualChoiceCount: 0,
         destinations: [],
+        summary: "",
         evidence: []
       });
     };
@@ -33209,7 +33227,7 @@
       add(entry.player, inactiveMarketGrade(entry), inactiveTransferValue(entry, byId, season.currentMeta));
     }
     for (let i = 0; i < samples; i++) {
-      const result = sampleRosterWindow(season, champions, window, scenarioRng(1380930388 + i * 7919));
+      const result = sampleRosterWindow(season, champions, window, scenarioRng(1380930388 + i * 7919), checkpoint);
       const finalSeats = rosterSeats(result.season);
       for (const row of rows.values()) {
         const after = finalSeats.get(row.id);
@@ -33221,30 +33239,52 @@
           else row.destinations.push({ ...after, count: 1 });
         }
       }
+      if ((i + 1) % 8 === 0 || i + 1 === samples) yield { completed: i + 1, total: samples };
     }
     for (const row of rows.values()) {
       row.destinations.sort((a, b) => b.count - a.count);
-      row.evidence = outlookEvidence(row, window);
+      const ranked = Object.entries(row.counts).sort((a, b) => b[1] - a[1]);
+      const [outcome, count] = ranked[0];
+      const tied = ranked.filter(([, value]) => value === count).length > 1;
+      row.summary = `${OUTLOOK_LABELS[outcome]}: ${count} of ${samples} scenarios (${outlookPercent(count, samples)}). ${tied ? "Tied for the most frequent final outcome." : "The most frequent final outcome with today's data."}`;
+      row.evidence = outlookEvidence(row, window, !!season.franchise?.aging, evaluation.outcomes.get(row.id));
     }
     return { window, samples, rows: [...rows.values()] };
   }
-  function outlookEvidence(row, window) {
+  function outlookEvidence(row, window, aging, outcome) {
     const evidence = [];
-    if (row.grade == null) evidence.push("No recorded performance in this evaluation period.");
-    else if (row.seat.status !== "main") evidence.push(`Market performance estimate: ${row.grade.toFixed(2)} (inactive development and last recorded grade).`);
-    else evidence.push(`Recorded average (${window.split ? SPLIT_LABELS[window.split] : "season"} to date): ${row.grade.toFixed(2)}.`);
-    if (row.roleMean != null && row.grade != null) {
-      evidence.push(`Same-role mean: ${row.roleMean.toFixed(2)}. Gap: ${(row.roleMean - row.grade).toFixed(2)}; underperformance threshold: ${GRADE_GAP_THRESHOLD.toFixed(2)}.`);
+    const add = (label, text) => evidence.push({ label, text });
+    const period = window.split ? SPLIT_LABELS[window.split] : "Season";
+    if (row.seat.status !== "main") {
+      add("Market position", row.seat.status === "academy" ? "Stay means remaining in this academy. To main roster means a call-up by this club; Other team includes joining another club's main roster or academy." : "Stay means remaining unsigned. To main roster and To academy are signings; Become FA is not a new outcome for an already unsigned player.");
+      if (row.grade != null) add("Estimated form", `${row.grade.toFixed(2)} market grade, based on inactive development and the last recorded grade. This is not an average of new matches.`);
+    } else {
+      if (row.grade == null || row.roleMean == null) add("Performance", `${period}: no rated performance available for this comparison. Missing games do not count as poor performances.`);
+      else {
+        const gap = row.roleMean - row.grade;
+        add("Performance", `${period} to date: ${row.grade.toFixed(2)} average versus ${row.roleMean.toFixed(2)} for the same role. ${Math.abs(gap).toFixed(2)} points ${gap > 0 ? "below" : "above"} the role mean; the underperformance threshold is ${GRADE_GAP_THRESHOLD.toFixed(2)} below.`);
+      }
+      if (!aging) add("Demotion check", "Automatic player lifecycle changes are disabled in this season.");
+      else if (row.nextStreak == null) add("Demotion check", "This window has no performance-based demotion checkpoint. Transfers and player requests can still affect the final roster.");
+      else {
+        const detail = outcome?.intlTitles ? "A recorded international title resets the streak." : row.grade == null || row.roleMean == null ? "Without rated evidence, the previous streak is preserved." : row.nextStreak >= UNDERPERFORM_STREAK_TO_DEMOTE ? "The demotion threshold is reached with the current evidence." : row.nextStreak > (row.player.badStreak ?? 0) ? `${UNDERPERFORM_STREAK_TO_DEMOTE - row.nextStreak} more underperforming checkpoint(s) would be needed to reach the demotion threshold.` : outcome?.splitTitles && row.player.tier !== "C" && row.player.tier !== "D" ? "The recorded split title protects a player above C/D tier from this underperformance streak." : "The current evidence does not extend the underperformance streak.";
+        add("Demotion check", `Underperformance streak: ${row.player.badStreak ?? 0} \u2192 ${row.nextStreak}/${UNDERPERFORM_STREAK_TO_DEMOTE} checkpoints. ${detail} Year-end tier changes can also affect the final outcome.`);
+      }
     }
-    if (row.nextStreak != null) evidence.push(`Underperformance streak: ${row.player.badStreak ?? 0} \u2192 ${row.nextStreak}/${UNDERPERFORM_STREAK_TO_DEMOTE} checkpoints, before any year-end tier change.`);
-    evidence.push(`Value using this performance period: ${row.value.toFixed(2)}. Outcomes also depend on available replacements, academy space, player preferences and window caps.`);
+    add("Market context", `Value with this period's evidence: ${row.value.toFixed(2)}. The scenarios also evaluate available replacements, academy space, preferences and move limits. These inputs are context, not a measured contribution to each percentage.`);
     return evidence;
   }
 
   // lib/sim/rosterOutlook.worker.ts
   self.onmessage = (event) => {
     try {
-      self.postMessage({ result: buildRosterOutlook(event.data.season, event.data.champions) });
+      const work = rosterOutlookSteps(event.data.season, event.data.champions);
+      let step = work.next();
+      while (!step.done) {
+        self.postMessage({ progress: step.value });
+        step = work.next();
+      }
+      self.postMessage({ result: step.value });
     } catch (error) {
       self.postMessage({ error: error instanceof Error ? error.message : "Forecast failed" });
     }

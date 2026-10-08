@@ -30,9 +30,22 @@ export interface OutlookRow {
   counts: Record<OutlookOutcome, number>;
   manualChoiceCount: number;
   destinations: Array<OutlookSeat & { count: number }>;
-  evidence: string[];
+  summary: string;
+  evidence: Array<{ label: string; text: string }>;
 }
 export interface RosterOutlook { window: OutlookWindow; samples: number; rows: OutlookRow[] }
+export interface OutlookProgress { completed: number; total: number }
+
+export function isOutlookRookie(player: Pick<Player, "debutYear">, year?: number) {
+  return year != null && player.debutYear === year;
+}
+
+export function outlookPercent(count: number, samples: number) {
+  if (count === 0 || samples === 0) return "0%";
+  if (count === samples) return "100%";
+  const rounded = Math.round(100 * count / samples);
+  return rounded === 0 ? "<1%" : rounded === 100 ? ">99%" : `${rounded}%`;
+}
 
 /** A checkpoint is the next place where this save can actually move players. */
 export function nextRosterWindow(season: SeasonState): OutlookWindow {

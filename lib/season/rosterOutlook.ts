@@ -2,13 +2,13 @@ import type { Champion, Player } from "../types";
 import type { RNG } from "../players";
 import { isRosterVacancy, inactiveMarketGrade, inactiveTransferValue } from "./faMarket";
 import { applyMidSplitDemotions, buildSeasonOutcomes, buildSplitCheckpointOutcomes,
-  fillRosterVacancies, resolveOffseasonPlayerMarket } from "./franchise";
+  fillRosterVacancies, resolveOffseasonPlayerMarket, type SplitCheckpointSnapshot } from "./franchise";
 import { seedAgencyWindow } from "./franchiseAgency";
-import { GRADE_GAP_THRESHOLD, nextBadStreak, UNDERPERFORM_STREAK_TO_DEMOTE } from "./playerLifecycle";
+import { GRADE_GAP_THRESHOLD, nextBadStreak, UNDERPERFORM_STREAK_TO_DEMOTE, type SeasonPlayerOutcome } from "./playerLifecycle";
 import { applyTransfers, rebucketTransfersByStamp, teamMovedAtLane, transferValue, userTransferCapReached } from "./transfers";
 import { SPLIT_LABELS, type LeagueId, type SeasonState } from "./types";
 
-import { nextRosterWindow, OUTLOOK_SAMPLES, type OutlookOutcome, type OutlookSeat, type OutlookRow, type OutlookWindow, type RosterOutlook } from "./rosterOutlookView";
+import { nextRosterWindow, OUTLOOK_SAMPLES, OUTLOOK_LABELS, outlookPercent, type OutlookOutcome, type OutlookSeat, type OutlookRow, type OutlookWindow, type RosterOutlook, type OutlookProgress } from "./rosterOutlookView";
 export { nextRosterWindow } from "./rosterOutlookView";
 
 /** Private deterministic stream: inspecting a forecast cannot advance live RNG. */
@@ -68,10 +68,10 @@ function manualPlayers(season: SeasonState) {
 
 /** Freeze performance/meta, run only real roster rules. Never simulate games or
  * fabricate future titles, standings, patches, manual decisions or development. */
-export function sampleRosterWindow(season: SeasonState, champions: readonly Champion[], window: OutlookWindow, rng: RNG) {
+export function sampleRosterWindow(season: SeasonState, champions: readonly Champion[], window: OutlookWindow, rng: RNG, checkpoint?: SplitCheckpointSnapshot) {
   let next = season;
   let manual = manualPlayers(next);
-  if (window.kind === "split" && window.split) next = applyMidSplitDemotions(next, window.split, champions, rng);
+  if (window.kind === "split" && window.split) next = applyMidSplitDemotions(next, window.split, champions, rng, checkpoint);
   if (window.kind === "transfer") {
     if (window.opening) {
       const phaseIndex = next.phases.findIndex(p => p.kind === "transfer" && p.event === window.event);
@@ -110,14 +110,24 @@ export function sampleRosterWindow(season: SeasonState, champions: readonly Cham
 }
 
 export function buildRosterOutlook(season: SeasonState, champions: readonly Champion[], samples = OUTLOOK_SAMPLES): RosterOutlook {
+  const work = rosterOutlookSteps(season, champions, samples);
+  let step = work.next();
+  while (!step.done) step = work.next();
+  return step.value;
+}
+
+/** Real progress without changing the scenario order or the synchronous API. */
+export function* rosterOutlookSteps(season: SeasonState, champions: readonly Champion[], samples = OUTLOOK_SAMPLES): Generator<OutlookProgress, RosterOutlook> {
   if (!Number.isInteger(samples) || samples < 1 || samples > 2000) throw new Error("Invalid forecast sample count");
   const window = nextRosterWindow(season);
   if (window.kind === "none") return { window, samples: 0, rows: [] };
   if (!champions.length) throw new Error("Champion data is not available yet");
+  yield { completed: 0, total: samples };
   const seats = rosterSeats(season);
   const teams = new Map(season.teams.map(t => [t.id, t]));
   const byId = new Map(champions.map(c => [c.id, c]));
   const evaluation = window.split ? buildSplitCheckpointOutcomes(season, window.split) : buildSeasonOutcomes(season);
+  const checkpoint = window.kind === "split" && window.split ? { source: season, split: window.split, evaluation } : undefined;
   const hasDemotionCheckpoint = window.kind === "split" || window.kind === "offseason" || !!window.split;
   const rows = new Map<string, OutlookRow>();
   const add = (player: Player, grade: number | null, value: number) => {
@@ -128,10 +138,10 @@ export function buildRosterOutlook(season: SeasonState, champions: readonly Cham
     const roleMean = seat.status === "main" ? evaluation.roleMeans[player.lane] ?? null : null;
     const region = seat.teamId ? teams.get(seat.teamId)?.leagueId : player.homeRegion;
     rows.set(player.id, { id: player.id, player, seat, region: region as LeagueId | undefined, grade, roleMean, value,
-      nextStreak: hasDemotionCheckpoint && outcome && grade != null && roleMean != null && season.franchise?.aging
+      nextStreak: hasDemotionCheckpoint && outcome && season.franchise?.aging
         ? nextBadStreak(player.badStreak, outcome, roleMean) : null,
       counts: { stay: 0, transfer: 0, academy: 0, main: 0, "free-agent": 0, retired: 0, unknown: 0 },
-      manualChoiceCount: 0, destinations: [], evidence: [] });
+      manualChoiceCount: 0, destinations: [], summary: "", evidence: [] });
   };
   for (const team of season.teams) for (const player of team.players) {
     if (isRosterVacancy(player)) continue;
@@ -144,7 +154,7 @@ export function buildRosterOutlook(season: SeasonState, champions: readonly Cham
   // Each sample starts from the same state. Shared engine helpers return new
   // objects; the worker itself has a structured-cloned copy of the live save.
   for (let i = 0; i < samples; i++) {
-    const result = sampleRosterWindow(season, champions, window, scenarioRng(0x524f5354 + i * 7919));
+    const result = sampleRosterWindow(season, champions, window, scenarioRng(0x524f5354 + i * 7919), checkpoint);
     const finalSeats = rosterSeats(result.season);
     for (const row of rows.values()) {
       const after = finalSeats.get(row.id);
@@ -156,23 +166,46 @@ export function buildRosterOutlook(season: SeasonState, champions: readonly Cham
         else row.destinations.push({ ...after, count: 1 });
       }
     }
+    if ((i + 1) % 8 === 0 || i + 1 === samples) yield { completed: i + 1, total: samples };
   }
   for (const row of rows.values()) {
     row.destinations.sort((a, b) => b.count - a.count);
-    row.evidence = outlookEvidence(row, window);
+    const ranked = Object.entries(row.counts).sort((a, b) => b[1] - a[1]);
+    const [outcome, count] = ranked[0];
+    const tied = ranked.filter(([, value]) => value === count).length > 1;
+    row.summary = `${OUTLOOK_LABELS[outcome as OutlookOutcome]}: ${count} of ${samples} scenarios (${outlookPercent(count, samples)}). ${tied ? "Tied for the most frequent final outcome." : "The most frequent final outcome with today's data."}`;
+    row.evidence = outlookEvidence(row, window, !!season.franchise?.aging, evaluation.outcomes.get(row.id));
   }
   return { window, samples, rows: [...rows.values()] };
 }
 
-function outlookEvidence(row: OutlookRow, window: OutlookWindow): string[] {
-  const evidence: string[] = [];
-  if (row.grade == null) evidence.push("No recorded performance in this evaluation period.");
-  else if (row.seat.status !== "main") evidence.push(`Market performance estimate: ${row.grade.toFixed(2)} (inactive development and last recorded grade).`);
-  else evidence.push(`Recorded average (${window.split ? SPLIT_LABELS[window.split] : "season"} to date): ${row.grade.toFixed(2)}.`);
-  if (row.roleMean != null && row.grade != null) {
-    evidence.push(`Same-role mean: ${row.roleMean.toFixed(2)}. Gap: ${(row.roleMean - row.grade).toFixed(2)}; underperformance threshold: ${GRADE_GAP_THRESHOLD.toFixed(2)}.`);
+function outlookEvidence(row: OutlookRow, window: OutlookWindow, aging: boolean, outcome?: SeasonPlayerOutcome): OutlookRow["evidence"] {
+  const evidence: OutlookRow["evidence"] = [];
+  const add = (label: string, text: string) => evidence.push({ label, text });
+  const period = window.split ? SPLIT_LABELS[window.split] : "Season";
+  if (row.seat.status !== "main") {
+    add("Market position", row.seat.status === "academy"
+      ? "Stay means remaining in this academy. To main roster means a call-up by this club; Other team includes joining another club's main roster or academy."
+      : "Stay means remaining unsigned. To main roster and To academy are signings; Become FA is not a new outcome for an already unsigned player.");
+    if (row.grade != null) add("Estimated form", `${row.grade.toFixed(2)} market grade, based on inactive development and the last recorded grade. This is not an average of new matches.`);
+  } else {
+    if (row.grade == null || row.roleMean == null) add("Performance", `${period}: no rated performance available for this comparison. Missing games do not count as poor performances.`);
+    else {
+      const gap = row.roleMean - row.grade;
+      add("Performance", `${period} to date: ${row.grade.toFixed(2)} average versus ${row.roleMean.toFixed(2)} for the same role. ${Math.abs(gap).toFixed(2)} points ${gap > 0 ? "below" : "above"} the role mean; the underperformance threshold is ${GRADE_GAP_THRESHOLD.toFixed(2)} below.`);
+    }
+    if (!aging) add("Demotion check", "Automatic player lifecycle changes are disabled in this season.");
+    else if (row.nextStreak == null) add("Demotion check", "This window has no performance-based demotion checkpoint. Transfers and player requests can still affect the final roster.");
+    else {
+      const detail = outcome?.intlTitles ? "A recorded international title resets the streak."
+        : row.grade == null || row.roleMean == null ? "Without rated evidence, the previous streak is preserved."
+        : row.nextStreak >= UNDERPERFORM_STREAK_TO_DEMOTE ? "The demotion threshold is reached with the current evidence."
+        : row.nextStreak > (row.player.badStreak ?? 0) ? `${UNDERPERFORM_STREAK_TO_DEMOTE - row.nextStreak} more underperforming checkpoint(s) would be needed to reach the demotion threshold.`
+        : outcome?.splitTitles && row.player.tier !== "C" && row.player.tier !== "D" ? "The recorded split title protects a player above C/D tier from this underperformance streak."
+        : "The current evidence does not extend the underperformance streak.";
+      add("Demotion check", `Underperformance streak: ${row.player.badStreak ?? 0} → ${row.nextStreak}/${UNDERPERFORM_STREAK_TO_DEMOTE} checkpoints. ${detail} Year-end tier changes can also affect the final outcome.`);
+    }
   }
-  if (row.nextStreak != null) evidence.push(`Underperformance streak: ${row.player.badStreak ?? 0} → ${row.nextStreak}/${UNDERPERFORM_STREAK_TO_DEMOTE} checkpoints, before any year-end tier change.`);
-  evidence.push(`Value using this performance period: ${row.value.toFixed(2)}. Outcomes also depend on available replacements, academy space, player preferences and window caps.`);
+  add("Market context", `Value with this period's evidence: ${row.value.toFixed(2)}. The scenarios also evaluate available replacements, academy space, preferences and move limits. These inputs are context, not a measured contribution to each percentage.`);
   return evidence;
 }

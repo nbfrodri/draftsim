@@ -22,6 +22,12 @@ test("live player search shows current status, a card and both sides of a move",
   await trigger.click();
   await expect(search.getByRole("searchbox")).toBeFocused();
   await search.getByRole("searchbox").fill("Search");
+  await search.screenshot({ path: "docs/screenshots/roster-outlook-v1.5.1/13-live-search-clear.png" });
+  await search.getByRole("button", { name: "Clear player search", exact: true }).click();
+  await expect(search.getByRole("searchbox")).toHaveValue("");
+  await expect(search.getByRole("searchbox")).toBeFocused();
+  await expect(search.getByRole("button", { name: "Clear player search", exact: true })).toHaveCount(0);
+  await search.getByRole("searchbox").fill("Search");
   await expect(search.getByLabel("Academy", { exact: true })).toBeVisible();
   await expect(search.getByLabel("Free agent", { exact: true })).toBeVisible();
   await expect(search.getByLabel("Retired", { exact: true })).toBeVisible();

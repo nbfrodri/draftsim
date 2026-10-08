@@ -1,4 +1,5 @@
 "use client";
+import ClearableSearch from "../ClearableSearch";
 
 import { useMemo, useState } from "react";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
@@ -832,11 +833,12 @@ export default function TitlePlayground({
           />
           <label className="grid min-w-48 flex-1 gap-1.5 text-[10px] text-rift-mutedbright">
             Find a competitor
-            <input
+            <ClearableSearch
               className={input}
               type="search"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onValueChange={setSearch}
+              clearLabel="Clear competitor search"
               placeholder={
                 mode === "teams" ? "Search teams…" : "Search players or teams…"
               }

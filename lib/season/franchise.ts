@@ -353,11 +353,18 @@ function reservedRealityNames(season: SeasonState): Set<string> {
  * (`pendingMidSplitDemotion`), that org is skipped for AI academy maintenance
  * (they already shopped the transfer window).
  */
+export type SplitCheckpointSnapshot = {
+  source: SeasonState;
+  split: SplitId;
+  evaluation: ReturnType<typeof buildSplitCheckpointOutcomes>;
+};
+
 export function applyMidSplitDemotions(
   season: SeasonState,
   split: SplitId,
   champions: readonly Champion[],
   rng: RNG = Math.random,
+  checkpoint?: SplitCheckpointSnapshot,
 ): SeasonState {
   if (!season.franchise?.aging) return season;
 
@@ -366,7 +373,9 @@ export function applyMidSplitDemotions(
     for (const p of t.players) if (p.name) taken.add(p.name);
     if (t.coach?.name) taken.add(t.coach.name);
   }
-  const { outcomes, roleMeans } = buildSplitCheckpointOutcomes(season, split);
+  // Forecast scenarios can reuse evidence only for this exact roster snapshot.
+  const { outcomes, roleMeans } = checkpoint?.source === season && checkpoint.split === split
+    ? checkpoint.evaluation : buildSplitCheckpointOutcomes(season, split);
   // Deferred Proceed path: user already shopped — skip their org for AI
   // academy intake/release/stash. Immediate summer (no pending) includes them.
   const skipFollowed =

@@ -128,7 +128,7 @@ test("career season ranges are inclusive, stay valid when crossed and reset on a
   await career.getByRole("button", { name: "All seasons", exact: true }).click();
   await expect(career.getByRole("group", { name: /career history$/ })).toHaveCount(8);
   await expect(controls.getByRole("button", { name: "Worlds", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.getByPlaceholder(/Search by player/).locator("..").getByRole("button", { name: /Nova/ }).first().click();
+  await page.getByPlaceholder(/Search by player/).locator("../..").getByRole("button", { name: /Nova/ }).first().click();
   await expect(career.locator('[data-highlighted="true"]')).toHaveCount(0);
   await expect(career.getByLabel("From season", { exact: true })).toHaveValue("");
   await expect(career.getByLabel("To season", { exact: true })).toHaveValue("");

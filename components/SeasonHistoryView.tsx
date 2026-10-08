@@ -1,4 +1,5 @@
 "use client";
+import ClearableSearch from "./ClearableSearch";
 
 import { formatAggregateKda } from "@/lib/formatKda";
 import ChampionshipPointsPanel from "./season/ChampionshipPointsPanel";
@@ -4770,12 +4771,15 @@ function SearchPanel({
             </button>
           ))}
         </div>
-        <input
+        <ClearableSearch
           type="text"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onValueChange={setQuery}
+          aria-label={`Search history ${kind}`}
+          clearLabel="Clear history search"
+          containerClassName="mb-2"
           placeholder={kind === "players" ? "Search by player, team or region…" : kind === "teams" ? "Search by team or region…" : "Search coach…"}
-          className="w-full mb-2 px-2.5 py-1.5 border border-rift-line/60 bg-rift-bg/40 text-[11px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 focus:outline-none"
+          className="px-2.5 py-1.5 border border-rift-line/60 bg-rift-bg/40 text-[11px] text-rift-mutedbright placeholder:text-rift-muted/40 focus:border-rift-gold/50 focus:outline-none"
         />
         {/* Order-by — sort the list by any tracked stat (titles, MVPs, grade…). */}
         <div className="flex items-center gap-2 mb-2">

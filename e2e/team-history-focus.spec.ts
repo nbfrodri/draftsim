@@ -122,7 +122,7 @@ test("team year ranges are inclusive, preserve roster navigation and reset for a
   await expect(results.getByRole("group", { name: /results history$/ })).toHaveCount(4);
   await expect(controls.getByRole("button", { name: "Global Cup", exact: true })).toHaveAttribute("aria-pressed", "true");
   await results.getByLabel("From season", { exact: true }).selectOption("team-focus-2");
-  await page.getByPlaceholder(/Search by team/).locator("..").getByRole("button", { name: /Other Team/ }).first().click();
+  await page.getByPlaceholder(/Search by team/).locator("../..").getByRole("button", { name: /Other Team/ }).first().click();
   await expect(results.getByLabel("From season", { exact: true })).toHaveValue("");
   await expect(results.getByLabel("To season", { exact: true })).toHaveValue("");
   await expect(results.locator('[data-highlighted="true"]')).toHaveCount(0);

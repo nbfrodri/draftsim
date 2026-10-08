@@ -61,6 +61,10 @@ test("roster history merges live/archive news once, filters, sorts and fits narr
   await panel.getByLabel("Search roster players").fill("retired veteran");
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText("Retired");
+  await panel.getByRole("button", { name: "Clear roster player search", exact: true }).click();
+  await expect(panel.getByLabel("Search roster players")).toHaveValue("");
+  await expect(panel.getByLabel("Search roster players")).toBeFocused();
+  await expect(rows).toHaveCount(3);
   await panel.getByRole("button", { name: "Reset filters" }).click();
   const regions = panel.getByRole("group", { name: "Regions", exact: true });
   await expect(regions.getByRole("button", { name: data.team.leagueId, exact: true }).locator("img")).toHaveCount(1);
