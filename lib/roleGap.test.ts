@@ -12,4 +12,12 @@ describe("roleGaps", () => {
   it("skips unrated lanes and small differences", () => {
     expect(roleGaps([0, 9, 7, 7, 7], [9, 0, 5.1, 7, 7])).toEqual([]);
   });
+
+  it("uses the actual threshold before formatting and rejects nonfinite notes", () => {
+    expect(roleGaps([7.96, Infinity, NaN, 6, 8], [6, 5, 5, 6, 6])).toEqual([
+      { lane: "support", label: "Support Gap", side: "blue", diff: 2 },
+    ]);
+    expect(roleGaps([6], [6], 0)).toEqual([]);
+    expect(roleGaps([7.1], [5.1])).toHaveLength(1);
+  });
 });

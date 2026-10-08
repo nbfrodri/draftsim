@@ -295,7 +295,7 @@ export function computeRoleMeans(
   const sum: Partial<Record<Lane, number>> = {};
   const cnt: Partial<Record<Lane, number>> = {};
   for (const o of outcomes) {
-    if (o.grade == null) continue;
+    if (o.grade == null || !Number.isFinite(o.grade) || o.grade <= 0) continue;
     sum[o.lane] = (sum[o.lane] ?? 0) + o.grade;
     cnt[o.lane] = (cnt[o.lane] ?? 0) + 1;
   }
@@ -402,8 +402,10 @@ export function isUnderperformingSeason(
 ): boolean {
   const gradeBelow =
     outcome.grade != null &&
+    Number.isFinite(outcome.grade) && outcome.grade > 0 &&
     roleMean != null &&
-    outcome.grade <= roleMean - gradeGap;
+    Number.isFinite(roleMean) && roleMean > 0 &&
+    roleMean - outcome.grade + 1e-9 >= gradeGap;
   if (!gradeBelow) return false;
   let hits = 1; // grade already counted
   if (outcome.tier === "C" || outcome.tier === "D") hits += 1;
@@ -424,6 +426,9 @@ export function nextBadStreak(
   gradeGap: number = GRADE_GAP_THRESHOLD,
 ): number {
   if (outcome.intlTitles > 0) return 0;
+  // An unrated checkpoint is unknown, not evidence that the player recovered.
+  if (outcome.grade == null || !Number.isFinite(outcome.grade) || outcome.grade <= 0 ||
+      roleMean == null || !Number.isFinite(roleMean) || roleMean <= 0) return prev ?? 0;
   if (isUnderperformingSeason(outcome, roleMean, gradeGap)) return (prev ?? 0) + 1;
   return 0;
 }

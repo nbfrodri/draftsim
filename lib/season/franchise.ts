@@ -12,6 +12,7 @@ import { LANE_ORDER, type RNG } from "../players";
 import { driftSynergiesOverTime, assignSynergies, CHEM_PRESEASON_STEP } from "../chemistry";
 import { createSeason } from "./engine";
 import { buildSeasonHistoryEntry, type SeasonHistoryEntry } from "./history";
+import { seasonPlayerGrades } from "./playerGrades";
 import { teamSeasonGrades, computePlayerTitleCounts } from "./stats";
 import {
   USER_MAX_FA_SIGNS,
@@ -238,20 +239,20 @@ export function continuityFormBonus(retained: number): number {
 }
 
 /** Build per-player season outcomes (grade + titles) for demotion evaluation. */
-function buildSeasonOutcomes(season: SeasonState): {
+export function buildSeasonOutcomes(season: SeasonState): {
   outcomes: Map<string, SeasonPlayerOutcome>;
   roleMeans: Partial<Record<Lane, number>>;
 } {
   const titles = computePlayerTitleCounts(season);
+  const grades = seasonPlayerGrades(season);
   const outcomes = new Map<string, SeasonPlayerOutcome>();
   for (const t of season.teams) {
-    const grades = teamSeasonGrades(season, t.id).avg;
-    t.players.forEach((p, i) => {
+    t.players.forEach((p) => {
       if (!p.id) return;
       const a = titles.get(p.id) ?? { split: 0, intlTitles: 0, intlApps: 0 };
       outcomes.set(p.id, {
         playerId: p.id,
-        grade: grades[i] ?? null,
+        grade: grades.get(p.id) ?? null,
         tier: p.tier,
         lane: p.lane,
         splitTitles: a.split,
@@ -267,7 +268,7 @@ function buildSeasonOutcomes(season: SeasonState): {
  * tournaments only, plus whether the player won THIS split / the prior intl
  * event (First Stand credited on spring, MSI on summer).
  */
-function buildSplitCheckpointOutcomes(
+export function buildSplitCheckpointOutcomes(
   season: SeasonState,
   split: SplitId,
 ): {
@@ -276,6 +277,7 @@ function buildSplitCheckpointOutcomes(
 } {
   const phase = season.phases.find((p) => p.kind === "split" && p.split === split);
   const tidSet = phase?.tournamentIds ?? [];
+  const grades = seasonPlayerGrades(season, tidSet);
   const intlCredit: "first-stand" | "msi" | null =
     split === "spring" ? "first-stand" : split === "summer" ? "msi" : null;
   // The roster that actually played the split — a player called up from
@@ -285,13 +287,12 @@ function buildSplitCheckpointOutcomes(
 
   const outcomes = new Map<string, SeasonPlayerOutcome>();
   for (const t of season.teams) {
-    const grades = teamSeasonGrades(season, t.id, tidSet).avg;
     const champId = season.splitResults[split]?.[t.leagueId]?.[0];
     const wonSplit = champId === t.id;
     const splitWinnerIds = wonSplit
       ? splitSnap?.teams.find((x) => x.teamId === t.id)?.players
       : undefined;
-    t.players.forEach((p, i) => {
+    t.players.forEach((p) => {
       if (!p.id) return;
       let intlTitles = 0;
       if (intlCredit) {
@@ -316,7 +317,7 @@ function buildSplitCheckpointOutcomes(
           : !splitSnap);
       outcomes.set(p.id, {
         playerId: p.id,
-        grade: grades[i] ?? null,
+        grade: grades.get(p.id) ?? null,
         tier: p.tier,
         lane: p.lane,
         splitTitles: wonIt ? 1 : 0,
@@ -579,20 +580,17 @@ export function startNextSeason(prev: SeasonState, champions: readonly Champion[
   return startNextSeasonWithArchive(prev, champions, rng).season;
 }
 
-/** Return the closing archive after lifecycle events, before replacing the year. */
-export function startNextSeasonWithArchive(
+/** Resolve only the closing player market; shared with read-only roster forecasts.
+ * No archive, new season, persistence, coach roll or UI state is created here. */
+export function resolveOffseasonPlayerMarket(
   prev: SeasonState,
   champions: readonly Champion[],
   rng: RNG = Math.random,
-): { season: SeasonState; archived?: SeasonHistoryEntry } {
-  const gradeCache = new Map<string, (number | null)[]>();
+) {
+  const playerGrades = seasonPlayerGrades(prev);
+  const previousTeams = new Map(prev.teams.map(team => [team.id, team]));
   const gradesOf = (teamId: string): (number | null)[] => {
-    let g = gradeCache.get(teamId);
-    if (!g) {
-      g = teamSeasonGrades(prev, teamId).avg;
-      gradeCache.set(teamId, g);
-    }
-    return g;
+    return previousTeams.get(teamId)?.players.map(player => player.id ? playerGrades.get(player.id) ?? null : null) ?? [];
   };
 
   const aging = prev.franchise?.aging ?? false;
@@ -721,6 +719,21 @@ export function startNextSeasonWithArchive(
     evolvedTeams = shuffledTeams;
     offseasonMoves = [...userMoves, ...autoMoves.map(move => ({ ...move, origin: marketOrigin(prev, "worlds") }))];
   }
+
+  return { working, usedNames, evolvedTeams, rosterNews, nextInactivePool, offseasonMoves };
+}
+
+/** Return the closing archive after lifecycle events, before replacing the year. */
+export function startNextSeasonWithArchive(
+  prev: SeasonState,
+  champions: readonly Champion[],
+  rng: RNG = Math.random,
+): { season: SeasonState; archived?: SeasonHistoryEntry } {
+  const aging = prev.franchise?.aging ?? false;
+  const nextYear = (prev.franchise?.year ?? 1) + 1;
+  const { working, usedNames, rosterNews, nextInactivePool, offseasonMoves,
+    evolvedTeams: marketTeams } = resolveOffseasonPlayerMarket(prev, champions, rng);
+  let evolvedTeams = marketTeams;
 
   evolvedTeams = reassignCoaches(evolvedTeams, rng, 5, prev.config.controlledTeamId ?? undefined);
   // Coaches as of the year's last stage (before the user's hire + the market

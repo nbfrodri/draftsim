@@ -33,9 +33,10 @@ export function roleGaps(
   GAP_LANES.forEach(({ lane, label }, i) => {
     const b = blue[i];
     const r = red[i];
-    if (b == null || r == null || !(b > 0) || !(r > 0)) return;
-    const diff = Math.round(Math.abs(b - r) * 10) / 10;
-    if (diff >= min) gaps.push({ lane, label, side: b > r ? "blue" : "red", diff });
+    if (b == null || r == null || !Number.isFinite(b) || !Number.isFinite(r) || !(b > 0) || !(r > 0)) return;
+    const rawDiff = Math.abs(b - r);
+    const diff = Math.round((rawDiff + 1e-9) * 10) / 10;
+    if (rawDiff > 0 && rawDiff + 1e-9 >= min) gaps.push({ lane, label, side: b > r ? "blue" : "red", diff });
   });
   return gaps.sort((a, b) => b.diff - a.diff);
 }

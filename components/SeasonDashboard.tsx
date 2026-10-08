@@ -104,6 +104,7 @@ SimulatingOverlay,
 } from "./tournament/bracket/DashboardModals";
 import { GroupStandingsTable } from "./tournament/bracket/StandingsTables";
 import TransferWindowPanel from "./TransferWindowPanel";
+const RosterOutlookPanel = lazy(() => import("./season/RosterOutlookPanel"));
 const MatchReplayModal = lazy(() =>
   import("./tournament/replay/MatchReplayModal").then((m) => ({
     default: m.MatchReplayModal,
@@ -542,6 +543,7 @@ export default function SeasonDashboard() {
         </div>
 
         {/* Browse every region's teams + full rosters */}
+        <Suspense fallback={null}><RosterOutlookPanel /></Suspense>
         <div className="cv-auto">
           <TeamBrowserPanel />
         </div>

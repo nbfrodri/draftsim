@@ -18,12 +18,13 @@ import TeamNameLink from "@/components/team/TeamNameLink";
 import { getChampionMeta } from "@/lib/championMeta";
 import { LANES } from "@/lib/lanes";
 import { computeGameRatings } from "@/lib/matchSimulator";
+import { seriesTeamPlayerSummaries, type SeriesPlayerSummary } from "@/lib/seriesPlayerSummaries";
 import { roleGaps, type RoleGap } from "@/lib/roleGap";
 import { gameKillTotals } from "@/lib/recapStats";
 import { syntheticDamage } from "@/lib/sim/descriptions";
 import type { TournamentMatch,TournamentState,TournamentTeam } from "@/lib/tournament";
 import { getTeam } from "@/lib/tournament";
-import type { Champion,GameDraft,GameRecap,Lane,Roster,Side } from "@/lib/types";
+import type { Champion,GameDraft,GameRecap,Lane,Side } from "@/lib/types";
 import { useDraftStore } from "@/store/draftStore";
 import { memo,useEffect,useMemo,useState,type ReactNode } from "react";
 
@@ -128,96 +129,6 @@ function DeferredMount({
     );
   }
   return children;
-}
-
-// Which side a team played on in a given game (sides may swap mid-series).
-function teamSideInGame(game: GameDraft, teamName: string): Side | null {
-  if (game.blueTeam === teamName) return "blue";
-  if (game.redTeam === teamName) return "red";
-  return null;
-}
-
-type SeriesPlayerSummary = {
-  lane: Lane;
-  name: string | null;
-  playerId: string | null;
-  avgRating: number;
-  kda: { k: number; d: number; a: number };
-  kdaGames: number;
-  playedGames: number;
-};
-
-// Per-player series averages + summed KDA for one team slot.
-function seriesTeamPlayerSummaries(
-  games: GameDraft[],
-  teamName: string,
-  roster?: Roster,
-  ratingsCache?: GameRatingsCache,
-): SeriesPlayerSummary[] | null {
-  const ratingSum = [0, 0, 0, 0, 0];
-  const ratingCount = [0, 0, 0, 0, 0];
-  const kdaCount = [0, 0, 0, 0, 0];
-  const playedGames = games.filter(g => g.winner && teamSideInGame(g, teamName)).length;
-  const kdaSum = [
-    { k: 0, d: 0, a: 0 },
-    { k: 0, d: 0, a: 0 },
-    { k: 0, d: 0, a: 0 },
-    { k: 0, d: 0, a: 0 },
-    { k: 0, d: 0, a: 0 },
-  ];
-  const idsFromGames: (string | null)[] = [null, null, null, null, null];
-  const namesFromGames: (string | null)[] = [null, null, null, null, null];
-  let anyKda = false;
-  let anyRating = false;
-
-  for (const g of games) {
-    if (!g.recap || !g.winner) continue;
-    const side = teamSideInGame(g, teamName);
-    if (!side) continue;
-    const recap = g.recap;
-    const ratings =
-      ratingsCache?.get(g.id) ?? gameRatings(recap, g.winner);
-    if (ratings) {
-      const sideRatings = side === "blue" ? ratings.blue : ratings.red;
-      for (let i = 0; i < 5; i++) {
-        if (sideRatings[i] != null) {
-          ratingSum[i] += sideRatings[i];
-          ratingCount[i]++;
-          anyRating = true;
-        }
-      }
-    }
-    const sideKda = recap.perPickKDA?.[side];
-    if (sideKda) {
-      for (let i = 0; i < 5; i++) {
-        const row = sideKda[i];
-        if (!row) continue;
-        kdaCount[i]++;
-        kdaSum[i].k += row.k;
-        kdaSum[i].d += row.d;
-        kdaSum[i].a += row.a;
-        anyKda = true;
-        const name = recap.perPickNames?.[side]?.[i];
-        if (name && !namesFromGames[i]) namesFromGames[i] = name;
-        idsFromGames[i] ??= recap.perPickIds?.[side]?.[i] ?? null;
-      }
-    }
-  }
-
-  if (!anyKda && !anyRating) return null;
-
-  return LANES.map(({ key: lane }, i) => ({
-    lane,
-    name: namesFromGames[i] ?? roster?.[i]?.name ?? null,
-    playerId: idsFromGames[i] ?? roster?.[i]?.id ?? null,
-    avgRating:
-      ratingCount[i] > 0
-        ? Math.round((ratingSum[i] / ratingCount[i]) * 10) / 10
-        : 0,
-    kda: kdaSum[i],
-    kdaGames: kdaCount[i],
-    playedGames,
-  }));
 }
 
 // Read-only replay of a completed tournament match. Renders a tab-strip
@@ -457,7 +368,7 @@ export function MatchReplayModal({
             <div className="mt-2">
               <RoleGapRow
                 label="Series role gaps"
-                gaps={roleGaps(blueSummaries.map(p => p.avgRating), redSummaries.map(p => p.avgRating))}
+                gaps={roleGaps(blueSummaries.map(p => p.rawAvgRating), redSummaries.map(p => p.rawAvgRating))}
                 teamFor={side => {
                   const team = side === "blue" ? blueTeam : redTeam;
                   return team ? <TeamLogoLink teamId={team.id} name={team.name} iconKey={team.iconKey} logoUrl={team.logoUrl} color={team.color} size={14} renderAs="span"

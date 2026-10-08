@@ -27,7 +27,7 @@ import {
   withRosterTimeMark,
   type RosterNewsEvent,
 } from "./playerLifecycle";
-import { teamSeasonGrades } from "./stats";
+import { seasonPlayerGrades } from "./playerGrades";
 import type { SeasonState } from "./types";
 import {
   fillFollowedRosterVacancies,
@@ -51,20 +51,8 @@ function agencyTeamInputs(season: SeasonState) {
 }
 
 function agencyGradeOf(season: SeasonState): (playerId: string) => number | null {
-  const cache = new Map<string, number | null>();
-  return (pid: string) => {
-    if (cache.has(pid)) return cache.get(pid)!;
-    for (const t of season.teams) {
-      const idx = t.players.findIndex((p) => p.id === pid);
-      if (idx >= 0) {
-        const g = teamSeasonGrades(season, t.id).avg[idx] ?? null;
-        cache.set(pid, g);
-        return g;
-      }
-    }
-    cache.set(pid, null);
-    return null;
-  };
+  const grades = seasonPlayerGrades(season);
+  return pid => grades.get(pid) ?? null;
 }
 
 type VacatedSlot = {
@@ -92,7 +80,7 @@ function agencyWalkToFa(
   const player = team.players[slot]!;
   if (isRosterVacancy(player) || !player.id) return null;
   const year = season.franchise.year;
-  const grade = teamSeasonGrades(season, team.id).avg[slot] ?? null;
+  const grade = seasonPlayerGrades(season).get(player.id) ?? null;
   const faEntry: MarketInactive = {
     player: { ...player, badStreak: 0 },
     status: "free-agent",
