@@ -79,16 +79,6 @@ Abre **Find a player** en Live Results para buscar jugadores, consultar su card 
 
 El panel de backups permite borrar copias locales individualmente con confirmación y desactivar el destino externo sin eliminar sus archivos existentes. Al abrir o importar una realidad existente, su registro permanente de nombres se completa con el historial conservado para evitar reutilizarlos en futuros jugadores; los duplicados ya existentes no se renombran.
 
-## Galería
-
-| Draft | Simulación de partida |
-|---|---|
-| ![Draft](docs/screenshots/draft.png) | ![Simulación](docs/screenshots/sim.png) |
-
-| Comparación de equipos | Editor de roster | Resumen de serie |
-|---|---|---|
-| ![Comparación](docs/screenshots/comparison.png) | ![Editor](docs/screenshots/roster-editor.png) | ![Resumen](docs/screenshots/recap.png) |
-
 ## Desarrollo local
 
 Requisitos en Windows:

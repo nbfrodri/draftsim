@@ -301,8 +301,7 @@ actualiza; jugar una serie y ver los badges; round-trip de single-series.
   - Macro star→WR: 5★vs1★ **82.8%**, 4vs2 71.0%, 3vs3 51.2%, 2vs4 36.3%, 1vs5 18.1%.
   - Pool: draft todo-comodidad vs neutral (3★) → **57.0%**.
   - Sanity: rosters iguales 3★ → 50.3% (solo el bonus de lado azul).
-- **README** actualizado (subsección "Player identities" en Features + captura
-  `docs/screenshots/roster-editor.png`).
+- **README** actualizado (subsección "Player identities" en Features).
 - **Migración revisada y segura:** estado persistido y `TOUR1:` antiguos (sin
   rosters) degradan con elegancia — `teamStarRating` cae a `starRating`,
   `decodeTournament` rellena rosters, y todos los helpers (`deriveStar`,

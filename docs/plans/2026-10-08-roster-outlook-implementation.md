@@ -17,7 +17,7 @@ Recalculate after season changes while the section is open; never mutate the sav
 3. **Background calculation.** Add a dedicated worker using the existing esbuild worker pipeline in `scripts/build-bulk-sim-worker.mjs`. Calculate only while visible. Terminate obsolete requests and workers; hide stale percentages immediately. Keep rendering/filtering independent of simulation work.
 4. **Interface.** Add `components/season/RosterOutlookPanel.tsx` and mount it in `components/SeasonDashboard.tsx`. Provide search, status, role, region and team filters, sorting, pagination and expandable explanations. Reuse existing player/team links and artwork. Do not add persistence, dependencies or versions.
 5. **Role-gap correctness.** Review `lib/roleGap.ts` and replay summaries in `components/tournament/replay/MatchReplayModal.tsx`, plus role-relative demotions in `playerLifecycle.ts`. Check threshold boundaries, unknown/nonfinite ratings, game side swaps, recorded player identity and title/streak rules. Add regression tests for confirmed defects; document unchanged balancing constants.
-6. **Verification and delivery.** Run focused tests, types, lint and the full unit suite. Build the desktop package with `npm run desktop:build -- --ci` (its prebuild creates the static export). Run Playwright against that export for live updates, filters, error/empty states, responsiveness and replay role gaps. Save screenshots under `docs/screenshots/roster-outlook/`. Inspect screenshots and refine visible defects. Report browser/native limits and actual installer paths. Commit scoped work with conventional commit messages and no coauthor trailers; preserve existing screenshots and `training/`.
+6. **Verification and delivery.** Run focused tests, types, lint and the full unit suite. Build the desktop package with `npm run desktop:build -- --ci` (its prebuild creates the static export). Run Playwright against that export for live updates, filters, error/empty states, responsiveness and replay role gaps. Save screenshots under the ignored `test-results/playwright/roster-outlook/` directory. Inspect screenshots and refine visible defects. Report browser/native limits and actual installer paths. Commit scoped work with conventional commit messages and no coauthor trailers; preserve unrelated `training/` data.
 
 ## Acceptance examples
 
@@ -37,19 +37,9 @@ Recalculate after season changes while the section is open; never mutate the sav
 - `npm run desktop:build -- --ci`: **passed**, including the final frontend/static export, Windows executable and both NSIS/MSI installers. Version remains **1.4.9**. Artifacts: `src-tauri/target/release/app.exe`, `src-tauri/target/release/bundle/nsis/DraftSim_1.4.9_x64-setup.exe`, `src-tauri/target/release/bundle/msi/DraftSim_1.4.9_x64_en-US.msi`.
 - No native installation or interactive WebView session was performed. Browser tests used disposable localStorage fixtures; personal AppData was not accessed.
 
-### Review screenshots
+### Visual verification
 
-All images are in `docs/screenshots/roster-outlook/`. Panel crops omit the dashboard's fixed menu/save controls so those controls do not obscure the section.
-
-1. [Main roster and demotion evidence](../screenshots/roster-outlook/01-main-roster-and-role-gap.png)
-2. [Academy probabilities and destinations](../screenshots/roster-outlook/02-academy.png)
-3. [Free agents](../screenshots/roster-outlook/03-free-agents.png)
-4. [Region/team/role filters at minimum desktop width](../screenshots/roster-outlook/04-filtered-minimum-desktop.png)
-5. [Current window and pending user choice](../screenshots/roster-outlook/05-current-window-user-choice.png)
-6. [Automatic refresh after proceeding, with search retained](../screenshots/roster-outlook/06-updated-next-window.png)
-7. [Offseason outlook](../screenshots/roster-outlook/07-offseason.png)
-8. [Series and first-game role gap](../screenshots/roster-outlook/08-role-gap-series.png)
-9. [Second-game role gaps after swapping sides](../screenshots/roster-outlook/09-role-gap-swapped-sides.png)
+Historical review captures were removed during repository cleanup. Current outlook tests write reproducible captures to the ignored `test-results/playwright/roster-outlook/` directory; replay checks use `test-results/verify-fixes/`.
 
 Visually inspected academy, offseason, filtered minimum-width and updated-window panels, plus the swapped-side replay. The thresholds remain 2.0 for replay labels and 0.9 / five rated underperformance checkpoints for demotions; fixes concern rounding, attribution and unknown-data handling, not a rebalance.
 
@@ -69,10 +59,6 @@ Release validation:
 - Native Rust suite: **12 passed**. Final `npm run desktop:build -- --ci` passed and produced `src-tauri/target/release/app.exe`, `src-tauri/target/release/bundle/nsis/DraftSim_1.5.0_x64-setup.exe` and `src-tauri/target/release/bundle/msi/DraftSim_1.5.0_x64_en-US.msi`.
 - Local UI validation used a browser, not an interactive native WebView. No personal AppData or installed saves were used. Installation smoke verification runs separately in the release workflow's disposable Windows runner.
 
-Updated the main outlook screenshots above and added review captures in `docs/screenshots/roster-outlook-review/`:
+Review captures covered filter preservation during refresh, worker failure/retry and disabled automatic movement. They were removed during repository cleanup and can be regenerated from the browser tests.
 
-1. [Refresh preserves visible filters](../screenshots/roster-outlook-review/01-refresh-keeps-filters.png)
-2. [Worker error preserves search and focus](../screenshots/roster-outlook-review/02-error-keeps-filters.png)
-3. [No automatic window](../screenshots/roster-outlook-review/03-no-automatic-window.png)
-
-Inspected the academy destinations, error state and final 1024px filtered table visually. Existing unrelated `training/` data and the two `hope_*.png` captures remain outside these commits.
+Inspected the academy destinations, error state and final 1024px filtered table visually. Unrelated `training/` data remains outside these commits.

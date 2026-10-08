@@ -207,7 +207,7 @@ test("attendance excludes DNQ and combines player/team event filters with search
   await expect(page.getByPlaceholder(/Search by player/)).toBeFocused();
   await expect(page.getByRole("button", { name: "LCK", exact: true })).toBeVisible();
   await page.getByPlaceholder(/Search by player/).fill("Grand");
-  await page.screenshot({ path: "docs/screenshots/roster-outlook-v1.5.1/14-history-search-clear.png", fullPage: true });
+  await page.screenshot({ path: "test-results/playwright/roster-outlook/14-history-search-clear.png", fullPage: true });
   await expect(page.getByRole("button", { name: /Grand Player/ }).first()).toBeVisible();
   await page.getByLabel("Order results by").selectOption("intlAppearances");
   await page.getByRole("button", { name: /Grand Player/ }).first().click();

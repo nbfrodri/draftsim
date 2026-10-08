@@ -12,6 +12,7 @@ tsconfig.tsbuildinfo
 
 test-results/
 playwright-report/
+docs/screenshots/
 audit-lint.json
 audit-dependencies.json
 

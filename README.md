@@ -79,16 +79,6 @@ Open **Find a player** in Live Results to search players, view their card and cu
 
 The backups panel supports deleting individual local copies with confirmation and disabling an external backup destination without removing existing external files. Existing realities backfill their permanent name registry from retained history when opened or imported, preventing future reuse of those names; existing duplicate identities are not renamed.
 
-## Gallery
-
-| Draft | Match simulation |
-|---|---|
-| ![Draft board](docs/screenshots/draft.png) | ![Match simulation](docs/screenshots/sim.png) |
-
-| Team comparison | Roster editor | Series recap |
-|---|---|---|
-| ![Team comparison](docs/screenshots/comparison.png) | ![Roster editor](docs/screenshots/roster-editor.png) | ![Series recap](docs/screenshots/recap.png) |
-
 ## Develop locally
 
 Windows prerequisites:

@@ -3,7 +3,7 @@ import { makeAuditSeason } from "../lib/auditFixtures";
 import { createSeries } from "../lib/series";
 import type { SeasonState } from "../lib/season/types";
 
-const SHOTS = "docs/screenshots/roster-outlook-v1.5.1";
+const SHOTS = "test-results/playwright/roster-outlook";
 // Isolate this section from the dashboard's fixed menu/save controls in crops.
 const screenshotStyle = '[class~="fixed"] { opacity: 0 !important; }';
 
