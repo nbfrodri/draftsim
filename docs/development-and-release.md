@@ -4,7 +4,7 @@ Esta guía explica cómo trabajar en DraftSim y qué evidencia se necesita para 
 
 ## 1. Preparar el entorno
 
-Windows requiere Node.js 22.12 o posterior, npm, Rust stable con toolchain MSVC, Visual Studio Build Tools con desarrollo C++ y Windows SDK, y WebView2. Las versiones de paquetes se resuelven mediante el lockfile: para una instalación reproducible usar `npm ci`.
+Windows requiere Node.js 22.12 o posterior, npm, Rust stable con toolchain MSVC, Visual Studio Build Tools con desarrollo C++ y Windows SDK, y WebView2. Linux requiere las mismas versiones de Node.js y Rust, WebKitGTK 4.1 y el resto de [requisitos de Linux de Tauri](https://v2.tauri.app/start/prerequisites/#linux). Las versiones de paquetes se resuelven mediante el lockfile: para una instalación reproducible usar `npm ci`.
 
 ```powershell
 npm ci
@@ -32,7 +32,8 @@ No modificar manualmente `.next/`, `out/`, el worker empaquetado ni `src-tauri/t
 | `npm run test:release` | Tests del verificador de versiones y la política de auditoría |
 | `npm run audit:dependencies` | Auditoría estricta de producción y avisos de desarrollo |
 | `npm run check` | Versiones, tests de release, auditoría, lint, tipos, unitarios y build |
-| `npm run desktop:build` | Generar NSIS y MSI con Tauri |
+| `npm run desktop:build` | Generar NSIS y MSI con Tauri (Windows) |
+| `npm run desktop:build:linux` | Generar deb, rpm y AppImage con Tauri (Linux) |
 
 `npm run check` no incluye toda prueba posible: E2E e instalación nativa son controles adicionales. No debe describirse como validación completa de un instalador.
 
@@ -99,16 +100,17 @@ Si CDP no conecta, no se ha probado Esc. Antes de reintentar, revisar los argume
 
 ## 7. Pipeline de CI
 
-`.github/workflows/ci.yml` ejecuta dos trabajos:
+`.github/workflows/ci.yml` ejecuta tres trabajos:
 
 | Trabajo | Controles |
 |---|---|
 | Interfaz y simulación, Ubuntu | Dependencias, versiones, lint, tipos, unitarios, auditoría, build y E2E |
 | Windows | Dependencias, versiones, build de instaladores, tests Rust, fixture e instalación/reapertura/reinstalación |
+| Linux, Ubuntu 22.04 | Dependencias, versiones, build de deb/rpm/AppImage, tests Rust e instalación del deb con arranque y creación de la base de datos |
 
 Tauri llama al build frontend mediante `beforeBuildCommand`. No es necesario duplicarlo antes de `desktop:build` dentro del mismo trabajo.
 
-La prueba de instalación exige un NSIS y un MSI generados. El smoke automatiza el instalador NSIS; la existencia del MSI prueba generación del paquete, no la ejecución de una instalación MSI independiente. No ampliar la afirmación más allá de la evidencia.
+La prueba de instalación exige un NSIS y un MSI generados. El smoke automatiza el instalador NSIS; la existencia del MSI prueba generación del paquete, no la ejecución de una instalación MSI independiente. En Linux solo se instala y arranca el deb, sin navegación ni migración; rpm y AppImage prueban generación del paquete. No ampliar la afirmación más allá de la evidencia.
 
 Los diagnósticos nativos se conservan como artefactos. Un fallo posterior al build puede significar que los instaladores se generaron, pero no superaron validación. Eso debe impedir su publicación como versión validada.
 
@@ -133,9 +135,9 @@ La versión del ejemplo no es una instrucción para reutilizar un tag existente.
 5. Hacer push y comprobar CI del SHA exacto.
 6. Crear un tag nuevo que coincida con los metadatos y subirlo.
 7. Seguir `.github/workflows/release.yml` hasta su resultado final.
-8. Verificar que el release público corresponde al tag y contiene NSIS y MSI de la versión prevista.
+8. Verificar que el release público corresponde al tag y contiene NSIS, MSI, deb, rpm y AppImage de la versión prevista.
 
-El workflow de tags `v*` valida la versión, reutiliza CI y publica los instaladores primero en un borrador, que se hace público tras adjuntar ambos. Un release público no se sobrescribe silenciosamente; un fallo de carga del borrador puede reintentarse tras diagnosticarlo.
+El workflow de tags `v*` valida la versión, reutiliza CI y publica los instaladores primero en un borrador, que se hace público tras adjuntar los de Windows y los paquetes de Linux. Un release público no se sobrescribe silenciosamente; un fallo de carga del borrador puede reintentarse tras diagnosticarlo.
 
 Push correcto significa disparador enviado, no instaladores publicados. Verificar commit, tag, ejecución y assets. Si falla CI, corregir la causa antes de reintentar; no saltarse las pruebas para producir una release verde aparente.
 

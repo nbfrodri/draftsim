@@ -1,6 +1,6 @@
 # DraftSim
 
-A Windows desktop simulator for League of Legends drafts, matches, tournaments and multi-year franchises. Draft against the AI, set a game plan, follow the match timeline, or simulate entire competitive seasons across six regions.
+A Windows and Linux desktop simulator for League of Legends drafts, matches, tournaments and multi-year franchises. Draft against the AI, set a game plan, follow the match timeline, or simulate entire competitive seasons across six regions.
 
 Built with **Tauri 2**, **React 19**, **Next.js 16**, **TypeScript** and **Rust**, with local **SQLite** saves. Code, identifiers and interface text are primarily in English.
 
@@ -17,7 +17,21 @@ Open [GitHub Releases](https://github.com/nbfrodri/draftsim/releases) and choose
 
 Both install the same application. Releases are produced from version tags after automated checks pass. If no release is listed yet, build the installers locally using the instructions below.
 
-DraftSim uses Microsoft Edge WebView2. The installer handles its installation when necessary; that bootstrap may require internet access. The champion catalogue is packaged with the app, while remote artwork, audio and optional data refreshes need a connection. There is no hosted web deployment.
+DraftSim uses Microsoft Edge WebView2. The installer handles its installation when necessary; that bootstrap may require internet access.
+
+## Install on Linux
+
+The same release lists three packages for Linux x86_64:
+
+| Package | File | Use |
+|---|---|---|
+| deb | `DraftSim_<version>_amd64.deb` | Debian, Ubuntu and derivatives |
+| rpm | `DraftSim-<version>-1.x86_64.rpm` | Fedora, openSUSE and derivatives |
+| AppImage | `DraftSim_<version>_amd64.AppImage` | Other distributions; mark it executable and run it |
+
+The deb and rpm packages depend on WebKitGTK 4.1, which the package manager installs. Saves are stored in `~/.local/share/app.draftsim.desktop/`. Windows and Linux installations do not share saves; move them with the backup export and import in the backups panel.
+
+The champion catalogue is packaged with the app, while remote artwork, audio and optional data refreshes need a connection. There is no hosted web deployment.
 
 ## What you can play
 
@@ -93,6 +107,8 @@ npm ci
 npm run desktop:dev
 ```
 
+Linux needs the same Node.js and Rust versions plus WebKitGTK 4.1 and the other packages in [Tauri's Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux). The npm commands are the same in any shell.
+
 Tauri starts the Next.js development server and opens a native window with hot reload. The browser frontend remains available for local UI development and automated tests; its storage is separate from desktop SQLite saves.
 
 ```powershell
@@ -118,11 +134,25 @@ src-tauri/target/release/bundle/nsis/DraftSim_<version>_x64-setup.exe
 src-tauri/target/release/bundle/msi/DraftSim_<version>_x64_en-US.msi
 ```
 
-Distribute the installers. `src-tauri/target/release/app.exe` is a build output, not a separately packaged portable release. Automated distribution currently targets Windows x64.
+Distribute the installers. `src-tauri/target/release/app.exe` is a build output, not a separately packaged portable release.
+
+From a Linux development environment:
+
+```bash
+npm run desktop:build:linux
+```
+
+```text
+src-tauri/target/release/bundle/deb/DraftSim_<version>_amd64.deb
+src-tauri/target/release/bundle/rpm/DraftSim-<version>-1.x86_64.rpm
+src-tauri/target/release/bundle/appimage/DraftSim_<version>_amd64.AppImage
+```
+
+Packages link against the build machine's glibc and WebKitGTK, so CI builds them on the oldest supported Ubuntu runner. Automated distribution targets Windows x64 and Linux x86_64.
 
 ## Publish a version
 
-The [Windows release workflow](.github/workflows/release.yml) runs when a tag such as `v0.2.0` is pushed. It verifies versions, runs the [project checks](.github/workflows/ci.yml), and publishes a GitHub Release containing both installers with generated release notes. Assets are staged in a draft before the complete release becomes public.
+The [desktop release workflow](.github/workflows/release.yml) runs when a tag such as `v0.2.0` is pushed. It verifies versions, runs the [project checks](.github/workflows/ci.yml), and publishes a GitHub Release containing both Windows installers and the three Linux packages with generated release notes. Assets are staged in a draft before the complete release becomes public.
 
 Prepare a release from a clean working tree:
 
@@ -174,7 +204,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Alternatively, use an installed Edge browser with `$env:PLAYWRIGHT_CHANNEL='msedge'`. These tests exercise the shared interface; they do not test native IPC. Windows CI separately builds both installers and tests NSIS installation, reopening, legacy migration and reinstall persistence on a disposable runner. The installer smoke script refuses personal workstations. MSI is built and uploaded but does not yet have a separate installation smoke test.
+Alternatively, use an installed Edge browser with `$env:PLAYWRIGHT_CHANNEL='msedge'`. These tests exercise the shared interface; they do not test native IPC. Windows CI separately builds both installers and tests NSIS installation, reopening, legacy migration and reinstall persistence on a disposable runner. The installer smoke script refuses personal workstations. MSI is built and uploaded but does not yet have a separate installation smoke test. Linux CI builds the deb, rpm and AppImage packages, runs the Rust tests, and installs the deb to check that the app starts and creates its database; rpm and AppImage are built and uploaded without an installation test.
 
 Data refresh scripts require network access. Review their generated data changes before committing. For AI calibration in PowerShell:
 
@@ -211,7 +241,7 @@ The app identifier remains `app.draftsim.desktop` across updates. Legacy JSON sa
 | `src-tauri/` | Rust shell, native commands and installer configuration |
 | `scripts/` | Data maintenance, builds, versions and installer checks |
 | `e2e/` | Shared-interface browser regressions |
-| `.github/workflows/` | Project checks and Windows releases |
+| `.github/workflows/` | Project checks and desktop releases |
 | `docs/` | Systems, architecture and implementation notes |
 
 Generated outputs (`out/`, `.next/`, `src-tauri/target/`, test reports) are gitignored.

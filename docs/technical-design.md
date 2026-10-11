@@ -49,7 +49,7 @@ El núcleo de reglas se puede probar sin React. Sin embargo, `lib/` también con
 
 ## 3. Plataforma y arranque
 
-El frontend utiliza Next.js 16, React 19, TypeScript, Zustand 5 y Tailwind CSS. Tauri 2 proporciona el shell; Windows renderiza mediante WebView2. SQLite se accede mediante el plugin SQL y comandos propios en Rust para operaciones transaccionales.
+El frontend utiliza Next.js 16, React 19, TypeScript, Zustand 5 y Tailwind CSS. Tauri 2 proporciona el shell; Windows renderiza mediante WebView2 y Linux mediante WebKitGTK 4.1. SQLite se accede mediante el plugin SQL y comandos propios en Rust para operaciones transaccionales.
 
 `next.config.ts` establece `output: "export"`. El build produce `out/`, referenciado desde `frontendDist` en la configuración Tauri. En desarrollo, Tauri ejecuta `beforeDevCommand` y abre el servidor de `localhost:3000`. Compilación bajo demanda, HMR y peticiones de desarrollo pueden producir tiempos y mensajes que no existen en el instalador.
 

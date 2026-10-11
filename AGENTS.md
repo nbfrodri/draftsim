@@ -2,7 +2,7 @@
 
 ## Project and layout
 
-DraftSim is a Windows Tauri 2 desktop app with a statically exported Next.js 16 / React 19 frontend, TypeScript simulation logic, Zustand state, and SQLite desktop persistence. UI copy and code are in English.
+DraftSim is a Windows and Linux Tauri 2 desktop app with a statically exported Next.js 16 / React 19 frontend, TypeScript simulation logic, Zustand state, and SQLite desktop persistence. UI copy and code are in English.
 
 - `app/`: Next.js entry points and global styles.
 - `components/`: interface; `season/`, `hall/`, and `tournament/` contain feature-specific views.
@@ -43,7 +43,8 @@ Use Node >=22.12.0 and the lockfile (`npm ci` when installing).
 - `npm run build`: builds the worker and static frontend export.
 - `npm run test:e2e`: Playwright against the exported `out/` directory. Build first; requires installed Chromium or `PLAYWRIGHT_CHANNEL`.
 - `npm run test:desktop`: native Rust unit tests; requires the Rust toolchain.
-- `npm run desktop:dev`: native WebView testing when desktop behavior changes.
+- `npm run desktop:dev`: native WebView testing when desktop behavior changes. Windows renders with WebView2 and Linux with WebKitGTK; verify on the affected one.
+- `npm run desktop:build` (Windows: NSIS, MSI) and `npm run desktop:build:linux` (deb, rpm, AppImage): native packages.
 - `npm run check`: version/release checks, lint, types, unit tests, and build.
 
 Run checks appropriate to the change, report actual results and limitations, and distinguish browser verification from native WebView verification. Do not bump versions or create release tags for ordinary fixes.
