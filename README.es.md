@@ -1,6 +1,6 @@
 # DraftSim
 
-Simulador de escritorio para Windows de drafts, partidas, torneos y franquicias de League of Legends. Puedes hacer pick/ban contra la IA, definir una estrategia, seguir la partida o simular temporadas completas en seis regiones.
+Simulador de escritorio para Windows y Linux de drafts, partidas, torneos y franquicias de League of Legends. Puedes hacer pick/ban contra la IA, definir una estrategia, seguir la partida o simular temporadas completas en seis regiones.
 
 Desarrollado con **Tauri 2**, **React 19**, **Next.js 16**, **TypeScript** y **Rust**, con partidas guardadas en **SQLite** local. El código, los identificadores y la interfaz están principalmente en inglés.
 
@@ -17,7 +17,21 @@ Abre [GitHub Releases](https://github.com/nbfrodri/draftsim/releases) y elige un
 
 Ambos instalan la misma aplicación. Las releases se generan al subir un tag de versión, después de superar las comprobaciones automáticas. Si aún no hay ninguna, puedes compilar los instaladores siguiendo las instrucciones de abajo.
 
-DraftSim utiliza Microsoft Edge WebView2. El instalador gestiona su instalación cuando hace falta; ese proceso puede necesitar internet. El catálogo de campeones viene incluido, mientras que las imágenes remotas, los sonidos y las actualizaciones opcionales de datos necesitan conexión. No hay un despliegue web público.
+DraftSim utiliza Microsoft Edge WebView2. El instalador gestiona su instalación cuando hace falta; ese proceso puede necesitar internet.
+
+## Instalar en Linux
+
+La misma release incluye tres paquetes para Linux x86_64:
+
+| Paquete | Archivo | Uso |
+|---|---|---|
+| deb | `DraftSim_<version>_amd64.deb` | Debian, Ubuntu y derivadas |
+| rpm | `DraftSim-<version>-1.x86_64.rpm` | Fedora, openSUSE y derivadas |
+| AppImage | `DraftSim_<version>_amd64.AppImage` | Otras distribuciones; dale permiso de ejecución y ábrelo |
+
+Los paquetes deb y rpm dependen de WebKitGTK 4.1, que instala el gestor de paquetes. Las partidas se guardan en `~/.local/share/app.draftsim.desktop/`. Las instalaciones de Windows y Linux no comparten partidas; se trasladan con la exportación e importación de copias del panel de backups.
+
+El catálogo de campeones viene incluido, mientras que las imágenes remotas, los sonidos y las actualizaciones opcionales de datos necesitan conexión. No hay un despliegue web público.
 
 ## Modos y funciones
 
@@ -118,7 +132,9 @@ src-tauri/target/release/bundle/nsis/DraftSim_<version>_x64-setup.exe
 src-tauri/target/release/bundle/msi/DraftSim_<version>_x64_en-US.msi
 ```
 
-Distribuye los instaladores. `src-tauri/target/release/app.exe` es un resultado de compilación, no una release portable empaquetada por separado. La distribución automática está configurada para Windows x64.
+Distribuye los instaladores. `src-tauri/target/release/app.exe` es un resultado de compilación, no una release portable empaquetada por separado. 
+
+En un entorno de desarrollo Linux, `npm run desktop:build:linux` genera los paquetes deb, rpm y AppImage en `src-tauri/target/release/bundle/`. Requiere WebKitGTK 4.1 y el resto de [requisitos de Linux de Tauri](https://v2.tauri.app/start/prerequisites/#linux). La distribución automática está configurada para Windows x64 y Linux x86_64.
 
 ## Publicar una versión
 
@@ -174,7 +190,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-También puedes usar Edge instalado con `$env:PLAYWRIGHT_CHANNEL='msedge'`. Estas pruebas ejercitan la interfaz compartida, no el IPC nativo. CI en Windows compila ambos instaladores y comprueba instalación NSIS, reapertura, migración desde JSON y persistencia al reinstalar en un runner desechable. El script de instalación rechaza equipos personales. MSI se compila y se adjunta, pero aún no tiene una prueba de instalación independiente.
+También puedes usar Edge instalado con `$env:PLAYWRIGHT_CHANNEL='msedge'`. Estas pruebas ejercitan la interfaz compartida, no el IPC nativo. CI en Windows compila ambos instaladores y comprueba instalación NSIS, reapertura, migración desde JSON y persistencia al reinstalar en un runner desechable. El script de instalación rechaza equipos personales. MSI se compila y se adjunta, pero aún no tiene una prueba de instalación independiente. CI en Linux compila los paquetes deb, rpm y AppImage, ejecuta los tests Rust e instala el deb para comprobar que la app arranca y crea su base de datos; rpm y AppImage se compilan y adjuntan sin prueba de instalación.
 
 Los scripts de actualización de datos necesitan conexión. Revisa los datos generados antes de guardarlos en un commit. Para calibrar la IA en PowerShell:
 
@@ -211,7 +227,7 @@ El identificador `app.draftsim.desktop` se mantiene entre versiones. Las partida
 | `src-tauri/` | Shell Rust, comandos nativos y configuración de instaladores |
 | `scripts/` | Datos, builds, versiones y comprobaciones de instalación |
 | `e2e/` | Pruebas de la interfaz compartida en navegador |
-| `.github/workflows/` | Comprobaciones y releases de Windows |
+| `.github/workflows/` | Comprobaciones y releases de escritorio |
 | `docs/` | Sistemas, arquitectura y notas de implementación |
 
 Los resultados generados (`out/`, `.next/`, `src-tauri/target/`, informes de pruebas) están excluidos de Git.
