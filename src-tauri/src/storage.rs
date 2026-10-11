@@ -91,7 +91,8 @@ mod tests {
             cmd: "persist_batch".into(),
             callback: tauri::ipc::CallbackFn(0),
             error: tauri::ipc::CallbackFn(1),
-            url: "http://tauri.localhost".parse().unwrap(),
+            // The local app origin is http://tauri.localhost on Windows and tauri://localhost elsewhere.
+            url: if cfg!(windows) { "http://tauri.localhost" } else { "tauri://localhost" }.parse().unwrap(),
             body: tauri::ipc::InvokeBody::Json(serde_json::json!({ "statements": statements })),
             headers: Default::default(),
             invoke_key: tauri::test::INVOKE_KEY.to_string(),

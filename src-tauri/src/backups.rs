@@ -682,6 +682,9 @@ mod tests {
             assert!(entries(&external).unwrap().len() <= 16);
             assert!(inspect(&latest).await.is_ok());
             sqlx::query("UPDATE realities SET year = 101").execute(&pool).await.unwrap();
+            // Only the main file is renamed below, and a pooled connection may outlive
+            // close(); SQLite then skips its closing checkpoint for a moved database.
+            sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(&pool).await.unwrap();
             pool.close().await;
             rename_closed_file(root.join("test.db"), root.join("draftsim.db")).unwrap();
             std::fs::copy(&latest, root.join("restore-staged.db")).unwrap();
