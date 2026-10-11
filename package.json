@@ -17,6 +17,7 @@
     "calibrate": "tsx scripts/calibrate.ts",
     "desktop:dev": "tauri dev",
     "desktop:build": "npm run check:version && tauri build --bundles nsis,msi",
+    "desktop:build:linux": "npm run check:version && tauri build --bundles deb,rpm,appimage",
     "typecheck": "tsc --noEmit",
     "check": "npm run check:version && npm run test:release && npm run audit:dependencies && npm run lint && npm run typecheck && npm test && npm run build",
     "audit:dependencies": "node scripts/audit-dependencies.mjs",

@@ -57,6 +57,7 @@
   },
   "bundle": {
     "active": true,
+    "category": "Game",
     "targets": [
       "nsis",
       "msi"

@@ -92,3 +92,42 @@ jobs:
             ${{ runner.temp }}/draftsim-install-smoke/*.png
             ${{ runner.temp }}/draftsim-install-smoke/*.txt
           retention-days: 7
+  desktop-linux:
+    name: Linux packages and native checks
+    # Oldest supported runner: AppImage and deb link against its glibc and WebKitGTK.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: linux-desktop
+          cache-workspace-crates: "false"
+          cache-on-failure: "false"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: npm ci
+      - run: npm run check:version
+      # Tauri's beforeBuildCommand builds the frontend exactly once.
+      - run: npm run desktop:build:linux -- --ci
+      - run: npm run test:desktop
+      - name: Install deb, launch and verify first-run database
+        run: ./scripts/linux-install-smoke.sh src-tauri/target/release/bundle/deb/*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage

@@ -1,4 +1,4 @@
-name: Windows release
+name: Desktop release
 
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
     needs: version
     uses: ./.github/workflows/ci.yml
   publish:
-    name: Publish NSIS and MSI
+    name: Publish desktop packages
     needs: checks
     runs-on: ubuntu-latest
     permissions:
@@ -38,7 +38,11 @@ jobs:
         with:
           name: windows-installers
           path: installers
-      - name: Publish verified Windows installers
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: installers
+      - name: Publish verified desktop packages
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -48,8 +52,15 @@ jobs:
           set -euo pipefail
           mapfile -d '' nsis < <(find installers -type f -name '*-setup.exe' -print0)
           mapfile -d '' msi < <(find installers -type f -name '*.msi' -print0)
+          mapfile -d '' deb < <(find installers -type f -name '*.deb' -print0)
+          mapfile -d '' rpm < <(find installers -type f -name '*.rpm' -print0)
+          mapfile -d '' appimage < <(find installers -type f -name '*.AppImage' -print0)
           if [[ ${#nsis[@]} -ne 1 || ${#msi[@]} -ne 1 ]]; then
             echo 'Expected exactly one NSIS installer and one MSI installer.' >&2
+            exit 1
+          fi
+          if [[ ${#deb[@]} -ne 1 || ${#rpm[@]} -ne 1 || ${#appimage[@]} -ne 1 ]]; then
+            echo 'Expected exactly one deb, one rpm and one AppImage package.' >&2
             exit 1
           fi
           # Stage all assets in a draft, then publish the complete release.
@@ -63,5 +74,5 @@ jobs:
             gh release create "$RELEASE_TAG" --verify-tag --draft \
               --title "DraftSim $RELEASE_TAG" --generate-notes
           fi
-          gh release upload "$RELEASE_TAG" "${nsis[0]}" "${msi[0]}" --clobber
+          gh release upload "$RELEASE_TAG" "${nsis[0]}" "${msi[0]}" "${deb[0]}" "${rpm[0]}" "${appimage[0]}" --clobber
           gh release edit "$RELEASE_TAG" --draft=false --latest
