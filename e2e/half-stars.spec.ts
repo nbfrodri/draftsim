@@ -42,7 +42,8 @@ test("compiled bulk worker preserves fractional strength in completed matches", 
     worker.onmessage = event => { clearTimeout(timeout); worker.terminate(); resolve(event.data); };
     worker.onerror = event => { clearTimeout(timeout); worker.terminate(); reject(new Error(event.message)); };
     worker.postMessage(payload);
-  }), { type: "autoPlayMatch", id: 1, tournament, matchId: tournament.matches[0].id, champions, playerForms: {} });
+  }), { type: "autoPlayMatch", id: 1, tournament, matchId: tournament.matches[0].id, champions, playerForms: {},
+    overrides: { metaOverride: null, metaEnabled: true, synergyOverride: null, counterOverride: null, powerSpikeOverride: null } });
   expect(result.error).toBeUndefined();
   const series = result.tournament!.matches[0].series!;
   expect(series.status).toBe("complete");
