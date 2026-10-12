@@ -13580,6 +13580,12 @@
   }
   var _activeOverride = null;
   var _metaEnabled = true;
+  function setActiveMetaOverride(o) {
+    _activeOverride = o;
+  }
+  function setMetaEnabled(b) {
+    _metaEnabled = b;
+  }
   function getMetaEnabled() {
     return _metaEnabled;
   }
@@ -13633,6 +13639,10 @@
   var CHAMPION_SYNERGIES = championSynergies_default;
   var _activeSynergyOverride = null;
   var _synergyOverrideVersion = 0;
+  function setActiveSynergyOverride(o) {
+    _activeSynergyOverride = o;
+    _synergyOverrideVersion++;
+  }
   var BASELINE_SYNERGY_LOOKUP = (() => {
     const map = /* @__PURE__ */ new Map();
     for (const s of CHAMPION_SYNERGIES) {
@@ -13664,6 +13674,10 @@
   }
   var _activeCounterOverride = null;
   var _counterOverrideVersion = 0;
+  function setActiveCounterOverride(o) {
+    _activeCounterOverride = o;
+    _counterOverrideVersion++;
+  }
   function getActiveCounterOverride() {
     return _activeCounterOverride;
   }
@@ -32664,6 +32678,9 @@
     "Boots"
   ]);
   var _activePowerSpikeOverride = null;
+  function setActivePowerSpikeOverride(o) {
+    _activePowerSpikeOverride = o;
+  }
   function getKeyPowerSpike(meta, alias) {
     const path = buildPathFor(meta);
     const spike = path.spikes[1] ?? path.spikes[0];
@@ -37435,6 +37452,12 @@
     const msg = event.data;
     if (msg.type !== "autoPlayMatch") return;
     try {
+      const o = msg.overrides;
+      setActiveMetaOverride(o.metaOverride);
+      setMetaEnabled(o.metaEnabled);
+      setActiveSynergyOverride(o.synergyOverride);
+      setActiveCounterOverride(o.counterOverride);
+      setActivePowerSpikeOverride(o.powerSpikeOverride);
       const [tournament, playerForms] = autoPlayMatch(
         msg.tournament,
         msg.matchId,

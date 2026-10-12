@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { setActiveMetaOverride } from "../championMeta";
 import type { TournamentState } from "../tournament";
 import { runAutoPlayMatch, terminateBulkSimWorker } from "./bulkSimClient";
 vi.mock("./autoPlayMatch", () => ({ autoPlayMatch: vi.fn(() => { throw new Error("fallback failed"); }) }));
@@ -42,6 +43,16 @@ describe("worker lifecycle", () => {
     expect(FakeWorker.last).not.toBe(old);
     FakeWorker.last.onmessageerror!();
     await nextRejection;
+  });
+  it("ships the active meta to the worker, which has its own module state", async () => {
+    setActiveMetaOverride({ Aatrox: { top: "D" } });
+    const promise = run();
+    const sent = FakeWorker.last.postMessage.mock.calls[0][0];
+    setActiveMetaOverride(null);
+    expect(sent.overrides.metaOverride).toEqual({ Aatrox: { top: "D" } });
+    expect(sent.overrides.metaEnabled).toBe(true);
+    FakeWorker.last.onmessage!({ data: { id: sent.id, tournament: {}, playerForms: {} } });
+    await promise;
   });
   it("returns a rejected promise when synchronous fallback fails", async () => {
     vi.stubGlobal("Worker", undefined);

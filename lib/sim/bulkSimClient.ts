@@ -1,3 +1,10 @@
+import { getActivePowerSpikeOverride } from "@/lib/championBuilds";
+import {
+  getActiveCounterOverride,
+  getActiveMetaOverride,
+  getActiveSynergyOverride,
+  getMetaEnabled,
+} from "@/lib/championMeta";
 import type { PlayerFormMap } from "@/lib/playerForm";
 import type { TournamentState } from "@/lib/tournament";
 import type { Champion } from "@/lib/types";
@@ -81,6 +88,13 @@ export function runAutoPlayMatch(
       matchId,
       champions,
       playerForms,
+      overrides: {
+        metaOverride: getActiveMetaOverride(),
+        metaEnabled: getMetaEnabled(),
+        synergyOverride: getActiveSynergyOverride(),
+        counterOverride: getActiveCounterOverride(),
+        powerSpikeOverride: getActivePowerSpikeOverride(),
+      },
     };
     try {
       w.postMessage(msg);
