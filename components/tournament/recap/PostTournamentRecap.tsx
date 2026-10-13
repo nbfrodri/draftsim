@@ -5,7 +5,6 @@ import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdenti
 import { useMemo } from "react";
 import { useDraftStore } from "@/store/draftStore";
 import {
-  computeChampionKDAStats,
   computeChampionStats,
   computeTournamentSummary,
   tournamentChampion,
@@ -17,7 +16,8 @@ import { formatHeaderLabel } from "@/components/tournament/shared";
 import { MetaShiftPanel } from "./MetaShiftPanel";
 import { NotableGamesPanel } from "./NotableGames";
 import { computeNotableGames } from "@/lib/notableGames";
-import { PresenceTable, WinRateTable, BestKDATable } from "./ChampionTables";
+import { PresenceTable, WinRateTable } from "./ChampionTables";
+import { PlayerLeadersPanel } from "./PlayerTables";
 import { ChampionSearchPanel } from "./ChampionSearchPanel";
 import { TeamBreakdownPanel } from "./TeamBreakdownPanel";
 import { AwardsPanel } from "./AwardsPanel";
@@ -253,24 +253,6 @@ export function PostTournamentRecap({
       .slice(0, 10);
   }, [allStats]);
 
-  // Best KDA across the tournament — sums per-game KDA from each game's
-  // recap (which captures per-pick KDA at game end) and ranks champions by
-  // (K+A)/max(1,D). Gated by min 2 games so a single 12/0/5 stomp doesn't
-  // dominate the leaderboard. Sample-weighted secondary sort surfaces
-  // champions whose KDA was earned over multiple games.
-  const bestKDA = useMemo(() => {
-    const rows = computeChampionKDAStats(tournament);
-    const MIN_GAMES = 2;
-    return rows
-      .filter((r) => r.games >= MIN_GAMES)
-      .sort((a, b) => {
-        if (b.kda !== a.kda) return b.kda - a.kda;
-        if (b.games !== a.games) return b.games - a.games;
-        return a.championId - b.championId;
-      })
-      .slice(0, 10);
-  }, [tournament]);
-
   // "Best WR among most played" — rank by sample size first (top 12 by
   // games), then re-sort by WR. Surfaces the champions whose strong
   // performance was earned over many games rather than via small-sample
@@ -341,7 +323,7 @@ export function PostTournamentRecap({
         byId={byId}
         emptyMessage="Not enough data yet"
       />
-      <BestKDATable rows={bestKDA} byId={byId} />
+      <PlayerLeadersPanel tournament={tournament} />
       <ChampionSearchPanel tournament={tournament} byId={byId} />
       <TeamBreakdownPanel tournament={tournament} byId={byId} />
     </div>

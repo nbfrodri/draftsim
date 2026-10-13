@@ -708,7 +708,7 @@ export function SwissView({
             Pair by record · greedy avoid-rematch
           </span>
         </div>
-        <div className="overflow-x-auto pb-2">
+        <div className="overflow-x-auto pb-2 bracket-scroll">
           <div
             className="inline-flex items-stretch gap-4 md:gap-5 min-w-full"
             style={{ minWidth: `${Math.max(swissRounds.length, total) * 240}px` }}

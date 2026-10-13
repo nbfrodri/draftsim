@@ -206,6 +206,24 @@ body::after {
   border-radius: 4px;
 }
 
+/* Bracket / knockout horizontal scrollers: slim gold bar on a faint rail,
+   brightening while the bracket is hovered. */
+.bracket-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(200, 170, 110, 0.45) rgba(120, 90, 40, 0.12);
+}
+.bracket-scroll:hover { scrollbar-color: #c8aa6e rgba(120, 90, 40, 0.2); }
+/* Engines without the standard properties fall back to the WebKit pseudos. */
+@supports not (scrollbar-color: auto) {
+  .bracket-scroll::-webkit-scrollbar { height: 6px; }
+  .bracket-scroll::-webkit-scrollbar-track { background: rgba(120, 90, 40, 0.12); }
+  .bracket-scroll::-webkit-scrollbar-thumb {
+    background: rgba(200, 170, 110, 0.45);
+    border-radius: 3px;
+  }
+  .bracket-scroll:hover::-webkit-scrollbar-thumb { background: #c8aa6e; }
+}
+
 /* Phase banner styling */
 .phase-banner {
   position: relative;

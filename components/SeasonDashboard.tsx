@@ -1166,9 +1166,36 @@ function LatestMatchdayPanel({
                       </span>
                     </span>
                   ); });
+                  const playoffBadges = m.playoffClinches?.map(q => (
+                    <span
+                      key={`playoffs:${q.id ?? q.name}`}
+                      data-testid="playoff-clinch-badge"
+                      className="block border border-emerald-400/30 bg-emerald-400/[0.08] px-2 py-1 text-center text-[10px] leading-relaxed text-emerald-200"
+                      title="Playoff berth secured across every remaining regular-season result."
+                    >
+                      <span className="inline-flex items-center gap-1 align-middle font-semibold">
+                        <TeamLogoLink
+                          teamId={q.id}
+                          name={q.name}
+                          leagueId={r.league ?? undefined}
+                          logoUrl={q.logoUrl ?? logoForTeamName(q.name)}
+                          iconKey={q.iconKey}
+                          color={q.color}
+                          size={18}
+                          renderAs="span"
+                        />
+                        {q.name}
+                      </span>
+                      {" · "}
+                      <span className="inline-flex items-center gap-1 align-middle">
+                        {r.league && <LeagueIcon league={r.league} size={16} className="shrink-0" />}
+                        Playoffs qualified
+                      </span>
+                    </span>
+                  ));
                   if (!canReplay) {
                     return (
-                      <div key={i}>{row}{qualificationBadges}</div>
+                      <div key={i}>{row}{qualificationBadges}{playoffBadges}</div>
                     );
                   }
                   return (
@@ -1183,6 +1210,7 @@ function LatestMatchdayPanel({
                     >
                       {row}
                       {qualificationBadges}
+                      {playoffBadges}
                     </button>
                   );
                 })}

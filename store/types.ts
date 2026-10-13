@@ -118,6 +118,8 @@ export interface SeasonMatchdayMatch {
   tags?: string[];
   /** New berths and already-qualified participants, captured before the phase advances. */
   qualifications?: import("@/lib/season/qualificationClinch").QualificationClinch[];
+  /** Teams whose split playoff berth became certain with this result. */
+  playoffClinches?: SeasonMatchdayTeam[];
   /** Live tournament + match ids for opening the replay modal. */
   tournamentId?: string;
   matchId?: string;

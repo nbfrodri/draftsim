@@ -319,7 +319,7 @@ export function DoubleElimView({
   // caused the SVG (outside those containers) to draw lines to clipped-away
   // cards, producing orphaned/mispositioned connector paths on scroll.
   return (
-    <div className="min-w-0 max-w-full overflow-x-auto pb-2 pr-1" style={{ scrollbarWidth: "thin" }}>
+    <div className="min-w-0 max-w-full overflow-x-auto pb-2 pr-1 bracket-scroll">
       <BracketConnectorRoot
         matches={connectorMatches}
         className="inline-flex flex-row items-stretch gap-6"
@@ -485,7 +485,7 @@ function TripleElimBand({
           )}
         </div>
       </div>
-      <div className="overflow-x-auto p-2">
+      <div className="overflow-x-auto p-2 bracket-scroll">
         <div
           className="inline-flex items-stretch gap-3 md:gap-5 min-w-full"
           style={{ minWidth: `${rounds.length * 220}px` }}
@@ -860,7 +860,7 @@ export function PlayoffBracketSection({
           onViewMatch={onViewMatch}
         />
       ) : kind === "single-elim" || kind === "stepladder" ? (
-        <div className="min-w-0 max-w-full overflow-x-auto pb-2 pr-1" style={{ scrollbarWidth: "thin" }}>
+        <div className="min-w-0 max-w-full overflow-x-auto pb-2 pr-1 bracket-scroll">
           <BracketConnectorRoot
             matches={playoffMatches}
             className="inline-flex items-stretch gap-4 md:gap-6"
@@ -884,7 +884,7 @@ export function PlayoffBracketSection({
         // Same unified-scroll fix as DoubleElimView: one overflow-x-auto
         // outside BracketConnectorRoot so the SVG and cards share one scroll
         // space. Previously separate W/L scroll containers broke connector sync.
-        <div className="min-w-0 max-w-full overflow-x-auto pb-2 pr-1" style={{ scrollbarWidth: "thin" }}>
+        <div className="min-w-0 max-w-full overflow-x-auto pb-2 pr-1 bracket-scroll">
           <BracketConnectorRoot
             matches={[
               ...winners,

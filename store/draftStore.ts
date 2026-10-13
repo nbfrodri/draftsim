@@ -18,6 +18,7 @@ import { browserSaveStorage } from "@/lib/quotaSafeStorage";
 
 import { setActivePowerSpikeOverride } from "@/lib/championBuilds";
 import { createQualificationClinchDetector } from "@/lib/season/qualificationClinch";
+import { playoffClinchedIds } from "@/lib/season/playoffClinch";
 import {
 setActiveCounterOverride,
 setActiveMetaOverride,
@@ -1717,6 +1718,12 @@ export const useDraftStore = create<DraftStore>()(
                 ...(fm.groupId ? { group: fm.groupId } : {}),
                 ...(isReverseSweep(fm) ? { tags: ["reverse-sweep"] } : {}),
                 qualifications: wasPlayIn ? [] : qualificationClinches(liveT, after),
+                ...(phase.kind === "split" ? (() => {
+                  const had = playoffClinchedIds(liveT);
+                  const has = playoffClinchedIds(after);
+                  const clinched = after.teams.filter((x) => has.has(x.id) && !had.has(x.id));
+                  return clinched.length ? { playoffClinches: clinched.map(teamRef) } : {};
+                })() : {}),
                 tournamentId: tid,
                 matchId: fm.id,
                 hasReplay: Boolean(fm.series),
