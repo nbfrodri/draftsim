@@ -323,7 +323,7 @@ export function intlConfigFor(
 ): SeasonIntlConfig {
   const cfg = {
     ...defaultIntlConfig(config, event),
-    ...(config.intlConfigs?.[event] ?? {}),
+    ...config.intlConfigs?.[event],
   };
   // Plain double-elim only fits First Stand's 12-team field; MSI/Worlds
   // fields (18-21 teams) exceed the DE generator's bye limit. A stray
@@ -1493,7 +1493,7 @@ function updateFormFromTournament(
   const placements = tournamentPlacements(t);
   const n = placements.length;
   if (n < 1) return season;
-  const form: Record<string, number> = { ...(season.teamForm ?? {}) };
+  const form: Record<string, number> = { ...season.teamForm };
   placements.forEach((id, idx) => {
     let next = FORM_DECAY * (form[id] ?? 0);
     if (season.config.formDrift) {
@@ -1590,7 +1590,7 @@ function evolveCoachesFromTournament(
 function applyMetaAdaptability(season: SeasonState): SeasonState {
   if (!season.config.metaAdaptability) return season;
   const adapt = season.teamAdaptability ?? {};
-  const form: Record<string, number> = { ...(season.teamForm ?? {}) };
+  const form: Record<string, number> = { ...season.teamForm };
   for (const team of season.teams) {
     const a = adapt[team.id] ?? 0;
     if (a === 0) continue;
@@ -1898,7 +1898,7 @@ function recordTournamentResult(
         splitResults: {
           ...next.splitResults,
           [phase.split]: {
-            ...(next.splitResults[phase.split] ?? {}),
+            ...next.splitResults[phase.split],
             [league]: placements,
           },
         },

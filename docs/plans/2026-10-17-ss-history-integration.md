@@ -143,3 +143,9 @@ Add a pure, tested projection near existing season history helpers, consumed by 
 - `npm run lint`, `npm run typecheck`, and production static builds passed. The final build includes regenerated workers through the project script; no generated bundle was hand-edited.
 - Changed-code analysis: **0 errors, 136 warnings**. The new SS projection/component/tests have no diagnostics, and none of the non-generated diagnostics fall on added source lines. Remaining findings concern pre-existing touched-file size/duplication/accessibility/import conventions and generated worker declarations. Broad unrelated rewrites and manual bundle edits do not belong to this implementation; no rule or hook was disabled.
 - Delivery scope: implementation and documentation only. The application version remains 1.9.2; publication, a release tag, installers and local installation are not part of this plan's implementation step.
+
+### Follow-up hook review
+
+Removed four unnecessary empty-object fallbacks in engine object spreads and merged the duplicate placements import in the Hall. These are behavior-preserving mechanical corrections. The worker build produces identical bundles. All 93 affected unit tests, ESLint and the TypeScript check pass.
+
+The complete branch scan against `main` now reports **0 errors and 131 warnings**: **52 in the generated roster-outlook bundle** and **79 in pre-existing source constructs** in touched files. Generated unused declarations are esbuild output and must not be removed by hand. The remaining source findings concern existing large functions/files, repeated view markup, unused legacy declarations, decorative comments, static-export images and semantic-role/event-handler conventions outside the new SS modules. They are documented maintenance work, not demonstrated SS regressions. Rewriting those unrelated views or suppressing rules would expand this feature without improving its verified behavior. No hook or rule was bypassed.

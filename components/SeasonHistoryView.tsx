@@ -58,6 +58,12 @@ archivedIntlsWithPlacements,
 archivedSplitPlacements,
 archivedSplitsWithPlacements,
 intlMainBracketSize,
+intlOutcomeLabel,
+splitFinalsReachedEntries,
+splitPlacementLabel,
+totalIntlFinalsReached,
+totalSplitFinalsReached,
+type SplitFinalsReachedMap,
 } from "@/lib/season/placements";
 import {
 exportAllSeasonsXlsx,
@@ -108,14 +114,6 @@ type PlayerCareerWindow,
 type PlayerRegionTitles,
 type TitleFilters
 } from "@/lib/season/historySearch";
-import {
-intlOutcomeLabel,
-splitFinalsReachedEntries,
-splitPlacementLabel,
-totalIntlFinalsReached,
-totalSplitFinalsReached,
-type SplitFinalsReachedMap,
-} from "@/lib/season/placements";
 import { toInactiveSnapshot } from "@/lib/season/playerLifecycle";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import type { PlayerChampStat } from "@/lib/season/stats";
