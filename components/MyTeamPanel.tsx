@@ -39,8 +39,9 @@ const LANE_LABEL: Record<Lane, string> = {
   bottom: "Bot",
   support: "Sup",
 };
-const TIER_VALUE: Record<PlayerTier, number> = { "S+": 3, S: 2, A: 1, B: 0, C: -1, D: -2 };
+const TIER_VALUE: Record<PlayerTier, number> = { SS: 3.5, "S+": 3, S: 2, A: 1, B: 0, C: -1, D: -2 };
 const TIER_CLS: Record<PlayerTier, string> = {
+  SS: "border-cyan-200 text-cyan-100 bg-cyan-300/15",
   "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
   S: "border-rift-gold text-rift-goldbright bg-rift-gold/10",
   A: "border-rift-blue/70 text-rift-bluebright bg-rift-blue/10",

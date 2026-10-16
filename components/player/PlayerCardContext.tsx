@@ -277,6 +277,7 @@ function resolveLive(
     name: player.name ?? "Unknown",
     lane: player.lane ?? hint?.lane,
     tier: player.tier,
+    ...(player.ss ? { ss: player.ss } : {}),
     ...(player.potential ? { potential: player.potential } : {}),
     ...(player.age != null ? { age: player.age } : {}),
     ...(player.debutYear != null ? { debutYear: player.debutYear } : {}),
@@ -532,6 +533,7 @@ function resolveHistory(
       "Unknown",
     ...(lane ? { lane } : {}),
     ...(tier ? { tier } : {}),
+    ...(identitySnap?.ss ? { ss: identitySnap.ss } : {}),
     ...(identitySnap?.potential ?? inactiveSnap?.potential
       ? { potential: (identitySnap?.potential ?? inactiveSnap?.potential)! }
       : {}),

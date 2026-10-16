@@ -1,5 +1,6 @@
 "use client";
 import { tournamentMatchContext } from "@/lib/tournamentMatchContext";
+import { reconcileSSPlayers } from "@/lib/season/ssPlayers";
 import { initializeOffseasonRosterNewsBoundary } from "@/lib/season/rosterNews";
 import { repairNameRegistry } from "@/lib/season/nameRegistry";
 import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
@@ -656,6 +657,7 @@ export async function runFranchiseSeasonSim(
 // (tournaments snapshot it at creation). No-op (same reference) for
 // healthy seasons.
 export function ensureSeasonIdentities(season: SeasonState): SeasonState {
+  season = reconcileSSPlayers(season);
   season = initializeOffseasonRosterNewsBoundary(season);
   const teams = ensureTeamIdentities(season.teams);
   const byId = new Map(teams.map((t) => [t.id, t]));

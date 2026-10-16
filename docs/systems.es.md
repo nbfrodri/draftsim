@@ -314,7 +314,15 @@ Todos mapean vía `tagSeason` → `TournamentTeam.form` / `.clutch` → `tournam
 
 ### Premios y narrativa
 
-Equipos All-Pro, MVPs split, Rookie of the Year, elites S+, power rankings (`lib/season/powerRankings.ts`), generador season story (`lib/season/seasonStory.ts`), notas temporada equipo desde ratings de partida.
+Equipos All-Pro, MVPs split, Rookie of the Year, elites S+, jugadores SS por rendimiento, power rankings (`lib/season/powerRankings.ts`), generador season story (`lib/season/seasonStory.ts`), notas temporada equipo desde ratings de partida.
+
+**Jugadores SS:** como máximo uno por posición en todo el mundo, revisados al terminar cada fase competitiva. Solo optan jugadores titulares cuyo tier de desarrollo sea S/S+, con ID estable, ocho partidas valoradas, participación equivalente al 60% del calendario regional acumulado y actividad en el último split doméstico de su región. La referencia por split es el percentil 75 de partidas disputadas por los equipos; un traspaso combina referencias regionales solapadas mediante su máximo, sin sumarlas. Los internacionales cuentan para el rendimiento, pero no asistir a ellos no equivale a inactividad doméstica.
+
+La puntuación aproxima la media ajustada a 6 mediante doce partidas previas y resta 0,1 veces su desviación estándar. Cada valoración añade `0,1 × (estrellas base del rival − 3)`, usando la plantilla congelada del torneo; las partidas jugadas como SS restan 0,1 para limitar la ventaja de conservarlo por su propio bonus. Los títulos con participación registrada desempatan, seguidos del número de partidas y el ID. Sustituir a un titular elegible exige superarlo por 0,15 puntos. SS vale 3,5 frente a 3 de S+ y tiene peso 1,1 para sus campeones de confort; las estrellas del equipo siguen limitadas a cinco. Un pequeño bonus absoluto de SS en su línea (2 de oro/minuto con el coeficiente normal) conserva la ventaja incluso cuando ambos equipos alcanzan ese límite. El desarrollo continúa debajo de SS y, al perderlo, reaparece ese tier actualizado. Se conserva entre años hasta que su región acumule ocho oportunidades domésticas para exigir nuevos datos. Pasar al banquillo o retirarse elimina la titularidad SS; no se genera como potencial ni se elige en la configuración inicial.
+
+`lib/season/ssPlayers.ts` selecciona y reconcilia los titulares; `lib/playerSS.ts` separa desarrollo y fuerza efectiva. La evidencia opcional y `ssReviews` se guardan en los JSON existentes de navegador/SQLite, sin migración del esquema. El historial conserva la evidencia real y los tiers de las plantillas que jugaron; no se inventa SS para temporadas antiguas. Las tarjetas muestran fase, evidencia y tier de desarrollo.
+
+**Meta dinámico de campeones:** cada cambio usa las partidas de su ronda una sola vez. Procesar varias rondas pendientes no vuelve a aplicar la misma mala racha acumulada y los campeones emergentes solo consideran rondas ya observadas. Los cambios de parche conservan overrides vacíos explícitos. Los tiers de campeones siguen entre D y S+, sin cuotas obligatorias de S/S+ por rol. MSI muestra logos para los clasificados directos a playoffs y el recap usa las tarjetas existentes de equipo con ratón/foco.
 
 ---
 

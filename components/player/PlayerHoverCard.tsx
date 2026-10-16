@@ -117,6 +117,7 @@ function computePlacement(
  * card reads in the same red the sim uses for a losing side.
  */
 const TIER_ACCENT: Record<PlayerTier, { hex: string; soft: string; text: string }> = {
+  SS: { hex: "#67e8f9", soft: "rgba(103, 232, 249, 0.18)", text: "#cffafe" },
   "S+": { hex: "#f0e6d2", soft: "rgba(240, 230, 210, 0.20)", text: "#f0e6d2" },
   S: { hex: "#c8aa6e", soft: "rgba(200, 170, 110, 0.18)", text: "#f0e6d2" },
   A: { hex: "#0ac8b9", soft: "rgba(10, 200, 185, 0.15)", text: "#cdfafa" },
@@ -333,6 +334,12 @@ export function PlayerCardBody({
           )}
         </div>
 
+        {data.ss && (
+          <div className="px-3 pb-2 text-[10px] text-cyan-100/90">
+            SS · {data.ss.phaseLabel} · {data.ss.games} rated games · score {data.ss.score.toFixed(2)}
+            <div className="text-rift-mutedbright">Development tier {data.ss.baseTier} · reviewed after each competitive phase</div>
+          </div>
+        )}
         {/* Club — skip org-less FA (no last team name/id). */}
         {data.team?.name && (
           <div className="px-3 py-1.5 border-t border-rift-line/30 flex items-center gap-1.5 min-w-0">

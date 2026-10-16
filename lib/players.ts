@@ -1,5 +1,6 @@
 import { normalizeTeamStars } from "./teamStars";
 import type { Champion, Lane, Player, PlayerTier, Roster } from "./types";
+import { validSSEvidence } from "./playerSS";
 import { getMetaTiers, type MetaTier } from "./championMeta";
 
 // Pure player-identity utilities: deriving a team's star rating from its
@@ -29,12 +30,14 @@ export const LANE_ORDER: readonly Lane[] = [
   "support",
 ];
 
-export const PLAYER_TIERS: readonly PlayerTier[] = ["S+", "S", "A", "B", "C", "D"];
+export const PLAYER_TIERS: readonly PlayerTier[] = ["SS", "S+", "S", "A", "B", "C", "D"];
+export const DEVELOPMENT_TIERS = PLAYER_TIERS.filter(t => t !== "SS");
 
 // Tier → numeric value, centered on B = 0 so the mean maps cleanly onto a
 // 1..5 star rating (see deriveStar). Normal range [-2, 2]; S+ = 3 is the rare
 // generational ceiling above S (deriveStar still caps team stars at 5).
 export const PLAYER_TIER_VALUE: Record<PlayerTier, number> = {
+  SS: 3.5,
   "S+": 3,
   S: 2,
   A: 1,
@@ -158,8 +161,9 @@ export function poolBias(
 // How much an opposing player's comfort/discomfort on a champion should move
 // the AI's ban/deny decisions. A champion an S-tier player mains is a far
 // scarier signature pick than one a D-tier player dabbles in, so the weight
-// scales hard with skill. Range (0, 1].
+// scales hard with skill. Range (0, 1.1], with SS just above S+.
 export const PLAYER_SKILL_WEIGHT: Record<PlayerTier, number> = {
+  SS: 1.1,
   "S+": 1.0,
   S: 1.0,
   A: 0.75,
@@ -270,6 +274,7 @@ export const MAIN_TIER_WEIGHT: Record<MetaTier, number> = {
 // main strong/meta champs; weaker players draft noisier, flatter pools. Applied
 // as an exponent so S concentrates on top tiers and D nearly flattens out.
 const POOL_SKILL_SKEW: Record<PlayerTier, number> = {
+  SS: 2.3,
   "S+": 2.2,
   S: 2,
   A: 1.5,
@@ -330,7 +335,7 @@ export function randomizeRoster(opts: {
     opts.star != null
       ? randomizeTiersForStar(opts.star, rng)
       : LANE_ORDER.map(
-          () => PLAYER_TIERS[Math.floor(rng() * PLAYER_TIERS.length)],
+          () => DEVELOPMENT_TIERS[Math.floor(rng() * DEVELOPMENT_TIERS.length)],
         );
   return LANE_ORDER.map((lane, i) => {
     const pools =
@@ -392,7 +397,9 @@ export function normalizeRoster(
       const lane = (entry as { lane?: unknown }).lane as Lane;
       if (!LANE_ORDER.includes(lane) || byLane.has(lane)) continue;
       const rawTier = (entry as { tier?: unknown }).tier as PlayerTier;
-      const tier: PlayerTier = PLAYER_TIERS.includes(rawTier) ? rawTier : "B";
+      const rawSS = (entry as { ss?: unknown }).ss;
+      const ss = rawTier === "SS" && validSSEvidence(rawSS) && rawSS.lane === lane ? rawSS : undefined;
+      const tier: PlayerTier = rawTier === "SS" && !ss ? "S" : PLAYER_TIERS.includes(rawTier) ? rawTier : "B";
       const eligible = (id: number): boolean => {
         if (!byId) return true;
         const c = byId.get(id);
@@ -427,7 +434,7 @@ export function normalizeRoster(
           ? Math.floor(rawStreak)
           : undefined;
       const rawPot = (entry as { potential?: unknown }).potential;
-      const potential = PLAYER_TIERS.includes(rawPot as PlayerTier)
+      const potential = rawPot !== "SS" && PLAYER_TIERS.includes(rawPot as PlayerTier)
         ? (rawPot as PlayerTier)
         : undefined;
       // Region + acclimation drive chemistry (same-region nudge) and the
@@ -461,6 +468,7 @@ export function normalizeRoster(
         ...(synergy ? { synergy } : {}),
         lane,
         tier,
+        ...(ss ? { ss: { ...ss } } : {}),
         goodChamps: good,
         badChamps: bad,
       });

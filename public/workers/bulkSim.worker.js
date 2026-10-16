@@ -13704,7 +13704,10 @@
     "bottom",
     "support"
   ];
+  var PLAYER_TIERS = ["SS", "S+", "S", "A", "B", "C", "D"];
+  var DEVELOPMENT_TIERS = PLAYER_TIERS.filter((t) => t !== "SS");
   var PLAYER_TIER_VALUE = {
+    SS: 3.5,
     "S+": 3,
     S: 2,
     A: 1,
@@ -13735,6 +13738,7 @@
     return 0;
   }
   var PLAYER_SKILL_WEIGHT = {
+    SS: 1.1,
     "S+": 1,
     S: 1,
     A: 0.75,
@@ -35811,7 +35815,8 @@
     if (!bp || !rp) return 0;
     const blueDev = PLAYER_TIER_VALUE[bp.tier] - rosterMeanTierValue(bluePlayers);
     const redDev = PLAYER_TIER_VALUE[rp.tier] - rosterMeanTierValue(redPlayers);
-    return (blueDev - redDev) * k;
+    const ssEdge = (bp.tier === "SS" ? 0.25 : 0) - (rp.tier === "SS" ? 0.25 : 0);
+    return (blueDev - redDev + ssEdge) * k;
   }
   var POOL_LANE_K = 15;
   function playerLanePoolBias(bluePlayers, redPlayers, blueChampId, redChampId, lane, k = POOL_LANE_K) {

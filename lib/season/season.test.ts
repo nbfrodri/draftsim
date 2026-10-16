@@ -1339,6 +1339,11 @@ describe("championship points & qualification", () => {
 });
 
 describe("applyPatchShift", () => {
+  it("preserves an authoritative empty champion override instead of restoring baseline tiers", () => {
+    const champions = [{ id: 22, name: "Ashe", alias: "Ashe", roles: [], lanes: ["bottom" as const], iconUrl: "" }];
+    const meta = { metaOverride: { Ashe: {} }, metaEnabled: true, synergyOverride: null, counterOverride: null };
+    expect(applyPatchShift(meta, champions, rngFrom(7), 0).metaOverride).toEqual({ Ashe: {} });
+  });
   it("returns a full override and only ±1-tier nudges", () => {
     const champions = championPool();
     // No baseline meta exists for fixture champs, so seed an override.

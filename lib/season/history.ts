@@ -239,6 +239,7 @@ export interface SeasonHistoryEntry {
   /** Every team's roster as each split/international was played, so the Hall
    *  can show who was on which team at any stage of the year. */
   phaseRosters?: PhaseRosterSnapshot[];
+  ssReviews?: import("./types").SSReview[];
   /** Roster moves that happened during the year's transfer windows, frozen
    *  with team names so they recap forever. Optional — only on seasons that
    *  ran with player transfers and had at least one move. */
@@ -716,6 +717,7 @@ export function buildSeasonHistoryEntry(
     ...(rookieOfYear.length > 0 ? { rookieOfYear } : {}),
     ...(playerCareers.length > 0 ? { playerCareers } : {}),
     ...(season.phaseRosters?.length ? { phaseRosters: structuredClone(season.phaseRosters) } : {}),
+    ...(season.ssReviews ? { ssReviews: structuredClone(season.ssReviews) } : {}),
     ...(season.franchise?.aging
       ? {
           // Same year filter the Continue path uses, so a manual Archive can

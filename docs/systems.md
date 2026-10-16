@@ -338,7 +338,15 @@ All map through `tagSeason` → `TournamentTeam.form` / `.clutch` → `tournamen
 
 ### Awards & narrative
 
-All-Pro teams, split MVPs, Rookie of the Year, S+ elites, power rankings (`lib/season/powerRankings.ts`), season story generator (`lib/season/seasonStory.ts`), team season grades from match ratings.
+All-Pro teams, split MVPs, Rookie of the Year, S+ elites, performance-based SS players, power rankings (`lib/season/powerRankings.ts`), season story generator (`lib/season/seasonStory.ts`), team season grades from match ratings.
+
+**SS players:** at most one worldwide holder per position, reviewed after each completed competitive phase. Only main-roster players with an underlying S/S+ development tier and stable recorded identity qualify. Require eight rated games, at least 60% of the accumulated regional opportunity baseline (the 75th percentile of teams' completed domestic games per split), and recorded participation in the latest domestic split of the player's current region. International games contribute to performance without creating domestic inactivity for non-qualifiers. Transfers retain performance by player ID; overlapping regional calendars use the maximum baseline per split, not their sum.
+
+The selection score shrinks adjusted ratings toward 6 with twelve prior games, then subtracts 0.1 times their standard deviation. Each rating receives `0.1 × (opponent base-roster stars − 3)`, using frozen tournament entrants; a holder's games receive a 0.1 correction against self-reinforcing SS advantage. Titles earned through recorded participation break exact ties, then games and stable ID. A qualified incumbent stays unless the challenger leads by at least 0.15 points. SS adds half a numeric strength step above S+ (3.5 versus 3) and increases signature-pick weight to 1.1; team stars still cap at five. A small absolute SS lane edge (2 gold/minute at the default lane coefficient) preserves its advantage even when both teams reach that cap. Development continues underneath SS, and losing eligibility/ownership restores that evolved tier. New-year holders have grace until their region accumulates eight domestic opportunities; retirement/benching removes live ownership. SS is never random recruit potential or an editable setup tier.
+
+`lib/season/ssPlayers.ts` owns selection and reconciliation, `lib/playerSS.ts` separates development from effective strength. Optional player evidence and `ssReviews` persist in the existing JSON payloads in browser/SQLite, with no schema migration. Archives preserve actual review evidence and played roster tiers; legacy saves gain no invented SS history. Player cards show the evidence, phase and development tier.
+
+**Live champion meta:** evidence-driven moves consume each completed round's games once. Catch-up processing does not reuse the full tournament's old results for each pending round, and sleeper eligibility uses only observed rounds. Patch shifts preserve explicit empty champion overrides. This avoids repeated demotions from frozen losing streaks and respects custom meta exclusions. Champion tiers remain D through S+; no role receives guaranteed S/S+ slots. MSI's direct playoff entrants show team logos, and recap winningest/most-titled chips use the existing focus/hover team cards.
 
 ---
 

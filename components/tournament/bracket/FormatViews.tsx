@@ -668,8 +668,7 @@ export function SwissView({
                   iconKey={team.iconKey}
                   logoUrl={team.logoUrl}
                   color={team.color ?? undefined}
-                  showLogo={false}
-                  renderAs="span"
+                  showLogo
                   className="truncate max-w-[12rem]"
                   hint={{
                     name: team.name,

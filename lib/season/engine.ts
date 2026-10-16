@@ -8,6 +8,8 @@
 // completed tournaments back through applyTournamentUpdate().
 
 import type { SeriesFormat, PlayerTier } from "../types";
+import { developmentTier, withDevelopmentTier } from "../playerSS";
+import { reviewSSPlayers, reconcileSSPlayers } from "./ssPlayers";
 import type { Champion, Lane } from "../types";
 import {
   CHAMPION_META,
@@ -1382,7 +1384,10 @@ export function applyPatchShift(
     const source = overrideTiers !== undefined ? overrideTiers : baseTiers;
     if (!source) continue;
     const lanes = Object.keys(source) as Lane[];
-    if (lanes.length === 0) continue;
+    if (lanes.length === 0) {
+      full[c.alias] = {};
+      continue;
+    }
     const copy: Partial<Record<Lane, MetaTier>> = {};
     for (const lane of lanes) {
       const tier = source[lane];
@@ -1620,9 +1625,10 @@ export function applyPlayerDevelopment(
       // NOT a developable skill — leave it alone so mid-split development can't
       // silently strip it (its value 3 would clamp to S below). It can still
       // drop to S at the next offseason re-rank if the player slips.
-      if (p.tier === "S+") return p;
+      const baseTier = developmentTier(p);
+      if (baseTier === "S+") return p;
       if (rng() >= DEV_RATE) return p;
-      const val = PLAYER_TIER_VALUE[p.tier]; // -2 (D) .. +2 (S)
+      const val = PLAYER_TIER_VALUE[baseTier]; // -2 (D) .. +2 (S)
       let pUp =
         0.5 -
         DEV_REGRESS * (val / 2) +
@@ -1633,7 +1639,7 @@ export function applyPlayerDevelopment(
       const nextVal = Math.max(-2, Math.min(2, val + dir));
       if (nextVal === val) return p;
       changed = true;
-      return { ...p, tier: valueToTier(nextVal) };
+      return withDevelopmentTier(p, valueToTier(nextVal));
     });
     return changed ? { ...team, players } : team;
   });
@@ -1765,6 +1771,7 @@ function startPhase(
   index: number,
   champions: readonly Champion[] = [],
 ): SeasonState {
+  season = reconcileSSPlayers(season);
   const phase = season.phases[index];
   if (!phase) return season;
   // Transfer windows hold no tournaments. The window's moves were computed as
@@ -2079,6 +2086,7 @@ export function applyTournamentUpdate(
               ...(p.id ? { id: p.id } : {}),
               ...(p.name ? { name: p.name } : {}),
               tier: p.tier,
+              ...(p.ss ? { ss: { ...p.ss } } : {}),
               lane: p.lane,
               ...(p.age != null ? { age: p.age } : {}),
               ...(p.debutYear != null ? { debutYear: p.debutYear } : {}),
@@ -2094,6 +2102,7 @@ export function applyTournamentUpdate(
 
   const isLastPhase = next.phaseIndex >= next.phases.length - 1;
   if (isLastPhase) {
+    next = reviewSSPlayers(next);
     // Rebucket by event stamp first so First Stand / MSI rows that leaked into
     // the worlds carry array do not inflate the offseason baseline or show
     // under Post Worlds. Then keep true Worlds carry for the League digest
@@ -2186,6 +2195,7 @@ export function applyTournamentUpdate(
   if (phase.kind === "international" && (phase.event === "first-stand" || phase.event === "msi")) {
     next = applyTransfers(next, champions, phase);
   }
+  next = reviewSSPlayers(next);
   return startPhase(next, next.phaseIndex + 1, champions);
 }
 

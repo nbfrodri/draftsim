@@ -13,6 +13,7 @@ import LaneIcon from "@/components/LaneIcon";
 import PlayerHoverCard from "@/components/player/PlayerHoverCard";
 
 const TIER_CLS: Record<PlayerTier, string> = {
+  SS: "border-cyan-200 text-cyan-100 bg-cyan-300/15",
   "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
   S: "border-rift-gold text-rift-goldbright bg-rift-gold/10",
   A: "border-rift-blue/70 text-rift-bluebright bg-rift-blue/10",

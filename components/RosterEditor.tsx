@@ -1,4 +1,5 @@
 "use client";
+import { withDevelopmentTier } from "@/lib/playerSS";
 import TeamStars from "@/components/TeamStars";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
@@ -40,6 +41,7 @@ const LANE_LABEL: Record<Lane, string> = {
 };
 
 const TIER_TEXT: Record<PlayerTier, string> = {
+  SS: "border-cyan-200 text-cyan-100 bg-cyan-300/15",
   "S+": "text-rift-goldbright",
   S: "text-rift-goldbright",
   A: "text-rift-bluebright",
@@ -108,7 +110,7 @@ export default function RosterEditor({
 
   const setTier = (tier: PlayerTier) => {
     setEditing((prev) =>
-      prev.map((p, i) => (i === activeIdx ? { ...p, tier } : p)),
+      prev.map((p, i) => (i === activeIdx ? withDevelopmentTier(p, tier) : p)),
     );
   };
 
@@ -344,7 +346,7 @@ export default function RosterEditor({
               Tier
             </span>
             <div className="flex gap-1.5">
-              {PLAYER_TIERS.map((t) => {
+              {PLAYER_TIERS.filter(t => t !== "SS").map((t) => {
                 const active = player.tier === t;
                 return (
                   <button

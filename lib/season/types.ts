@@ -50,6 +50,12 @@ export const TEAMS_PER_LEAGUE = 10;
 // ─── Calendar ──────────────────────────────────────────────────────────────
 
 export type SplitId = "winter" | "spring" | "summer";
+
+export interface SSReview {
+	phaseIndex: number;
+	label: string;
+	holders: Array<{ playerId: string; lane: Lane; evidence: import("../types").SSPlayerEvidence }>;
+}
 export type InternationalId = "first-stand" | "msi" | "worlds" | "global-cup";
 
 /** Internationals shown in calendar/setup (Global Cup is automatic on quadrennial franchise years). */
@@ -350,6 +356,7 @@ export interface SeasonState {
   // recent player-development pass — so the UI can show ▲/▼ shift arrows.
   // [playerDevelopment]
   prevPlayerTiers?: Record<string, PlayerTier[]>;
+  ssReviews?: SSReview[];
   // Franchise/"reality" context: present when this season is one year of a
   // continuous timeline (teams + careers carry across years). Absent for a
   // classic one-off season. `aging` (chosen at reality creation) decides
@@ -486,6 +493,7 @@ export interface TeamRosterSnapshot {
     id?: string;
     name?: string;
     tier: PlayerTier;
+    ss?: import("../types").SSPlayerEvidence;
     lane: Lane;
     age?: number;
     debutYear?: number;

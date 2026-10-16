@@ -6,6 +6,7 @@ import {
   MAX_EMERGING_PER_EVENT,
   MIN_GAMES_FOR_SHIFT,
   computeChampionPresence,
+  computeMetaEvolutionEvent,
   detectCompletedRound,
   evolveMetaForTournament,
   listCompletedRounds,
@@ -242,6 +243,16 @@ describe("listCompletedRounds / detectCompletedRound", () => {
   });
 });
 
+it("does not reuse a champion's old losing streak when it is absent from a later round", () => {
+	let t = completeMatchday(makeRoundRobin({ liveMeta: true }), 1, false);
+	const first = evolveMetaForTournament(t, CHAMPIONS, NO_EMERGE);
+	t = completeMatchday(first.tournament, 2, false);
+	t = { ...t, matches: t.matches.map(m => m.round !== 2 ? m : { ...m, series: { ...m.series!, games: m.series!.games.map(g => ({ ...g, redPicks: g.redPicks.map(id => id === Y.id ? FILLERS[0].id : id) })) } }) };
+	const next = evolveMetaForTournament(t, CHAMPIONS, NO_EMERGE);
+	expect(next.changes.some(c => c.championId === Y.id)).toBe(false);
+	expect(next.snapshot?.metaOverride?.EvoY).toEqual(first.snapshot?.metaOverride?.EvoY);
+});
+
 // ─── Evidence aggregation ────────────────────────────────────────────────────
 
 describe("computeChampionPresence", () => {
@@ -467,7 +478,7 @@ describe("evolveMetaForTournament", () => {
     expect(x.games).toBeGreaterThanOrEqual(MIN_GAMES_FOR_SHIFT);
     expect(x.wins).toBe(x.games); // perfect WR — only presence can gate
     expect(x.presence).toBeLessThan(HIGH_PRESENCE_THRESHOLD);
-    const { changes } = evolveMetaForTournament(t, CHAMPIONS, NO_EMERGE);
+    const { changes } = computeMetaEvolutionEvent({ tournament: t, champions: CHAMPIONS, snapshotOverride: t.metaSnapshot?.metaOverride ?? null, roundLabel: "Full sample", rng: NO_EMERGE });
     expect(changes.find((c) => c.championId === X.id)).toBeUndefined();
   });
 

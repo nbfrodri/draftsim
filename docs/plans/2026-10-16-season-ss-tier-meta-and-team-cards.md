@@ -2,8 +2,7 @@
 
 ## Status and scope
 
-Planning only. No gameplay, UI or save changes are implemented by this document.
-User decisions are recorded below; numerical balancing proposals remain subject to verification with seeded simulations. Implement the visual changes independently from the gameplay work. Use strict workflow for save/import changes and balance-sensitive SS integration.
+Implemented on the plan branch. User decisions are recorded below; the final parameters and verification section supersede the original proposals. Native interactive WebView validation remains outside the checks performed here.
 
 ## Agreed behavior
 
@@ -29,7 +28,7 @@ User decisions are recorded below; numerical balancing proposals remain subject 
 
 ## SS selection and lifecycle design
 
-### Proposed rules to validate
+### Original design proposals
 
 1. Use a pure selector over recorded player-season lines, keyed by stable player ID and position. Aggregate across transfers and count domestic and international games. Do not assign results to the current occupant of an old roster slot. Compare within each position, never raw cross-position ratings.
 2. Review once after a competitive phase is fully complete and its results are recorded. Transfer windows and offseason navigation are not new performance samples. Run identically for manual play, bulk simulation and resumed saves; make repeated processing idempotent.
@@ -91,6 +90,26 @@ User decisions are recorded below; numerical balancing proposals remain subject 
 6. Run focused `npm test -- <paths>`, then relevant full unit suite, `npm run typecheck`, `npm run lint` and `npm run build`. Run Playwright against the export; if desktop persistence changes, also native tests and affected Linux/Windows WebView checks. Report browser and native verification separately.
 7. Update `docs/systems.md` and affected contracts, including `docs/technical-design.md`; keep maintained translations consistent. No version bump or release. Commit verified milestones with Conventional Commits.
 
-## Planning validation
+## Final implementation decisions
 
-Code locations and current rules above were inspected. This change contains documentation only; gameplay tests, seeded balance experiments and browser/native checks belong to implementation and have not been run for this plan.
+- `Player.tier` is the effective tier. An SS holder carries optional `ss` evidence with its S/S+ development tier, source season/phase, lane, score and rated games. Normal progression, aging and S+ reassignment operate on the underlying tier. Setup/random generation cannot mint SS; losing eligibility restores the evolved base tier.
+- Qualification requires eight rated games, 60% of accumulated regional opportunity baselines and participation in the current region's latest completed domestic split. The baseline is the 75th percentile of teams' completed games in each split; transfers combine overlapping regions using the maximum per split. International games contribute to performance and do not create domestic inactivity for non-qualifiers. New-year carry lasts until the region accumulates eight domestic opportunities.
+- For each recorded rating, add `0.1 × (opponent frozen base-roster stars − 3)` and subtract 0.1 if played as SS. Clamp to the rating range. Score = `(sum(adjusted ratings) + 12 × 6) / (rated games + 12) − 0.1 × standard deviation`. This combines sample reliability, opposition and consistency without using opponents' newly assigned SS status.
+- Exact score ties use participated titles, games and stable ID. An eligible incumbent retains the seat unless surpassed by at least 0.15. SS has value 3.5 versus S+'s 3, comfort weight 1.1 and a small absolute lane edge (2 gold/minute with the default coefficient) so the five-star cap cannot erase its whole advantage.
+- Reviews run after competitive phase completion and roster consequences, before constructing the next event. Frozen played rosters remain unchanged. Optional `ssReviews` and roster evidence archive actual ownership without manufacturing legacy awards. JSON payloads in existing browser/SQLite storage retain the fields; no schema migration, restore or write-queue changes were needed. Import validation rejects duplicate live holders, malformed evidence and SS potential; read-time reconciliation safely removes invalid ownership.
+- Meta regressions fixed: repeated cumulative evidence at successive rounds, future-round leakage when catching up sleeper eligibility, and patch shifts dropping authoritative empty overrides. Each round now supplies fresh evidence; default/random/custom meta semantics and champion tiers remain intact. No mandatory S/S+ quotas were introduced.
+- MSI pre-qualified teams display their existing logos. Recap team chips reuse team name/logo cards. Independent name triggers can receive keyboard focus, while names already inside buttons do not add a second tab stop. Player cards show SS evidence and the development tier.
+
+## Balance audit
+
+Reproduce with `node --import tsx scripts/audit-season-tiers.ts`. The script uses disposable in-memory state, the bundled real champion catalogue and seeds 7, 19 and 43. It covers default/randomized/custom meta and the four live-evolution/patch combinations, with four LCK teams over two years of three double round-robin splits: **36 scenarios / 2,592 actual simulated games**. This is a controlled balance sample, not proof of long-term full-world balance with transfers, aging and internationals.
+
+The final run recorded **50 SS replacements**, never more than one holder per position, and three or five holders at the final checkpoint depending on the seeded eligible roles. Static controls retained their initial meta distribution. Maximum bottom-lane D counts across checkpoints were 1/28 (default), 3/28 (randomized) and 2/28 (custom); no sustained bottom-lane collapse appeared in these scenarios. The sample justified fixing evidence reuse rather than imposing tier quotas. Eligibility, score and strength parameters remain explicit tuning constants for future larger-world calibration.
+
+## Verification
+
+- Red/green regressions cover fresh meta evidence, authoritative empty patch overrides and SS's advantage at the star cap. Domain coverage includes direct B/A rejection, participation, opposition/sample adjustment, ties, incumbency, transfers, game side swaps, recency, grace, progression, S+ quotas, malformed imports, duplicate identities, gameplay and market effects, archive evidence and save round trips.
+- Real in-memory SQLite save/load/rewrite checks preserve SS and review evidence; existing persistence/restore tests also ran. Native Rust tests: **12 passed**. No personal saves or AppData were accessed.
+- Full unit run: **1,534 passed / 2 timed out**, before the final additional title-tiebreak test. Both expensive existing tests (`awards.mvpDistribution` and lifecycle FA metrics) also time out on an untouched `HEAD` copy in this environment; their assertions and timeout limits were not weakened. Final focused verification: **7 files / 158 tests passed**, including that extra test and simulator golden checks.
+- Full lint passed, followed by a passing changed-file lint after the final test edits. The final production build and its TypeScript check passed using `npm run build -- --webpack`. Default Turbopack hit an environment port restriction. Playwright used installed system Chromium through a temporary config because the version-specific downloaded browser was absent.
+- Final browser checks: **4 passed**, exercising MSI logos, recap focus/hover/Escape, SS player evidence and reload, plus existing tournament/history team cards. Screenshots under ignored `test-results/playwright/` were inspected visually, including the cyan SS card with its score and base tier. This is browser validation of desktop card behavior using a post-hydration Tauri-presence shim; no interactive native WebView session or Windows UI validation was performed.

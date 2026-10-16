@@ -127,7 +127,7 @@ export function averageTierFromRoster(
   if (!roster.length) return "B";
   const mean =
     roster.reduce((sum, p) => sum + tierValue(p.tier), 0) / roster.length;
-  return valueToTier(mean);
+  return mean >= 3.25 ? "SS" : valueToTier(mean);
 }
 
 export function rosterLinesFromPlayers(players: Roster): TeamCardRosterLine[] {

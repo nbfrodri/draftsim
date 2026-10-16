@@ -122,6 +122,7 @@ export interface PlayerCardData {
   name: string;
   lane?: Lane;
   tier?: PlayerTier;
+  ss?: Player["ss"];
   potential?: PlayerTier;
   age?: number;
   debutYear?: number;
@@ -172,6 +173,7 @@ export function statusBadgeYears(
 export interface ArchivedRosterSnapshot {
   lane: Lane;
   tier: PlayerTier;
+  ss?: Player["ss"];
   potential?: PlayerTier;
   age?: number;
   debutYear?: number;
@@ -212,6 +214,7 @@ export function archivedRosterSnapshot(
       latest = {
         lane: found.lane,
         tier: found.tier,
+        ...(found.ss ? { ss: found.ss } : {}),
         goodChamps: found.goodChamps ?? [],
         badChamps: found.badChamps ?? [],
         teamId: team.teamId,

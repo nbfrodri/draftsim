@@ -6,6 +6,7 @@
 // internationals feel realistic.
 
 import type { Champion, Lane, PlayerTier } from "../types";
+import { developmentTier, withDevelopmentTier } from "../playerSS";
 import { makeTeamId, TEAM_COLORS, TEAM_ICON_KEYS } from "../tournament";
 import { randomizeRoster, deriveStar, PLAYER_TIER_VALUE, LANE_ORDER, type RNG } from "../players";
 import { assignSynergies } from "../chemistry";
@@ -225,13 +226,14 @@ export function assignRoleElites(teams: readonly SeasonTeam[]): SeasonTeam[] {
       const pi = team.players.findIndex((p) => p.lane === lane);
       if (pi < 0) return;
       const p = team.players[pi];
-      const isPlus = p.tier === "S+";
+      const baseTier = developmentTier(p);
+      const isPlus = baseTier === "S+";
       // Eligible = the S-caliber field (S or S+); lower tiers can't be elite.
-      if (!isPlus && PLAYER_TIER_VALUE[p.tier] < PLAYER_TIER_VALUE.S) return;
+      if (!isPlus && PLAYER_TIER_VALUE[baseTier] < PLAYER_TIER_VALUE.S) return;
       // Team strength is the skill proxy; name hash (rng-seeded, stable) breaks
       // ties deterministically; incumbents carry a half-star edge.
       const score =
-        deriveStar(team.players) * 1000 +
+        deriveStar(team.players.map(player => ({ tier: developmentTier(player) }))) * 1000 +
         (isPlus ? SPLUS_INCUMBENT_EDGE : 0) +
         (hashStr(p.name ?? `${ti}-${lane}`) % 1000);
       field.push({ ti, pi, score });
@@ -240,7 +242,7 @@ export function assignRoleElites(teams: readonly SeasonTeam[]): SeasonTeam[] {
     field.forEach((f, rank) => {
       const want: PlayerTier = rank < SPLUS_PER_ROLE ? "S+" : "S";
       if (out[f.ti].players[f.pi].tier !== want) {
-        out[f.ti].players[f.pi] = { ...out[f.ti].players[f.pi], tier: want };
+        out[f.ti].players[f.pi] = withDevelopmentTier(out[f.ti].players[f.pi], want);
       }
     });
   }

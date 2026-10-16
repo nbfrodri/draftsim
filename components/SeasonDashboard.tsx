@@ -2511,16 +2511,16 @@ function SeasonRecapPanel({
         {winningest && stats.winningestTeam && (
           <RecapChip
             label="Winningest Team"
-            value={winningest.name}
-            icon={<><TeamIcon iconKey={winningest.iconKey} logoUrl={winningest.logoUrl} color={winningest.color} size={18} /><LeagueIcon league={winningest.leagueId} size={14} /></>}
+            value={<TeamNameLink teamId={winningest.id} name={winningest.name} leagueId={winningest.leagueId} iconKey={winningest.iconKey} logoUrl={winningest.logoUrl} color={winningest.color} logoSize={18} />}
+            icon={<LeagueIcon league={winningest.leagueId} size={14} />}
             sub={`${stats.winningestTeam.wins}-${stats.winningestTeam.losses} in matches`}
           />
         )}
         {mostTitled && stats.mostTitledTeam && (
           <RecapChip
             label="Most Titles"
-            value={mostTitled.name}
-            icon={<><TeamIcon iconKey={mostTitled.iconKey} logoUrl={mostTitled.logoUrl} color={mostTitled.color} size={18} /><LeagueIcon league={mostTitled.leagueId} size={14} /></>}
+            value={<TeamNameLink teamId={mostTitled.id} name={mostTitled.name} leagueId={mostTitled.leagueId} iconKey={mostTitled.iconKey} logoUrl={mostTitled.logoUrl} color={mostTitled.color} logoSize={18} />}
+            icon={<LeagueIcon league={mostTitled.leagueId} size={14} />}
             sub={`${stats.mostTitledTeam.titles} trophies`}
           />
         )}
@@ -3208,7 +3208,7 @@ function RecapChip({
   icon,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   sub?: string;
   icon?: React.ReactNode;
 }) {

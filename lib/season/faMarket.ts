@@ -4,6 +4,7 @@
 // stepping on each other. Does NOT import playerLifecycle (avoids cycles).
 
 import type { Champion, Lane, Player, PlayerTier } from "../types";
+import { withoutSS } from "../playerSS";
 import { PLAYER_TIER_VALUE, valueToTier, type RNG } from "../players";
 import { transferValue, poolFit } from "./transfers";
 import type { SeasonMetaSnapshot } from "./types";
@@ -500,6 +501,8 @@ export function addToTeamAcademy(
   pool: readonly MarketInactive[],
   entry: MarketInactive,
 ): { pool: MarketInactive[]; bumped: MarketInactive | null } {
+  const eligiblePlayer = withoutSS(entry.player);
+  if (eligiblePlayer !== entry.player) entry = { ...entry, player: eligiblePlayer };
   if (entry.player.id) {
     const existing = pool.findIndex((e) => e.player.id === entry.player.id);
     if (existing >= 0) {

@@ -341,7 +341,7 @@ export interface MetaEvolutionEventResult {
   changes: MetaChange[];
 }
 
-// Apply ONE evolution event: evaluate the evidence accumulated so far
+// Apply ONE evolution event: evaluate a fresh round (or the supplied full sample)
 // against `snapshotOverride` and produce the next override + changes.
 // Pure; exported primarily for tests and advanced callers — the store
 // should use evolveMetaForTournament below.
@@ -351,10 +351,15 @@ export function computeMetaEvolutionEvent(args: {
   snapshotOverride: MetaOverride | null;
   roundLabel: string;
   rng?: RNG;
+  evidenceRoundKey?: string;
 }): MetaEvolutionEventResult {
   const { tournament, champions, snapshotOverride, roundLabel } = args;
   const rng = args.rng ?? Math.random;
-  const { totalGames, stats } = computeChampionPresence(tournament);
+  const { totalGames, stats } = computeChampionPresence(args.evidenceRoundKey ? {
+    ...tournament,
+    matches: tournament.matches.filter(m => bucketForMatch(tournament, m).key === args.evidenceRoundKey),
+  } : tournament);
+  const observed = args.evidenceRoundKey ? computeChampionPresence(tournament).stats : stats;
   if (totalGames === 0) {
     return { metaOverride: snapshotOverride, changes: [] };
   }
@@ -437,7 +442,7 @@ export function computeMetaEvolutionEvent(args: {
   for (const champion of candidates) {
     if (emerged >= MAX_EMERGING_PER_EVENT) break;
     if (changedAliases.has(champion.alias)) continue;
-    const stat = stats.get(champion.id) ?? null;
+    const stat = observed.get(champion.id) ?? null;
     if ((stat?.games ?? 0) > 0) continue;
     if ((stat?.presence ?? 0) >= LOW_PRESENCE_THRESHOLD) continue;
     const tiers = effectiveTiers(snapshotOverride, champion.alias);
@@ -503,14 +508,19 @@ export function evolveMetaForTournament(
   const allChanges: MetaChange[] = [];
   for (const round of pending) {
     const event = computeMetaEvolutionEvent({
-      tournament,
+      tournament: { ...tournament, matches: tournament.matches.filter(match => {
+        const key = bucketForMatch(tournament, match).key;
+        return processed.has(key) || key === round.key;
+      }) },
       champions,
       snapshotOverride: override,
       roundLabel: round.label,
       rng,
+      evidenceRoundKey: round.key,
     });
     override = event.metaOverride;
     allChanges.push(...event.changes);
+    processed.add(round.key);
   }
 
   const snapshot: TournamentState["metaSnapshot"] = {

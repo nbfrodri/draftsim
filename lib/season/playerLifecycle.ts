@@ -19,6 +19,7 @@ import { marketOrigin, type MarketOrigin, type MarketSeason } from "./marketOrig
 // demotion day (Academy · 1y immediately; after 3 year-ends → FA · 1y).
 
 import type { Champion, Lane, Player, PlayerTier } from "../types";
+import { developmentTier, withDevelopmentTier } from "../playerSS";
 import {
   PLAYER_TIER_VALUE,
   PLAYER_TIERS,
@@ -310,10 +311,10 @@ export function computeRoleMeans(
 // A starting age + potential for an EXISTING player when a reality begins.
 export function initCareer(player: Player, rng: RNG): Player {
   const age = player.age ?? 18 + Math.floor(rng() * 8);
-  const tierVal = PLAYER_TIER_VALUE[player.tier];
+  const tierVal = PLAYER_TIER_VALUE[developmentTier(player)];
   const headroom = age <= GROWTH_UNTIL ? Math.floor(rng() * 3) : Math.floor(rng() * 2);
   let potVal = clamp(tierVal + headroom, -2, 2);
-  if (player.tier === "S+") potVal = 3;
+  if (developmentTier(player) === "S+") potVal = 3;
   else if (potVal >= 2 && age <= GROWTH_UNTIL && rng() < SPLUS_POTENTIAL_CHANCE) potVal = 3;
   const potential = valueToTier(potVal);
   return {
@@ -362,15 +363,15 @@ export function makeRookie(
 /** Age one player a year. Age never forces retirement — only growth/decline. */
 export function agePlayer(player: Player, perf: number | null, rng: RNG): Player {
   const age = (player.age ?? 22) + 1;
-  const tierVal = PLAYER_TIER_VALUE[player.tier];
-  const potVal = PLAYER_TIER_VALUE[player.potential ?? player.tier];
+  const tierVal = PLAYER_TIER_VALUE[developmentTier(player)];
+  const potVal = PLAYER_TIER_VALUE[player.potential ?? developmentTier(player)];
   let pressure = 0;
   if (age >= PRIME_FROM && age <= GROWTH_UNTIL && tierVal < potVal) pressure += 0.45;
   if (age >= DECLINE_FROM) pressure -= 0.35 * ((age - (DECLINE_FROM - 1)) / 3);
   pressure -= 0.1 * (tierVal / 2);
   if (perf != null) pressure += PERF_WEIGHT * (perf - PERF_NEUTRAL);
 
-  let tier: PlayerTier = player.tier;
+  let tier: PlayerTier = developmentTier(player);
   if (rng() < CHANGE_RATE) {
     const pUp = clamp(0.5 + pressure, 0.05, 0.95);
     const dir = rng() < pUp ? 1 : -1;
@@ -379,7 +380,7 @@ export function agePlayer(player: Player, perf: number | null, rng: RNG): Player
     nextVal = clamp(nextVal, -2, 3);
     tier = valueToTier(nextVal);
   }
-  return { ...player, age, tier };
+  return { ...withDevelopmentTier(player, tier), age };
 }
 
 /**

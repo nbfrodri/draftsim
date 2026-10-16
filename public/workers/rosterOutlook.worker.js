@@ -1,5 +1,22 @@
 "use strict";
 (() => {
+  // lib/playerSS.ts
+  function developmentTier(player) {
+    if (player.tier !== "SS") return player.tier;
+    return player.ss?.baseTier === "S+" ? "S+" : "S";
+  }
+  function withoutSS(player) {
+    if (player.tier !== "SS" && !player.ss) return player;
+    const { ss: _ss, ...rest } = player;
+    return { ...rest, tier: developmentTier(player) };
+  }
+  function withDevelopmentTier(player, tier) {
+    if (player.tier === "SS" && player.ss && (tier === "S" || tier === "S+")) {
+      return { ...player, ss: { ...player.ss, baseTier: tier } };
+    }
+    return { ...withoutSS(player), tier: tier === "SS" ? "S" : tier };
+  }
+
   // lib/teamStars.ts
   function normalizeTeamStars(value) {
     if (typeof value !== "number" || !Number.isFinite(value)) return 3;
@@ -13469,7 +13486,10 @@
     "bottom",
     "support"
   ];
+  var PLAYER_TIERS = ["SS", "S+", "S", "A", "B", "C", "D"];
+  var DEVELOPMENT_TIERS = PLAYER_TIERS.filter((t) => t !== "SS");
   var PLAYER_TIER_VALUE = {
+    SS: 3.5,
     "S+": 3,
     S: 2,
     A: 1,
@@ -13513,6 +13533,7 @@
     D: 1
   };
   var POOL_SKILL_SKEW = {
+    SS: 2.3,
     "S+": 2.2,
     S: 2,
     A: 1.5,
@@ -29705,6 +29726,8 @@
     };
   }
   function addToTeamAcademy(pool, entry) {
+    const eligiblePlayer = withoutSS(entry.player);
+    if (eligiblePlayer !== entry.player) entry = { ...entry, player: eligiblePlayer };
     if (entry.player.id) {
       const existing = pool.findIndex((e) => e.player.id === entry.player.id);
       if (existing >= 0) {
@@ -30605,6 +30628,47 @@
   }
   function initializeOffseasonRosterNewsBoundary(season) {
     return season.status === "complete" && season.offseasonRosterNewsBaseline == null ? { ...season, offseasonRosterNewsBaseline: season.rosterNews?.length ?? 0 } : season;
+  }
+
+  // lib/season/stats.ts
+  function computePlayerTitleCounts(season) {
+    const achv = /* @__PURE__ */ new Map();
+    const ensure = (id) => {
+      let a = achv.get(id);
+      if (!a) {
+        a = { split: 0, intlTitles: 0, intlApps: 0 };
+        achv.set(id, a);
+      }
+      return a;
+    };
+    const snaps = season.phaseRosters ?? [];
+    const playersOnTeam = (teamId, match) => {
+      const snap = snaps.find(match);
+      const roster = snap ? snap.teams.find((t) => t.teamId === teamId)?.players : snaps.length > 0 ? void 0 : season.teams.find((t) => t.id === teamId)?.players;
+      return (roster ?? []).map((p) => p.id).filter((x) => !!x);
+    };
+    for (const [split, byLeague] of Object.entries(season.splitResults)) {
+      for (const order of Object.values(byLeague ?? {})) {
+        const champ = order?.[0];
+        if (champ)
+          for (const pid of playersOnTeam(champ, (s) => s.split === split)) ensure(pid).split += 1;
+      }
+    }
+    for (const [event, order] of Object.entries(season.intlResults)) {
+      const champ = order?.[0];
+      if (champ)
+        for (const pid of playersOnTeam(champ, (s) => s.event === event)) ensure(pid).intlTitles += 1;
+    }
+    for (const phase of season.phases) {
+      if (phase.kind !== "international") continue;
+      const attended = /* @__PURE__ */ new Set();
+      for (const tid of phase.tournamentIds) {
+        for (const tt of season.tournaments[tid]?.teams ?? []) attended.add(tt.id);
+      }
+      for (const id of attended)
+        for (const pid of playersOnTeam(id, (s) => s.event === phase.event)) ensure(pid).intlApps += 1;
+    }
+    return achv;
   }
 
   // lib/draftAI/personalities.ts
@@ -31732,14 +31796,14 @@
   }
   function agePlayer(player, perf, rng) {
     const age = (player.age ?? 22) + 1;
-    const tierVal = PLAYER_TIER_VALUE[player.tier];
-    const potVal = PLAYER_TIER_VALUE[player.potential ?? player.tier];
+    const tierVal = PLAYER_TIER_VALUE[developmentTier(player)];
+    const potVal = PLAYER_TIER_VALUE[player.potential ?? developmentTier(player)];
     let pressure = 0;
     if (age >= PRIME_FROM && age <= GROWTH_UNTIL && tierVal < potVal) pressure += 0.45;
     if (age >= DECLINE_FROM) pressure -= 0.35 * ((age - (DECLINE_FROM - 1)) / 3);
     pressure -= 0.1 * (tierVal / 2);
     if (perf != null) pressure += PERF_WEIGHT * (perf - PERF_NEUTRAL);
-    let tier = player.tier;
+    let tier = developmentTier(player);
     if (rng() < CHANGE_RATE) {
       const pUp = clamp4(0.5 + pressure, 0.05, 0.95);
       const dir = rng() < pUp ? 1 : -1;
@@ -31748,7 +31812,7 @@
       nextVal = clamp4(nextVal, -2, 3);
       tier = valueToTier(nextVal);
     }
-    return { ...player, age, tier };
+    return { ...withDevelopmentTier(player, tier), age };
   }
   function isUnderperformingSeason(outcome, roleMean, gradeGap = GRADE_GAP_THRESHOLD) {
     const gradeBelow = outcome.grade != null && Number.isFinite(outcome.grade) && outcome.grade > 0 && roleMean != null && Number.isFinite(roleMean) && roleMean > 0 && roleMean - outcome.grade + 1e-9 >= gradeGap;
@@ -32559,47 +32623,6 @@
       ...controlled ? { skipTeamIds: /* @__PURE__ */ new Set([controlled]) } : {}
     });
     return next;
-  }
-
-  // lib/season/stats.ts
-  function computePlayerTitleCounts(season) {
-    const achv = /* @__PURE__ */ new Map();
-    const ensure = (id) => {
-      let a = achv.get(id);
-      if (!a) {
-        a = { split: 0, intlTitles: 0, intlApps: 0 };
-        achv.set(id, a);
-      }
-      return a;
-    };
-    const snaps = season.phaseRosters ?? [];
-    const playersOnTeam = (teamId, match) => {
-      const snap = snaps.find(match);
-      const roster = snap ? snap.teams.find((t) => t.teamId === teamId)?.players : snaps.length > 0 ? void 0 : season.teams.find((t) => t.id === teamId)?.players;
-      return (roster ?? []).map((p) => p.id).filter((x) => !!x);
-    };
-    for (const [split, byLeague] of Object.entries(season.splitResults)) {
-      for (const order of Object.values(byLeague ?? {})) {
-        const champ = order?.[0];
-        if (champ)
-          for (const pid of playersOnTeam(champ, (s) => s.split === split)) ensure(pid).split += 1;
-      }
-    }
-    for (const [event, order] of Object.entries(season.intlResults)) {
-      const champ = order?.[0];
-      if (champ)
-        for (const pid of playersOnTeam(champ, (s) => s.event === event)) ensure(pid).intlTitles += 1;
-    }
-    for (const phase of season.phases) {
-      if (phase.kind !== "international") continue;
-      const attended = /* @__PURE__ */ new Set();
-      for (const tid of phase.tournamentIds) {
-        for (const tt of season.tournaments[tid]?.teams ?? []) attended.add(tt.id);
-      }
-      for (const id of attended)
-        for (const pid of playersOnTeam(id, (s) => s.event === phase.event)) ensure(pid).intlApps += 1;
-    }
-    return achv;
   }
 
   // lib/season/franchise.ts

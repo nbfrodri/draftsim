@@ -137,7 +137,7 @@ function TeamNameLink({
           {inner}
         </button>
       ) : (
-        <span className="inline-flex items-center gap-1.5 min-w-0">
+        <span tabIndex={renderAs === "button" ? 0 : undefined} aria-label={name ?? fallback} className="inline-flex items-center gap-1.5 min-w-0 focus-visible:outline focus-visible:outline-1 focus-visible:outline-rift-gold">
           {inner}
         </span>
       )}

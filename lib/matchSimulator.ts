@@ -1608,8 +1608,8 @@ function rosterMeanTierValue(roster: Roster | undefined): number {
 // Lane-gold bias from the two players in a lane, each measured as a deviation
 // from their own team's mean tier. Returns 0 when either roster lacks the
 // lane. Exported (and pure) so the per-lane player effect can be unit-tested
-// without the random term inside computeLaneAdvantages. Sums to zero across
-// the five lanes by construction.
+// without the random term inside computeLaneAdvantages. Ordinary development
+// tiers sum to zero; SS retains a small absolute edge even at the star cap.
 export function playerLaneTierBias(
   bluePlayers: Roster | undefined,
   redPlayers: Roster | undefined,
@@ -1621,7 +1621,8 @@ export function playerLaneTierBias(
   if (!bp || !rp) return 0;
   const blueDev = PLAYER_TIER_VALUE[bp.tier] - rosterMeanTierValue(bluePlayers);
   const redDev = PLAYER_TIER_VALUE[rp.tier] - rosterMeanTierValue(redPlayers);
-  return (blueDev - redDev) * k;
+  const ssEdge = (bp.tier === "SS" ? 0.25 : 0) - (rp.tier === "SS" ? 0.25 : 0);
+  return (blueDev - redDev + ssEdge) * k;
 }
 
 // Lane-gold swing from champion-pool fit: a laner on one of their liked

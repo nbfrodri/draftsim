@@ -32,10 +32,19 @@ export interface Champion {
 // tier, and champion pools — is fixed for the life of a series, and in
 // tournament mode persists across every match. A team's star rating is DERIVED
 // from its roster (see `deriveStar` in lib/players.ts), not stored separately.
-// "S+" is a very rare, generational ceiling above S — only reachable by
-// development (a prospect with S+ potential climbing into it), never produced by
-// ordinary roster generation. See lib/players.ts valueToTier / playerLifecycle.
-export type PlayerTier = "S+" | "S" | "A" | "B" | "C" | "D";
+// S+ is the rare development/role-elite ceiling. SS is an exclusive seasonal
+// performance tier, layered over an S/S+ development tier; never random potential.
+export type PlayerTier = "SS" | "S+" | "S" | "A" | "B" | "C" | "D";
+
+export interface SSPlayerEvidence {
+	baseTier: "S" | "S+";
+	lane: Lane;
+	seasonId: string;
+	phaseIndex: number;
+	phaseLabel: string;
+	score: number;
+	games: number;
+}
 
 export interface Player {
   // Stable, permanent identity — survives transfers AND seasons, so a player's
@@ -77,6 +86,7 @@ export interface Player {
   // Skill tier in their lane. Fixed identity. Feeds the derived team star
   // (macro) and a per-lane performance bias (micro) in the simulator.
   tier: PlayerTier;
+  ss?: SSPlayerEvidence;
   // Up to 3 champions this player plays well — a bonus when they end up on
   // one of these. Champion ids.
   goodChamps: number[];

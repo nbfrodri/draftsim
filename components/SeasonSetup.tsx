@@ -910,7 +910,7 @@ function TeamRatingEditor({
             className={`${SELECT_CLS} py-0.5 text-[10px]`}
             aria-label={`${p.name ?? p.lane} skill tier`}
           >
-            {PLAYER_TIERS.map((tier) => (
+            {PLAYER_TIERS.filter(tier => tier !== "SS").map((tier) => (
               <option key={tier} value={tier}>
                 {tier}
               </option>

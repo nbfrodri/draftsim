@@ -1247,6 +1247,7 @@ function RegionTitleBoard({
 // so each stage shows who actually played it. Academy (year-end snapshot) sits
 // as a flat list under the main five — same row richness when archived.
 const STAGE_TIER_CLS: Record<string, string> = {
+  SS: "border-cyan-200 text-cyan-100 bg-cyan-300/15",
   "S+": "border-rift-goldbright text-rift-goldbright bg-rift-gold/25",
   S: "border-rift-gold text-rift-goldbright bg-rift-gold/10",
   A: "border-rift-blue/70 text-rift-bluebright bg-rift-blue/10",
