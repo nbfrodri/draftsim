@@ -29,24 +29,24 @@ Elige según la distribución, no según el fabricante del ordenador. Los paquet
 | rpm | `DraftSim-<version>-1.x86_64.rpm` | Fedora, openSUSE y derivadas compatibles; las dependencias deben estar disponibles para esa distribución y versión |
 | AppImage | `DraftSim_<version>_amd64.AppImage` | Arch, Omarchy, EndeavourOS, Manjaro y otras distribuciones Linux compatibles; se ejecuta sin instalación en el sistema |
 
-Descarga el paquete de [GitHub Releases](https://github.com/nbfrodri/draftsim/releases) y abre una terminal en la carpeta donde lo guardaste. Estos ejemplos usan la versión 1.8.0; sustituye el nombre por el archivo que hayas descargado.
+Descarga el paquete de [GitHub Releases](https://github.com/nbfrodri/draftsim/releases) y abre una terminal en la carpeta donde lo guardaste. Estos ejemplos usan la versión 1.9.0; sustituye el nombre por el archivo que hayas descargado.
 
 **Debian / Ubuntu / Linux Mint:**
 
 ```bash
-sudo apt install ./DraftSim_1.8.0_amd64.deb
+sudo apt install ./DraftSim_1.9.0_amd64.deb
 ```
 
 **Fedora:**
 
 ```bash
-sudo dnf install ./DraftSim-1.8.0-1.x86_64.rpm
+sudo dnf install ./DraftSim-1.9.0-1.x86_64.rpm
 ```
 
 **openSUSE:**
 
 ```bash
-sudo zypper install ./DraftSim-1.8.0-1.x86_64.rpm
+sudo zypper install ./DraftSim-1.9.0-1.x86_64.rpm
 ```
 
 Tras instalar deb/rpm, abre DraftSim desde el menú de aplicaciones o ejecuta `draftsim`. Para actualizar, cierra la aplicación e instala el paquete nuevo con el mismo comando. Documentación de los gestores: [APT](https://ubuntu.com/server/docs/tutorial/managing-software/), [DNF](https://dnf.readthedocs.io/en/stable/command_ref.html#install-command-label), [Zypper](https://manpages.opensuse.org/Leap-15.6/zypper/zypper.8.en.html).
@@ -56,8 +56,8 @@ Tras instalar deb/rpm, abre DraftSim desde el menú de aplicaciones o ejecuta `d
 Guarda el AppImage en una ubicación permanente, como `~/Applications`, dale permiso de ejecución y ábrelo, siguiendo la [guía de AppImage](https://docs.appimage.org/introduction/quickstart.html):
 
 ```bash
-chmod +x ./DraftSim_1.8.0_amd64.AppImage
-./DraftSim_1.8.0_amd64.AppImage
+chmod +x ./DraftSim_1.9.0_amd64.AppImage
+./DraftSim_1.9.0_amd64.AppImage
 ```
 
 No necesita `sudo`. Para actualizar, cierra DraftSim, sustituye el AppImage por el nuevo y vuelve a darle permiso de ejecución. Un AppImage no crea automáticamente una entrada en el menú de aplicaciones. La compatibilidad sigue dependiendo de las bibliotecas del sistema; no garantiza que funcione en cualquier distribución.
@@ -65,7 +65,7 @@ No necesita `sudo`. Para actualizar, cierra DraftSim, sustituye el AppImage por 
 Si indica que FUSE no está disponible, utiliza la [alternativa de extracción y ejecución](https://docs.appimage.org/user-guide/troubleshooting/fuse.html#extract-and-run-type-2-appimages): extrae temporalmente el contenido y lo limpia al cerrar la aplicación.
 
 ```bash
-./DraftSim_1.8.0_amd64.AppImage --appimage-extract-and-run
+./DraftSim_1.9.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ### Omarchy / Arch: usar una compilación de este repositorio
@@ -93,7 +93,7 @@ El catálogo de campeones viene incluido, mientras que las imágenes remotas, lo
 
 ## Modos y funciones
 
-Consulta [v1.8.0](docs/releases/v1.8.0.md) para los jugadores SS exclusivos, la corrección de evidencias del meta vivo, los logos del MSI y las tarjetas de equipo del recap.
+Consulta [v1.9.0](docs/releases/v1.9.0.md) para el panel de titulares y aspirantes SS en directo, sus requisitos y probabilidades estimadas. Consulta [v1.8.0](docs/releases/v1.8.0.md) para el tier SS original, las correcciones del meta y las mejoras de tarjetas de equipo.
 
 El guardado de escritorio incluye temporadas sin terminar. Las realidades inactivas se cargan bajo demanda; Backups ofrece diagnósticos locales optativos. Consulta la [guía de persistencia](docs/persistence-and-recovery.md) para la migración al formato 8 y su recuperación.
 

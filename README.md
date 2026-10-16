@@ -29,24 +29,24 @@ Choose by distribution, not by the computer's manufacturer. Published Linux pack
 | rpm | `DraftSim-<version>-1.x86_64.rpm` | Fedora, openSUSE and compatible derivatives; dependencies must be available for the distribution/version |
 | AppImage | `DraftSim_<version>_amd64.AppImage` | Arch, Omarchy, EndeavourOS, Manjaro and other compatible Linux distributions; run without a system installation |
 
-Download a package from [GitHub Releases](https://github.com/nbfrodri/draftsim/releases), then open a terminal in its directory. These examples use version 1.8.0; substitute the exact filename you downloaded.
+Download a package from [GitHub Releases](https://github.com/nbfrodri/draftsim/releases), then open a terminal in its directory. These examples use version 1.9.0; substitute the exact filename you downloaded.
 
 **Debian / Ubuntu / Linux Mint:**
 
 ```bash
-sudo apt install ./DraftSim_1.8.0_amd64.deb
+sudo apt install ./DraftSim_1.9.0_amd64.deb
 ```
 
 **Fedora:**
 
 ```bash
-sudo dnf install ./DraftSim-1.8.0-1.x86_64.rpm
+sudo dnf install ./DraftSim-1.9.0-1.x86_64.rpm
 ```
 
 **openSUSE:**
 
 ```bash
-sudo zypper install ./DraftSim-1.8.0-1.x86_64.rpm
+sudo zypper install ./DraftSim-1.9.0-1.x86_64.rpm
 ```
 
 Open DraftSim from the application menu after installing deb/rpm, or run `draftsim`. Close the app before updating and install the newer package with the same command. Package-manager documentation: [APT](https://ubuntu.com/server/docs/tutorial/managing-software/), [DNF](https://dnf.readthedocs.io/en/stable/command_ref.html#install-command-label), [Zypper](https://manpages.opensuse.org/Leap-15.6/zypper/zypper.8.en.html).
@@ -56,8 +56,8 @@ Open DraftSim from the application menu after installing deb/rpm, or run `drafts
 Keep the AppImage somewhere permanent, such as `~/Applications`, make it executable and run it, following the [AppImage quickstart](https://docs.appimage.org/introduction/quickstart.html):
 
 ```bash
-chmod +x ./DraftSim_1.8.0_amd64.AppImage
-./DraftSim_1.8.0_amd64.AppImage
+chmod +x ./DraftSim_1.9.0_amd64.AppImage
+./DraftSim_1.9.0_amd64.AppImage
 ```
 
 No `sudo` is needed. To update, close DraftSim, replace the AppImage with the newer one and grant execution permission again. An AppImage does not automatically create an application-menu entry. Compatibility still depends on the host's system libraries; it is not a guarantee for every distribution.
@@ -65,7 +65,7 @@ No `sudo` is needed. To update, close DraftSim, replace the AppImage with the ne
 If it reports that FUSE is unavailable, use the runtime's [extract-and-run fallback](https://docs.appimage.org/user-guide/troubleshooting/fuse.html#extract-and-run-type-2-appimages), which extracts temporarily and cleans up when the app exits:
 
 ```bash
-./DraftSim_1.8.0_amd64.AppImage --appimage-extract-and-run
+./DraftSim_1.9.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ### Omarchy / Arch: use a build from this checkout
@@ -93,7 +93,7 @@ The champion catalogue is packaged with the app, while remote artwork, audio and
 
 ## What you can play
 
-See [v1.8.0](docs/releases/v1.8.0.md) for exclusive SS players, fresh live-meta evidence, MSI logos and recap team cards.
+See [v1.9.0](docs/releases/v1.9.0.md) for the live SS holders and contenders panel, eligibility requirements and estimated chances. See [v1.8.0](docs/releases/v1.8.0.md) for the original SS tier, live-meta fixes and team-card improvements.
 
 Read the [v1.3.1 release notes](docs/releases/v1.3.1.md) for consistent view loading, and [v1.3.0](docs/releases/v1.3.0.md) for shared teammate rosters, historical team logos and results by split or event.
 
