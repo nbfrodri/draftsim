@@ -17,6 +17,7 @@ import { createSeries } from "../series";
 import { applyTournamentUpdate } from "./engine";
 import { averageTierFromRoster } from "./teamCard";
 import { transferValue } from "./transfers";
+import { computeSSRace } from "./ssRace";
 
 function fixture(tier: PlayerTier = "S", games = 16): SeasonState {
 	const s = makeAuditSeason("SS");
@@ -38,6 +39,82 @@ function fixture(tier: PlayerTier = "S", games = 16): SeasonState {
 }
 
 describe("SS phase review", () => {
+	it("projects active-phase SS contenders without awarding or mutating players", () => {
+		const s = fixture();
+		s.phases[0].status = "in-progress";
+		const before = JSON.stringify(s);
+		const race = computeSSRace(s);
+		const top = race.find(row => row.lane === "top")!;
+		expect(top.holder).toBeNull();
+		expect(top.contenders[0]).toMatchObject({ player: { id: "0-0" }, eligible: true, chance: 100, projected: true });
+		expect(top.contenders[0].stats?.avgRating).toBe(8);
+		expect(JSON.stringify(s)).toBe(before);
+		expect(computeSSRace(s)).toEqual(race);
+	});
+	it("estimates uncertainty between close contenders and respects holder protection", () => {
+		const s = fixture();
+		for (const t of Object.values(s.tournaments)) for (const [i, m] of t.matches.entries()) {
+			m.series!.games[0].recap!.ratings = { blue: Array(5).fill(i % 2 ? 9 : 5), red: Array(5).fill(i % 2 ? 9 : 5) };
+		}
+		const top = computeSSRace(s)[0];
+		for (const row of top.contenders.filter(c => c.eligible)) {
+			expect(row.chance).toBeGreaterThan(20);
+			expect(row.chance).toBeLessThan(80);
+		}
+		const awarded = reviewSSPlayers(s);
+		const defended = computeSSRace(awarded)[0];
+		expect(defended.holder?.projected).toBe(true);
+		expect(defended.contenders.find(c => c.eligible)?.gap).toBeCloseTo(0.15);
+	});
+	it("keeps absent gold unknown and flips recorded gold for the opposing side", () => {
+		const s = fixture();
+		expect(computeSSRace(s)[0].contenders[0].stats?.goldDiffGames).toBe(0);
+		for (const t of Object.values(s.tournaments)) for (const m of t.matches) m.series!.games[0].recap!.laneGoldDiff = { top: 600, jungle: 0, middle: 0, bottom: 0, support: 0 };
+		const top = computeSSRace(s)[0];
+		expect(top.contenders[0].stats!.goldDiffSum / top.contenders[0].stats!.goldDiffGames).toBe(600);
+		expect(top.contenders[1].stats!.goldDiffSum / top.contenders[1].stats!.goldDiffGames).toBe(-600);
+	});
+	it("does not leak future phases into live grades or SS projections", () => {
+		const s = fixture();
+		const future = structuredClone(Object.values(s.tournaments)[0]);
+		future.id = "future";
+		for (const m of future.matches) m.series!.games[0].recap!.ratings!.blue = [1, 1, 1, 1, 1];
+		const before = computeSSRace(s);
+		s.tournaments[future.id] = future;
+		s.phases.push({ ...s.phases[0], tournamentIds: [future.id] });
+		expect(computeSSRace(s)).toEqual(before);
+	});
+	it("exposes missing evidence and never offers B players an SS probability", () => {
+		const s = fixture("S+", 7);
+		const candidate = computeSSRace(s)[0].contenders[0];
+		expect(candidate).toMatchObject({ eligible: false, chance: null, games: 7, requiredGames: 8 });
+		expect(candidate.reasons).toContain("Needs 8 rated games (7 recorded)");
+		expect(computeSSRace(fixture("B"))[0].contenders).toHaveLength(0);
+	});
+	it("assigns zero estimated eligibility when eight games do not meet participation", () => {
+		const s = fixture();
+		for (const t of Object.values(s.tournaments)) for (const m of t.matches.slice(8)) m.series!.games[0].recap!.perPickIds!.blue = [];
+		const row = computeSSRace(s)[0].contenders.find(c => c.player.id === "0-0")!;
+		expect(row).toMatchObject({ games: 8, requiredGames: 10, eligible: false, chance: 0, projected: false });
+	});
+	it("shows existing SS during next-year grace without inventing new-year grades", () => {
+		const s = reviewSSPlayers(fixture());
+		s.id = "next-year";
+		s.tournaments = {};
+		s.phases[0].status = "in-progress";
+		const holder = computeSSRace(s)[0].holder!;
+		expect(holder).toMatchObject({ carry: true, projected: true, stats: null, score: null, chance: null, games: 0 });
+	});
+	it("shows the real holder separately and projects the same winners as a phase review", () => {
+		const s = fixture();
+		const awarded = reviewSSPlayers(s);
+		for (const row of computeSSRace(awarded)) {
+			expect(row.holder?.player.tier).toBe("SS");
+			expect(row.holder?.projected).toBe(true);
+			expect(row.contenders.some(c => c.player.id === row.holder?.player.id)).toBe(false);
+		}
+		for (const row of computeSSRace(s)) expect(row.contenders.find(c => c.projected)?.player.id).toBe(awarded.teams[0].players.find(p => p.lane === row.lane)?.id);
+	});
 	it("reviews once when the engine completes a competitive phase", () => {
 		const s = fixture();
 		s.franchise!.aging = false;

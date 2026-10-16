@@ -85,6 +85,7 @@ TeamFormBadge,
 type QualifierTagInfo,
 } from "./QualifierBadge";
 import BulkYearsControl from "./season/BulkYearsControl";
+import SSRacePanel from "./season/SSRacePanel";
 import SimResultsFeedPanel from "./season/SimResultsFeedPanel";
 import SeasonMetaPanel from "./SeasonMetaPanel";
 import { LiveChampionshipPointsPanel } from "./season/ChampionshipPointsPanel";
@@ -625,6 +626,7 @@ export default function SeasonDashboard() {
         )}
 
         <LiveChampionshipPointsPanel season={season} />
+        <SSRacePanel season={season} />
 
         {/* Season-wide stats, available any time once games exist. */}
         {season.status !== "complete" && statsOpen && (

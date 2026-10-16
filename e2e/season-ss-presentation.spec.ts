@@ -2,6 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { makeAuditSeason } from "../lib/auditFixtures";
 import { createTournament, recordMatchWinner } from "../lib/tournament";
 import { resolveTeamLogo } from "../lib/season/realTeams";
+import { createSeries } from "../lib/series";
+import { LANE_ORDER } from "../lib/players";
 
 const defaults = { format: "bo1", mode: "aivai", aiSide: null, aiDifficulty: "normal", fearless: false, timerEnabled: false } as const;
 async function seed(page: Page, state: unknown) {
@@ -11,6 +13,50 @@ async function seed(page: Page, state: unknown) {
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	await page.goto("/");
 }
+
+test("live SS race shows ownership, contenders, evidence and responsive role filters", async ({ page }) => {
+	const season = makeAuditSeason("Live SS race");
+	season.teams = season.teams.slice(0, 2).map((team, ti) => ({ ...team, players: team.players.map((p, li) => ({ ...p, id: `race-${ti}-${li}`, name: `Race ${ti} ${li}`, tier: li === 3 ? "B" : "S+" })) }));
+	season.teams[0].name = "T1";
+	season.teams[0].logoUrl = resolveTeamLogo("T1");
+	season.teams[0].players[0] = { ...season.teams[0].players[0], tier: "SS", ss: { baseTier: "S+", lane: "top", seasonId: season.id, phaseIndex: 0, phaseLabel: "Winter", games: 16, score: 7.2 } };
+	const t = Object.values(season.tournaments)[0];
+	t.teams = season.teams.map((team, i) => ({ ...team, seed: i + 1 }));
+	const series = createSeries({ ...defaults, blueTeam: season.teams[0].name, redTeam: season.teams[1].name });
+	t.matches = Array.from({ length: 16 }, (_, i) => ({ ...t.matches[0], id: `race-match-${i}`, round: i + 1, isBye: false, blueTeamId: season.teams[0].id, redTeamId: season.teams[1].id, winner: { teamId: season.teams[1].id, blueWins: 0, redWins: 1 }, series: { ...series, status: "complete", games: [{ ...series.games[0], id: `race-game-${i}`, status: "complete", winner: "red", recap: { durationMinutes: 30, mvp: null, biggestSwing: null, perPickIds: { blue: LANE_ORDER.map((_, li) => `race-0-${li}`), red: LANE_ORDER.map((_, li) => `race-1-${li}`) }, ratings: { blue: [7, 7, 7, 7, 7], red: [8, 8, 8, 8, 8] }, laneGoldDiff: { top: -500, jungle: -200, middle: 0, bottom: 0, support: 0 } } }] } }));
+	season.tournaments = { [t.id]: t };
+	season.phaseIndex = 0;
+	season.phases = [{ kind: "split", split: "winter", label: "Winter", status: "in-progress", tournamentIds: [t.id] }];
+	await seed(page, { season, seasonViewOpen: false });
+	await expect(page.getByRole("region", { name: "Continue playing" })).toBeVisible();
+	await page.evaluate(() => Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true }));
+	await page.getByRole("region", { name: "Continue playing" }).getByRole("button").click();
+	const panel = page.getByRole("region", { name: "SS Race", exact: true });
+	await panel.scrollIntoViewIfNeeded();
+	const holder = panel.getByRole("article", { name: "Top SS holder", exact: true });
+	await expect(holder).toContainText("Race 0 0");
+	await expect(holder).toContainText("7.0");
+	await expect(holder).toContainText("-500");
+	await expect(holder.locator("img[src*='t1']")).toBeVisible();
+	const contenders = panel.getByRole("list", { name: "Top SS contenders" });
+	await expect(contenders).toContainText("Race 1 0");
+	await expect(contenders).toContainText("+500");
+	await expect(contenders).toContainText("Projected SS with current results");
+	await expect(contenders).toContainText(">99%");
+	await panel.getByText("Selection rules & estimates", { exact: true }).focus();
+	await page.keyboard.press("Enter");
+	await expect(panel.getByText(/S\/S\+ base tier, at least 8 rated games/)).toBeVisible();
+	await page.keyboard.press("Enter");
+	await panel.getByRole("button", { name: "ADC", exact: true }).focus();
+	await page.keyboard.press("Enter");
+	await expect(panel).toContainText("No S/S+ challengers in this role");
+	await panel.getByRole("button", { name: "Top", exact: true }).click();
+	await panel.screenshot({ path: "test-results/playwright/ss-race-desktop.png" });
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(panel).toBeVisible();
+	expect(await panel.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+	await panel.screenshot({ path: "test-results/playwright/ss-race-mobile.png" });
+});
 
 test("MSI pre-qualified teams show logos and retain focus cards", async ({ page }) => {
 	const s = makeAuditSeason();

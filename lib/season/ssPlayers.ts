@@ -3,7 +3,7 @@ import { developmentTier, withoutSS, validSSEvidence } from "../playerSS";
 import type { GameDraft, Lane, Player } from "../types";
 import type { TournamentState, TournamentTeam } from "../tournament";
 import { gameSideTeamId } from "./stats";
-import type { LeagueId, SeasonState } from "./types";
+import type { LeagueId, SeasonState, SeasonTeam } from "./types";
 
 export const SS_MIN_GAMES = 8;
 export const SS_PARTICIPATION = 0.6;
@@ -108,18 +108,18 @@ function collectGameSamples(frame: RecordedGame, context: PhaseSampleContext, wi
 	}
 }
 
-function collectSSEvidence(season: SeasonState) {
+function collectSSEvidence(season: SeasonState, live = false) {
 	const samples = new Map<string, Sample>();
 	const opportunities = new Map<LeagueId, Map<number, number>>();
 	const domesticPhases = new Map<LeagueId, number[]>();
 	for (const [pi, p] of season.phases.entries()) {
-		if (pi > season.phaseIndex || p.status !== "complete" || p.kind === "transfer") continue;
+		if (pi > season.phaseIndex || (p.status !== "complete" && !(live && pi === season.phaseIndex && p.status === "in-progress")) || p.kind === "transfer") continue;
 		const context: PhaseSampleContext = { index: pi, domestic: p.kind === "split", samples,
 			teamGames: new Map(), leagues: new Set(), titlePlayers: new Set() };
 		for (const tid of p.tournamentIds) {
 			const t = season.tournaments[tid];
 			if (!t) continue;
-			const winnerId = p.kind === "split" ? season.splitResults[p.split!]?.[t.teams[0]?.leagueId as LeagueId]?.[0] : season.intlResults[p.event!]?.[0];
+			const winnerId = p.status !== "complete" ? undefined : p.kind === "split" ? season.splitResults[p.split!]?.[t.teams[0]?.leagueId as LeagueId]?.[0] : season.intlResults[p.event!]?.[0];
 			for (const frame of recordedGames(t)) collectGameSamples(frame, context, winnerId);
 		}
 		for (const key of context.titlePlayers) ensureSample(samples, key).titles++;
@@ -135,43 +135,79 @@ function collectSSEvidence(season: SeasonState) {
 	return { samples, opportunities, domesticPhases };
 }
 
+export interface SSCandidate {
+	p: Player;
+	team: SeasonTeam;
+	values: number[];
+	games: number;
+	requiredGames: number;
+	titles: number;
+	score: number;
+	eligible: boolean;
+	carry: boolean;
+	reasons: string[];
+}
+
+export function ssPerformanceScore(values: number[]): number {
+	if (!values.length) return NEUTRAL_RATING;
+	const n = values.length;
+	const mean = values.reduce((sum, value) => sum + value, 0) / n;
+	const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / n;
+	return (mean * n + NEUTRAL_RATING * PRIOR_GAMES) / (n + PRIOR_GAMES) - Math.sqrt(variance) * 0.1;
+}
+
+/** Shared by actual reviews and the read-only live race. */
+export function evaluateSSCandidates(season: SeasonState, live = false): SSCandidate[] {
+	const { samples, opportunities, domesticPhases } = collectSSEvidence(season, live);
+	const idCounts = new Map<string, number>();
+	for (const team of season.teams) for (const p of team.players) if (p.id) idCounts.set(p.id, (idCounts.get(p.id) ?? 0) + 1);
+	const candidates: SSCandidate[] = [];
+	for (const team of season.teams) for (const p of team.players) {
+		if (!p.id || idCounts.get(p.id) !== 1 || !["S", "S+"].includes(developmentTier(p))) continue;
+		const sample = samples.get(`${p.id}:${p.lane}`);
+		const values = sample?.values ?? [];
+		const domestic = domesticPhases.get(team.leagueId) ?? [];
+		const elapsed = new Map<number, number>();
+		for (const league of new Set([...(sample?.leagues ?? []), team.leagueId])) {
+			for (const [pi, n] of opportunities.get(league) ?? []) elapsed.set(pi, Math.max(elapsed.get(pi) ?? 0, n));
+		}
+		const requiredGames = Math.max(SS_MIN_GAMES, Math.ceil([...elapsed.values()].reduce((a, b) => a + b, 0) * SS_PARTICIPATION));
+		const reasons: string[] = [];
+		if (values.length < requiredGames) reasons.push(`Needs ${requiredGames} rated games (${values.length} recorded)`);
+		if (domestic.length && (sample?.lastDomestic ?? -1) < domestic[domestic.length - 1]) reasons.push("No rated participation in the latest domestic split");
+		const regionalOpportunities = [...(opportunities.get(team.leagueId)?.values() ?? [])].reduce((sum, n) => sum + n, 0);
+		candidates.push({ p, team, values, games: values.length, requiredGames, titles: sample?.titles ?? 0,
+			score: ssPerformanceScore(values), eligible: reasons.length === 0,
+			carry: p.tier === "SS" && p.ss?.seasonId !== season.id && regionalOpportunities < SS_MIN_GAMES, reasons });
+	}
+	return candidates;
+}
+
+export function compareSSCandidates(a: SSCandidate, b: SSCandidate): number {
+	return b.score - a.score || b.titles - a.titles || b.games - a.games || a.p.id!.localeCompare(b.p.id!);
+}
+
+export function selectSSCandidate(candidates: SSCandidate[]): SSCandidate | undefined {
+	const best = [...candidates].sort(compareSSCandidates)[0];
+	const incumbent = candidates.find(c => c.p.tier === "SS");
+	return incumbent && best && best.score < incumbent.score + SS_REPLACE_MARGIN ? incumbent : best;
+}
+
 /** Phase-boundary selection; recorded IDs and frozen entrant strength only. */
 export function reviewSSPlayers(input: SeasonState): SeasonState {
 	const season = reconcileSSPlayers(input);
 	const phase = season.phases[season.phaseIndex];
 	if (!phase || phase.kind === "transfer" || phase.status !== "complete") return season;
-	const { samples, opportunities, domesticPhases } = collectSSEvidence(season);
 	const selected = new Map<string, { score: number; games: number; carry?: boolean }>();
-	const idCounts = new Map<string, number>();
-	for (const team of season.teams) for (const p of team.players) if (p.id) idCounts.set(p.id, (idCounts.get(p.id) ?? 0) + 1);
+	const candidates = evaluateSSCandidates(season);
 	for (const lane of LANE_ORDER) {
-		const candidates: Array<{ p: Player; score: number; games: number; titles: number }> = [];
-		let carry: Player | undefined;
-		for (const team of season.teams) for (const player of team.players) {
-			if (player.lane !== lane || !player.id || idCounts.get(player.id) !== 1 || !["S", "S+"].includes(developmentTier(player))) continue;
-			const sample = samples.get(`${player.id}:${lane}`);
-			const domestic = domesticPhases.get(team.leagueId) ?? [];
-			const regionalOpportunities = [...(opportunities.get(team.leagueId)?.values() ?? [])].reduce((sum, n) => sum + n, 0);
-			if (player.tier === "SS" && player.ss?.seasonId !== season.id && regionalOpportunities < SS_MIN_GAMES) carry = player;
-			if (!sample || sample.values.length < SS_MIN_GAMES) continue;
-			const leagues = new Set([...sample.leagues, team.leagueId]);
-			const elapsed = new Map<number, number>();
-			for (const league of leagues) for (const [pi, n] of opportunities.get(league) ?? []) elapsed.set(pi, Math.max(elapsed.get(pi) ?? 0, n));
-			const required = [...elapsed.values()].reduce((a, b) => a + b, 0) * SS_PARTICIPATION;
-			if (sample.values.length < required) continue;
-			if (domestic.length && sample.lastDomestic < domestic[domestic.length - 1]) continue;
-			const n = sample.values.length;
-			const mean = sample.values.reduce((a, b) => a + b, 0) / n;
-			const variance = sample.values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / n;
-			const score = (mean * n + NEUTRAL_RATING * PRIOR_GAMES) / (n + PRIOR_GAMES) - Math.sqrt(variance) * 0.1;
-			candidates.push({ p: player, score, games: n, titles: sample.titles });
-		}
-		candidates.sort((a, b) => b.score - a.score || b.titles - a.titles || b.games - a.games || a.p.id!.localeCompare(b.p.id!));
-		const incumbent = candidates.find(c => c.p.tier === "SS");
-		const best = candidates[0];
-		const winner = incumbent && best && best.score < incumbent.score + SS_REPLACE_MARGIN ? incumbent : best;
+		const laneCandidates = candidates.filter(c => c.p.lane === lane);
+		const winner = selectSSCandidate(laneCandidates.filter(c => c.eligible));
 		if (winner) selected.set(winner.p.id!, winner);
-		else if (carry?.id) selected.set(carry.id, { score: carry.ss!.score, games: carry.ss!.games, carry: true });
+		else {
+			const carry = laneCandidates.find(c => c.carry);
+			if (carry) selected.set(carry.p.id!, { score: carry.p.ss!.score, games: carry.p.ss!.games, carry: true });
+		}
 	}
 	const teams = season.teams.map(t => ({ ...t, players: t.players.map(p => {
 		const evidence = p.id ? selected.get(p.id) : undefined;
