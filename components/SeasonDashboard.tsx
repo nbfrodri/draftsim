@@ -7,7 +7,6 @@ import { nextSplitRegularMatch } from "@/lib/season/regularSeason";
 
 import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdentity";
 import MatchContextBadges from "@/components/tournament/MatchContextBadges";
-import { teamStarRating } from "@/lib/tournament";
 import { ALL_PRO_LABELS } from "@/lib/season/allProScopes";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
@@ -60,11 +59,13 @@ type LeagueId,
 type SeasonPhase,
 type SeasonState,
 } from "@/lib/season/types";
-import type { TournamentMatch,TournamentState } from "@/lib/tournament";
 import {
 computeStandings,
 formatHasStandings,
+teamStarRating,
 tournamentChampion,
+type TournamentMatch,
+type TournamentState,
 } from "@/lib/tournament";
 import type { Champion,Lane } from "@/lib/types";
 import type { SeasonMatchdayResult } from "@/store/draftStore";
@@ -2231,13 +2232,6 @@ function PlacementRow({
 // series), the All-Pro lane strip, special recognitions, and a volume
 // footer.
 
-const LANE_LABEL: Record<Lane, string> = {
-  top: "Top",
-  jungle: "Jgl",
-  middle: "Mid",
-  bottom: "Bot",
-  support: "Sup",
-};
 const LANE_ORDER: readonly Lane[] = [
   "top",
   "jungle",

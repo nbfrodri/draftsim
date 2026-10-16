@@ -96,7 +96,7 @@ export default function SSRacePanel({ season }: { season: SeasonState }) {
 				))}
 			</div>
 			<h3 className="mb-2 mt-5 font-display text-sm text-rift-goldbright">SS contenders</h3>
-			<div role="group" aria-label="Contender role" className="mb-3 flex flex-wrap gap-2">{race.map(row => <button type="button" key={row.lane} aria-pressed={row.lane === lane} onClick={() => { setLane(row.lane); setShowAll(false); }} className={`inline-flex items-center gap-1.5 border px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-bluebright ${lane === row.lane ? "border-cyan-200 text-cyan-100 bg-cyan-300/10" : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright"}`}><LaneIcon lane={row.lane} />{ROLE_NAMES[row.lane]}</button>)}</div>
+			<fieldset aria-label="Contender role" className="mb-3 flex min-w-0 flex-wrap gap-2 border-0 p-0">{race.map(row => <button type="button" key={row.lane} aria-pressed={row.lane === lane} onClick={() => { setLane(row.lane); setShowAll(false); }} className={`inline-flex items-center gap-1.5 border px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-bluebright ${lane === row.lane ? "border-cyan-200 text-cyan-100 bg-cyan-300/10" : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright"}`}><LaneIcon lane={row.lane} />{ROLE_NAMES[row.lane]}</button>)}</fieldset>
 			<p className="mb-2 text-xs text-rift-mutedbright">Chance estimates reflect uncertainty in current results, not future-match odds or a guarantee.</p>
 			<details className="mb-3 text-xs leading-relaxed text-rift-mutedbright">
 				<summary className="w-fit cursor-pointer py-1 text-rift-bluebright">Selection rules &amp; estimates</summary>
