@@ -1,0 +1,86 @@
+# SS players, bottom-lane meta audit and season team cards
+
+## Status and scope
+
+Planning only. No gameplay, UI or save changes are implemented by this document.
+User decisions are recorded below; numerical balancing proposals remain subject to verification with seeded simulations. Implement the visual changes independently from the gameplay work. Use strict workflow for save/import changes and balance-sensitive SS integration.
+
+## Agreed behavior
+
+- Add **SS**, a real player tier above S+, affecting gameplay, progression and market evaluations. Champion meta tiers remain D through S+.
+- At most one SS player per position worldwide, hence at most five active holders. Reconsider holders at the end of each competitive phase, with a margin to prevent oscillation.
+- Rank candidates by individual performance in the current season. Titles are a tiebreaker, not the primary criterion. Require meaningful recorded participation.
+- SS persists across season boundaries, but is not irrevocable: a stronger challenger can replace its holder, who loses SS. Progression and decline continue to matter. The final exclusivity decision supersedes the earlier suggestion that permanent SS players could accumulate.
+- In MSI's “Pre-Qualified to Playoffs”, display existing team logos.
+- In Season Recap, “Winningest Team” and “Most Titles” use existing hover/focus team cards, not large permanently expanded cards.
+- Investigate champion meta tiers in bottom lane throughout a season: the user observes most champions in D/low tiers and sometimes no S/S+. This concerns champions, not ADC player tiers.
+
+## Evidence from current code
+
+- `lib/types.ts` and `lib/players.ts` define player tiers, numeric strength, skill weights and champion-pool preferences. Multiple UI maps and import validators enumerate the six current tiers.
+- `lib/season/teamGen.ts::assignRoleElites` selects up to five S+ players per role from S/S+ candidates using team stars, incumbent advantage and a stable name hash. It does not select on season performance. SS must coordinate with this existing assignment instead of being overwritten by it.
+- `lib/season/allPro.ts` already selects annual global players by average rating, with at least eight rated games and games played as a tiebreaker. Reuse underlying participation/identity aggregation, but do not silently change All-Pro award rules to match SS.
+- `lib/season/playerLifecycle.ts`, `franchise.ts`, `transfers.ts`, `playerAgency.ts`, `history.ts` and `stats.ts` own affected lifecycle, market and archive paths. Trace their actual callers before implementation.
+- `lib/metaRandomizer.ts` allocates tiers proportionally within each eligible lane pool: baseline targets are 12% S+, 18% S, 30% A, 25% B, 11% C and 4% D, perturbed per run. Baseline C/D off-meta picks remain outside that allocation. This alone does not explain the reported seasonal drift.
+- `lib/metaEvolution.ts` promotes/demotes individual champions using presence and shrunk win rate, with bounded emerging picks. Inspect patch-shift and season propagation callers too; no root cause is confirmed yet.
+- `components/tournament/bracket/FormatViews.tsx` explicitly sets `showLogo={false}` in the pre-qualified list.
+- `components/SeasonDashboard.tsx::SeasonRecapPanel` currently renders the two team statistics through `RecapChip` with names and icons. Existing `TeamNameLink`, `TeamLogoLink` and team-card providers supply reusable interactions.
+
+## SS selection and lifecycle design
+
+### Proposed rules to validate
+
+1. Use a pure selector over recorded player-season lines, keyed by stable player ID and position. Aggregate across transfers and count domestic and international games. Do not assign results to the current occupant of an old roster slot. Compare within each position, never raw cross-position ratings.
+2. Review once after a competitive phase is fully complete and its results are recorded. Transfer windows and offseason navigation are not new performance samples. Run identically for manual play, bulk simulation and resumed saves; make repeated processing idempotent.
+3. Initially require at least eight rated games, matching the existing annual All-Pro baseline. Validate this threshold against short formats; preserve vacancies rather than inventing participation. Fresh worlds start without SS until evidence exists. These are proposed defaults, not already implemented behavior.
+4. Rank by season-to-date average individual rating. Use actual participated titles only for exact score ties, then rated games and stable player ID for deterministic resolution. Reuse existing title participation contracts; no award for merely being on the latest roster.
+5. Suggested starting replacement margin: a challenger must exceed the eligible incumbent by 0.15 rating points. Measure turnover and tune before shipping. Titles break a vacant-seat ranking tie but do not bypass incumbent protection. Select from qualified players regardless of current tier; verify whether unexpected low-tier winners reveal rating bias before imposing an S+-only gate.
+6. Carry the holder into the next season while new evidence accumulates. Reset season performance samples, not holder identity. At the first checkpoint where the role has eligible challengers, a holder without the participation minimum cannot block that role indefinitely. Vacate a retired holder; do not automatically promote a replacement without evidence. Track ownership across transfers, temporary inactivity and role changes, enforcing exclusivity on every relevant mutation.
+7. Separate underlying development tier from the exclusive SS assignment in domain state. The effective gameplay tier becomes SS while held; development continues on the underlying tier. On replacement or loss, reveal the evolved underlying tier rather than forcing everyone to S+ or D. Centralize effective-tier resolution so simulation, drafting, UI, market and stars all agree. Audit whether an optional underlying-tier field or a season-owned assignment best fits existing consumers before choosing storage shape.
+8. Coordinate with `assignRoleElites` using underlying tiers so S+ quotas and SS ownership cannot overwrite one another or compound boosts. SS is not random potential, a recruit roll or an extra automatic academy promotion step. Retirement/inactivity and phase completion must have one explicit ownership order.
+
+### Gameplay and market effects
+
+- Add SS to the player-tier contract, ordering, labels, colors, filters, editors and all exhaustive lookup tables. Keep `MetaTier` unchanged.
+- Calibrate a modest, measurable increase above S+ in the existing player skill/comfort and draft evaluation paths. Inventory each consumer before choosing numeric values; do not assume increasing one enum affects all simulation paths.
+- Preserve team star rounding and the 1–5 ceiling. Keep underlying development and potential coherent, and ensure a lost SS assignment removes its advantage exactly once.
+- Apply effective SS strength to existing market valuations and power rankings. Review cross-region restrictions that currently special-case S/S+; SS must not accidentally escape them. Avoid new market subsystems or special guaranteed transfers.
+- Detect feedback loops where SS strength produces higher ratings that make ownership effectively permanent. Seeded long-run comparisons must assess turnover, win-rate effects, team concentration and role fairness, including incumbents in weaker teams.
+- Show why a player holds SS, the last evaluated phase, relevant performance and the underlying-tier fallback. Display S+ and SS distinctly using existing typography and player-card patterns.
+
+### Saves and historical integrity
+
+- Inspect hydration, store mutation, write queues, import/export, restore and archive creation before changing contracts. Extend validators and normalization for SS only on player data.
+- Prefer optional additive metadata for ownership, source season/phase, underlying tier and selection evidence as needed by the selected state model. Legacy saves retain their original tiers and do not acquire fabricated historical SS awards.
+- Archive actual SS ownership/effective tiers without rewriting completed games or changing existing All-Pro counts. Preserve historical team region/name identity and stable player IDs.
+- Validate duplicate holders, invalid lanes, non-finite evidence and malformed tiers at import boundaries. Define consistent reject/normalize behavior explicitly; do not silently discard valid save data.
+- Exercise disposable SQLite and browser fixtures, transaction boundaries and round-trip exports. If a storage migration proves necessary, specify a recoverable original and rollback before implementation.
+
+## Bottom-lane champion meta investigation
+
+1. Reproduce distributions at creation and every phase/patch with fixed seeds and the bundled real champion catalogue. Record all five lanes, eligible picks versus preserved off-meta picks, promotions/demotions, presence, win rates and effective UI tiers.
+2. Cover default/randomized/custom meta, live evolution and patch shifts independently and combined. Check actual lane attribution, swapped game sides, repeated checkpoint processing, stale snapshots and cumulative evidence reused across successive shifts.
+3. Check whether a small viable pool concentrates pick/ban exposure and repeatedly demotes the same champions, while low-presence alternatives recover too slowly. Treat this as a hypothesis until measured.
+4. First fix demonstrated attribution, accumulation or display defects. If balancing is still needed, prefer lane-aware exposure/recovery and bounded drift from a patch baseline. Keep custom edits intentional and preserve off-meta distinctions.
+5. Do not guarantee S+ or S merely to fill rows: absence can be valid for absolute strength tiers. A sustained collapse of most normally viable ADCs into D is a balance smell, not a consequence justified solely by pool size. If relative per-role rankings are desired instead, present that as a separate product decision before changing tier meaning.
+6. Acceptance: deterministic reproduction, meaningful diversity through multiple seasons, no systematic bottom-lane collapse under the agreed measurement, and no weakening of other roles to hide the issue. Select numerical distribution limits only after baseline measurement; record before/after results.
+
+## UI implementation
+
+1. MSI: enable the existing logo in the pre-qualified `TeamNameLink`; preserve names, seeds, provider context and hover/focus behavior. Check configured custom logos, missing-logo fallback, narrow layout and multiple international formats using this shared view. Qualification logic stays unchanged.
+2. Recap: compose team name/logo links into the existing chips (allow a React node value only if necessary). Resolve live versus archived teams using the appropriate provider and historical context. Keep match records and title counts visible; handle the same team winning both stats and absent data.
+3. Verify mouse, keyboard focus, profile navigation and topmost-only Escape dismissal. Use existing assets and Inter typography; no dependencies or artwork regeneration.
+
+## Implementation sequence and verification
+
+1. Deliver the two UI improvements independently with focused browser checks.
+2. Measure and document champion-meta behavior, add a failing regression for any confirmed defect, then fix and compare seeded simulations. Keep unrelated dataset changes out of scope.
+3. Finalize SS storage ownership and calibrate proposed eligibility/margin/strength parameters. Implement pure selection with red/green tests, then lifecycle integration, consumers and persistence compatibility.
+4. Test vacancies, minimum samples, ties, incumbent margin, transfers, side swaps, inactive/retired holders, role changes, insufficient new-season samples, underlying-tier restoration, S+ coexistence, repeated checkpoints and manual/bulk parity.
+5. Test SS's actual gameplay and valuation effects, capped stars, import validation, legacy reads, archive identity and save round trips. Test several seasons with deterministic RNG, at most one holder per role, and no mutation of completed results.
+6. Run focused `npm test -- <paths>`, then relevant full unit suite, `npm run typecheck`, `npm run lint` and `npm run build`. Run Playwright against the export; if desktop persistence changes, also native tests and affected Linux/Windows WebView checks. Report browser and native verification separately.
+7. Update `docs/systems.md` and affected contracts, including `docs/technical-design.md`; keep maintained translations consistent. No version bump or release. Commit verified milestones with Conventional Commits.
+
+## Planning validation
+
+Code locations and current rules above were inspected. This change contains documentation only; gameplay tests, seeded balance experiments and browser/native checks belong to implementation and have not been run for this plan.
