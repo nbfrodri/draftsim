@@ -6,6 +6,7 @@ Esta documentación distingue contratos implementados de propuestas de evolució
 
 | Objetivo | Documentos |
 |---|---|
+| Instalar o actualizar la aplicación | [Instalación (ES)](installation.es.md), [installation (EN)](installation.md) |
 | Comprender la arquitectura | [Diseño técnico](technical-design.md) |
 | Modificar temporadas y premios | [Dominio e invariantes](domain-contracts.md), [sistemas de juego](systems.es.md) |
 | Trabajar con guardados y recuperación | [Persistencia y recuperación](persistence-and-recovery.md) |
@@ -26,6 +27,9 @@ Esta documentación distingue contratos implementados de propuestas de evolució
 Los documentos de `plans/` y las auditorías registran objetivos y decisiones de un momento concreto; no certifican por sí solos el comportamiento actual. Si una descripción contradice el código, debe investigarse y actualizarse junto con las pruebas pertinentes.
 
 ## Versiones
+
+- [v1.9.0: titulares y aspirantes SS en directo](releases/v1.9.0.md).
+- [v1.8.0: tier SS, evolución del meta y tarjetas de equipos](releases/v1.8.0.md).
 
 - [v1.3.1: pantalla de carga centrada al continuar y abrir vistas](releases/v1.3.1.md).
 

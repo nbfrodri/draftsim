@@ -1,6 +1,6 @@
 # Sistemas de juego centrales — referencia técnica
 
-Documentación profunda de la IA, capa temporada/franquicia, estructura competitiva y modelo de realismo de DraftSim. Para notas UX a nivel feature ver el [README](../README.es.md); para docs de diseño de subsistemas ver [Documentación de diseño](../README.es.md#-documentación-de-diseño).
+Documentación profunda de la IA, capa temporada/franquicia, estructura competitiva y modelo de realismo de DraftSim. Consulta el [README](../README.es.md) para una visión general y el [diseño técnico](technical-design.md) para la arquitectura.
 
 🇬🇧 **[English version](systems.md)**
 

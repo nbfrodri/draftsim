@@ -2,7 +2,7 @@
 
 🇪🇸 **[Versión en español](systems.es.md)**
 
-Deep documentation for DraftSim's AI, season/franchise layer, competitive structure, and realism model. For feature-level UX notes see the [README](../README.md); for subsystem design docs see [Design docs](../README.md#-design-docs).
+Deep documentation for DraftSim's AI, season/franchise layer, competitive structure, and realism model. See the [README](../README.md) for an overview and [technical design](technical-design.md) for the architecture.
 
 **Code map:** `lib/draftAI/` · `lib/matchSimulator.ts` · `lib/sim/` · `lib/season/` · `lib/championMeta.ts` · `lib/metaRandomizer.ts` · `lib/chemistry.ts`
 
