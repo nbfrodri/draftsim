@@ -14,7 +14,7 @@
 import type { Lane, Player, PlayerTier } from "../types";
 import type { SeasonHistoryEntry } from "./history";
 import { resolveTeamLogo } from "./realTeams";
-import type { SeasonTeam, TransferPlayer, SeasonState } from "./types";
+import type { SeasonTeam, TransferPlayer, SeasonState, LeagueId } from "./types";
 import type { ValueBreakdown } from "./faMarket";
 import {
   TOTAL_INACTIVE_BEFORE_RETIRE,
@@ -22,7 +22,7 @@ import {
   yearsInAcademy,
   type CareerStatus,
 } from "./playerLifecycle";
-import type { LeagueId } from "./types";
+import { ssHistory, playerSSHistory, closingSSHolders } from "./ssHistory";
 
 export type PlayerCardStatus = CareerStatus;
 
@@ -123,6 +123,7 @@ export interface PlayerCardData {
   lane?: Lane;
   tier?: PlayerTier;
   ss?: Player["ss"];
+  ssContext?: string;
   potential?: PlayerTier;
   age?: number;
   debutYear?: number;
@@ -188,6 +189,21 @@ export interface ArchivedRosterSnapshot {
   stage: string;
   /** True when the player appeared for more than one team that year. */
   transferred: boolean;
+}
+
+export function archivedSSContext(entry: SeasonHistoryEntry, playerId: string, phaseScope?: import("./types").SplitId | import("./types").InternationalId): string {
+	const checkpoints = ssHistory(entry);
+	if (phaseScope) {
+		const phase = entry.phaseRosters?.find(p => p.split === phaseScope || p.event === phaseScope);
+		const review = checkpoints.find(c => c.phaseIndex === phase?.phaseIndex);
+		const owner = review?.holders.find(h => h.playerId === playerId);
+		const played = archivedRosterSnapshot(entry, playerId, phaseScope);
+		return `${played ? `Tier during ${phase?.label ?? phaseScope}: ${played.tier}. ` : ""}${review ? owner ? `SS after ${review.label} · ${owner.decision ?? "recorded holder"}.` : `Not SS after ${review.label}.` : "Closing SS review unknown."}`;
+	}
+	const last = checkpoints.at(-1);
+	const career = playerSSHistory([entry], playerId);
+	const owner = closingSSHolders(entry)?.find(h => h.playerId === playerId);
+	return `${last ? `${owner ? "SS" : "Not SS"} at last recorded ownership boundary. ` : "Closing SS ownership unknown. "}${career.checkpoints} SS review checkpoints held this year. Played tier comes from the last roster snapshot.`;
 }
 
 /**

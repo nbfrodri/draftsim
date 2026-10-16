@@ -7,10 +7,10 @@
 // shifts). No store access — the store drives simulation and feeds
 // completed tournaments back through applyTournamentUpdate().
 
-import type { SeriesFormat, PlayerTier } from "../types";
+import type { SeriesFormat, PlayerTier, Champion, Lane } from "../types";
 import { developmentTier, withDevelopmentTier } from "../playerSS";
 import { reviewSSPlayers, reconcileSSPlayers } from "./ssPlayers";
-import type { Champion, Lane } from "../types";
+import { snapshotSSHolders, recordSSLosses } from "./ssHistory";
 import {
   CHAMPION_META,
   TIER_ORDER,
@@ -1643,7 +1643,7 @@ export function applyPlayerDevelopment(
     });
     return changed ? { ...team, players } : team;
   });
-  return { ...season, teams, prevPlayerTiers };
+  return recordSSLosses(season, { ...season, teams, prevPlayerTiers }, "decline");
 }
 
 // [F] After an international, raise the regions whose teams placed well and
@@ -1738,6 +1738,7 @@ export function createSeason(opts: {
     updatedAt: now,
     config: opts.config,
     teams: opts.teams,
+    ssOpening: snapshotSSHolders(opts.teams),
     phases,
     phaseIndex: 0,
     tournaments: {},

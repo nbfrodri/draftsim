@@ -199,6 +199,14 @@ Before/After team strength uses the selected frozen main roster: `averageTierFro
 
 ## Team-strength precision
 
+### SS ownership and historical context
+
+`tier: "SS"` is effective live strength over an S/S+ development tier. A phase roster records entrants as they played; a closing SS review is a separate observation and cannot rewrite that roster. Optional `ssOpening`, versioned `ssReviews` and `ssLosses` travel unchanged through season archives and existing JSON/SQLite persistence, without a schema migration. Reviews freeze stable player identity and review-time team identity, including region. A transfer can make that club differ from the event entrant's club.
+
+New review decisions distinguish gained, retained and carried ownership. Carry preserves the evidence's source season; it is not a new acquisition. Mutation-owned losses record the boundary and whether it follows the phase review. Already recorded reviews are idempotent. `ssHistory`, `playerSSHistory` and `closingSSHolders` supply read-only timeline, career and card projections; they do not rerun selection, change All-Pro/title counts or consume simulation randomness. Missing legacy records and gaps remain unknown. Review checkpoints held are a reporting unit, not participation or elapsed time. Career History contains the summary and each year's expandable SS history; historical cards explicitly separate played tiers and closing ownership.
+
+SS contributes 3.5 to the roster mean versus S+ at 3. A five-player S+ → SS upgrade adds 0.1 before half-star rounding and the five-star cap; existing simulation-specific SS effects remain active at that cap. No new strength bonus or selection rebalance is introduced by historical presentation.
+
 Team stars are numbers on the 1..5 half-step scale, owned by `normalizeTeamStars` in `lib/teamStars.ts`. Main-roster strength uses `deriveStar`; no caller should independently round it to an integer. Roster-bearing teams override cached `starRating` values. A saved series retains its explicit per-team strength, and side swaps move that strength with the team. Integer legacy values remain valid without a persistence migration. Academy players, player match grades, player letter tiers and decimal coach ratings are separate domains. Completed results are immutable; future matches and derived roster summaries can differ under the more precise model.
 
 

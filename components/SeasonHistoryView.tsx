@@ -13,6 +13,8 @@ import dynamic from "next/dynamic";
 import { ComparePanel } from "./hall/ComparePanel";
 import InternationalAppearanceFilters from "./hall/InternationalAppearanceFilters";
 import CareerHistoryControls, { type CareerEvent } from "./hall/CareerHistoryControls";
+import SSHistoryPanel, { SSCareerSummary, SSCareerYear } from "./hall/SSHistoryPanel";
+import { playerSSHistory } from "@/lib/season/ssHistory";
 import { acyBadgeYears,CareerStatus,CareerStatusBadge,DynastyBadge,LANES,NavFn,NavPlayerName,PlayerTeamIcon,SeasonScope,TeamRef } from "./hall/shared";
 
 import {
@@ -746,6 +748,7 @@ function SeasonDetail({
       </div>
 
       {/* International title holders — with the winning roster that lifted it */}
+      <SSHistoryPanel entry={entry} />
       {intls.length > 0 && (
         <div className="cv-section">
           <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
@@ -3471,6 +3474,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
   };
 }) {
   const p = useMemo(() => playerProfile(entries, id, liveOpts), [entries, id, liveOpts]);
+  const ssCareer = useMemo(() => playerSSHistory(entries, id), [entries, id]);
   const [highlightedEvents, setHighlightedEvents] = useState<Set<CareerEvent>>(() => new Set());
   const [careerRange, setCareerRange] = useState({ from: "", to: "" });
   const careerSeasons = useMemo(() => [...(p?.tenures ?? [])].reverse().map(t => ({ id: t.seasonId, label: t.season })), [p]);
@@ -3493,6 +3497,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
       <div className="flex items-center gap-2 flex-wrap">
         {p.lane && <LaneIcon lane={p.lane} size="sm" />}
         {p.tier && <span className={`w-5 text-center border font-display text-[10px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>}
+        {p.tier === "SS" && <span className="text-[9px] text-rift-mutedbright">Historical tier · current ownership is shown in Live Season</span>}
         <PlayerNameLink
           playerId={id}
           name={p.name}
@@ -3635,6 +3640,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
       <CareerTeammates key={id} rows={p.teammates} onGoToSeason={onGoToSeason} />
       <section aria-label="Career History">
         <h3 className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-2">Career History</h3>
+        <SSCareerSummary history={ssCareer} />
         <CareerHistoryControls seasons={careerSeasons} from={careerRange.from} to={careerRange.to}
           onFrom={from => setCareerRange(range => ({ from, to: from && careerSeasons.findIndex(s => s.id === from) > toIndex ? from : range.to }))}
           onTo={to => setCareerRange(range => ({ to, from: to && careerSeasons.findIndex(s => s.id === to) < fromIndex ? to : range.from }))}
@@ -3711,6 +3717,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
               </div>
               {t.windows?.length ? <CareerWindowChips windows={t.windows} playerId={id} seasonId={t.seasonId} highlighted={highlightedEvents} />
                 : <p className="mt-2 text-[10px] text-rift-mutedbright/70">Event history was not recorded for this season.</p>}
+              <SSCareerYear history={ssCareer} seasonId={t.seasonId} />
             </div>
             </SeasonScope.Provider>
           ))}

@@ -16,6 +16,11 @@
     }
     return { ...withoutSS(player), tier: tier === "SS" ? "S" : tier };
   }
+  function validSSEvidence(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const v = value;
+    return (v.baseTier === "S" || v.baseTier === "S+") && ["top", "jungle", "middle", "bottom", "support"].includes(v.lane) && typeof v.seasonId === "string" && v.seasonId.length > 0 && typeof v.phaseLabel === "string" && v.phaseLabel.length > 0 && Number.isSafeInteger(v.phaseIndex) && v.phaseIndex >= 0 && typeof v.score === "number" && Number.isFinite(v.score) && v.score >= 1 && v.score <= 10 && Number.isSafeInteger(v.games) && v.games >= 8;
+  }
 
   // lib/teamStars.ts
   function normalizeTeamStars(value) {
@@ -30619,56 +30624,33 @@
     return pool.map((e, i) => retireIdx.has(i) ? { ...e, status: "retired" } : e);
   }
 
-  // lib/season/rosterNews.ts
-  function currentOffseasonRosterNews(season) {
-    return (season.rosterNews ?? []).filter((news, index) => {
-      if (news.origin) return !!season.id && belongsToMarketWindow(news.origin, { id: season.id, franchise: season.franchise }, "Offseason");
-      return season.offseasonRosterNewsBaseline != null && index >= season.offseasonRosterNewsBaseline && news.timeMark === "Offseason";
+  // lib/season/ssHistory.ts
+  function snapshotSSHolders(teams) {
+    return LANE_ORDER.flatMap((lane) => teams.flatMap((t) => t.players.filter((p) => p.lane === lane && p.tier === "SS" && p.id && p.ss).map((p) => ({
+      playerId: p.id,
+      lane,
+      evidence: { ...p.ss },
+      ...p.name ? { playerName: p.name } : {},
+      team: { teamId: t.id, teamName: t.name, leagueId: t.leagueId, ...t.logoUrl ? { logoUrl: t.logoUrl } : {} }
+    }))));
+  }
+  function recordSSLosses(before, after, fallback = "inactive") {
+    const active = new Map(after.teams.flatMap((t) => t.players.map((p) => [p.id, p])));
+    const losses = snapshotSSHolders(before.teams).filter((h) => {
+      const p = active.get(h.playerId);
+      return !p || p.tier !== "SS" || p.lane !== h.lane;
+    }).map((holder) => {
+      const p = active.get(holder.playerId);
+      return {
+        phaseIndex: before.phaseIndex,
+        afterReview: !!before.ssReviews?.some((r) => r.phaseIndex === before.phaseIndex),
+        label: before.status === "complete" ? "Offseason" : before.phases[before.phaseIndex]?.label ?? "Roster change",
+        holder,
+        reason: p && p.lane !== holder.lane ? "role-change" : p && p.tier !== "SS" ? "decline" : fallback
+      };
     });
-  }
-  function initializeOffseasonRosterNewsBoundary(season) {
-    return season.status === "complete" && season.offseasonRosterNewsBaseline == null ? { ...season, offseasonRosterNewsBaseline: season.rosterNews?.length ?? 0 } : season;
-  }
-
-  // lib/season/stats.ts
-  function computePlayerTitleCounts(season) {
-    const achv = /* @__PURE__ */ new Map();
-    const ensure = (id) => {
-      let a = achv.get(id);
-      if (!a) {
-        a = { split: 0, intlTitles: 0, intlApps: 0 };
-        achv.set(id, a);
-      }
-      return a;
-    };
-    const snaps = season.phaseRosters ?? [];
-    const playersOnTeam = (teamId, match) => {
-      const snap = snaps.find(match);
-      const roster = snap ? snap.teams.find((t) => t.teamId === teamId)?.players : snaps.length > 0 ? void 0 : season.teams.find((t) => t.id === teamId)?.players;
-      return (roster ?? []).map((p) => p.id).filter((x) => !!x);
-    };
-    for (const [split, byLeague] of Object.entries(season.splitResults)) {
-      for (const order of Object.values(byLeague ?? {})) {
-        const champ = order?.[0];
-        if (champ)
-          for (const pid of playersOnTeam(champ, (s) => s.split === split)) ensure(pid).split += 1;
-      }
-    }
-    for (const [event, order] of Object.entries(season.intlResults)) {
-      const champ = order?.[0];
-      if (champ)
-        for (const pid of playersOnTeam(champ, (s) => s.event === event)) ensure(pid).intlTitles += 1;
-    }
-    for (const phase of season.phases) {
-      if (phase.kind !== "international") continue;
-      const attended = /* @__PURE__ */ new Set();
-      for (const tid of phase.tournamentIds) {
-        for (const tt of season.tournaments[tid]?.teams ?? []) attended.add(tt.id);
-      }
-      for (const id of attended)
-        for (const pid of playersOnTeam(id, (s) => s.event === phase.event)) ensure(pid).intlApps += 1;
-    }
-    return achv;
+    if (!losses.length) return after;
+    return { ...after, ssLosses: [...after.ssLosses ?? [], ...losses.filter((l) => !(after.ssLosses ?? []).some((x) => x.phaseIndex === l.phaseIndex && x.holder.playerId === l.holder.playerId && x.holder.lane === l.holder.lane))] };
   }
 
   // lib/draftAI/personalities.ts
@@ -32625,6 +32607,80 @@
     return next;
   }
 
+  // lib/season/stats.ts
+  function computePlayerTitleCounts(season) {
+    const achv = /* @__PURE__ */ new Map();
+    const ensure = (id) => {
+      let a = achv.get(id);
+      if (!a) {
+        a = { split: 0, intlTitles: 0, intlApps: 0 };
+        achv.set(id, a);
+      }
+      return a;
+    };
+    const snaps = season.phaseRosters ?? [];
+    const playersOnTeam = (teamId, match) => {
+      const snap = snaps.find(match);
+      const roster = snap ? snap.teams.find((t) => t.teamId === teamId)?.players : snaps.length > 0 ? void 0 : season.teams.find((t) => t.id === teamId)?.players;
+      return (roster ?? []).map((p) => p.id).filter((x) => !!x);
+    };
+    for (const [split, byLeague] of Object.entries(season.splitResults)) {
+      for (const order of Object.values(byLeague ?? {})) {
+        const champ = order?.[0];
+        if (champ)
+          for (const pid of playersOnTeam(champ, (s) => s.split === split)) ensure(pid).split += 1;
+      }
+    }
+    for (const [event, order] of Object.entries(season.intlResults)) {
+      const champ = order?.[0];
+      if (champ)
+        for (const pid of playersOnTeam(champ, (s) => s.event === event)) ensure(pid).intlTitles += 1;
+    }
+    for (const phase of season.phases) {
+      if (phase.kind !== "international") continue;
+      const attended = /* @__PURE__ */ new Set();
+      for (const tid of phase.tournamentIds) {
+        for (const tt of season.tournaments[tid]?.teams ?? []) attended.add(tt.id);
+      }
+      for (const id of attended)
+        for (const pid of playersOnTeam(id, (s) => s.event === phase.event)) ensure(pid).intlApps += 1;
+    }
+    return achv;
+  }
+
+  // lib/season/ssPlayers.ts
+  function reconcileSSPlayers(season) {
+    const holders = /* @__PURE__ */ new Set();
+    let changed = false;
+    const teams = season.teams.map((t) => ({ ...t, players: t.players.map((p) => {
+      if (p.tier !== "SS" && !p.ss) return p;
+      if (p.tier === "SS" && p.id && validSSEvidence(p.ss) && p.ss.lane === p.lane && !holders.has(p.lane)) {
+        holders.add(p.lane);
+        return p;
+      }
+      changed = true;
+      return withoutSS(p);
+    }) }));
+    const inactivePool = season.franchise?.inactivePool?.map((entry) => {
+      const player = withoutSS(entry.player);
+      if (player === entry.player) return entry;
+      changed = true;
+      return { ...entry, player };
+    });
+    return changed ? { ...season, teams, ...season.franchise && inactivePool ? { franchise: { ...season.franchise, inactivePool } } : {} } : season;
+  }
+
+  // lib/season/rosterNews.ts
+  function currentOffseasonRosterNews(season) {
+    return (season.rosterNews ?? []).filter((news, index) => {
+      if (news.origin) return !!season.id && belongsToMarketWindow(news.origin, { id: season.id, franchise: season.franchise }, "Offseason");
+      return season.offseasonRosterNewsBaseline != null && index >= season.offseasonRosterNewsBaseline && news.timeMark === "Offseason";
+    });
+  }
+  function initializeOffseasonRosterNewsBoundary(season) {
+    return season.status === "complete" && season.offseasonRosterNewsBaseline == null ? { ...season, offseasonRosterNewsBaseline: season.rosterNews?.length ?? 0 } : season;
+  }
+
   // lib/season/franchise.ts
   var SHORT_SPLIT_MARK = {
     winter: "Winter",
@@ -32762,7 +32818,7 @@
       ...season.rosterNews ?? [],
       ...withRosterTimeMark(result.news, mark, season, teams, result.inactivePool)
     ];
-    return {
+    return recordSSLosses(season, reconcileSSPlayers({
       ...season,
       teams,
       franchise: {
@@ -32772,7 +32828,7 @@
       },
       ...rosterNews.length > 0 ? { rosterNews } : {},
       updatedAt: Date.now()
-    };
+    }));
   }
   function resolveOffseasonPlayerMarket(prev, champions, rng = Math.random) {
     const playerGrades = seasonPlayerGrades(prev);

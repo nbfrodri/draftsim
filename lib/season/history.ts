@@ -240,6 +240,8 @@ export interface SeasonHistoryEntry {
    *  can show who was on which team at any stage of the year. */
   phaseRosters?: PhaseRosterSnapshot[];
   ssReviews?: import("./types").SSReview[];
+  ssOpening?: import("./types").SSHolder[];
+  ssLosses?: import("./types").SSLoss[];
   /** Roster moves that happened during the year's transfer windows, frozen
    *  with team names so they recap forever. Optional — only on seasons that
    *  ran with player transfers and had at least one move. */
@@ -718,6 +720,8 @@ export function buildSeasonHistoryEntry(
     ...(playerCareers.length > 0 ? { playerCareers } : {}),
     ...(season.phaseRosters?.length ? { phaseRosters: structuredClone(season.phaseRosters) } : {}),
     ...(season.ssReviews ? { ssReviews: structuredClone(season.ssReviews) } : {}),
+    ...(season.ssOpening ? { ssOpening: structuredClone(season.ssOpening) } : {}),
+    ...(season.ssLosses ? { ssLosses: structuredClone(season.ssLosses) } : {}),
     ...(season.franchise?.aging
       ? {
           // Same year filter the Continue path uses, so a manual Archive can

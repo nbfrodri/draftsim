@@ -1,5 +1,6 @@
 import { LANE_ORDER, deriveStar } from "../players";
 import { developmentTier, withoutSS, validSSEvidence } from "../playerSS";
+import { snapshotSSHolders } from "./ssHistory";
 import type { GameDraft, Lane, Player } from "../types";
 import type { TournamentState, TournamentTeam } from "../tournament";
 import { gameSideTeamId } from "./stats";
@@ -198,6 +199,8 @@ export function reviewSSPlayers(input: SeasonState): SeasonState {
 	const season = reconcileSSPlayers(input);
 	const phase = season.phases[season.phaseIndex];
 	if (!phase || phase.kind === "transfer" || phase.status !== "complete") return season;
+	if (season.ssReviews?.some(r => r.phaseIndex === season.phaseIndex)) return season;
+	const priorHolders = snapshotSSHolders(season.teams);
 	const selected = new Map<string, { score: number; games: number; carry?: boolean }>();
 	const candidates = evaluateSSCandidates(season);
 	for (const lane of LANE_ORDER) {
@@ -217,6 +220,6 @@ export function reviewSSPlayers(input: SeasonState): SeasonState {
 	}) }));
 	return { ...season, teams, ssReviews: [
 		...(season.ssReviews ?? []).filter(review => review.phaseIndex !== season.phaseIndex),
-		{ phaseIndex: season.phaseIndex, label: phase.label, holders: teams.flatMap(t => t.players.filter(p => p.tier === "SS" && p.id && p.ss).map(p => ({ playerId: p.id!, lane: p.lane, evidence: { ...p.ss! } }))) },
+		{ version: 1, phaseIndex: season.phaseIndex, label: phase.label, holders: snapshotSSHolders(teams).map(h => ({ ...h, decision: selected.get(h.playerId)?.carry ? "carried" : priorHolders.some(p => p.playerId === h.playerId && p.lane === h.lane) ? "retained" : "gained" })) },
 	] };
 }

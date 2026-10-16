@@ -8,6 +8,7 @@ import TeamNameLink from "../team/TeamNameLink";
 import PlayerNameLink from "../player/PlayerNameLink";
 import LeagueIcon from "../LeagueIcon";
 import LaneIcon from "../LaneIcon";
+import TierChip from "../season/TierChip";
 
 /** All displayed values come from this phase's captured roster. */
 export default function RosterSnapshotCards({
@@ -108,9 +109,7 @@ export default function RosterSnapshotCards({
                         />
                       </span>
                       <span className="mt-1 flex gap-2 text-[9px] text-rift-mutedbright">
-                        <span className="border border-rift-gold/30 px-1 font-display text-rift-goldbright">
-                          {player.tier}
-                        </span>
+                        <TierChip tier={player.tier} size="xs" />
                         {player.age != null && <span>Age {player.age}</span>}
                         {player.id === highlightPlayerId && (
                           <span className="text-rift-gold/70">Selected</span>

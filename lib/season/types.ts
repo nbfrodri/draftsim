@@ -51,10 +51,26 @@ export const TEAMS_PER_LEAGUE = 10;
 
 export type SplitId = "winter" | "spring" | "summer";
 
+export interface SSHolder {
+	playerId: string;
+	lane: Lane;
+	evidence: import("../types").SSPlayerEvidence;
+	playerName?: string;
+	team?: { teamId: string; teamName: string; leagueId: LeagueId; logoUrl?: string };
+	decision?: "gained" | "retained" | "carried";
+}
+export interface SSLoss {
+	phaseIndex: number;
+	label: string;
+	afterReview?: boolean;
+	holder: SSHolder;
+	reason: "inactive" | "decline" | "role-change" | "offseason";
+}
 export interface SSReview {
 	phaseIndex: number;
 	label: string;
-	holders: Array<{ playerId: string; lane: Lane; evidence: import("../types").SSPlayerEvidence }>;
+	version?: 1;
+	holders: SSHolder[];
 }
 export type InternationalId = "first-stand" | "msi" | "worlds" | "global-cup";
 
@@ -357,6 +373,8 @@ export interface SeasonState {
   // [playerDevelopment]
   prevPlayerTiers?: Record<string, PlayerTier[]>;
   ssReviews?: SSReview[];
+  ssOpening?: SSHolder[];
+  ssLosses?: SSLoss[];
   // Franchise/"reality" context: present when this season is one year of a
   // continuous timeline (teams + careers carry across years). Absent for a
   // classic one-off season. `aging` (chosen at reality creation) decides

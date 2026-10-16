@@ -1,4 +1,6 @@
 import { marketOrigin } from "./marketOrigin";
+import { recordSSLosses } from "./ssHistory";
+import { reconcileSSPlayers } from "./ssPlayers";
 import { currentOffseasonRosterNews, initializeOffseasonRosterNewsBoundary } from "./rosterNews";
 // Franchise / "reality" mode — a continuous timeline where the SAME teams
 // (names, logos, rosters, careers) carry across many seasons. Each year is a
@@ -429,7 +431,7 @@ export function applyMidSplitDemotions(
     ...(season.rosterNews ?? []),
     ...withRosterTimeMark(result.news, mark, season, teams, result.inactivePool),
   ];
-  return {
+  return recordSSLosses(season, reconcileSSPlayers({
     ...season,
     teams,
     franchise: {
@@ -439,7 +441,7 @@ export function applyMidSplitDemotions(
     },
     ...(rosterNews.length > 0 ? { rosterNews } : {}),
     updatedAt: Date.now(),
-  };
+  }));
 }
 
 /**
@@ -763,7 +765,8 @@ export function startNextSeasonWithArchive(
   if (offseasonMoves.length > 0) historyEvents.worlds = offseasonMoves;
   else delete historyEvents.worlds;
   // These rows already exclude old carry. Do not apply the old boundary again.
-  const prevForHistory = { ...prev,
+  const losses = recordSSLosses(prev, { ...prev, teams: evolvedTeams }, "offseason").ssLosses;
+  const prevForHistory = { ...prev, ...(losses ? { ssLosses: losses } : {}),
     rosterNews: [...new Set([...(working.rosterNews ?? []), ...rosterNews])],
     transfersByEvent: historyEvents, worldsOffseasonBaseline: 0,
     ...(coachMoves.length > 0 ? { postWorldsCoachMoves: coachMoves } : {}) };
@@ -811,7 +814,7 @@ export function startNextSeasonWithArchive(
     }
   }
 
-  return { archived: prior, season: {
+  return { archived: prior, season: reconcileSSPlayers({
     ...next,
     ...(continuityForm
       ? { teamForm: { ...next.teamForm, ...continuityForm } }
@@ -826,7 +829,7 @@ export function startNextSeasonWithArchive(
       : {}),
     ...(rosterNews.length > 0 ? { rosterNews } : {}),
     ...(coachMoves.length > 0 ? { offseasonCoachMoves: coachMoves } : {}),
-  } };
+  }) };
 }
 
 /**
@@ -1080,7 +1083,7 @@ function applyUserInactiveSign(
   if (!result.ok) return null;
 
   const byTeam = new Map(result.teams.map((t) => [t.id, t.players]));
-  return {
+  return recordSSLosses(season, reconcileSSPlayers({
     ...season,
     teams: season.teams.map((t) => ({
       ...t,
@@ -1096,7 +1099,7 @@ function applyUserInactiveSign(
       ...withRosterTimeMark(result.news, rosterTimeMarkForSeason(season), season, season.teams.map(t => ({ ...t, players: byTeam.get(t.id) ?? t.players })), result.inactivePool),
     ],
     updatedAt: Date.now(),
-  };
+  }));
 }
 
 /**
@@ -1178,7 +1181,7 @@ export function applyUserManualDemote(
     : [];
   const mark = rosterTimeMarkForSeason(season);
 
-  return {
+  return recordSSLosses(season, reconcileSSPlayers({
     ...season,
     teams: season.teams.map((t) => (t.id === me ? { ...t, players } : t)),
     franchise: {
@@ -1192,7 +1195,7 @@ export function applyUserManualDemote(
       ...withRosterTimeMark([...bumpNews, news], mark, season, season.teams.map(t => t.id === me ? { ...t, players } : t), parkedRes.pool),
     ],
     updatedAt: Date.now(),
-  };
+  }));
 }
 
 /**

@@ -1,7 +1,7 @@
 "use client";
-import { useLayoutEffect } from "react";
 
 import {
+useLayoutEffect,
 createContext,
 useContext,
 useMemo,
@@ -16,6 +16,7 @@ type FaBoardRow,
 type MarketInactive,
 } from "@/lib/season/faMarket";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
+import { playerSSHistory } from "@/lib/season/ssHistory";
 import {
 listPlayers,
 playerCareerStatuses,
@@ -24,6 +25,7 @@ type PlayerHit,
 } from "@/lib/season/historySearch";
 import {
 archivedPlayerIds,
+archivedSSContext,
 archivedRosterSnapshot,
 buildPlayerCardTeam,
 buildPlayerCardTeamFromSeasonTeam,
@@ -277,7 +279,7 @@ function resolveLive(
     name: player.name ?? "Unknown",
     lane: player.lane ?? hint?.lane,
     tier: player.tier,
-    ...(player.ss ? { ss: player.ss } : {}),
+    ...(player.ss ? { ss: player.ss, ssContext: season && player.ss.seasonId !== season.id ? "Carried SS ownership · evidence originates in an earlier season." : "Current SS ownership · evidence from the latest qualifying review." } : {}),
     ...(player.potential ? { potential: player.potential } : {}),
     ...(player.age != null ? { age: player.age } : {}),
     ...(player.debutYear != null ? { debutYear: player.debutYear } : {}),
@@ -521,6 +523,7 @@ function resolveHistory(
       inactiveSnap?.tier ??
       hit?.tier ??
       hintPlayer?.tier);
+	const ssCareer = entry ? undefined : playerSSHistory(idx.entries, playerId);
 
   return {
     playerId,
@@ -534,6 +537,7 @@ function resolveHistory(
     ...(lane ? { lane } : {}),
     ...(tier ? { tier } : {}),
     ...(identitySnap?.ss ? { ss: identitySnap.ss } : {}),
+    ssContext: entry ? archivedSSContext(entry, playerId, opts?.phaseScope) : `Historical roster tier; current SS ownership is not implied. SS: ${ssCareer!.acquisitions} confirmed acquisitions · ${ssCareer!.checkpoints} review checkpoints held.${ssCareer!.partial ? " Partial history." : ""}`,
     ...(identitySnap?.potential ?? inactiveSnap?.potential
       ? { potential: (identitySnap?.potential ?? inactiveSnap?.potential)! }
       : {}),

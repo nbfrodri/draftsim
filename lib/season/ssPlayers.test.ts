@@ -39,6 +39,24 @@ function fixture(tier: PlayerTier = "S", games = 16): SeasonState {
 }
 
 describe("SS phase review", () => {
+	it("freezes the review-time club after a transfer without rewriting the event club", () => {
+		const s = fixture();
+		const original = s.teams[0].players[0];
+		const replacement = s.teams[2].players[0];
+		s.teams[0].players[0] = replacement;
+		s.teams[2].players[0] = original;
+		const reviewed = reviewSSPlayers(s);
+		expect(reviewed.ssReviews![0].holders.find(h => h.playerId === original.id)?.team?.teamName).toBe(s.teams[2].name);
+		expect(Object.values(reviewed.tournaments)[0].teams[0].players![0].id).toBe(original.id);
+	});
+	it("freezes review identity and decisions without changing entrant tiers or counting renewals as acquisitions", () => {
+		const input = fixture();
+		input.ssOpening = [];
+		const reviewed = reviewSSPlayers(input);
+		expect(reviewed.ssReviews?.[0]).toMatchObject({ version: 1, holders: [{ playerId: "0-0", playerName: input.teams[0].players[0].name, team: { teamName: input.teams[0].name }, decision: "gained" }, {}, {}, {}, {}] });
+		expect(Object.values(reviewed.tournaments)[0].teams[0].players![0].tier).toBe("S");
+		expect(reviewSSPlayers(reviewed)).toEqual(reviewed);
+	});
 	it("projects active-phase SS contenders without awarding or mutating players", () => {
 		const s = fixture();
 		s.phases[0].status = "in-progress";
@@ -195,6 +213,8 @@ describe("SS phase review", () => {
 	});
 	it("retains an incumbent within the margin and replaces one clearly surpassed", () => {
 		const s = reviewSSPlayers(fixture());
+		// Counterfactual unreviewed checkpoint with an existing incumbent.
+		delete s.ssReviews;
 		const t = Object.values(s.tournaments)[0];
 		for (const m of t.matches) m.series!.games[0].recap!.ratings!.red = [8.1, 8.1, 8.1, 8.1, 8.1];
 		expect(reviewSSPlayers(s).teams[0].players.every(p => p.tier === "SS")).toBe(true);

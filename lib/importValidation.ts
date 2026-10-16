@@ -124,9 +124,22 @@ function uniqueSSOwners(teams: Obj[]): boolean {
   const holders = teams.flatMap(t => Array.isArray(t.players) ? t.players.filter((p): p is Obj => record(p) && p.tier === "SS") : []);
   return new Set(holders.map(p => p.lane)).size === holders.length && new Set(holders.map(p => p.id)).size === holders.length;
 }
-const ssReviews = (v: unknown): boolean => arrayOf(v, review => record(review) && integer(review.phaseIndex) && text(review.label) &&
-  arrayOf(review.holders, holder => record(holder) && text(holder.playerId) && enumeration(holder.lane, lanes) && validSSEvidence(holder.evidence) && holder.evidence.lane === holder.lane) &&
-  new Set((review.holders as Obj[]).map(h => h.lane)).size === (review.holders as Obj[]).length);
+const ssHolder = (v: unknown): boolean => record(v) && text(v.playerId) && enumeration(v.lane, lanes) &&
+  validSSEvidence(v.evidence) && v.evidence.lane === v.lane && optional(v.playerName, text) &&
+  optional(v.decision, d => enumeration(d, ["gained", "retained", "carried"])) &&
+  optional(v.team, t => record(t) && text(t.teamId) && text(t.teamName) && enumeration(t.leagueId, LEAGUE_IDS) && optional(t.logoUrl, text));
+const ssHolders = (v: unknown): boolean => arrayOf(v, ssHolder) &&
+  new Set((v as Obj[]).map(h => h.lane)).size === (v as Obj[]).length &&
+  new Set((v as Obj[]).map(h => h.playerId)).size === (v as Obj[]).length;
+const ssReviews = (v: unknown): boolean => arrayOf(v, review => record(review) && integer(review.phaseIndex) && review.phaseIndex >= 0 && text(review.label) &&
+  optional(review.version, x => x === 1) && ssHolders(review.holders)) &&
+  new Set((v as Obj[]).map(r => r.phaseIndex)).size === (v as Obj[]).length;
+const ssHistoryFields = (v: Obj): boolean => optional(v.ssReviews, ssReviews) && optional(v.ssOpening, ssHolders) &&
+  optional(v.ssLosses, rows => arrayOf(rows, l => record(l) && integer(l.phaseIndex) && l.phaseIndex >= 0 && text(l.label) && optional(l.afterReview, x => typeof x === "boolean") && ssHolder(l.holder) && enumeration(l.reason, ["inactive", "decline", "role-change", "offseason"]))) &&
+  (!Array.isArray(v.ssReviews) || v.ssReviews.every(r => (r as Obj).version !== 1 || ((r as Obj).holders as Obj[]).every(h => {
+    const evidence = h.evidence as Obj;
+    return evidence.seasonId !== v.id || (evidence.phaseIndex as number) <= ((r as Obj).phaseIndex as number);
+  })));
 function defaults(v: unknown): boolean {
   return record(v) && enumeration(v.format, seriesFormats) && enumeration(v.mode, modes) &&
     enumeration(v.aiDifficulty, difficulties) && typeof v.fearless === "boolean" && sides(v.aiSide);
@@ -196,6 +209,7 @@ export function validSeason(v: unknown): v is SeasonState {
   if (!v.teams.every(t => text(t.name) && text(t.color) && text(t.iconKey) &&
     enumeration(t.leagueId, LEAGUE_IDS) && roster(t.players) && optional(t.coach, coach))) return false;
   if (!uniqueSSOwners(v.teams)) return false;
+  if (Array.isArray(v.ssReviews) && !v.ssReviews.every(r => record(r) && (r.version === undefined || integer(r.phaseIndex) && r.phaseIndex < (v.phases as unknown[]).length && record((v.phases as Obj[])[r.phaseIndex]) && (v.phases as Obj[])[r.phaseIndex].kind !== "transfer" && (v.phases as Obj[])[r.phaseIndex].status === "complete"))) return false;
   if (record(v.franchise) && Array.isArray(v.franchise.inactivePool) && v.franchise.inactivePool.some(e => record(e) && record(e.player) && e.player.tier === "SS")) return false;
   if (!v.phases.every(p => record(p) && text(p.label) && strings(p.tournamentIds) &&
     enumeration(p.kind, ["split", "international", "transfer"]) &&
@@ -215,7 +229,7 @@ export function validSeason(v: unknown): v is SeasonState {
   return optional(v.offseasonRosterNewsBaseline, integer) &&
     nullableText(v.champion) && (v.champion === null || teamIds.has(v.champion)) &&
     optional(v.phaseRosters, x => arrayOf(x, phaseRoster)) &&
-    optional(v.ssReviews, ssReviews) &&
+    ssHistoryFields(v) &&
     (v.franchise === undefined || (record(v.franchise) && text(v.franchise.id) && text(v.franchise.name) && integer(v.franchise.year) &&
       typeof v.franchise.aging === "boolean" && optional(v.franchise.inactivePool, x => arrayOf(x, inactive)) &&
       optional(v.franchise.agencyDemands, x => arrayOf(x, demand)) &&
@@ -247,7 +261,7 @@ export function validHistoryEntry(v: unknown): boolean {
   const objectRows = ["awardTally", "allProTeams", "intlMvps", "splitMvps", "rookieOfYear", "playerCareers", "phaseRosters", "transfers", "rivalries", "headToHead", "inactivePlayers"];
   if (!objectRows.every(key => optional(v[key], rows => arrayOf(rows, record)))) return false;
   if (!optional(v.phaseRosters, rows => arrayOf(rows, phaseRoster))) return false;
-  if (!optional(v.ssReviews, ssReviews)) return false;
+  if (!ssHistoryFields(v)) return false;
   if (!optional(v.coachMoves, rows => arrayOf(rows, m => record(m) && text(m.coachName) &&
     finite(m.rating) && team(m.from) && team(m.to) && optional(m.coachId, text)))) return false;
   if (!optional(v.allProTeams, rows => arrayOf(rows, row => record(row) &&

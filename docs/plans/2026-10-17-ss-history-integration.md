@@ -2,7 +2,7 @@
 
 ## Status and goal
 
-Proposed implementation plan; no runtime changes in this document. Builds on the [original SS plan](2026-10-16-season-ss-tier-meta-and-team-cards.md) and the released SS Race. Complete the integration of SS into season history, annual timelines, player careers, historical cards and team-strength explanations without changing the agreed selection balance or rewriting historical participation.
+Implemented on `feat/ss-history-integration`; verification is recorded below. Builds on the [original SS plan](2026-10-16-season-ss-tier-meta-and-team-cards.md) and the released SS Race. Integrates SS into season history, annual timelines, player careers, historical cards and team-strength explanations without changing the agreed selection balance or rewriting historical participation.
 
 The result must answer: who held SS in each role at each recorded checkpoint, when a player gained or lost it, which team they represented, what tier they actually played with, and how SS affects current team strength.
 
@@ -75,7 +75,7 @@ Add a pure, tested projection near existing season history helpers, consumed by 
 
 ### Player career and Hall
 
-- Add an SS career summary and an expandable chronological history grouped by year.
+- Inside the existing **Career History**, add an SS career summary and an expandable **SS history** block within each year. This placement was confirmed with the user during implementation; no new tab or separate career section.
 - Display known first acquisition, confirmed acquisition count, recorded review checkpoints held and years with recorded ownership.
 - A retained seat is not another acquisition. Carry into a new year is not reacquisition. Regaining after a confirmed loss is a new acquisition.
 - Label the unit explicitly as review checkpoints held; this is not games played, days held or evidence of participation in that tournament.
@@ -130,3 +130,16 @@ Add a pure, tested projection near existing season history helpers, consumed by 
 - **Performance:** reuse projections in a multi-year fixture; avoid per-row whole-history scans and heavy work for collapsed sections.
 - **Commands:** focused `npm test -- <paths>` during red/green; then `npm test`, `npm run typecheck`, `npm run lint`, `npm run build`, affected Playwright tests against the fresh export, and the configured changed-code review. Run `npm run test:desktop` and disposable native persistence smoke for touched desktop save paths. Report browser versus native validation separately.
 - **Completion:** all seven milestones verified, documented legacy behavior, no unexplained new diagnostics, consistent SS ownership across views and no unrelated balance changes. A plan or passing build alone is not completion evidence.
+
+## Implementation and verification record
+
+- Recording: optional opening holders, versioned reviews with frozen review-time identities and explicit gained/retained/carried decisions; review idempotency; mutation-owned losses for development, mid-split demotions, user benching/signings and offseason rollover. Inactive SS reconciliation now also runs after attaching the new year's franchise pool. Review ordering relative to transfers and event snapshots is preserved.
+- Projection and UI: shared chronological helpers, separate closing ownership, phase-by-phase timeline seats, replacements/losses, career summary inside **Career History** and an expandable SS block within each year, including opening continuity. Historical event/year/career cards retain played tiers and explain their SS context. Team cards explain the existing star calculation. No new award points, selection parameters or simulation bonuses.
+- Compatibility: old optional review data remains readable. Legacy review-time clubs are left unknown rather than borrowed from potentially earlier entrant rosters. Missing baselines/checkpoints mark career totals partial. No schema migration or historical selection replay.
+- Red/green: enriched review metadata failed before recording was implemented; development-loss recording failed before the mutation owner was connected; the browser journey failed against the old export because the SS history section did not exist. All corresponding regressions now pass.
+- Full unit suite: **136 files, 1,557 tests passed** with `npm test -- --maxWorkers=1`. Focused reruns cover later projection/validation edits, SQLite archive and active-season round trips, portable reality codes, hydration/exit persistence and malformed imports.
+- Native storage/backup suite: **12 tests passed** with `npm run test:desktop`. SQLite payload coverage uses a disposable real SQLite database. Personal saves were not used; native WebView interaction and installation were not exercised for this change.
+- Browser regression set: **12 tests passed** across SS history, SS presentation, career controls and timeline honors. Includes phase-specific played-tier versus final SS acquisition, keyboard expansion/Escape, profile navigation, and 390px overflow checks. Final SS presentation is rechecked after the opening-continuity display update.
+- `npm run lint`, `npm run typecheck`, and production static builds passed. The final build includes regenerated workers through the project script; no generated bundle was hand-edited.
+- Changed-code analysis: **0 errors, 136 warnings**. The new SS projection/component/tests have no diagnostics, and none of the non-generated diagnostics fall on added source lines. Remaining findings concern pre-existing touched-file size/duplication/accessibility/import conventions and generated worker declarations. Broad unrelated rewrites and manual bundle edits do not belong to this implementation; no rule or hook was disabled.
+- Delivery scope: implementation and documentation only. The application version remains 1.9.2; publication, a release tag, installers and local installation are not part of this plan's implementation step.

@@ -4,6 +4,9 @@ import { makeAuditSeason } from "../auditFixtures";
 import { SCHEMA_SQL, type PersistedStoreState } from "../desktopSqliteSchema";
 import { loadPersistedStateFromDbExecutor, savePersistedStateToDbExecutor, resetSqliteStorageForTests, type SqlExecutor } from "../desktopSqlite";
 import { validSeason } from "../importValidation";
+import { buildSeasonHistoryEntry } from "./history";
+import { snapshotSSHolders } from "./ssHistory";
+import { encodeRealityShareCode, decodeRealityShareCode } from "../realityShare";
 
 it("preserves SS evidence through actual SQLite saves, lazy load and subsequent writes", async () => {
 	const db = new DatabaseSync(":memory:");
@@ -18,14 +21,23 @@ it("preserves SS evidence through actual SQLite saves, lazy load and subsequent 
 		p.tier = "SS";
 		p.potential = "S+";
 		p.ss = { baseTier: "S+", lane: p.lane, seasonId: season.id, phaseIndex: 0, phaseLabel: "Winter", score: 7.25, games: 16 };
-		season.ssReviews = [{ phaseIndex: 0, label: "Winter", holders: [{ playerId: p.id!, lane: p.lane, evidence: p.ss }] }];
+		season.phases[0].status = "complete";
+		season.ssOpening = [];
+		season.ssReviews = [{ version: 1, phaseIndex: 0, label: "Winter", holders: snapshotSSHolders(season.teams).map(h => ({ ...h, decision: "gained" })) }];
+		season.ssLosses = [{ phaseIndex: 0, label: "Offseason", afterReview: true, holder: season.ssReviews[0].holders[0], reason: "offseason" }];
+		const history = [JSON.parse(JSON.stringify(buildSeasonHistoryEntry(season, 1)))];
 		const rid = season.franchise.id;
-		const state = { season, activeRealityId: rid, realities: [{ id: rid, name: "SS persistence", year: 1, season, history: [] }] } as PersistedStoreState;
+		const state = { season, activeRealityId: rid, realities: [{ id: rid, name: "SS persistence", year: 1, season, history }] } as PersistedStoreState;
+		const shared = await decodeRealityShareCode(await encodeRealityShareCode(JSON.stringify({ kind: "reality", version: 1, reality: state.realities![0] })));
+		expect(JSON.parse(shared.json!).reality.history[0].ssReviews).toEqual(history[0].ssReviews);
 		resetSqliteStorageForTests();
 		await savePersistedStateToDbExecutor(executor, "draftsim-store", state);
 		const loaded = (await loadPersistedStateFromDbExecutor(executor, "draftsim-store"))!;
 		expect(loaded.season!.teams[0].players[0]).toMatchObject({ tier: "SS", ss: p.ss });
 		expect(loaded.season!.ssReviews).toEqual(season.ssReviews);
+		expect(loaded.season!.ssOpening).toEqual([]);
+		expect(loaded.season!.ssLosses).toEqual(season.ssLosses);
+		expect(loaded.realities![0].history[0]).toMatchObject({ ssOpening: [], ssLosses: season.ssLosses, ssReviews: season.ssReviews });
 		expect(validSeason(loaded.season)).toBe(true);
 		resetSqliteStorageForTests();
 		await savePersistedStateToDbExecutor(executor, "draftsim-store", loaded);
