@@ -16,7 +16,7 @@ async function seed(page: Page, state: unknown) {
 
 test("live SS race shows ownership, contenders, evidence and responsive role filters", async ({ page }) => {
 	const season = makeAuditSeason("Live SS race");
-	season.teams = season.teams.slice(0, 2).map((team, ti) => ({ ...team, players: team.players.map((p, li) => ({ ...p, id: `race-${ti}-${li}`, name: `Race ${ti} ${li}`, tier: li === 3 ? "B" : "S+" })) }));
+	season.teams = season.teams.slice(0, 8).map((team, ti) => ({ ...team, players: team.players.map((p, li) => ({ ...p, id: `race-${ti}-${li}`, name: `Race ${ti} ${li} with a long custom player name`, tier: li === 3 ? "B" : "S+" })) }));
 	season.teams[0].name = "T1";
 	season.teams[0].logoUrl = resolveTeamLogo("T1");
 	season.teams[0].players[0] = { ...season.teams[0].players[0], tier: "SS", ss: { baseTier: "S+", lane: "top", seasonId: season.id, phaseIndex: 0, phaseLabel: "Winter", games: 16, score: 7.2 } };
@@ -33,6 +33,13 @@ test("live SS race shows ownership, contenders, evidence and responsive role fil
 	await page.getByRole("region", { name: "Continue playing" }).getByRole("button").click();
 	const panel = page.getByRole("region", { name: "SS Race", exact: true });
 	await panel.scrollIntoViewIfNeeded();
+	const toggle = panel.getByRole("button", { name: /^SS Race/ });
+	await expect(toggle).toHaveAttribute("aria-expanded", "false");
+	await expect(panel.getByRole("article")).toHaveCount(0);
+	await panel.screenshot({ path: "test-results/playwright/ss-race-collapsed.png" });
+	await toggle.focus();
+	await page.keyboard.press("Enter");
+	await expect(toggle).toHaveAttribute("aria-expanded", "true");
 	const holder = panel.getByRole("article", { name: "Top SS holder", exact: true });
 	await expect(holder).toContainText("Race 0 0");
 	await expect(holder).toContainText("7.0");
@@ -43,6 +50,10 @@ test("live SS race shows ownership, contenders, evidence and responsive role fil
 	await expect(contenders).toContainText("+500");
 	await expect(contenders).toContainText("Projected SS with current results");
 	await expect(contenders).toContainText(">99%");
+	await expect(contenders.getByRole("listitem")).toHaveCount(5);
+	await panel.getByRole("button", { name: "Show all 7 contenders", exact: true }).click();
+	await expect(contenders.getByRole("listitem")).toHaveCount(7);
+	await panel.getByRole("button", { name: "Show top 5", exact: true }).click();
 	await panel.getByText("Selection rules & estimates", { exact: true }).focus();
 	await page.keyboard.press("Enter");
 	await expect(panel.getByText(/S\/S\+ base tier, at least 8 rated games/)).toBeVisible();
@@ -50,6 +61,11 @@ test("live SS race shows ownership, contenders, evidence and responsive role fil
 	await panel.getByRole("button", { name: "ADC", exact: true }).focus();
 	await page.keyboard.press("Enter");
 	await expect(panel).toContainText("No S/S+ challengers in this role");
+	await toggle.focus();
+	await page.keyboard.press("Enter");
+	await expect(panel.getByRole("article")).toHaveCount(0);
+	await page.keyboard.press("Enter");
+	await expect(panel.getByRole("button", { name: "ADC", exact: true })).toHaveAttribute("aria-pressed", "true");
 	await panel.getByRole("button", { name: "Top", exact: true }).click();
 	await panel.screenshot({ path: "test-results/playwright/ss-race-desktop.png" });
 	await page.setViewportSize({ width: 390, height: 844 });

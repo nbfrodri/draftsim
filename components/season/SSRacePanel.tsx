@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { computeSSRace, type SSRacePlayer } from "@/lib/season/ssRace";
+import { useId, useMemo, useState } from "react";
+import { IconChevronDown } from "@tabler/icons-react";
+import { computeSSRace, type SSRaceLane, type SSRacePlayer } from "@/lib/season/ssRace";
 import { SS_REPLACE_MARGIN } from "@/lib/season/ssPlayers";
 import type { SeasonState } from "@/lib/season/types";
 import type { Lane } from "@/lib/types";
@@ -10,16 +11,24 @@ import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
 import TierChip from "./TierChip";
 
-const ROLE_NAMES: Record<Lane, string> = { top: "Top", jungle: "Jungle", middle: "Mid", bottom: "ADC", support: "Support" };
+const ROLE_NAMES: Record<Lane, string> = {
+	top: "Top", jungle: "Jungle", middle: "Mid", bottom: "ADC", support: "Support",
+};
+const FOCUS = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 
 function PlayerIdentity({ row }: { row: SSRacePlayer }) {
 	return (
-		<div className="min-w-0 space-y-1">
-			<div className="flex items-center gap-2 font-display text-sm text-rift-goldbright">
+		<div className="min-w-0 space-y-1.5">
+			<div className="flex items-center gap-1.5 font-display text-[13px] text-rift-goldbright">
 				<TierChip tier={row.player.tier} size="md" />
-				<PlayerNameLink playerId={row.player.id} name={row.player.name} />
+				<PlayerNameLink playerId={row.player.id} name={row.player.name} className="min-w-0 max-w-full" />
 			</div>
-			<TeamNameLink teamId={row.team.id} name={row.team.name} leagueId={row.team.leagueId} iconKey={row.team.iconKey} logoUrl={row.team.logoUrl} color={row.team.color} hint={{ team: row.team }} logoSize={18} className="inline-flex max-w-full items-center gap-1.5 text-xs text-rift-mutedbright" />
+			<TeamNameLink
+				teamId={row.team.id} name={row.team.name} leagueId={row.team.leagueId}
+				iconKey={row.team.iconKey} logoUrl={row.team.logoUrl} color={row.team.color}
+				hint={{ team: row.team }} logoSize={16}
+				className="inline-flex max-w-full items-center gap-1.5 text-[11px] text-rift-mutedbright"
+			/>
 		</div>
 	);
 }
@@ -36,75 +45,139 @@ function chanceLabel(chance: number | null): string {
 	return chance === 0 ? "<1%" : `~${chance}%`;
 }
 
-function PlayerMetrics({ row }: { row: SSRacePlayer }) {
+function PlayerMetrics({ row, className = "grid-cols-2" }: { row: SSRacePlayer; className?: string }) {
 	const metrics = [
 		["Avg grade", row.stats?.avgRating?.toFixed(1) ?? "—"],
 		["Avg gold diff", goldAverage(row)],
 		["Win rate", row.stats?.games ? `${Math.round(row.stats.wins / row.stats.games * 100)}%` : "—"],
 		["Rated games", String(row.games)],
 	];
-	return <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs tabular-nums">{metrics.map(([label, value]) => <div key={label}><dt className="text-rift-mutedbright">{label}</dt><dd className="font-display text-rift-goldbright">{value}</dd></div>)}</dl>;
+	return (
+		<dl className={`grid gap-x-3 gap-y-2.5 tabular-nums ${className}`}>
+			{metrics.map(([label, value]) => (
+				<div key={label}>
+					<dt className="text-[10px] text-rift-mutedbright">{label}</dt>
+					<dd className="mt-0.5 font-display text-[13px] text-rift-goldbright">{value}</dd>
+				</div>
+			))}
+		</dl>
+	);
 }
 
-function Contender({ row }: { row: SSRacePlayer }) {
+function CurrentSeat({ row: { lane, holder } }: { row: SSRaceLane }) {
 	return (
-		<li className="border border-rift-line bg-rift-panel/60 p-3">
-			<div className="flex flex-wrap items-start justify-between gap-3">
-				<PlayerIdentity row={row} />
-				<div className="text-right text-xs text-rift-mutedbright">
-					<div>Estimated chance</div>
-					<div className="font-display text-lg tabular-nums text-rift-bluebright">{row.eligible ? chanceLabel(row.chance) : row.chance === null ? "—" : "0%"}</div>
+		<article aria-label={`${ROLE_NAMES[lane]} SS holder`} className="min-w-0 border border-rift-line/50 bg-rift-bg/30">
+			<h4 className="flex items-center gap-1.5 border-b border-rift-line/40 px-3 py-2 text-[10px] font-semibold text-rift-goldbright">
+				<LaneIcon lane={lane} />{ROLE_NAMES[lane]}
+				{!holder && <span className="ml-auto font-normal text-rift-mutedbright">Vacant</span>}
+			</h4>
+			{holder ? <div className="p-3">
+				<PlayerIdentity row={holder} />
+				<div className="my-3"><PlayerMetrics row={holder} /></div>
+				<div className="flex flex-wrap items-center justify-between gap-1 border-t border-rift-line/30 pt-2 text-[10px] text-rift-mutedbright">
+					<span>Live SS score <span className="font-display tabular-nums text-rift-goldbright">{holder.score?.toFixed(2) ?? "—"}</span></span>
+					<span title={`Last awarded score: ${holder.player.ss?.score.toFixed(2)}`}>{holder.player.ss?.phaseLabel}</span>
 				</div>
+				{holder.carry && <p className="mt-2 text-[10px] text-rift-gold">Previous-season grace period</p>}
+				{!holder.eligible && !holder.carry && <p className="mt-2 text-[10px] text-rift-mutedbright">Review requirement: {holder.reasons.join(" · ")}</p>}
+			</div> : <p className="px-3 py-3 text-[10px] text-rift-mutedbright">Awaiting a qualifying player.</p>}
+		</article>
+	);
+}
+
+function ChanceEstimate({ row }: { row: SSRacePlayer }) {
+	const chance = row.eligible ? row.chance : row.chance === null ? null : 0;
+	return (
+		<div className="text-right">
+			<div className="text-[10px] text-rift-mutedbright">Estimated chance</div>
+			<div className="font-display text-xl tabular-nums text-rift-goldbright">{row.eligible ? chanceLabel(chance) : chance === null ? "—" : "0%"}</div>
+			<div aria-hidden="true" className="mt-1 h-1 bg-rift-line/60">
+				<div className="h-full bg-rift-gold/75" style={{ width: `${chance ?? 0}%` }} />
 			</div>
-			<div className="my-3"><PlayerMetrics row={row} /></div>
-			<div className="flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums text-rift-mutedbright">
-				<span>SS score: {row.score?.toFixed(2) ?? "—"}</span>
-				{row.gap !== null && <span>Gap to seat: {row.gap.toFixed(2)}</span>}
-				<span>Participation: {row.games}/{row.requiredGames} required</span>
+		</div>
+	);
+}
+
+function Contender({ row, rank }: { row: SSRacePlayer; rank: number }) {
+	return (
+		<li className="border-t border-rift-line/40 bg-rift-bg/20 px-3 py-3 first:border-t-0">
+			<div className="grid grid-cols-[minmax(0,1fr)_7rem] items-start gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.6fr)_7rem] lg:items-center">
+				<div className="flex min-w-0 items-start gap-2.5">
+					<span className="mt-0.5 w-4 shrink-0 text-[11px] tabular-nums text-rift-mutedbright">{rank}</span>
+					<PlayerIdentity row={row} />
+				</div>
+				<div className="col-span-2 row-start-2 lg:col-span-1 lg:row-start-auto"><PlayerMetrics row={row} className="grid-cols-2 sm:grid-cols-4" /></div>
+				<div className="col-start-2 row-start-1 lg:col-start-3"><ChanceEstimate row={row} /></div>
 			</div>
-			<p className={`mt-2 text-xs ${row.projected ? "text-cyan-100" : "text-rift-mutedbright"}`}>
-				{row.eligible ? row.projected ? "Projected SS with current results" : "Eligible · chasing the seat" : row.reasons.join(" · ")}
-			</p>
+			<div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rift-line/25 pt-2 text-[10px] tabular-nums text-rift-mutedbright">
+				<span>SS score <span className="font-display text-rift-goldbright">{row.score?.toFixed(2) ?? "—"}</span></span>
+				{row.gap !== null && <span>Gap to seat {row.gap.toFixed(2)}</span>}
+				<span>Participation {row.games}/{row.requiredGames} required</span>
+				<span className={`sm:ml-auto ${row.projected ? "text-rift-goldbright" : "text-rift-mutedbright"}`}>
+					{row.eligible ? row.projected ? "Projected SS with current results" : "Eligible · chasing the seat" : "Requirements pending"}
+				</span>
+			</div>
+			{!row.eligible && <p className="mt-2 text-[10px] text-rift-mutedbright">{row.reasons.join(" · ")}</p>}
 		</li>
 	);
 }
 
-export default function SSRacePanel({ season }: { season: SeasonState }) {
+function SSRaceContent({ season, lane, onLaneChange }: { season: SeasonState; lane: Lane; onLaneChange: (lane: Lane) => void }) {
 	const race = useMemo(() => computeSSRace(season), [season]);
-	const [lane, setLane] = useState<Lane>("top");
 	const [showAll, setShowAll] = useState(false);
 	const selected = race.find(row => row.lane === lane)!;
 	const contenders = showAll ? selected.contenders : selected.contenders.slice(0, 5);
 	return (
-		<section aria-labelledby="ss-race-heading" className="mb-6 border border-rift-line bg-rift-panel/40 p-3 md:p-4">
-			<h2 id="ss-race-heading" className="font-display text-base text-cyan-100">SS Race</h2>
-			<p className="mt-1 text-xs text-rift-mutedbright">One world seat per role. Ownership changes only at competitive phase reviews; live projections include completed games in the current phase.</p>
-			<h3 className="mb-2 mt-4 font-display text-sm text-rift-goldbright">Current SS players</h3>
-			<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-				{race.map(({ lane: role, holder }) => (
-					<article key={role} aria-label={`${ROLE_NAMES[role]} SS holder`} className="min-w-0 border border-cyan-300/25 bg-cyan-300/5 p-3">
-						<h4 className="mb-3 flex items-center gap-2 font-display text-xs text-cyan-100"><LaneIcon lane={role} />{ROLE_NAMES[role]}</h4>
-						{holder ? <>
-							<PlayerIdentity row={holder} />
-							<div className="my-3"><PlayerMetrics row={holder} /></div>
-							<p className="text-xs text-rift-mutedbright">Live SS score: {holder.score?.toFixed(2) ?? "—"}</p>
-							<p className="mt-1 text-xs text-rift-mutedbright">Awarded: {holder.player.ss?.phaseLabel} · score {holder.player.ss?.score.toFixed(2)}</p>
-							{holder.carry && <p className="mt-1 text-xs text-cyan-100">Previous-season grace period</p>}
-							{!holder.eligible && !holder.carry && <p className="mt-1 text-xs text-rift-mutedbright">Review requirement: {holder.reasons.join(" · ")}</p>}
-						</> : <p className="text-xs text-rift-mutedbright">No SS holder yet. Assigned at a phase review when an eligible player qualifies.</p>}
-					</article>
-				))}
-			</div>
-			<h3 className="mb-2 mt-5 font-display text-sm text-rift-goldbright">SS contenders</h3>
-			<fieldset aria-label="Contender role" className="mb-3 flex min-w-0 flex-wrap gap-2 border-0 p-0">{race.map(row => <button type="button" key={row.lane} aria-pressed={row.lane === lane} onClick={() => { setLane(row.lane); setShowAll(false); }} className={`inline-flex items-center gap-1.5 border px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-bluebright ${lane === row.lane ? "border-cyan-200 text-cyan-100 bg-cyan-300/10" : "border-rift-line text-rift-mutedbright hover:text-rift-goldbright"}`}><LaneIcon lane={row.lane} />{ROLE_NAMES[row.lane]}</button>)}</fieldset>
-			<p className="mb-2 text-xs text-rift-mutedbright">Chance estimates reflect uncertainty in current results, not future-match odds or a guarantee.</p>
-			<details className="mb-3 text-xs leading-relaxed text-rift-mutedbright">
-				<summary className="w-fit cursor-pointer py-1 text-rift-bluebright">Selection rules &amp; estimates</summary>
+		<div className="space-y-5 p-3 md:p-4">
+			<section aria-labelledby="ss-holders-heading">
+				<div className="mb-3 flex flex-wrap items-baseline justify-between gap-1">
+					<h3 id="ss-holders-heading" className="font-display text-xs text-rift-goldbright">Current SS players</h3>
+					<p className="text-[10px] text-rift-mutedbright">One world seat per role · Reviewed at phase end</p>
+				</div>
+				<div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">{race.map(row => <CurrentSeat key={row.lane} row={row} />)}</div>
+			</section>
+			<section aria-labelledby="ss-contenders-heading">
+				<h3 id="ss-contenders-heading" className="mb-3 font-display text-xs text-rift-goldbright">SS contenders</h3>
+				<fieldset aria-label="Contender role" className="mb-3 flex min-w-0 flex-wrap gap-1.5 border-0 p-0">
+					{race.map(row => <button
+						type="button" key={row.lane} aria-pressed={row.lane === lane}
+						onClick={() => { onLaneChange(row.lane); setShowAll(false); }}
+						className={`inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-[11px] transition-colors ${FOCUS} ${lane === row.lane ? "border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright"}`}
+					><LaneIcon lane={row.lane} />{ROLE_NAMES[row.lane]}</button>)}
+				</fieldset>
+				<div className="border border-rift-line/50">
+					{contenders.length ? <ol aria-label={`${ROLE_NAMES[lane]} SS contenders`}>{contenders.map((row, index) => <Contender key={row.player.id} row={row} rank={index + 1} />)}</ol> : <p className="px-3 py-5 text-[11px] leading-relaxed text-rift-mutedbright">No S/S+ challengers in this role. Lower tiers must develop before they can qualify.</p>}
+				</div>
+				{selected.contenders.length > 5 && <button type="button" onClick={() => setShowAll(!showAll)} className={`mt-2 border border-rift-line/50 px-3 py-1.5 text-[11px] text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright ${FOCUS}`}>{showAll ? "Show top 5" : `Show all ${selected.contenders.length} contenders`}</button>}
+				<p className="mt-2 text-[10px] leading-relaxed text-rift-mutedbright">Estimates reflect current results, not future-match odds. Ownership changes only at phase reviews.</p>
+			</section>
+			<details className="border-t border-rift-line/40 pt-2 text-[11px] leading-relaxed text-rift-mutedbright">
+				<summary className={`w-fit cursor-pointer py-1 text-rift-gold ${FOCUS}`}>Selection rules &amp; estimates</summary>
 				<p className="mt-2">S/S+ base tier, at least 8 rated games, 60% participation and recent domestic activity are required. Challengers must beat an eligible holder by {SS_REPLACE_MARGIN.toFixed(2)} score. Estimates repeatedly resample recorded grades using these same selection rules; all eligible players compete, including those outside the displayed top five. Too few rated games means no estimate; other unmet requirements mean 0%. SS score adjusts grades for opposition, sample size and consistency.</p>
+				<p className="mt-2">Season stats follow the player across teams. Gold diff is measured at game end against the lane opponent. — means no recorded data.</p>
 			</details>
-			{contenders.length ? <ul aria-label={`${ROLE_NAMES[lane]} SS contenders`} className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{contenders.map(row => <Contender key={row.player.id} row={row} />)}</ul> : <p className="py-3 text-sm text-rift-mutedbright">No S/S+ challengers in this role. Lower tiers must develop before they can qualify.</p>}
-			{selected.contenders.length > 5 && <button type="button" onClick={() => setShowAll(!showAll)} className="mt-3 border border-rift-line px-3 py-2 text-xs text-rift-mutedbright hover:text-rift-goldbright">{showAll ? "Show top 5" : `Show all ${selected.contenders.length} contenders`}</button>}
-			<p className="mt-3 text-xs text-rift-mutedbright">Season stats follow the player across teams. Gold diff is measured at game end against the lane opponent. — means no recorded data.</p>
+		</div>
+	);
+}
+
+export default function SSRacePanel({ season }: { season: SeasonState }) {
+	const [open, setOpen] = useState(false);
+	const [lane, setLane] = useState<Lane>("top");
+	const bodyId = useId();
+	const holders = useMemo(() => new Set(season.teams.flatMap(t => t.players.filter(p => p.tier === "SS").map(p => p.lane))).size, [season.teams]);
+	return (
+		<section aria-label="SS Race" className="mb-7">
+			<h2>
+				<button type="button" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(value => !value)}
+					className={`flex w-full items-center gap-2.5 border px-3 py-2.5 text-left transition-colors ${FOCUS} ${open ? "border-rift-gold/40 bg-rift-gold/[0.06] text-rift-goldbright" : "border-rift-line/50 bg-rift-bg/40 text-rift-mutedbright hover:border-rift-gold/50 hover:text-rift-goldbright"}`}>
+					<span aria-hidden="true"><TierChip tier="SS" size="md" /></span>
+					<span className="font-display text-[10px] uppercase tracking-[0.25em]">SS Race</span>
+					<span className="hidden text-[10px] text-rift-mutedbright sm:inline">World leaders &amp; contenders</span>
+					<span className="ml-auto text-[10px] tabular-nums text-rift-mutedbright">{holders}/5 holders</span>
+					<IconChevronDown size={14} className={`shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+				</button>
+			</h2>
+			{open && <div id={bodyId} className="border border-t-0 border-rift-line/40 bg-rift-bg/20"><SSRaceContent season={season} lane={lane} onLaneChange={setLane} /></div>}
 		</section>
 	);
 }
