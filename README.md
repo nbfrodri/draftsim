@@ -87,6 +87,8 @@ The champion catalogue is packaged with the app, while remote artwork, audio and
 
 ## What you can play
 
+See [v1.8.0](docs/releases/v1.8.0.md) for exclusive SS players, fresh live-meta evidence, MSI logos and recap team cards.
+
 Read the [v1.3.1 release notes](docs/releases/v1.3.1.md) for consistent view loading, and [v1.3.0](docs/releases/v1.3.0.md) for shared teammate rosters, historical team logos and results by split or event.
 
 Desktop saves include unfinished seasons. Inactive realities load on demand; Backups offers optional local save diagnostics. See the [persistence guide](docs/persistence-and-recovery.md) for storage format 8 migration and recovery.

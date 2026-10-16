@@ -87,6 +87,8 @@ El catálogo de campeones viene incluido, mientras que las imágenes remotas, lo
 
 ## Modos y funciones
 
+Consulta [v1.8.0](docs/releases/v1.8.0.md) para los jugadores SS exclusivos, la corrección de evidencias del meta vivo, los logos del MSI y las tarjetas de equipo del recap.
+
 El guardado de escritorio incluye temporadas sin terminar. Las realidades inactivas se cargan bajo demanda; Backups ofrece diagnósticos locales optativos. Consulta la [guía de persistencia](docs/persistence-and-recovery.md) para la migración al formato 8 y su recuperación.
 
 **Continue playing** y las demás vistas muestran la pantalla de carga centrada de DraftSim, con un spinner, mientras se carga su interfaz. Comparte la presentación del arranque y desaparece cuando la vista solicitada está lista. Consulta la [carga de vistas](docs/interaction-and-execution.md#carga-de-vistas).
