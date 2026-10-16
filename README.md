@@ -12,8 +12,8 @@ Open [GitHub Releases](https://github.com/nbfrodri/draftsim/releases) and choose
 
 | Installer | File | Use |
 |---|---|---|
-| NSIS | `DraftSim_<version>_x64-setup.exe` | Standard setup wizard |
-| MSI | `DraftSim_<version>_x64_en-US.msi` | Windows Installer package |
+| NSIS | `DraftSim_<version>_x64-setup.exe` | Recommended for normal use: double-click, follow the wizard, then open DraftSim from Start |
+| MSI | `DraftSim_<version>_x64_en-US.msi` | Alternative for Windows Installer / managed deployments: double-click or run `msiexec /i "path\to\installer.msi"` |
 
 Both install the same application. Releases are produced from version tags after automated checks pass. If no release is listed yet, build the installers locally using the instructions below.
 
@@ -21,13 +21,65 @@ DraftSim uses Microsoft Edge WebView2. The installer handles its installation wh
 
 ## Install on Linux
 
-The same release lists three packages for Linux x86_64:
+Choose by distribution, not by the computer's manufacturer. Published Linux packages target x86_64 (also called amd64); ARM/aarch64 builds are not provided. Run `cat /etc/os-release` and `uname -m` if unsure.
 
 | Package | File | Use |
 |---|---|---|
-| deb | `DraftSim_<version>_amd64.deb` | Debian, Ubuntu and derivatives |
-| rpm | `DraftSim-<version>-1.x86_64.rpm` | Fedora, openSUSE and derivatives |
-| AppImage | `DraftSim_<version>_amd64.AppImage` | Other distributions; mark it executable and run it |
+| deb | `DraftSim_<version>_amd64.deb` | Debian, Ubuntu, Linux Mint and compatible derivatives |
+| rpm | `DraftSim-<version>-1.x86_64.rpm` | Fedora, openSUSE and compatible derivatives; dependencies must be available for the distribution/version |
+| AppImage | `DraftSim_<version>_amd64.AppImage` | Arch, Omarchy, EndeavourOS, Manjaro and other compatible Linux distributions; run without a system installation |
+
+Download a package from [GitHub Releases](https://github.com/nbfrodri/draftsim/releases), then open a terminal in its directory. These examples use version 1.8.0; substitute the exact filename you downloaded.
+
+**Debian / Ubuntu / Linux Mint:**
+
+```bash
+sudo apt install ./DraftSim_1.8.0_amd64.deb
+```
+
+**Fedora:**
+
+```bash
+sudo dnf install ./DraftSim-1.8.0-1.x86_64.rpm
+```
+
+**openSUSE:**
+
+```bash
+sudo zypper install ./DraftSim-1.8.0-1.x86_64.rpm
+```
+
+Open DraftSim from the application menu after installing deb/rpm, or run `draftsim`. Close the app before updating and install the newer package with the same command. Package-manager documentation: [APT](https://ubuntu.com/server/docs/tutorial/managing-software/), [DNF](https://dnf.readthedocs.io/en/stable/command_ref.html#install-command-label), [Zypper](https://manpages.opensuse.org/Leap-15.6/zypper/zypper.8.en.html).
+
+**Arch / Omarchy and other AppImage users:**
+
+Keep the AppImage somewhere permanent, such as `~/Applications`, make it executable and run it, following the [AppImage quickstart](https://docs.appimage.org/introduction/quickstart.html):
+
+```bash
+chmod +x ./DraftSim_1.8.0_amd64.AppImage
+./DraftSim_1.8.0_amd64.AppImage
+```
+
+No `sudo` is needed. To update, close DraftSim, replace the AppImage with the newer one and grant execution permission again. An AppImage does not automatically create an application-menu entry. Compatibility still depends on the host's system libraries; it is not a guarantee for every distribution.
+
+### Omarchy / Arch: use a build from this checkout
+
+Omarchy is Arch-based: use the AppImage when available; deb/rpm are not native pacman packages. This checkout's local packaging attempt generated deb/rpm, but AppImage failed because linuxdeploy's GTK plugin expects legacy GdkPixbuf loader paths absent on the build host. See the [packaging verification record](docs/plans/2026-10-16-season-ss-tier-meta-and-team-cards.md#local-installer-results). Release CI builds AppImage on Ubuntu instead.
+
+On the same machine where the production build succeeded and the Tauri runtime dependencies are installed, run the compiled binary from the repository root:
+
+```bash
+./src-tauri/target/release/draftsim
+```
+
+For a manual per-user installation, close DraftSim and copy that binary:
+
+```bash
+install -Dm755 ./src-tauri/target/release/draftsim "$HOME/.local/bin/draftsim"
+"$HOME/.local/bin/draftsim"
+```
+
+This installs the executable only, without a package-manager record or menu entry. Update it by repeating the copy after a successful new build. This same-machine fallback is not a portable release; use release packages when distributing to other computers.
 
 The deb and rpm packages depend on WebKitGTK 4.1, which the package manager installs. Saves are stored in `~/.local/share/app.draftsim.desktop/`. Windows and Linux installations do not share saves; move them with the backup export and import in the backups panel.
 
