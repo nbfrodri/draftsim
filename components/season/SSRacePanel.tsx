@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import { IconChevronDown } from "@tabler/icons-react";
+import { IconChevronDown, IconTrophy } from "@tabler/icons-react";
 import { computeSSRace, type SSRaceLane, type SSRacePlayer } from "@/lib/season/ssRace";
 import { SS_REPLACE_MARGIN } from "@/lib/season/ssPlayers";
 import type { SeasonState } from "@/lib/season/types";
@@ -170,7 +170,7 @@ export default function SSRacePanel({ season }: { season: SeasonState }) {
 			<h2>
 				<button type="button" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(value => !value)}
 					className={`flex w-full items-center gap-2.5 border px-3 py-2.5 text-left transition-colors ${FOCUS} ${open ? "border-rift-gold/40 bg-rift-gold/[0.06] text-rift-goldbright" : "border-rift-line/50 bg-rift-bg/40 text-rift-mutedbright hover:border-rift-gold/50 hover:text-rift-goldbright"}`}>
-					<span aria-hidden="true"><TierChip tier="SS" size="md" /></span>
+					<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />
 					<span className="font-display text-[10px] uppercase tracking-[0.25em]">SS Race</span>
 					<span className="hidden text-[10px] text-rift-mutedbright sm:inline">World leaders &amp; contenders</span>
 					<span className="ml-auto text-[10px] tabular-nums text-rift-mutedbright">{holders}/5 holders</span>

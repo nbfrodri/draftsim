@@ -35,12 +35,14 @@ test("live SS race shows ownership, contenders, evidence and responsive role fil
 	await panel.scrollIntoViewIfNeeded();
 	const toggle = panel.getByRole("button", { name: /^SS Race/ });
 	await expect(toggle).toHaveAttribute("aria-expanded", "false");
+	await expect(toggle.getByText("SS", { exact: true })).toHaveCount(0);
 	await expect(panel.getByRole("article")).toHaveCount(0);
 	await panel.screenshot({ path: "test-results/playwright/ss-race-collapsed.png" });
 	await toggle.focus();
 	await page.keyboard.press("Enter");
 	await expect(toggle).toHaveAttribute("aria-expanded", "true");
 	const holder = panel.getByRole("article", { name: "Top SS holder", exact: true });
+	await expect(holder.getByText("SS", { exact: true })).toBeVisible();
 	await expect(holder).toContainText("Race 0 0");
 	await expect(holder).toContainText("7.0");
 	await expect(holder).toContainText("-500");
