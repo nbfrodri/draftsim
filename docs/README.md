@@ -15,6 +15,8 @@ Esta documentación distingue contratos implementados de propuestas de evolució
 
 ## Referencias especializadas
 
+- [Plan de integración histórica completa del tier SS](plans/2026-10-17-ss-history-integration.md) — propuesta para timeline, carreras, cards y rating de equipos.
+
 - [Tipografía de la aplicación](typography.md).
 
 - [Sistemas de juego en inglés](systems.md) y [en español](systems.es.md).
