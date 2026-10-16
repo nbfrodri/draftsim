@@ -30,6 +30,8 @@ Los documentos de `plans/` y las auditorías registran objetivos y decisiones de
 
 ## Versiones
 
+- [v1.10.0: historial SS por fase, Career History y cards históricas](releases/v1.10.0.md).
+
 - [v1.9.2: icono alineado y sin badge de tier en la cabecera SS Race](releases/v1.9.2.md).
 
 - [v1.9.1: SS Race plegable e integrada con el dashboard; README breve](releases/v1.9.1.md).
