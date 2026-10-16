@@ -5,7 +5,6 @@ import { seasonAtPhase } from "@/lib/season/phaseResults";
 import { PhaseTeamCardProvider } from "./team/TeamCardContext";
 import { nextSplitRegularMatch } from "@/lib/season/regularSeason";
 
-import TeamIcon from "@/components/TeamIcon";
 import TournamentTeamIdentity from "@/components/tournament/TournamentTeamIdentity";
 import MatchContextBadges from "@/components/tournament/MatchContextBadges";
 import { teamStarRating } from "@/lib/tournament";

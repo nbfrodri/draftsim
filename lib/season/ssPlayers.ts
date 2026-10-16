@@ -1,6 +1,7 @@
 import { LANE_ORDER, deriveStar } from "../players";
 import { developmentTier, withoutSS, validSSEvidence } from "../playerSS";
-import type { Lane, Player } from "../types";
+import type { GameDraft, Lane, Player } from "../types";
+import type { TournamentState, TournamentTeam } from "../tournament";
 import { gameSideTeamId } from "./stats";
 import type { LeagueId, SeasonState } from "./types";
 
@@ -39,72 +40,91 @@ export function reconcileSSPlayers(season: SeasonState): SeasonState {
 	return changed ? { ...season, teams, ...(season.franchise && inactivePool ? { franchise: { ...season.franchise, inactivePool } } : {}) } : season;
 }
 
-/** Phase-boundary selection; recorded IDs and frozen entrant strength only. */
-export function reviewSSPlayers(input: SeasonState): SeasonState {
-	const season = reconcileSSPlayers(input);
-	const phase = season.phases[season.phaseIndex];
-	if (!phase || phase.kind === "transfer" || phase.status !== "complete") return season;
+interface PhaseSampleContext {
+	index: number;
+	domestic: boolean;
+	samples: Map<string, Sample>;
+	teamGames: Map<string, number>;
+	leagues: Set<LeagueId>;
+	titlePlayers: Set<string>;
+}
+
+interface RecordedGame {
+	game: GameDraft;
+	blue: TournamentTeam;
+	red: TournamentTeam;
+	strengths: Map<string, number>;
+}
+
+function ensureSample(samples: Map<string, Sample>, id: string): Sample {
+	let sample = samples.get(id);
+	if (!sample) {
+		sample = { values: [], lastDomestic: -1, leagues: new Set(), titles: 0 };
+		samples.set(id, sample);
+	}
+	return sample;
+}
+
+function* recordedGames(tournament: TournamentState): Generator<RecordedGame> {
+	const teams = new Map(tournament.teams.map(team => [team.id, team]));
+	const strengths = new Map(tournament.teams.map(team => [team.id, deriveStar(team.players?.map(player => ({ tier: developmentTier(player) })))]));
+	for (const match of tournament.matches) {
+		if (match.isBye || !match.series || !match.blueTeamId || !match.redTeamId) continue;
+		const blue = teams.get(match.blueTeamId);
+		const red = teams.get(match.redTeamId);
+		if (!blue || !red) continue;
+		for (const game of match.series.games) {
+			if (game.status === "complete" && game.winner) yield { game, blue, red, strengths };
+		}
+	}
+}
+
+function collectGameSamples(frame: RecordedGame, context: PhaseSampleContext, winnerId: string | undefined): void {
+	const { game, blue, red, strengths } = frame;
+	for (const side of ["blue", "red"] as const) {
+		const teamId = gameSideTeamId(blue.id, red.id, blue.name, red.name, game.blueTeam, side);
+		const team = teamId === blue.id ? blue : red;
+		const opponent = teamId === blue.id ? red : blue;
+		if (context.domestic && team.leagueId) {
+			context.teamGames.set(team.id, (context.teamGames.get(team.id) ?? 0) + 1);
+			context.leagues.add(team.leagueId);
+		}
+		for (const [li, lane] of LANE_ORDER.entries()) {
+			const id = game.recap?.perPickIds?.[side]?.[li];
+			const rating = game.recap?.ratings?.[side]?.[li];
+			if (!id || typeof rating !== "number" || !Number.isFinite(rating) || rating < 1 || rating > 10) continue;
+			const entrant = team.players?.find(player => player.id === id && player.lane === lane);
+			if (!entrant) continue;
+			const sample = ensureSample(context.samples, `${id}:${lane}`);
+			const strength = strengths.get(opponent.id) ?? 3;
+			const ssCorrection = entrant.tier === "SS" ? 0.1 : 0;
+			sample.values.push(Math.max(1, Math.min(10, rating + (strength - 3) * 0.1 - ssCorrection)));
+			if (context.domestic && team.leagueId) {
+				sample.lastDomestic = context.index;
+				sample.leagues.add(team.leagueId);
+			}
+			if (teamId === winnerId) context.titlePlayers.add(`${id}:${lane}`);
+		}
+	}
+}
+
+function collectSSEvidence(season: SeasonState) {
 	const samples = new Map<string, Sample>();
 	const opportunities = new Map<LeagueId, Map<number, number>>();
 	const domesticPhases = new Map<LeagueId, number[]>();
-	const ensure = (id: string) => {
-		let sample = samples.get(id);
-		if (!sample) {
-			sample = { values: [], lastDomestic: -1, leagues: new Set(), titles: 0 };
-			samples.set(id, sample);
-		}
-		return sample;
-	};
 	for (const [pi, p] of season.phases.entries()) {
 		if (pi > season.phaseIndex || p.status !== "complete" || p.kind === "transfer") continue;
-		const phaseTeamGames = new Map<string, number>();
-		const phaseLeagues = new Set<LeagueId>();
-		const titlePlayers = new Set<string>();
+		const context: PhaseSampleContext = { index: pi, domestic: p.kind === "split", samples,
+			teamGames: new Map(), leagues: new Set(), titlePlayers: new Set() };
 		for (const tid of p.tournamentIds) {
 			const t = season.tournaments[tid];
 			if (!t) continue;
-			const teams = new Map(t.teams.map(team => [team.id, team]));
-			const strengths = new Map(t.teams.map(team => [team.id, deriveStar(team.players?.map(player => ({ tier: developmentTier(player) })))]));
 			const winnerId = p.kind === "split" ? season.splitResults[p.split!]?.[t.teams[0]?.leagueId as LeagueId]?.[0] : season.intlResults[p.event!]?.[0];
-			for (const match of t.matches) {
-				if (match.isBye || !match.series || !match.blueTeamId || !match.redTeamId) continue;
-				const blue = teams.get(match.blueTeamId);
-				const red = teams.get(match.redTeamId);
-				if (!blue || !red) continue;
-				for (const game of match.series.games) {
-					if (game.status !== "complete" || !game.winner) continue;
-					for (const side of ["blue", "red"] as const) {
-						const teamId = gameSideTeamId(blue.id, red.id, blue.name, red.name, game.blueTeam, side);
-						const team = teams.get(teamId)!;
-						const opponent = teamId === blue.id ? red : blue;
-						if (p.kind === "split" && team.leagueId) {
-							phaseTeamGames.set(team.id, (phaseTeamGames.get(team.id) ?? 0) + 1);
-							phaseLeagues.add(team.leagueId);
-						}
-						for (const [li, lane] of LANE_ORDER.entries()) {
-							const id = game.recap?.perPickIds?.[side]?.[li];
-							const rating = game.recap?.ratings?.[side]?.[li];
-							if (!id || typeof rating !== "number" || !Number.isFinite(rating) || rating < 1 || rating > 10) continue;
-							const entrant = team.players?.find(player => player.id === id && player.lane === lane);
-							if (!entrant) continue;
-							const sample = ensure(`${id}:${lane}`);
-							// Frozen pre-event base rosters prevent SS's own bonus affecting opponent credit.
-							const strength = strengths.get(opponent.id) ?? 3;
-							const ssCorrection = entrant.tier === "SS" ? 0.1 : 0;
-							sample.values.push(Math.max(1, Math.min(10, rating + (strength - 3) * 0.1 - ssCorrection)));
-							if (p.kind === "split" && team.leagueId) {
-								sample.lastDomestic = pi;
-								sample.leagues.add(team.leagueId);
-							}
-							if (teamId === winnerId) titlePlayers.add(`${id}:${lane}`);
-						}
-					}
-				}
-			}
+			for (const frame of recordedGames(t)) collectGameSamples(frame, context, winnerId);
 		}
-		for (const key of titlePlayers) ensure(key).titles++;
-		for (const league of phaseLeagues) {
-			const counts = [...phaseTeamGames].filter(([id]) => season.teams.find(t => t.id === id)?.leagueId === league).map(([, n]) => n).sort((a, b) => a - b);
+		for (const key of context.titlePlayers) ensureSample(samples, key).titles++;
+		for (const league of context.leagues) {
+			const counts = [...context.teamGames].filter(([id]) => season.teams.find(t => t.id === id)?.leagueId === league).map(([, n]) => n).sort((a, b) => a - b);
 			const typical = counts[Math.min(counts.length - 1, Math.floor(counts.length * 0.75))] ?? 0;
 			const phases = opportunities.get(league) ?? new Map<number, number>();
 			phases.set(pi, typical);
@@ -112,6 +132,15 @@ export function reviewSSPlayers(input: SeasonState): SeasonState {
 			domesticPhases.set(league, [...(domesticPhases.get(league) ?? []), pi]);
 		}
 	}
+	return { samples, opportunities, domesticPhases };
+}
+
+/** Phase-boundary selection; recorded IDs and frozen entrant strength only. */
+export function reviewSSPlayers(input: SeasonState): SeasonState {
+	const season = reconcileSSPlayers(input);
+	const phase = season.phases[season.phaseIndex];
+	if (!phase || phase.kind === "transfer" || phase.status !== "complete") return season;
+	const { samples, opportunities, domesticPhases } = collectSSEvidence(season);
 	const selected = new Map<string, { score: number; games: number; carry?: boolean }>();
 	const idCounts = new Map<string, number>();
 	for (const team of season.teams) for (const p of team.players) if (p.id) idCounts.set(p.id, (idCounts.get(p.id) ?? 0) + 1);
