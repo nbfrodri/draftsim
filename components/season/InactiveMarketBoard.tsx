@@ -54,7 +54,7 @@ interface Props {
 
 /**
  * Shared Free-agent / Academy board for offseason + mid-season transfer window.
- * Rows use InactiveBoardTip for rift popovers; action buttons stay outside the tip.
+ * Rows use PlayerHoverCard; action buttons stay outside the card trigger.
  */
 export default function InactiveMarketBoard({
   kind,

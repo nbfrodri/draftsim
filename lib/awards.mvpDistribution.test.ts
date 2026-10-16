@@ -276,7 +276,8 @@ function formatDistributionTable(
 }
 
 describe("MVP lane distribution (simulated tournaments)", () => {
-  it(`reports balanced MVP lanes across ${TOURNAMENT_COUNT} single-elim tournaments`, () => {
+  // This statistical integration check simulates thousands of games, not one unit.
+  it(`reports balanced MVP lanes across ${TOURNAMENT_COUNT} single-elim tournaments`, { timeout: 30_000 }, () => {
     const tournamentMvp = emptyCounts();
     const finalsMvp = emptyCounts();
     const intlMvp = emptyCounts();

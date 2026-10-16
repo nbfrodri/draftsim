@@ -32194,7 +32194,7 @@
         // Displaced incumbents are cuts from the closing year.
         year,
         {
-          ...skipOpts ?? {},
+          ...skipOpts,
           ...samePassDemoteIds.size > 0 ? { excludePlayerIds: samePassDemoteIds } : {}
         }
       );
@@ -32212,7 +32212,7 @@
         meta,
         rng,
         year,
-        { ...skipOpts ?? {}, excludePlayerIds: cutThisPass }
+        { ...skipOpts, excludePlayerIds: cutThisPass }
       );
       pool = released.inactivePool;
       news.push(...released.news);
@@ -32224,7 +32224,7 @@
         rng,
         year,
         {
-          ...skipOpts ?? {},
+          ...skipOpts,
           midSplit
         }
       );
@@ -32238,7 +32238,7 @@
         taken,
         mintYear,
         {
-          ...skipOpts ?? {},
+          ...skipOpts,
           midSplit
         }
       );

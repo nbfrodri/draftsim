@@ -948,6 +948,7 @@ describe("lifecycle FA market metrics (mid-split + offseason)", () => {
     expect(avgPlaying).toBeGreaterThan(1);
     expect(avgPlaying).toBeLessThan(30);
     },
-    20_000,
+    // Five 40-year, 48-team market simulations exceed 20s on shared runners.
+    60_000,
   );
 });

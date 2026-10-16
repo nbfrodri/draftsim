@@ -1,5 +1,5 @@
 import { captureMarketTeamSnapshots } from "./marketSnapshots";
-import type { SeasonTeam } from "./types";
+import type { SeasonTeam, SeasonMetaSnapshot } from "./types";
 import type { MarketTeamSnapshot } from "./marketSnapshots";
 import { marketOrigin, type MarketOrigin, type MarketSeason } from "./marketOrigin";
 // Player careers for franchise/reality mode: stable ids, ageing, growth and
@@ -33,7 +33,6 @@ import { generateHandle, isValidHandle, normalizeHandle } from "./playerNames";
 // Re-export for callers that imported isValidHandle from lifecycle.
 export { isValidHandle } from "./playerNames";
 import rookiePool from "./rookieNames.json";
-import type { SeasonMetaSnapshot } from "./types";
 import {
   NEUTRAL_META,
   applyComebackRust,
@@ -1085,7 +1084,7 @@ export function runDemotionPass(
       // Displaced incumbents are cuts from the closing year.
       year,
       {
-        ...(skipOpts ?? {}),
+        ...skipOpts,
         ...(samePassDemoteIds.size > 0
           ? { excludePlayerIds: samePassDemoteIds }
           : {}),
@@ -1107,7 +1106,7 @@ export function runDemotionPass(
       meta,
       rng,
       year,
-      { ...(skipOpts ?? {}), excludePlayerIds: cutThisPass },
+      { ...skipOpts, excludePlayerIds: cutThisPass },
     );
     pool = released.inactivePool;
     news.push(...released.news);
@@ -1123,7 +1122,7 @@ export function runDemotionPass(
       rng,
       year,
       {
-        ...(skipOpts ?? {}),
+        ...skipOpts,
         midSplit,
       },
     );
@@ -1139,7 +1138,7 @@ export function runDemotionPass(
       taken,
       mintYear,
       {
-        ...(skipOpts ?? {}),
+        ...skipOpts,
         midSplit,
       },
     );
