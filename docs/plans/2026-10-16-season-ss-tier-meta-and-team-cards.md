@@ -127,3 +127,18 @@ The final run recorded **50 SS replacements**, never more than one holder per po
 - Reproduced `npm test`: all assertions completed, but the 200-tournament MVP audit took about 7 seconds against a 5-second limit, and the five-seed / 40-year / 48-team FA audit took about 28 seconds against a 20-second limit. These are statistical integration workloads, not performance-budget tests. Set local limits of 30 and 60 seconds respectively; retained every sample, seed and assertion, with no retries, skips or global timeout change. **The subsequent complete suite passed: 135 files / 1,537 tests.** This supersedes the earlier unresolved-timeout results.
 - Full lint and TypeScript passed; **12 native tests** and **4 browser tests** passed again. A full implementation scan reported **356 warnings / 0 errors**, including 112 generated-worker warnings. The remaining findings include existing complexity/duplication/comment policies and image/memoization rules already explicitly addressed by this static-export project's ESLint configuration. No hook or scanner rules were disabled.
 - `npm run desktop:build -- --ci` was attempted on Linux and rejected `msi`: the installed Linux Tauri CLI supports only deb/rpm/AppImage bundling. Windows installers still require the project's Windows/MSVC build job; no release or remote CI job was published.
+
+### Expanded franchise audit
+
+Run `node --import tsx scripts/audit-ss-franchise.ts`. Seeds 7, 19 and 43 each simulate three consecutive years with four generated teams from each of the six regions (24 teams), double round-robin BO1 domestic splits, canonical international formats with BO1 series, live meta, patch shifts, development, transfers and franchise aging enabled. Matches, playoff transitions, transfer windows, offseason lifecycle and archives use the production domain engine. Every match checks live SS exclusivity, valid underlying tiers/evidence and absence of inactive holders. Each seed resets its active meta; the script restores global RNG/meta state on exit and never opens a database or store.
+
+| Seed | Actual games | Direct SS replacements | SS player-game appearances | Wins in those appearances |
+| --- | ---: | ---: | ---: | ---: |
+| 7 | 979 | 20 | 383 | 223 |
+| 19 | 980 | 15 | 377 | 233 |
+| 43 | 978 | 20 | 382 | 234 |
+| Total | 2,937 | 55 | 1,142 | 690 |
+
+Across 54 phase-transition checkpoints there were no duplicate or ineligible live holders, no inactive SS holders and no failed year/archive transitions. Maximum bottom-lane D count was **1/28**. Holder observations by lane were top 50, jungle 51, middle 49, bottom 49 and support 49. A team held all five seats at one checkpoint; the agreed exclusivity rule is per position worldwide and imposes no per-team cap. Three holder observations occurred on teams rated 3.5 stars or below. These results demonstrate turnover and cross-region/lifecycle operation without forcing tier quotas. The observed 60.4% SS player-game win rate is descriptive, influenced by team strength and repeated teammates, and is not a causal estimate of the SS bonus. This complements the earlier 36-scenario meta audit; it remains a reduced-world, three-year sample rather than a claim of universal balance across every format or full-size league.
+
+The final script passes TypeScript and ESLint, and its own changed-file `aislop` scan reports **0 findings**.
