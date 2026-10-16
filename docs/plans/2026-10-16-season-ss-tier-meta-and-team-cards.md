@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-Implemented on the plan branch. User decisions are recorded below; the final parameters and verification section supersede the original proposals. Native interactive WebView validation remains outside the checks performed here.
+Implemented on the plan branch. User decisions are recorded below; the final parameters and verification sections supersede the original proposals. Linux packaged startup and fresh SQLite initialization are now verified. Native SS interaction flows, system installation/upgrade and Windows validation remain outside the checks performed here.
 
 ## Agreed behavior
 
@@ -142,3 +142,16 @@ Run `node --import tsx scripts/audit-ss-franchise.ts`. Seeds 7, 19 and 43 each s
 Across 54 phase-transition checkpoints there were no duplicate or ineligible live holders, no inactive SS holders and no failed year/archive transitions. Maximum bottom-lane D count was **1/28**. Holder observations by lane were top 50, jungle 51, middle 49, bottom 49 and support 49. A team held all five seats at one checkpoint; the agreed exclusivity rule is per position worldwide and imposes no per-team cap. Three holder observations occurred on teams rated 3.5 stars or below. These results demonstrate turnover and cross-region/lifecycle operation without forcing tier quotas. The observed 60.4% SS player-game win rate is descriptive, influenced by team strength and repeated teammates, and is not a causal estimate of the SS bonus. This complements the earlier 36-scenario meta audit; it remains a reduced-world, three-year sample rather than a claim of universal balance across every format or full-size league.
 
 The final script passes TypeScript and ESLint, and its own changed-file `aislop` scan reports **0 findings**.
+
+### Local installer results
+
+`npm run desktop:build:linux -- --ci --config '{"build":{"beforeBuildCommand":"npm run build -- --webpack"}}'` passed the production frontend export, TypeScript and optimized Rust compilation (6m 33s), then generated:
+
+- `src-tauri/target/release/bundle/deb/DraftSim_1.7.0_amd64.deb` (SHA-256 `b3db22ae14a15786a967e6544dda2719573f5cd3b7090251dda602248e3f37cd`).
+- `src-tauri/target/release/bundle/rpm/DraftSim-1.7.0-1.x86_64.rpm` (SHA-256 `41c4911a1240ccf8257b877ddc04704b3a10937ae01dc0fe74cab0121407bc3b`).
+
+The command ultimately exited with status 1 at AppImage packaging, so the complete Linux packaging command did **not** pass. A verbose AppImage-only retry identified linuxdeploy's bundled `strip` rejecting modern `.relr.dyn` sections. Its supported `NO_STRIP=1` option passed that step, but the GTK plugin then required the absent `/usr/lib/gdk-pixbuf-2.0/2.10.0` directory. This host uses GdkPixbuf 2.44.7 with Glycin loaders; its pkg-config metadata still names the legacy directory. No system libraries, tool caches or project packaging configuration were patched to manufacture a bundle. AppImage remains unbuilt here; the existing Ubuntu-based CI is the project's distribution build environment. Windows NSIS/MSI were not produced on this Linux host.
+
+Extracted the actual deb payload into `/tmp/draftsim-ss-native-smoke/package` without installing it. Its executable stayed running for the full 25-second smoke interval with empty diagnostic output, then was deliberately terminated by `timeout` (expected exit 124). All XDG data/config/cache paths pointed to disposable directories. The real Linux WebKit frontend initialized SQLite: `PRAGMA integrity_check` returned `ok`, `schema_meta.persist_version` was `8`, and `json_migrated_v1` was `1`. No personal saves were touched. This verifies packaged startup and native persistence initialization, not installer registration, upgrade behavior, cross-distribution compatibility or native interaction with SS/cards.
+
+Final validation: **1,537 unit tests, 12 native tests and 4 browser tests passed**, full lint and the final TypeScript check passed, and the 2,937-game franchise audit exited successfully. The earlier 356-warning implementation scan and the new script's zero-finding scan remain applicable; no existing hook was bypassed. Commits are local; no release, tag, remote CI dispatch or installer publication was created.
