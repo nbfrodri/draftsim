@@ -62,6 +62,12 @@ chmod +x ./DraftSim_1.8.0_amd64.AppImage
 
 No `sudo` is needed. To update, close DraftSim, replace the AppImage with the newer one and grant execution permission again. An AppImage does not automatically create an application-menu entry. Compatibility still depends on the host's system libraries; it is not a guarantee for every distribution.
 
+If it reports that FUSE is unavailable, use the runtime's [extract-and-run fallback](https://docs.appimage.org/user-guide/troubleshooting/fuse.html#extract-and-run-type-2-appimages), which extracts temporarily and cleans up when the app exits:
+
+```bash
+./DraftSim_1.8.0_amd64.AppImage --appimage-extract-and-run
+```
+
 ### Omarchy / Arch: use a build from this checkout
 
 Omarchy is Arch-based: use the AppImage when available; deb/rpm are not native pacman packages. This checkout's local packaging attempt generated deb/rpm, but AppImage failed because linuxdeploy's GTK plugin expects legacy GdkPixbuf loader paths absent on the build host. See the [packaging verification record](docs/plans/2026-10-16-season-ss-tier-meta-and-team-cards.md#local-installer-results). Release CI builds AppImage on Ubuntu instead.
