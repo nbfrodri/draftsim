@@ -15,7 +15,7 @@ Esta documentación distingue contratos implementados de propuestas de evolució
 
 ## Referencias especializadas
 
-- [Plan de clasificaciones de jugadores por rol y evento](plans/2026-10-17-event-player-rankings.md) — splits e internacionales, filtros por fase, actualización en vivo y evolución histórica por jornadas/rondas; pendiente de implementación.
+- [Plan de rankings por evento, estadísticas de campeones e historial SS](plans/2026-10-17-event-player-rankings.md) — rankings por rol, tablas de picks/bans y mejora visual de la timeline SS; pendiente de implementación.
 
 - [Plan de integración histórica completa del tier SS](plans/2026-10-17-ss-history-integration.md) — propuesta para timeline, carreras, cards y rating de equipos.
 
