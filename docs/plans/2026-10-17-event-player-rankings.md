@@ -17,6 +17,8 @@ The expanded scope also includes two champion leaderboards (most picked and most
 - Do not display or assign S/A/B/SS tiers in the player ranking rows or leader summary. The table describes the best event performers in each role, regardless of their underlying gameplay tier.
 - Add Most Picked and Most Banned tables for every split and international, defaulting to Top 10 with an All option, role filters and win rates.
 - Improve SS history's timeline layout, hierarchy and interactions, using historical team logos and split/international icons.
+- Explicitly redesign each player's **Career History → annual SS history** block for clarity and consistent team/phase iconography, not just the season-wide timeline.
+- Show regional league logos for current holders and contenders in **Live Season → SS Race**.
 - Prepare a plan and resolve product choices before implementing it.
 
 ## Confirmed product decisions
@@ -121,6 +123,24 @@ Extend the event archive record with compact champion totals and role-specific p
 - Explain a known decline as **Lost SS — base tier no longer eligible**. Show an exact S→A transition only when both values are recorded; existing loss metadata may only establish decline, so do not infer the resulting tier from the player's current card. Adding future transition details requires optional validated fields at the actual mutation owner.
 - Produce a before/after visual check on desktop and mobile, including long names, absent logos, all five seats, vacancies, retained holders, offseason decline and partial legacy history. Reuse project typography and UI conventions; apply relevant frontend/accessibility skills during implementation.
 
+### Player Career History: dedicated UI/UX work
+
+- Treat `SSCareerSummary` and `SSCareerYear` in `components/hall/SSHistoryPanel.tsx` as explicit design targets. Keep the annual SS block inside existing Career History; do not add a new tab or repeat the full player identity in every row of that player's own history.
+- Replace dense, repetitive prose with an aligned chronological layout: **phase icon + phase name → SS change/status → historical team logo + team name**. Put score, rated games and original evidence phase in a clearly labeled secondary line or expandable detail.
+- Use team logos consistently in opening ownership, gains, renewals, carry and loss rows, with uniform sizing/alignment and readable fallbacks. Preserve the recorded team for that occurrence; do not substitute the current club or assume a transfer caused the SS change.
+- Display the established split and international icons wherever the phase identity is known. Use a distinct neutral treatment for opening/offseason and unknown phases, rather than borrowing a tournament icon for a lifecycle event.
+- Make the summary explain its units: **times gained SS**, **reviews held**, and **years with recorded SS**. A renewal is not another acquisition; opening carry is not a new award. Keep partial-history notices close to affected figures rather than burying them in a long paragraph.
+- Visually separate the opening status, competitive reviews and subsequent offseason losses. Preserve before/after-review ordering when several events share a phase index. A missing record must not read as “never held SS”; only show a loss reason or precise tier transition supported by recorded evidence.
+- Keep concise explanations of Gained/Retained/Carried/Lost available without requiring a hover. Distinguish the tier used during a competition from ownership after its review; avoid unexplained labels and repeated SS badges competing with the phase/team identity.
+- Verify desktop and narrow/mobile views, long names, multiple changes in one year, team transfers, missing logos, unknown phases and partial archives. Check spacing, contrast, keyboard expansion, focus cards and one-Escape dismissal. The result must let the user quickly answer **when SS changed, with which team, and why**.
+
+### Live Season SS Race: regional identity
+
+- Add the existing regional league logo next to player/team identity in `components/season/SSRacePanel.tsx`, for both current SS holders and all contender rows. Reuse `LeagueIcon`, existing labels and consistent icon sizing; retain the team logo and role icon with clear visual separation.
+- Interpret region as the player's **current competing league**, obtained from `row.team.leagueId`, consistent with the live event context. Do not silently substitute nationality or `player.homeRegion`; an imported player's origin can differ from their team's league.
+- Provide an accessible region name and a readable fallback when the league is unknown. Keep icons aligned and avoid overflow or relying on logos alone to identify a region.
+- Preserve collapse/role-filter behavior, current metrics and SS-selection logic. Do not add clutter or an SS tier badge back to the collapsed panel heading. Verify regional identity after transfers and on narrow screens.
+
 ### Existing SS year-boundary rules to preserve
 
 Verified in `lib/playerSS.ts`, `lib/season/playerLifecycle.ts`, `lib/season/franchise.ts` and `lib/season/ssPlayers.ts`:
@@ -164,7 +184,7 @@ Add optional, versioned per-event ranking records to the season archive. Freeze 
 3. **Add the live panel.** Reuse identity components and role filters, wire the event dashboard and seasonal split/event entry points, and make the completed recap use the same projection. Verify collapse, sorting, cards, empty states, absence of tier badges and mobile layout.
 4. **Add champion tables.** Implement scoped pick/ban/presence aggregates and role semantics, then Most Picked/Most Banned with Top 10/All, WR and matching phase filters. Correct the existing Presence display inconsistency in this bounded area.
 5. **Implement event history and evolution.** Add final player/champion archive records and player round checkpoints at verified mutation boundaries. Update serializers/validators and historical event consumers together.
-6. **Improve SS history UI/UX.** Reuse historical identity and phase icons, improve chronological layout and lifecycle explanations, then verify visual consistency and accessibility without changing SS selection.
+6. **Improve SS history and live identity UI/UX.** Redesign both the annual season timeline and each player's existing Career History SS block, with consistent historical logos, phase icons, clearer chronology and lifecycle explanations. Add regional league logos to live SS holders/contenders. Verify visual consistency and accessibility without changing SS selection.
 7. **Verify and document.** Update system documentation with score semantics and historical limitations. Record checks and any calibration findings here. Commit verified milestones. A version bump/release is a separate delivery step when requested.
 
 ## Acceptance and verification
@@ -177,6 +197,8 @@ Add optional, versioned per-event ranking records to the season archive. Freeze 
 - Final live/archive equality, stable historical identities, no duplicate checkpoints after resume, manual/bulk equivalence, supported stage ordering, legacy partial-data states and import/export round trips.
 - Champion tables: Top 10/All after filtering, correct picked-role WR, banned-only unknown WR, flex filter semantics, completed-game-only counts, no Fearless implicit bans, correct blue/red wins, unique-game percentages, missing-role handling and archive parity.
 - SS timeline: correct historical logos and event icons; keyboard/collapse/card behavior; responsive visual checks; no new acquisition for carry; loss reasons at the right boundary; unknown historical values not fabricated. Existing S/S+ retention and A-decline behavior remains unchanged.
+- Player Career History: clear status/change/team per phase, consistent logos and phase icons, meaningful summary units, correct ordering of reviews/offseason losses, partial-history labeling and no repeated player identity clutter.
+- Live SS Race: correct current-league logo and accessible name for every holder/contender, imported-player origin distinguished from competing league, preserved team/role identity and no collapsed-header badge regression.
 - Red/green domain tests, focused SS regression tests if shared math moves, component/browser checks for keyboard/collapse/filters/cards/mobile, typecheck and lint. Run `npm test` and build before delivery; run relevant native persistence tests and disposable-profile checks if save contracts change.
 - Measure a long split and a many-season archive for rendering cost and stored size. Extend verification only for unresolved concerns; no simulation retuning or forced band distribution merely to make an example look balanced.
 
