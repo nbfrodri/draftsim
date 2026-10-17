@@ -1,5 +1,6 @@
 import { validMarketOrigin } from "./season/marketOrigin";
 import { validSSEvidence } from "./playerSS";
+import { validChampionLanes, validEventCheckpoints, validEventRecords } from "./eventStatsValidation";
 import { TOTAL_ACTIONS } from "./draftOrder";
 import type { SeasonState } from "./season/types";
 import { LEAGUE_IDS } from "./season/types";
@@ -132,6 +133,7 @@ const ssHolders = (v: unknown): boolean => arrayOf(v, ssHolder) &&
   new Set((v as Obj[]).map(h => h.lane)).size === (v as Obj[]).length &&
   new Set((v as Obj[]).map(h => h.playerId)).size === (v as Obj[]).length;
 const ssReviews = (v: unknown): boolean => arrayOf(v, review => record(review) && integer(review.phaseIndex) && review.phaseIndex >= 0 && text(review.label) &&
+  optional(review.split, x => enumeration(x, ["winter", "spring", "summer"])) && optional(review.event, x => enumeration(x, ["first-stand", "msi", "worlds", "global-cup"])) && !(review.split && review.event) &&
   optional(review.version, x => x === 1) && ssHolders(review.holders)) &&
   new Set((v as Obj[]).map(r => r.phaseIndex)).size === (v as Obj[]).length;
 const ssHistoryFields = (v: Obj): boolean => optional(v.ssReviews, ssReviews) && optional(v.ssOpening, ssHolders) &&
@@ -170,6 +172,9 @@ export function validTournament(v: unknown): v is TournamentState {
     !record(v.teamPickHistory) || !Object.values(v.teamPickHistory).every(numbers) ||
     !numbers(v.globalPickHistory) || !optional(v.seasonStageKind, x => enumeration(x, ["split", "international"])) || !optional(v.seasonSubStage, x => x === "play-in") || !optional(v.metaSnapshot, meta)) return false;
   const teamIds = new Set(v.teams.map(t => t.id));
+  if (!optional(v.championLanes, validChampionLanes)) return false;
+  const recordedGameIds = new Set(v.matches.flatMap(m => record(m.series) && Array.isArray(m.series.games) ? m.series.games.filter(g => record(g) && g.status === "complete" && g.winner && text(g.id)).map(g => (g as Obj).id as string) : []));
+  if (!optional(v.eventCheckpoints, c => validEventCheckpoints(c, recordedGameIds))) return false;
   const matchIds = new Set(v.matches.map(m => m.id));
   const teamRef = (id: unknown) => id === null || (text(id) && teamIds.has(id));
   const link = (l: unknown) => l == null || (record(l) && text(l.matchId) && matchIds.has(l.matchId) && enumeration(l.slot, ["blue", "red"]));
@@ -257,6 +262,7 @@ const playerCareer = (p: unknown): boolean => record(p) && text(p.playerId) && t
 export function validHistoryEntry(v: unknown): boolean {
   if (!record(v) || !text(v.id) || !text(v.name) || !finite(v.archivedAt) ||
     typeof v.complete !== "boolean" || !record(v.intlChampions) || !record(v.splitChampions)) return false;
+  if (!optional(v.eventRecords, validEventRecords)) return false;
   const team = (t: unknown) => t === null || (record(t) && text(t.name) && enumeration(t.leagueId, LEAGUE_IDS) && text(t.color) && text(t.iconKey));
   const objectRows = ["awardTally", "allProTeams", "intlMvps", "splitMvps", "rookieOfYear", "playerCareers", "phaseRosters", "transfers", "rivalries", "headToHead", "inactivePlayers"];
   if (!objectRows.every(key => optional(v[key], rows => arrayOf(rows, record)))) return false;

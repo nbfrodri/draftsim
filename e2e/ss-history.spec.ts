@@ -22,8 +22,11 @@ test("SS timeline, phase cards and career history distinguish played tiers from 
 	await expect(panel).toBeVisible();
 	const review = panel.locator("details").filter({ has: page.getByText("Worlds · SS review · 1/5", { exact: true }) });
 	await review.locator("summary").focus(); await page.keyboard.press("Enter");
-	await expect(review).toContainText("gained · 16 rated games · score 7.20");
-	await expect(review.getByText("Vacant", { exact: true })).toHaveCount(4);
+	await expect(review).toContainText("Gained SS");
+	await expect(review).toContainText("16 rated games");
+	await expect(review).toContainText("7.20");
+	await expect(review.getByText(/· Vacant$/)).toHaveCount(4);
+	await expect(review.locator("img[src='/league-logos/worlds.png']")).toBeVisible();
 	await expect(review.locator("img[src*='t1']")).toBeVisible();
 	await panel.screenshot({ path: "test-results/playwright/ss-timeline-desktop.png" });
 	await review.getByRole("button", { name: "SS Veteran", exact: true }).hover();
@@ -40,9 +43,11 @@ test("SS timeline, phase cards and career history distinguish played tiers from 
 	await page.evaluate(() => Reflect.deleteProperty(window, "__TAURI_INTERNALS__"));
 	await review.getByRole("button", { name: "SS Veteran", exact: true }).click();
 	const career = page.getByRole("region", { name: "Career History", exact: true });
-	await expect(career.getByLabel("SS career summary")).toContainText("Confirmed acquisitions: 1 · Review checkpoints held: 1");
-	await career.getByText("SS history · Checkpoints held: 1", { exact: true }).click();
-	await expect(career).toContainText("Worlds · gained");
+	await expect(career.getByLabel("SS career summary")).toContainText("Times gained SS1");
+	await expect(career.getByLabel("SS career summary")).toContainText("Reviews held1");
+	await career.getByText("SS history · 1 reviews held", { exact: true }).click();
+	await expect(career).toContainText("Gained SS");
+	await expect(career.locator("details[open] img[src='/league-logos/worlds.png']").last()).toBeVisible();
 	await page.setViewportSize({ width: 390, height: 844 });
 	await career.scrollIntoViewIfNeeded();
 	await page.screenshot({ path: "test-results/playwright/ss-career-mobile.png" });

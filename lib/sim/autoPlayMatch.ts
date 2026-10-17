@@ -94,6 +94,9 @@ export function autoPlayMatch(
   const blueTeam = workingTournament.teams.find((t) => t.id === match.blueTeamId);
   const redTeam = workingTournament.teams.find((t) => t.id === match.redTeamId);
   if (!blueTeam || !redTeam) return [workingTournament, playerForms];
+  if (!workingTournament.championLanes && champions.length) workingTournament = {
+    ...workingTournament, championLanes: Object.fromEntries(champions.map(c => [c.id, [...c.lanes]])),
+  };
   const allIds = allChampionIds(champions);
   const tctx = tournamentSeriesContext(workingTournament, matchId);
   let series = createSeries({

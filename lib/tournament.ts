@@ -1,4 +1,5 @@
 import { normalizeTeamStars } from "./teamStars";
+import { recordEventCheckpoint } from "./eventStats";
 // Tournament / league mode — pure data + bracket math.
 //
 // Phase 1 ships single-elimination only with power-of-2 team counts (2/4/8).
@@ -724,6 +725,8 @@ export function pickFormat(
 }
 
 export interface TournamentState {
+  eventCheckpoints?: import("./eventStats").EventCheckpoint[];
+  championLanes?: Record<string, import("./types").Lane[]>;
   id: string;
   name: string;
   format: TournamentFormat;
@@ -2737,6 +2740,14 @@ export function createTournament(
 // Returns a NEW TournamentState — pure transformation, never mutates input.
 // Also flips tournament status to "complete" if this was the final match.
 export function recordMatchWinner(
+  tournament: TournamentState,
+  matchId: string,
+  winner: { teamId: string; blueWins: number; redWins: number },
+): TournamentState {
+  return recordEventCheckpoint(recordMatchWinnerResult(tournament, matchId, winner), matchId);
+}
+
+function recordMatchWinnerResult(
   tournament: TournamentState,
   matchId: string,
   winner: { teamId: string; blueWins: number; redWins: number },

@@ -34,6 +34,7 @@ export function ssHistory(entry: SSArchive): SSCheckpoint[] {
 	let previous = entry.ssOpening;
 	let previousPhase = -1;
 	return [...(entry.ssReviews ?? [])].sort((a, b) => a.phaseIndex - b.phaseIndex).map(review => {
+		const phase = entry.phaseRosters?.find(p => p.phaseIndex === review.phaseIndex);
 		if (entry.phaseRosters?.some(p => p.phaseIndex > previousPhase && p.phaseIndex < review.phaseIndex && !(entry.ssReviews ?? []).some(r => r.phaseIndex === p.phaseIndex))) previous = undefined;
 		const losses = (entry.ssLosses ?? []).filter(l => (l.phaseIndex > previousPhase || l.phaseIndex === previousPhase && l.afterReview) && (l.phaseIndex < review.phaseIndex || l.phaseIndex === review.phaseIndex && !l.afterReview));
 		const remaining = previous?.filter(h => !losses.some(l => l.holder.playerId === h.playerId && l.holder.lane === h.lane));
@@ -52,16 +53,19 @@ export function ssHistory(entry: SSArchive): SSCheckpoint[] {
 		const lost = (remaining ?? []).filter(h => !holders.some(p => p.playerId === h.playerId && p.lane === h.lane));
 		previous = holders;
 		previousPhase = review.phaseIndex;
-		return { ...review, holders, lost, knownBefore };
+		return { ...review, split: review.split ?? phase?.split, event: review.event ?? phase?.event, holders, lost, knownBefore };
 	});
 }
 
 export function playerSSHistory(entries: readonly SSArchive[], playerId: string) {
 	const years = [...entries].sort((a, b) => a.archivedAt !== undefined && b.archivedAt !== undefined ? a.archivedAt - b.archivedAt : (a.franchiseYear ?? 0) - (b.franchiseYear ?? 0)).map(entry => ({ entry, checkpoints: ssHistory(entry) }));
-	const rows = years.flatMap(({ entry, checkpoints }) => checkpoints.flatMap(c => c.holders.filter(h => h.playerId === playerId).map(holder => ({ seasonId: entry.id, season: entry.name, phaseIndex: c.phaseIndex, label: c.label, holder }))));
+	const rows = years.flatMap(({ entry, checkpoints }) => checkpoints.flatMap(c => c.holders.filter(h => h.playerId === playerId).map(holder => ({ seasonId: entry.id, season: entry.name, phaseIndex: c.phaseIndex, label: c.label, split: c.split, event: c.event, holder }))));
 	const losses = years.flatMap(({ entry, checkpoints }) => [
-		...checkpoints.flatMap(c => c.lost.filter(h => h.playerId === playerId).map(holder => ({ seasonId: entry.id, season: entry.name, phaseIndex: c.phaseIndex, label: c.label, holder, reason: "Review" }))),
-		...(entry.ssLosses ?? []).filter(l => l.holder.playerId === playerId).map(l => ({ seasonId: entry.id, season: entry.name, ...l })),
+		...checkpoints.flatMap(c => c.lost.filter(h => h.playerId === playerId).map(holder => ({ seasonId: entry.id, season: entry.name, phaseIndex: c.phaseIndex, label: c.label, split: c.split, event: c.event, holder, reason: "Review" }))),
+		...(entry.ssLosses ?? []).filter(l => l.holder.playerId === playerId).map(l => {
+			const phase = l.label === "Offseason" ? undefined : entry.phaseRosters?.find(p => p.phaseIndex === l.phaseIndex);
+			return { seasonId: entry.id, season: entry.name, split: phase?.split, event: phase?.event, ...l };
+		}),
 	]);
 	const openings = years.flatMap(({ entry }) => (entry.ssOpening ?? []).filter(h => h.playerId === playerId).map(holder => ({ seasonId: entry.id, holder })));
 	return {

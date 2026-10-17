@@ -67,6 +67,8 @@ export interface SSLoss {
 	reason: "inactive" | "decline" | "role-change" | "offseason";
 }
 export interface SSReview {
+	split?: SplitId;
+	event?: InternationalId;
 	phaseIndex: number;
 	label: string;
 	version?: 1;

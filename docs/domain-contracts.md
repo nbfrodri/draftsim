@@ -199,6 +199,12 @@ Before/After team strength uses the selected frozen main roster: `averageTierFro
 
 ## Team-strength precision
 
+### Event performance records
+
+`lib/eventStats.ts` aggregates only completed games with winners, joining recorded player IDs and played roles. Event rankings are analytical: they do not modify tiers, awards or simulation state. Qualification requires three rated games and 60% of recorded team opportunities; incomplete scoring evidence remains unknown. Pick/ban/presence rates count unique games, while win rate counts actual picked appearances.
+
+Optional tournament `eventCheckpoints` are written at the shared series-completion boundary and retain cumulative completed-game IDs, never inferred global chronology. Optional annual `eventRecords` version 1 preserve final identities, scoped player/champion totals and compact round metrics. `EVENT_METRICS` defines the immutable version-1 tuple order; team indexes reference final row identities. `championLanes` freezes playable-role metadata. Import validation checks bounded collections, finite metrics, schema versions and checkpoint references before acceptance. Absent legacy fields mean unavailable, not zero; no SQLite schema change is involved.
+
 ### SS ownership and historical context
 
 `tier: "SS"` is effective live strength over an S/S+ development tier. A phase roster records entrants as they played; a closing SS review is a separate observation and cannot rewrite that roster. Optional `ssOpening`, versioned `ssReviews` and `ssLosses` travel unchanged through season archives and existing JSON/SQLite persistence, without a schema migration. Reviews freeze stable player identity and review-time team identity, including region. A transfer can make that club differ from the event entrant's club.

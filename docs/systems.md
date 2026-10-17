@@ -338,6 +338,12 @@ All map through `tagSeason` → `TournamentTeam.form` / `.clutch` → `tournamen
 
 ### Awards & narrative
 
+**Event Player Rankings:** tournament and season dashboards expose a collapsible ranking for each role, with score, raw average grade, gold difference, games, WR and KDA. All player tiers can participate; rows and leader summaries show no tier badges and award nothing. The event score uses the SS opposition/advantage adjustments and shrinkage formula, without SS eligibility or incumbent rules. Qualification needs three rated games and 60% of the participant's team opportunities; smaller samples remain provisional. Split filters separate regular/playoffs, and international filters separate play-in/main when those stages exist.
+
+Finished games update standings during an unfinished series. Completed rounds produce recorded checkpoints; the annual archive retains final event statistics and those checkpoints. Missing legacy history remains unavailable. Most Picked, Most Banned and Presence share stage scope, Top 10/All and role filters. Picks use played roles; bans/presence use frozen catalogue playable roles. Rates count unique completed games; WR describes actual picked appearances, with unknown WR for banned-only champions. Champion tables show current/final totals, even while viewing an earlier player checkpoint.
+
+SS timeline and annual Career History rows use historical team logos and known split/international icons, separating gains, renewals, carry and lifecycle losses. Unknown phases retain neutral icons. Live SS Race shows the team's current regional league alongside player/team identity, not the player's home region.
+
 All-Pro teams, split MVPs, Rookie of the Year, S+ elites, performance-based SS players, power rankings (`lib/season/powerRankings.ts`), season story generator (`lib/season/seasonStory.ts`), team season grades from match ratings.
 
 **SS players:** at most one worldwide holder per position, reviewed after each completed competitive phase. Only main-roster players with an underlying S/S+ development tier and stable recorded identity qualify. Require eight rated games, at least 60% of the accumulated regional opportunity baseline (the 75th percentile of teams' completed domestic games per split), and recorded participation in the latest domestic split of the player's current region. International games contribute to performance without creating domestic inactivity for non-qualifiers. Transfers retain performance by player ID; overlapping regional calendars use the maximum baseline per split, not their sum.

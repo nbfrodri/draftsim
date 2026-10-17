@@ -20,6 +20,7 @@ test("live SS race shows ownership, contenders, evidence and responsive role fil
 	season.teams[0].name = "T1";
 	season.teams[0].logoUrl = resolveTeamLogo("T1");
 	season.teams[0].players[0] = { ...season.teams[0].players[0], tier: "SS", ss: { baseTier: "S+", lane: "top", seasonId: season.id, phaseIndex: 0, phaseLabel: "Winter", games: 16, score: 7.2 } };
+	season.teams[0].players[0].homeRegion = "LEC";
 	const t = Object.values(season.tournaments)[0];
 	t.teams = season.teams.map((team, i) => ({ ...team, seed: i + 1 }));
 	const series = createSeries({ ...defaults, blueTeam: season.teams[0].name, redTeam: season.teams[1].name });
@@ -47,8 +48,11 @@ test("live SS race shows ownership, contenders, evidence and responsive role fil
 	await expect(holder).toContainText("7.0");
 	await expect(holder).toContainText("-500");
 	await expect(holder.locator("img[src*='t1']")).toBeVisible();
+	await expect(holder.locator("img[src='/league-logos/LCK.png']")).toBeVisible();
+	await expect(holder.locator("img[src='/league-logos/LEC.png']")).toHaveCount(0);
 	const contenders = panel.getByRole("list", { name: "Top SS contenders" });
 	await expect(contenders).toContainText("Race 1 0");
+	await expect(contenders.locator("img[src='/league-logos/LCK.png']").first()).toBeVisible();
 	await expect(contenders).toContainText("+500");
 	await expect(contenders).toContainText("Projected SS with current results");
 	await expect(contenders).toContainText(">99%");

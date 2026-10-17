@@ -2553,6 +2553,16 @@ export const useDraftStore = create<DraftStore>()(
     const { series } = get();
     if (!series || series.status !== "between-games") return;
     const updatedSeries = recordWinner(series, side, recap);
+    const publishSeries = (forms?: DraftStore["playerForms"]) => set(state => {
+      const current = state.tournament;
+      const tournament = current?.activeMatchId ? {
+        ...current,
+        ...(current.championLanes || !state.champions.length ? {} : { championLanes: Object.fromEntries(state.champions.map(c => [c.id, [...c.lanes]])) }),
+        matches: current.matches.map(m => m.id === current.activeMatchId ? { ...m, series: updatedSeries } : m),
+      } : null;
+      return { series: updatedSeries, ...(forms ? { playerForms: forms } : {}),
+        ...(tournament ? { tournament, ...seasonPatchFor(state, tournament) } : {}) };
+    });
     // Update player forms if recap has ratings.
     if (recap) {
       const { playerForms, tournament } = get();
@@ -2570,11 +2580,11 @@ export const useDraftStore = create<DraftStore>()(
           redKey,
           ratings.red,
         );
-        set({ series: updatedSeries, playerForms: newForms });
+        publishSeries(newForms);
         return;
       }
     }
-    set({ series: updatedSeries });
+    publishSeries();
   },
 
   proceedToNextGame: (swapSides) => {

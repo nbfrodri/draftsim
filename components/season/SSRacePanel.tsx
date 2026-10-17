@@ -9,6 +9,7 @@ import type { Lane } from "@/lib/types";
 import LaneIcon from "../LaneIcon";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
+import LeagueIcon from "../LeagueIcon";
 import TierChip from "./TierChip";
 
 const ROLE_NAMES: Record<Lane, string> = {
@@ -23,12 +24,12 @@ function PlayerIdentity({ row }: { row: SSRacePlayer }) {
 				<TierChip tier={row.player.tier} size="md" />
 				<PlayerNameLink playerId={row.player.id} name={row.player.name} className="min-w-0 max-w-full" />
 			</div>
-			<TeamNameLink
+			<div className="flex min-w-0 items-center gap-2"><span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-rift-mutedbright" title="Current competing region"><LeagueIcon league={row.team.leagueId} size={16} /><span>{row.team.leagueId}</span></span><TeamNameLink
 				teamId={row.team.id} name={row.team.name} leagueId={row.team.leagueId}
 				iconKey={row.team.iconKey} logoUrl={row.team.logoUrl} color={row.team.color}
 				hint={{ team: row.team }} logoSize={16}
 				className="inline-flex max-w-full items-center gap-1.5 text-[11px] text-rift-mutedbright"
-			/>
+			/></div>
 		</div>
 	);
 }

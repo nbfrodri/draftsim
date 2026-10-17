@@ -42,6 +42,7 @@ const MatchReplayModal = lazy(() =>
 
 // ─── Recap sub-module ─────────────────────────────────────────────────
 import { PostTournamentRecap } from "./tournament/recap/PostTournamentRecap";
+import LiveEventStats from "./tournament/LiveEventStats";
 
 import type { MatchOverride } from "./tournament/shared";
 
@@ -54,6 +55,7 @@ import type { MatchOverride } from "./tournament/shared";
 export default function TournamentDashboard() {
   const storedTournament = useDraftStore((s) => s.tournament)!;
   const season = useDraftStore((s) => s.season);
+  const champions = useDraftStore((s) => s.champions);
   const tournament = useMemo(() => {
     if (!season || storedTournament.seasonId !== season.id || !season.tournaments[storedTournament.id]) return storedTournament;
     const teams = new Map(season.teams.map(team => [team.id, team]));
@@ -303,6 +305,7 @@ export default function TournamentDashboard() {
 
       <div className="max-w-7xl mx-auto">
         <Header tournament={tournament} champion={champion} totalRounds={totalRounds} />
+        <LiveEventStats tournament={tournament} season={season} champions={champions} />
 
         {/* Region & seed of every qualified team (season internationals). */}
         {intlField && (

@@ -1,4 +1,5 @@
 import type { MarketTeamSnapshot } from "./marketSnapshots";
+import { buildSeasonEventRecords, type EventRecord } from "./eventHistory";
 import type { MarketOrigin } from "./marketOrigin";
 // Season history ("Hall of Seasons") — lightweight résumé snapshots of
 // completed seasons the user chooses to archive. Unlike saved seasons
@@ -170,6 +171,7 @@ export interface SeasonHistoryRookieOfYear {
 }
 
 export interface SeasonHistoryEntry {
+  eventRecords?: EventRecord[];
   /** Frozen Worlds-qualification points. Absent on legacy archives, not evidence of zero. */
   championshipPoints?: ChampionshipPointsRow[];
   /** Mirrors season.id — archiving the same season upserts its entry. */
@@ -697,6 +699,7 @@ export function buildSeasonHistoryEntry(
     id: season.id,
     archivedAt,
     name: season.name,
+    ...(season.phases && season.tournaments ? { eventRecords: buildSeasonEventRecords(season) } : {}),
     complete: season.status === "complete",
     champion: teamRef(season, season.champion ?? worlds[0]),
     runnerUp: teamRef(season, worlds[1]),

@@ -2,7 +2,7 @@
 
 ## Status and goal
 
-Planned; original product scope confirmed and expanded below at the user's request. The user confirmed presentation, stage scopes and history depth. The new ban-role filter choice awaits an answer. Planning only; no application behavior has changed. Statistical thresholds remain proposed calibration defaults, not measured guarantees.
+Implemented on `feat/event-rankings-history`. The accepted presentation, stage scopes, event history, champion boards and SS presentation are available. Ban/presence role filters use the recommended catalogue playable lanes; flex champions can appear in multiple role filters. Qualification uses the initial three-rated-game/60% defaults; these are explicit policy choices, not empirically calibrated guarantees.
 
 Provide a live performance ranking for each role within one regional split or international event. Reuse the useful statistical principles from SS Race, while admitting players of every underlying tier. The ranking describes performance in the selected competition; it does not assign SS, change player strength, award All-Pro selections or affect career greatness.
 
@@ -78,7 +78,7 @@ The selected numbered presentation needs no letter-band thresholds, forced tier 
 ## User interface
 
 - Reusable collapsible **Player Rankings** section within the selected split/tournament. Use existing Rift panels, typography, role artwork, team logos and player cards. Keep bracket navigation visible and avoid repeating the full SS Race layout.
-- Collapsed summary: event/stage name and the current five role leaders or a small-sample status. Expanded view: role tabs, stage filter where applicable, and a compact ranking table.
+- Collapsed summary: event name and content label. Five role leaders and provisional status appear after expansion, avoiding historical aggregation while collapsed. Expanded view includes role tabs, stage filters and a compact ranking table.
 - Default columns: rank, player/team, performance score, average grade, average gold difference, games and win rate. Place KDA and metric sample counts in secondary details on narrow screens.
 - Allow sorting by raw grade, gold, games and win rate, clearly labeling the active sort. Sorting by another metric must not silently redefine the overall performance leader.
 - Explain scope, score and qualification with a short expandable methodology note. No real-tier or performance-tier badge/column in the player table or five-leader summary. Existing player cards retain their normal contextual information when explicitly opened; they do not determine ranking order.
@@ -104,7 +104,7 @@ The selected numbered presentation needs no letter-band thresholds, forced tier 
 - **Presence:** games with at least one pick or ban divided by completed scoped games. Display picks and bans separately; do not add played games to picks+bans as though they were a third source of presence. If the existing ranking retains total picks+bans ordering, label that count separately from the presence percentage.
 - **WR:** wins divided by wins+losses in actual picked appearances. A banned-only champion has `—` WR, never 0%. Show the sample, including a small-sample cue; do not hide frequent picks or bans solely because the champion has fewer than three played games.
 - **Most Picked role filter:** use the role actually recorded for the pick (`blueRoles`/`redRoles`), not its possible catalogue roles. Recalculate picks and WR for that played role. Unknown legacy roles remain in All roles and cannot be fabricated into a particular lane.
-- **Most Banned role filter — pending user answer:** recommended catalogue playable lanes (`Champion.lanes`), because a ban has no observed played role. Flex champions may appear in multiple role filters, but never twice within one table. Label this as playable-role filtering. Its WR describes all picked appearances in the selected event/stage, not a win rate for bans or an inferred role. The alternative offered is observed event roles, which omits champions never picked in that event.
+- **Most Banned role filter — implemented default:** catalogue playable lanes (`Champion.lanes`), because a ban has no observed played role. Flex champions may appear in multiple role filters, but never twice within one table. Label this as playable-role filtering. Its WR describes all picked appearances in the selected event/stage, not a win rate for bans or an inferred role.
 - For Presence, use catalogue-role filtering consistently with the proposed ban filter and label it as such; do not combine role-specific picks with unlabelled inferred ban roles. Freeze the role metadata needed to keep archived filters stable after catalogue changes.
 
 ### Archive and reuse
@@ -208,3 +208,17 @@ Add optional, versioned per-event ranking records to the season archive. Freeze 
 - `npm test -- lib/tournamentPlayerStats.test.ts lib/season/ssPlayers.test.ts`: 2 files, 30 tests passed. This verifies the inspected baseline, not the proposed feature.
 - Documentation whitespace check passed. Application code and save data are unchanged; the implementation checks above remain pending.
 - Expansion review: inspected SS development/carry and offseason owners, historical-logo/phase-icon consumers, champion aggregation and Presence rendering. `npm test -- lib/season/ssPlayers.test.ts lib/season/ssHistory.test.ts lib/tournamentPlayerStats.test.ts`: 3 files, 40 tests passed. This remains baseline verification of the documented behavior, not implementation of the proposed UI or tables.
+
+## Implementation and verification — 2026-10-17
+
+- `lib/eventStats.ts` owns completed-game aggregation, qualification and scoring. Event adapters expose the same panel in the tournament and season dashboards; the annual archive exposes each recorded event. The final recap no longer repeats its old Presence/player-leader tables.
+- Manual game completion publishes the ongoing series into the tournament and season immediately, without ending the series or reviewing SS early. The shared `recordMatchWinner` boundary records completed bracket/round checkpoints for manual and automated callers, including reset brackets. Existing tournament-format tests remain green.
+- Live checkpoints contain cumulative completed-game IDs. Archived version-1 records store final identities once and compact checkpoint metric tuples/team indexes. The fixed tuple order is `EVENT_METRICS`; changing it requires a new version. Champion aggregates are final/current scoped totals, not historical round graphs.
+- Import validation bounds collections, validates finite counters, versions and identity references, and rejects malformed checkpoint data. Existing browser/SQLite JSON ownership and transaction boundaries remain unchanged; no database migration is required.
+- SS review metadata now optionally records split/international identity. Timeline and Career History use historical team logos, phase icons and chronological status rows. Live SS Race shows the current team's regional league logo, including imported players whose origin differs. Selection, development and carry rules are unchanged.
+- Compatibility: usable current games can produce standings, but unrecorded past checkpoints are not reconstructed. Old annual archives without event records show unavailable information. Eliminated participants remain ranked; this version does not infer an elimination badge. Player role/stage/checkpoint/sort choices survive collapse; champion controls initialize to All roles/Top 10 when reopened.
+- Full `npm test -- --maxWorkers=1`: **138 files, 1,569 tests passed**. A legacy partial-season regression found during the first full run was fixed at the archive owner; existing tests were not weakened.
+- `npm run typecheck`, `npm run lint`, and `npm run build -- --webpack`: passed. Worker output was regenerated through the build script.
+- Six Playwright tests passed for live/archive rankings, round selection, role and Top 10/All filters, collapse, SS regional identity, historical cards, timeline and Career History. Desktop/mobile screenshots were reviewed. This verifies Chromium, not the native WebKitGTK/WebView2 presentation.
+- Twelve native Rust tests passed. Disposable in-memory SQLite tests additionally exercise compression, export/import validation and two successive save/load cycles containing the new records; no personal saves were used.
+- The archive-size regression fixture covers 300 games and 30 checkpoints, under a 180 KB JSON budget for ten participants. The uncompressed representation failed that budget before tuple packing (237,433 bytes). An additional ad-hoc larger benchmark was blocked by the execution hook and was not retried through another mechanism; no many-season performance guarantee is claimed.

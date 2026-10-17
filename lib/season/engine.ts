@@ -1979,9 +1979,10 @@ function recordTournamentResult(
 export function applyTournamentUpdate(
   season: SeasonState,
   t: TournamentState,
-  champions: readonly Champion[],
+  champions: readonly Champion[] = [],
 ): SeasonState {
   if (!(t.id in season.tournaments)) return season;
+  if (!t.championLanes && champions.length) t = { ...t, championLanes: Object.fromEntries(champions.map(c => [c.id, [...c.lanes]])) };
   const alreadyComplete = season.tournaments[t.id]?.status === "complete";
   let next: SeasonState = {
     ...season,

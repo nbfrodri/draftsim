@@ -220,6 +220,6 @@ export function reviewSSPlayers(input: SeasonState): SeasonState {
 	}) }));
 	return { ...season, teams, ssReviews: [
 		...(season.ssReviews ?? []).filter(review => review.phaseIndex !== season.phaseIndex),
-		{ version: 1, phaseIndex: season.phaseIndex, label: phase.label, holders: snapshotSSHolders(teams).map(h => ({ ...h, decision: selected.get(h.playerId)?.carry ? "carried" : priorHolders.some(p => p.playerId === h.playerId && p.lane === h.lane) ? "retained" : "gained" })) },
+		{ version: 1, phaseIndex: season.phaseIndex, label: phase.label, ...(phase.split ? { split: phase.split } : {}), ...(phase.event ? { event: phase.event } : {}), holders: snapshotSSHolders(teams).map(h => ({ ...h, decision: selected.get(h.playerId)?.carry ? "carried" : priorHolders.some(p => p.playerId === h.playerId && p.lane === h.lane) ? "retained" : "gained" })) },
 	] };
 }

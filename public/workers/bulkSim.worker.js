@@ -36456,6 +36456,24 @@
     };
   }
 
+  // lib/eventStats.ts
+  function isPlayoffMatch(t, m) {
+    if (!t.format.includes("playoffs")) return !["round-robin", "swiss"].includes(t.format);
+    return !!m.bracket || !!m.feedsInto || t.matches.some((other) => other.feedsInto?.matchId === m.id);
+  }
+  function recordEventCheckpoint(t, matchId) {
+    const m = t.matches.find((row) => row.id === matchId);
+    if (!m || m.isBye || !m.winner) return t;
+    const group = m.bracket ?? (isPlayoffMatch(t, m) ? "playoffs" : "regular");
+    const key = `${group}:${m.round}`;
+    if (t.eventCheckpoints?.some((c) => c.key === key)) return t;
+    const peers = t.matches.filter((row) => row.round === m.round && (row.bracket ?? (isPlayoffMatch(t, row) ? "playoffs" : "regular")) === group);
+    if (peers.some((row) => !row.isBye && !row.winner)) return t;
+    const gameIds = t.matches.filter((row) => !row.isBye).flatMap((row) => row.series?.games.filter((g) => g.status === "complete" && g.winner).map((g) => g.id) ?? []);
+    if (!gameIds.length) return t;
+    return { ...t, eventCheckpoints: [...t.eventCheckpoints ?? [], { key, label: `${group.replaceAll("-", " ")} \xB7 Round ${m.round}`, gameIds: [...new Set(gameIds)] }] };
+  }
+
   // lib/tournament.ts
   function formatHasPlayoffs(format) {
     return format === "swiss-playoffs" || format === "swiss-playoffs-de" || format === "swiss-playoffs-te" || format === "groups-playoffs" || format === "groups-playoffs-de" || format === "groups-playoffs-te" || format === "round-robin-playoffs" || format === "round-robin-playoffs-te" || format === "round-robin-playoffs-step";
@@ -36891,6 +36909,9 @@
     return result;
   }
   function recordMatchWinner(tournament, matchId, winner) {
+    return recordEventCheckpoint(recordMatchWinnerResult(tournament, matchId, winner), matchId);
+  }
+  function recordMatchWinnerResult(tournament, matchId, winner) {
     const matches = tournament.matches.map((m) => {
       if (m.id !== matchId) return m;
       return { ...m, winner };
@@ -37247,6 +37268,10 @@
     const blueTeam = workingTournament.teams.find((t) => t.id === match.blueTeamId);
     const redTeam = workingTournament.teams.find((t) => t.id === match.redTeamId);
     if (!blueTeam || !redTeam) return [workingTournament, playerForms];
+    if (!workingTournament.championLanes && champions.length) workingTournament = {
+      ...workingTournament,
+      championLanes: Object.fromEntries(champions.map((c) => [c.id, [...c.lanes]]))
+    };
     const allIds = allChampionIds(champions);
     const tctx = tournamentSeriesContext(workingTournament, matchId);
     let series = createSeries({

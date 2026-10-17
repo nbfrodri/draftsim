@@ -14,6 +14,7 @@ import { ComparePanel } from "./hall/ComparePanel";
 import InternationalAppearanceFilters from "./hall/InternationalAppearanceFilters";
 import CareerHistoryControls, { type CareerEvent } from "./hall/CareerHistoryControls";
 import SSHistoryPanel, { SSCareerSummary, SSCareerYear } from "./hall/SSHistoryPanel";
+import ArchivedEventStats from "./hall/ArchivedEventStats";
 import { playerSSHistory } from "@/lib/season/ssHistory";
 import { acyBadgeYears,CareerStatus,CareerStatusBadge,DynastyBadge,LANES,NavFn,NavPlayerName,PlayerTeamIcon,SeasonScope,TeamRef } from "./hall/shared";
 
@@ -747,6 +748,7 @@ function SeasonDetail({
 
       {/* International title holders — with the winning roster that lifted it */}
       <SSHistoryPanel entry={entry} />
+      <ArchivedEventStats entry={entry} />
       {intls.length > 0 && (
         <div className="cv-section">
           <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">

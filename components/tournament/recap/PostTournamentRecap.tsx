@@ -16,8 +16,7 @@ import { formatHeaderLabel } from "@/components/tournament/shared";
 import { MetaShiftPanel } from "./MetaShiftPanel";
 import { NotableGamesPanel } from "./NotableGames";
 import { computeNotableGames } from "@/lib/notableGames";
-import { PresenceTable, WinRateTable } from "./ChampionTables";
-import { PlayerLeadersPanel } from "./PlayerTables";
+import { WinRateTable } from "./ChampionTables";
 import { ChampionSearchPanel } from "./ChampionSearchPanel";
 import { TeamBreakdownPanel } from "./TeamBreakdownPanel";
 import { AwardsPanel } from "./AwardsPanel";
@@ -228,13 +227,6 @@ export function PostTournamentRecap({
     () => computeChampionStats(tournament),
     [tournament],
   );
-  const byPresence = useMemo(
-    () =>
-      allStats
-        .filter((s) => s.picks + s.bans > 0)
-        .slice(0, 10),
-    [allStats],
-  );
   const byWinRate = useMemo(() => {
     const MIN_GAMES = 3;
     return allStats
@@ -307,7 +299,6 @@ export function PostTournamentRecap({
         />
       )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
-        <PresenceTable rows={byPresence} byId={byId} />
         <WinRateTable
           title="Win Rate"
           subtitle="Min 3 games"
@@ -323,7 +314,6 @@ export function PostTournamentRecap({
         byId={byId}
         emptyMessage="Not enough data yet"
       />
-      <PlayerLeadersPanel tournament={tournament} />
       <ChampionSearchPanel tournament={tournament} byId={byId} />
       <TeamBreakdownPanel tournament={tournament} byId={byId} />
     </div>
