@@ -1,6 +1,6 @@
 import { LANE_ORDER } from "./players";
 import { LEAGUE_IDS } from "./season/types";
-import { EVENT_METRICS, unpackEventPlayer, type EventPlayer, type EventPlayerPoint } from "./eventStats";
+import { EVENT_METRICS, unpackEventPlayer, type EventPlayer } from "./eventStats";
 
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
@@ -57,7 +57,7 @@ export function validEventRecords(v: unknown): boolean {
 				if (!obj(p) || !text(p.key) || !text(p.name) || !rows(p.values, EVENT_METRICS.length, finite) || p.values.length !== EVENT_METRICS.length) return false;
 				const identity = identities.get(p.key);
 				if (!identity || !rows(p.teams, 100, n => count(n) && n < identity.teams.length) || !p.teams.length || new Set(p.teams).size !== p.teams.length) return false;
-				const expanded = unpackEventPlayer(p as unknown as EventPlayerPoint, identity);
+				const expanded = unpackEventPlayer({ key: p.key, name: p.name, values: p.values as number[], teams: p.teams as number[] }, identity);
 				return player(expanded) && expanded.games <= (c.games as number);
 			}) || !unique(c.players, "key")) return false;
 			games = c.games; return true;

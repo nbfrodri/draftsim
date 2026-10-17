@@ -7,7 +7,6 @@ import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operatio
 import { reportPersistenceError } from "@/lib/persistenceStatus";
 import { nextSplitRegularMatch } from "@/lib/season/regularSeason";
 import { backupBeforeDestructiveChange } from "@/lib/backups";
-import { forcePersistReady, setPersistLoadStage } from "@/lib/desktopStorage";
 import { createFranchiseActions } from "./actions/franchise";
 import { createImportsActions } from "./actions/imports";
 import { createSimulationActions } from "./actions/simulation";
@@ -31,7 +30,7 @@ type Synergy,
 } from "@/lib/championMeta";
 import { PERSIST_VERSION,deleteRealityFromDb,isRealityHistoryLoaded,loadRealityHistoryFromDb,loadRealitySeasonFromDb,markRealityHistoryLoaded,shouldSuggestCompactAfterDelete } from "@/lib/desktopSqlite";
 import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
-import { clearDesktopOperation,createWebLazyStorage,enablePersistWrites,flushPendingPersistWrites,gatePersistWritesUntilReady,isDesktop,isDesktopOperationBlocking,resolveWebStringStorage,signalBackingUpReality,signalDeletingReality,signalLeavingSeason,signalOpeningReality,waitForDesktopOverlayPaint } from "@/lib/desktopStorage";
+import { clearDesktopOperation,createWebLazyStorage,enablePersistWrites,flushPendingPersistWrites,forcePersistReady,gatePersistWritesUntilReady,isDesktop,isDesktopOperationBlocking,resolveWebStringStorage,setPersistLoadStage,signalBackingUpReality,signalDeletingReality,signalLeavingSeason,signalOpeningReality,waitForDesktopOverlayPaint } from "@/lib/desktopStorage";
 import {
 PERSONALITY_LIST,
 chooseAIAction,

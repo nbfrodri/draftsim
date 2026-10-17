@@ -222,3 +222,16 @@ Add optional, versioned per-event ranking records to the season archive. Freeze 
 - Six Playwright tests passed for live/archive rankings, round selection, role and Top 10/All filters, collapse, SS regional identity, historical cards, timeline and Career History. Desktop/mobile screenshots were reviewed. This verifies Chromium, not the native WebKitGTK/WebView2 presentation.
 - Twelve native Rust tests passed. Disposable in-memory SQLite tests additionally exercise compression, export/import validation and two successive save/load cycles containing the new records; no personal saves were used.
 - The archive-size regression fixture covers 300 games and 30 checkpoints, under a 180 KB JSON budget for ten participants. The uncompressed representation failed that budget before tuple packing (237,433 bytes). An additional ad-hoc larger benchmark was blocked by the execution hook and was not retried through another mechanism; no many-season performance guarantee is claimed.
+
+### Completion-hook review
+
+The isolated scanner initially failed to detect languages/Git; its apparent clean run was not accepted as verification. Running `aislop scan --changes --base main --json` with local tool access reproduced all 218 warnings (zero errors). Removed the unused recap `MetaPanel` import, consolidated the duplicate desktop-storage import, and replaced the checkpoint validator's whole-object double assertion with explicit reconstruction from its validated fields.
+
+The remaining warning categories do not justify automatic fixes in this feature:
+
+- 60 warnings concern generated `bulkSim.worker.js`. The named unused constants already exist on `main`; bundling retains some module-level initializers. Generated files are intentionally excluded by the project's ESLint configuration and must not be mechanically edited.
+- Image warnings ignore the project's explicit `@next/next/no-img-element: off` policy: static desktop export has no image-optimization server, and portraits use sized assets. The new champion table follows this policy.
+- Existing dashboard/history accessibility suggestions, unused declarations, file/function sizes, duplicate blocks and narrative-comment warnings refer to untouched implementations in those files. Their callers were not redesigned here; broad cleanup would require independent behavior/accessibility verification.
+- The new aggregator's nesting represents tournament → match → completed game → side → recorded participant/pick, with bounded role loops. Its focused tests cover identity, side swaps, partial evidence and unique-game counts. Splitting this traversal solely to satisfy a nesting threshold would not change its responsibility or correctness.
+
+No scanner configuration or completion hook was disabled, and no generated code was hand-edited for this review. After the cleanup, all 12 event aggregation/store/import-round-trip tests, TypeScript and project ESLint checks passed; the earlier full 1,569-test run remains the feature-wide verification. A repeat scan reports 213 warnings and zero errors, with the remaining categories explained above.

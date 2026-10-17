@@ -11,7 +11,6 @@ import {
 } from "@/lib/tournament";
 import type { TournamentState, TournamentSummary, TournamentTeam } from "@/lib/tournament";
 import type { Champion } from "@/lib/types";
-import MetaPanel from "@/components/MetaPanel";
 import { formatHeaderLabel } from "@/components/tournament/shared";
 import { MetaShiftPanel } from "./MetaShiftPanel";
 import { NotableGamesPanel } from "./NotableGames";
