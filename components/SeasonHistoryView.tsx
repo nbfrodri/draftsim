@@ -14,6 +14,8 @@ import { ComparePanel } from "./hall/ComparePanel";
 import InternationalAppearanceFilters from "./hall/InternationalAppearanceFilters";
 import CareerHistoryControls, { type CareerEvent } from "./hall/CareerHistoryControls";
 import SSHistoryPanel, { SSCareerSummary, SSCareerYear } from "./hall/SSHistoryPanel";
+import CollapsibleSection from "./CollapsibleSection";
+import { IconTrophy } from "@tabler/icons-react";
 import ArchivedEventStats from "./hall/ArchivedEventStats";
 import { playerSSHistory } from "@/lib/season/ssHistory";
 import { acyBadgeYears,CareerStatus,CareerStatusBadge,DynastyBadge,LANES,NavFn,NavPlayerName,PlayerTeamIcon,SeasonScope,TeamRef } from "./hall/shared";
@@ -747,8 +749,6 @@ function SeasonDetail({
       </div>
 
       {/* International title holders — with the winning roster that lifted it */}
-      <SSHistoryPanel entry={entry} />
-      <ArchivedEventStats entry={entry} />
       {intls.length > 0 && (
         <div className="cv-section">
           <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
@@ -885,6 +885,15 @@ function SeasonDetail({
           <AllProTeamsPanel entry={entry} onNavigate={onNavigate} />
         </div>
       )}
+
+      {/* Collapsible SS ownership and event rankings, kept below the honors. */}
+      <div className="cv-section">
+        <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">Season Statistics</div>
+        <div className="space-y-2">
+          <SSHistoryPanel entry={entry} />
+          <ArchivedEventStats entry={entry} />
+        </div>
+      </div>
 
       {/* Narrative story recap (archived seasons that carry one). */}
       {entry.story && (
@@ -3640,7 +3649,6 @@ const PlayerProfileView = memo(function PlayerProfileView({
       <CareerTeammates key={id} rows={p.teammates} onGoToSeason={onGoToSeason} />
       <section aria-label="Career History">
         <h3 className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-2">Career History</h3>
-        <SSCareerSummary history={ssCareer} />
         <CareerHistoryControls seasons={careerSeasons} from={careerRange.from} to={careerRange.to}
           onFrom={from => setCareerRange(range => ({ from, to: from && careerSeasons.findIndex(s => s.id === from) > toIndex ? from : range.to }))}
           onTo={to => setCareerRange(range => ({ to, from: to && careerSeasons.findIndex(s => s.id === to) < fromIndex ? to : range.from }))}
@@ -3722,6 +3730,9 @@ const PlayerProfileView = memo(function PlayerProfileView({
             </SeasonScope.Provider>
           ))}
         </div>
+        <CollapsibleSection label="SS career" className="mt-3" summary={`${ssCareer.acquisitions} gained · ${ssCareer.checkpoints} reviews held`} icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />}>
+          <div className="p-3"><SSCareerSummary history={ssCareer} /></div>
+        </CollapsibleSection>
       </section>
     </div>
   );

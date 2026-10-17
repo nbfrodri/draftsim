@@ -6,15 +6,14 @@ import { computeSSRace, type SSRaceLane, type SSRacePlayer } from "@/lib/season/
 import { SS_REPLACE_MARGIN } from "@/lib/season/ssPlayers";
 import type { SeasonState } from "@/lib/season/types";
 import type { Lane } from "@/lib/types";
+import { ROLE_LABELS } from "@/lib/roles";
 import LaneIcon from "../LaneIcon";
+import RegionMark from "../RegionMark";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
-import LeagueIcon from "../LeagueIcon";
 import TierChip from "./TierChip";
 
-const ROLE_NAMES: Record<Lane, string> = {
-	top: "Top", jungle: "Jungle", middle: "Mid", bottom: "ADC", support: "Support",
-};
+const ROLE_NAMES = ROLE_LABELS;
 const FOCUS = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 
 function PlayerIdentity({ row }: { row: SSRacePlayer }) {
@@ -24,7 +23,7 @@ function PlayerIdentity({ row }: { row: SSRacePlayer }) {
 				<TierChip tier={row.player.tier} size="md" />
 				<PlayerNameLink playerId={row.player.id} name={row.player.name} className="min-w-0 max-w-full" />
 			</div>
-			<div className="flex min-w-0 items-center gap-2"><span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-rift-mutedbright" title="Current competing region"><LeagueIcon league={row.team.leagueId} size={16} /><span>{row.team.leagueId}</span></span><TeamNameLink
+			<div className="flex min-w-0 items-center gap-2"><RegionMark league={row.team.leagueId} size={16} /><TeamNameLink
 				teamId={row.team.id} name={row.team.name} leagueId={row.team.leagueId}
 				iconKey={row.team.iconKey} logoUrl={row.team.logoUrl} color={row.team.color}
 				hint={{ team: row.team }} logoSize={16}
