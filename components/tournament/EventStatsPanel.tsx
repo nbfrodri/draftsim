@@ -13,16 +13,16 @@ import TeamNameLink from "../team/TeamNameLink";
 import LaneIcon from "../LaneIcon";
 import SplitIcon from "../season/SplitIcon";
 import LeagueIcon from "../LeagueIcon";
-import EventChampionTables from "./EventChampionTables";
+import EventChampionTables, { type ChampionTableFilters } from "./EventChampionTables";
 
 type Props = { champions: readonly Champion[]; seasonId?: string } & ({ record: EventRecord; tournaments?: never; identity?: never } | { record?: never; tournaments: readonly TournamentState[]; identity: Omit<EventRecord, "version" | "scopes" | "championLanes"> });
 const control = "border border-rift-line/60 bg-rift-bg px-2 py-1.5 text-xs text-rift-mutedbright focus-visible:outline focus-visible:outline-rift-gold";
 const avg = (sum: number, n: number, digits = 2) => n ? (sum / n).toFixed(digits) : "—";
-interface View { scopeId: string; lane: Lane; point: string; sort: string }
+interface View { scopeId: string; lane: Lane; point: string; sort: string; champions: ChampionTableFilters }
 
 export default function EventStatsPanel(props: Props) {
 	const [open, setOpen] = useState(false);
-	const [view, setView] = useState<View>({ scopeId: "all", lane: "top", point: "current", sort: "performance" });
+	const [view, setView] = useState<View>({ scopeId: "all", lane: "top", point: "current", sort: "performance", champions: { role: "all", limit: "10" } });
 	const identity = props.record ?? props.identity;
 	return <section aria-label={`${identity.label} event statistics`} className="my-3 min-w-0 border border-rift-line/50 bg-rift-panel/30">
 		<button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-3 py-3 text-left text-sm text-rift-goldbright focus-visible:outline focus-visible:outline-rift-gold">
@@ -57,19 +57,28 @@ function EventStatsContent(props: Props & { view: View; updateView: (patch: Part
 		<div className="flex flex-wrap gap-3"><label className="text-xs text-rift-mutedbright">Stage <select aria-label="Ranking stage" className={control} value={scope.id} onChange={e => { setScope(e.target.value); setPoint("current"); }}>{record.scopes.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
 			<label className="text-xs text-rift-mutedbright">Evolution <select aria-label="Ranking checkpoint" className={control} value={checkpoint ? point : "current"} onChange={e => setPoint(e.target.value)}><option value="current">Current / final standings</option>{scope.checkpoints.map(c => <option key={c.id} value={c.id}>{c.label} · {c.games} games</option>)}</select></label>
 		</div>
-		<div className="grid grid-cols-1 gap-2 sm:grid-cols-5" aria-label="Role leaders">{LANE_ORDER.map(role => {
+		<div className="grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="Role leaders">{LANE_ORDER.map(role => {
 			const leader = rankEventPlayers(players, role)[0];
-			return <div key={role} className="min-w-0 border border-rift-line/30 bg-rift-bg/30 p-2"><div className="mb-1 flex items-center gap-1 text-xs text-rift-mutedbright"><LaneIcon lane={role} size="xs" />{role}</div><p className="truncate text-xs font-display text-rift-goldbright">{leader?.name ?? "No recorded games"}</p>{leader && <span className="text-[10px] text-rift-mutedbright">{leader.qualified ? "Leading" : "Provisional"} · {leader.score?.toFixed(2) ?? "Partial evidence"}</span>}</div>;
+			return <div key={role} className="min-w-0 border border-rift-line/30 bg-rift-bg/30 p-2"><div className="mb-1 flex items-center gap-1 text-xs text-rift-mutedbright"><LaneIcon lane={role} size="xs" />{role}</div>{leader ? <><PlayerNameLink playerId={leader.playerId} name={leader.name} seasonId={props.seasonId} phaseScope={phaseScope} className="block truncate text-xs font-display text-rift-goldbright" /><PlayerTeams player={leader} seasonId={props.seasonId} phaseScope={phaseScope} /><span className="text-[10px] text-rift-mutedbright">{leader.qualified ? "Leading" : "Provisional"} · {leader.score?.toFixed(2) ?? "Partial evidence"}</span></> : <p className="text-xs text-rift-mutedbright">No recorded games</p>}</div>;
 		})}</div>
 		<div className="flex flex-wrap items-center justify-between gap-2"><div className="flex flex-wrap gap-1" aria-label="Player role">{LANE_ORDER.map(role => <button type="button" key={role} aria-pressed={role === lane} onClick={() => setLane(role)} className={`${control} flex items-center gap-1 ${role === lane ? "border-rift-gold text-rift-goldbright" : ""}`}><LaneIcon lane={role} size="xs" />{role}</button>)}</div><label className="text-xs text-rift-mutedbright">Sort <select aria-label="Player sort" className={control} value={sort} onChange={e => setSort(e.target.value)}><option value="performance">Performance score</option><option value="grade">Avg grade</option><option value="gold">Avg gold diff</option><option value="games">Games</option><option value="wins">Win rate</option></select></label></div>
 		<p className="text-xs text-rift-mutedbright">{checkpoint ? `${checkpoint.label} · ${checkpoint.games} games at this checkpoint` : `${scope.stats.games} completed games · current / final standings`}. {scope.checkpoints.length ? "Movement compares performance rank with the previous recorded checkpoint." : "Earlier round history was not recorded. Current statistics remain available."}</p>
 		<div className="overflow-x-auto"><table className="w-full text-left text-xs tabular-nums"><thead className="border-y border-rift-line/40 text-rift-mutedbright"><tr>{["Rank", "Player / team", "Score", "Avg grade", "Avg gold ±", "Games", "WR", "KDA"].map(h => <th key={h} className="whitespace-nowrap px-2 py-2">{h}</th>)}</tr></thead><tbody>{sorted.map(p => {
 			const rank = ranked.indexOf(p) + 1, prev = previousRanks.get(p.key);
 			const change = !prev ? "New" : p.qualified && !prev.qualified ? "Qualified" : prev.rank === rank ? "—" : `${prev.rank > rank ? "↑" : "↓"}${Math.abs(prev.rank - rank)}`;
-			return <tr key={p.key} className="border-b border-rift-line/25 text-rift-mutedbright"><td className="px-2 py-3"><span className="font-display text-rift-goldbright">#{rank}</span>{previous && <span className="ml-1 text-[10px]" title="Performance rank movement">{change}</span>}</td><td className="px-2 py-3"><PlayerNameLink playerId={p.playerId} name={p.name} seasonId={props.seasonId} phaseScope={phaseScope} className="font-display text-rift-goldbright" /><PlayerTeams player={p} seasonId={props.seasonId} phaseScope={phaseScope} />{!p.qualified && <p className="mt-1 text-[10px]">{p.score === null ? "Partial scoring evidence" : `Provisional · ${p.rated}/${p.required} rated games`}</p>}</td><td className="px-2 py-3">{p.score?.toFixed(2) ?? "—"}</td><td className="px-2 py-3" title={`${p.rated} rated games`}>{avg(p.ratingSum, p.rated)}</td><td className="px-2 py-3">{avg(p.goldSum, p.goldGames, 0)}</td><td className="px-2 py-3">{p.games}</td><td className="px-2 py-3">{Math.round(p.wins / p.games * 100)}%</td><td className="px-2 py-3">{p.kdaGames ? ((p.kills + p.assists) / Math.max(1, p.deaths)).toFixed(2) : "—"}</td></tr>;
+			return <tr key={p.key} className="border-b border-rift-line/25 text-rift-mutedbright">
+				<td className="px-2 py-3"><span className="font-display text-rift-goldbright">#{rank}</span>{previous && <span className="ml-1 text-[10px]" title="Performance rank movement">{change}</span>}</td>
+				<td className="px-2 py-3"><PlayerNameLink playerId={p.playerId} name={p.name} seasonId={props.seasonId} phaseScope={phaseScope} className="font-display text-rift-goldbright" /><PlayerTeams player={p} seasonId={props.seasonId} phaseScope={phaseScope} />{!p.qualified && <p className="mt-1 text-[10px]">{p.score === null ? "Partial scoring evidence" : `Provisional · ${p.rated}/${p.required} rated games`}</p>}</td>
+				<td className="px-2 py-3">{p.score?.toFixed(2) ?? "—"}</td>
+				<td className="px-2 py-3" title={`${p.rated} rated games`}>{avg(p.ratingSum, p.rated)}</td>
+				<td className="px-2 py-3" title={`${p.goldGames} games with recorded gold difference`}>{avg(p.goldSum, p.goldGames, 0)}</td>
+				<td className="px-2 py-3">{p.games}</td>
+				<td className="px-2 py-3">{Math.round(p.wins / p.games * 100)}%</td>
+				<td className="px-2 py-3" title={`${p.kdaGames} games with recorded KDA`}>{p.kdaGames ? ((p.kills + p.assists) / Math.max(1, p.deaths)).toFixed(2) : "—"}</td>
+			</tr>;
 		})}</tbody></table>{!ranked.length && <p className="py-5 text-xs text-rift-mutedbright">No identified participants with recorded games in this role.</p>}</div>
 		<details className="text-xs text-rift-mutedbright"><summary className="cursor-pointer text-rift-goldbright">How rankings work</summary><p className="mt-2 max-w-3xl leading-relaxed">Event performance only; no tiers or awards are assigned. Score adjusts grades for opposition and an existing SS advantage, shrinks small samples towards 6 using 12 prior games, and accounts for consistency. Qualification needs 3 rated games and 60% of team opportunities. Qualified rows lead; eliminated players remain. Exact score ties use rated games, then stable identity. Displayed scores are rounded. Unknown evidence is not zero.</p></details>
-		<p className="text-xs text-rift-mutedbright">Champion tables below show current / final statistics for the selected stage.</p><EventChampionTables stats={scope.stats} champions={props.champions} lanes={lanes} />
+		<p className="text-xs text-rift-mutedbright">Champion tables below show current / final statistics for the selected stage.</p><EventChampionTables stats={scope.stats} champions={props.champions} lanes={lanes} filters={props.view.champions} onFilterChange={patch => props.updateView({ champions: { ...props.view.champions, ...patch } })} />
 	</div>;
 }
 

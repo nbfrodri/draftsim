@@ -18,7 +18,7 @@ function eventFixture() {
 	return t;
 }
 
-test("event rankings retain role filters, expose round evolution and show independent pick/ban tables", async ({ page }) => {
+test("event rankings retain player and champion filters and expose round evolution", async ({ page }) => {
 	const t = eventFixture();
 	await page.addInitScript(tournament => localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state: { tournament, season: null } })), t);
 	await page.goto("/");
@@ -27,6 +27,9 @@ test("event rankings retain role filters, expose round evolution and show indepe
 	await toggle.click();
 	await expect(panel.getByRole("columnheader", { name: "Score", exact: true })).toBeVisible();
 	await expect(panel.getByRole("columnheader", { name: /Tier/ })).toHaveCount(0);
+	await expect(panel.locator('[aria-label="Role leaders"]')).toContainText(t.teams[0].name);
+	await expect(panel.locator('td[title="12 games with recorded gold difference"]').first()).toHaveText("1000");
+	await expect(panel.locator('td[title="0 games with recorded KDA"]').first()).toHaveText("—");
 	await panel.getByLabel("Ranking checkpoint").selectOption({ index: 1 });
 	await expect(panel).toContainText("1 games at this checkpoint");
 	await expect(panel).toContainText("Provisional · 1/3 rated games");
@@ -38,10 +41,13 @@ test("event rankings retain role filters, expose round evolution and show indepe
 	await panel.getByLabel("Champion role").selectOption("middle");
 	await expect(pickTable).toContainText("No recorded appearances");
 	await expect(panel.getByRole("heading", { name: /Most Banned/ })).toBeVisible();
-	await panel.getByLabel("Champion role").selectOption("all");
 	await panel.getByRole("button", { name: "middle", exact: true }).click();
-	await toggle.click(); await toggle.click();
+	await toggle.focus(); await toggle.press("Enter"); await toggle.press("Enter");
 	await expect(panel.getByRole("button", { name: "middle", exact: true })).toHaveAttribute("aria-pressed", "true");
+	await expect(panel.getByLabel("Champion role")).toHaveValue("middle");
+	await expect(panel.getByLabel("Champion limit")).toHaveValue("all");
+	await expect(pickTable).toContainText("No recorded appearances");
+	await panel.getByLabel("Champion role").selectOption("all");
 	await panel.screenshot({ path: "test-results/playwright/event-rankings-desktop.png" });
 	await page.setViewportSize({ width: 390, height: 844 });
 	await panel.scrollIntoViewIfNeeded();

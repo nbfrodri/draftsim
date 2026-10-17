@@ -1,20 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { Champion, Lane } from "@/lib/types";
 import type { EventStats } from "@/lib/eventStats";
 import { LANE_ORDER } from "@/lib/players";
 
 const selectClass = "border border-rift-line bg-rift-bg px-2 py-1.5 text-xs text-rift-mutedbright focus-visible:outline-rift-gold";
 
-export default function EventChampionTables({ stats, champions, lanes }: { stats: EventStats; champions: readonly Champion[]; lanes: Record<string, Lane[]> }) {
-	const [role, setRole] = useState<Lane | "all">("all");
-	const [limit, setLimit] = useState("10");
+export interface ChampionTableFilters { role: Lane | "all"; limit: "10" | "all" }
+
+export default function EventChampionTables({ stats, champions, lanes, filters, onFilterChange }: { stats: EventStats; champions: readonly Champion[]; lanes: Record<string, Lane[]>; filters: ChampionTableFilters; onFilterChange: (patch: Partial<ChampionTableFilters>) => void }) {
+	const { role, limit } = filters;
 	const byId = useMemo(() => new Map(champions.map(c => [c.id, c])), [champions]);
 	return <section aria-label="Champion statistics" className="space-y-3 border-t border-rift-line/40 pt-4">
 		<div className="flex flex-wrap items-center justify-between gap-3"><h4 className="font-display text-sm text-rift-goldbright">Champion statistics</h4><div className="flex gap-2">
-			<label className="text-xs text-rift-mutedbright">Role <select className={selectClass} aria-label="Champion role" value={role} onChange={e => setRole(e.target.value as Lane | "all")}><option value="all">All roles</option>{LANE_ORDER.map(l => <option key={l} value={l}>{l}</option>)}</select></label>
-			<label className="text-xs text-rift-mutedbright">Show <select className={selectClass} aria-label="Champion limit" value={limit} onChange={e => setLimit(e.target.value)}><option value="10">Top 10</option><option value="all">All</option></select></label>
+			<label className="text-xs text-rift-mutedbright">Role <select className={selectClass} aria-label="Champion role" value={role} onChange={e => onFilterChange({ role: e.target.value as Lane | "all" })}><option value="all">All roles</option>{LANE_ORDER.map(l => <option key={l} value={l}>{l}</option>)}</select></label>
+			<label className="text-xs text-rift-mutedbright">Show <select className={selectClass} aria-label="Champion limit" value={limit} onChange={e => onFilterChange({ limit: e.target.value as ChampionTableFilters["limit"] })}><option value="10">Top 10</option><option value="all">All</option></select></label>
 		</div></div>
 		<p className="text-xs text-rift-mutedbright">Completed games · picks use the played role; bans and presence use playable roles. WR always describes picked appearances. {role !== "all" && "Unknown playable roles are excluded from bans/presence filters."}</p>
 		<div className="grid gap-3 xl:grid-cols-3">{(["picks", "bans", "presenceGames"] as const).map(metric => {
