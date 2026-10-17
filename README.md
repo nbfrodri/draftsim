@@ -12,7 +12,7 @@ A Windows and Linux desktop simulator for **League of Legends drafts, matches, t
 - **Live SS Race:** current worldwide SS players and contenders by role, with team logos, grades, gold differences, eligibility and estimated chances. Actual SS reviews happen at competitive phase boundaries.
 - **History and customization:** player/team profiles, roster moves, records, Title Playground, historical lineups, editable champion meta and rosters.
 
-See [v1.9.1 release notes](docs/releases/v1.9.1.md) for the latest addition, or the [game systems reference](docs/systems.md) for the rules.
+See [v1.11.0 release notes](docs/releases/v1.11.0.md) for event rankings, champion statistics and SS history improvements, or the [game systems reference](docs/systems.md) for the rules.
 
 ## Install on Windows
 
