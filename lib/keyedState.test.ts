@@ -11,7 +11,7 @@ describe("syncKey", () => {
 		let state = { key: "a", value: 5 };
 		state = syncKey(state, "b", 0);
 		expect(state).toEqual({ key: "b", value: 0 });
-		state = syncKey({ ...state, value: 0 }, "a", 0);
+		state = syncKey({ ...state, value: 7 }, "a", 0);
 		expect(state).toEqual({ key: "a", value: 0 });
 	});
 });
