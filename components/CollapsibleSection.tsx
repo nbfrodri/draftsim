@@ -5,13 +5,13 @@ import { IconChevronDown } from "@tabler/icons-react";
 
 const FOCUS = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 
-// Closed-by-default disclosure used by statistics and SS sections. The body is
-// only mounted while open so heavy content costs nothing until requested.
-export default function CollapsibleSection({ label, ariaLabel, icon, summary, children, className = "my-3", headingClassName = "font-display text-[10px] uppercase tracking-[0.25em]" }: { label: ReactNode; ariaLabel?: string; icon?: ReactNode; summary?: ReactNode; children: ReactNode; className?: string; headingClassName?: string }) {
+// Closed-by-default disclosure; the body mounts only while open unless keepMounted.
+export default function CollapsibleSection({ label, ariaLabel, icon, summary, children, className = "my-3", headingClassName = "font-display text-[10px] uppercase tracking-[0.25em]", keepMounted = false, headingLevel = 3 }: { label: ReactNode; ariaLabel?: string; icon?: ReactNode; summary?: ReactNode; children: ReactNode; className?: string; headingClassName?: string; keepMounted?: boolean; headingLevel?: 3 | 4 }) {
 	const [open, setOpen] = useState(false);
 	const bodyId = useId();
+	const Heading = headingLevel === 4 ? "h4" : "h3";
 	return <section aria-label={ariaLabel} className={`min-w-0 ${className}`}>
-		<h3>
+		<Heading>
 			<button type="button" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(value => !value)}
 				className={`flex w-full items-center gap-2.5 border px-3 py-2.5 text-left transition-colors ${FOCUS} ${open ? "border-rift-gold/40 bg-rift-gold/[0.06] text-rift-goldbright" : "border-rift-line/50 bg-rift-bg/40 text-rift-mutedbright hover:border-rift-gold/50 hover:text-rift-goldbright"}`}>
 				{icon}
@@ -19,7 +19,7 @@ export default function CollapsibleSection({ label, ariaLabel, icon, summary, ch
 				{summary && <span className="shrink-0 text-[10px] font-body font-normal normal-case tracking-normal tabular-nums text-rift-mutedbright">{summary}</span>}
 				<IconChevronDown size={14} className={`shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} aria-hidden="true" />
 			</button>
-		</h3>
-		{open && <div id={bodyId} className="border border-t-0 border-rift-line/40 bg-rift-bg/20">{children}</div>}
+		</Heading>
+		{(open || keepMounted) && <div id={bodyId} hidden={!open} className="border border-t-0 border-rift-line/40 bg-rift-bg/20">{children}</div>}
 	</section>;
 }

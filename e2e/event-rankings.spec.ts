@@ -24,8 +24,7 @@ test("event rankings retain player and champion filters and expose round evoluti
 	await page.goto("/");
 	await page.getByRole("button", { name: /^Event Statistics/ }).click();
 	const panel = page.getByRole("region", { name: "Event UI event statistics" });
-	const toggle = panel.getByRole("button", { name: /Event UI · Player Rankings/ });
-	await toggle.click();
+	const toggle = page.getByRole("button", { name: /^Event Statistics/ });
 	await expect(panel.getByRole("columnheader", { name: "Score", exact: true })).toBeVisible();
 	await expect(panel.getByRole("columnheader", { name: /Tier/ })).toHaveCount(0);
 	await expect(panel.locator('[aria-label="Role leaders"]')).toContainText(t.teams[0].name);
@@ -42,7 +41,7 @@ test("event rankings retain player and champion filters and expose round evoluti
 	const playerRoles = panel.getByRole("group", { name: "Player role" }), championRoles = panel.getByRole("group", { name: "Champion role" });
 	for (const name of ["Top", "Jungle", "Mid", "ADC", "Support"]) await expect(playerRoles.getByRole("button", { name, exact: true })).toBeVisible();
 	await expect(panel.locator('[aria-label="Role leaders"]').getByRole("heading", { name: "Mid" })).toBeVisible();
-	await expect(panel.locator('[aria-label="Role leaders"] span[title] > .sr-only').first()).toHaveText(/^[A-Z]{3}/);
+	await expect(panel.locator('[aria-label="Role leaders"] span[title] > .sr-only').first()).toHaveText(/^LCK/);
 	await championRoles.getByRole("button", { name: "Mid", exact: true }).click();
 	await expect(pickTable).toContainText("No recorded appearances");
 	await expect(panel.getByRole("heading", { name: /Most Banned/ })).toBeVisible();
@@ -52,6 +51,10 @@ test("event rankings retain player and champion filters and expose round evoluti
 	await expect(championRoles.getByRole("button", { name: "Mid", exact: true })).toHaveAttribute("aria-pressed", "true");
 	await expect(panel.getByLabel("Champion limit")).toHaveValue("all");
 	await expect(pickTable).toContainText("No recorded appearances");
+	await toggle.click(); await expect(panel).toBeHidden();
+	await toggle.click(); await expect(panel).toBeVisible();
+	await expect(playerRoles.getByRole("button", { name: "Mid", exact: true })).toHaveAttribute("aria-pressed", "true");
+	await expect(panel.getByLabel("Champion limit")).toHaveValue("all");
 	await championRoles.getByRole("button", { name: "All", exact: true }).click();
 	await panel.screenshot({ path: "test-results/playwright/event-rankings-desktop.png" });
 	await page.setViewportSize({ width: 390, height: 844 });

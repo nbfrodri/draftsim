@@ -17,7 +17,7 @@ import SplitIcon from "../season/SplitIcon";
 import LeagueIcon from "../LeagueIcon";
 import EventChampionTables, { type ChampionTableFilters } from "./EventChampionTables";
 
-type Props = { champions: readonly Champion[]; seasonId?: string } & ({ record: EventRecord; tournaments?: never; identity?: never } | { record?: never; tournaments: readonly TournamentState[]; identity: Omit<EventRecord, "version" | "scopes" | "championLanes"> });
+type Props = { champions: readonly Champion[]; seasonId?: string; embedded?: boolean } & ({ record: EventRecord; tournaments?: never; identity?: never } | { record?: never; tournaments: readonly TournamentState[]; identity: Omit<EventRecord, "version" | "scopes" | "championLanes"> });
 const control = "border border-rift-line/60 bg-rift-bg px-2 py-1.5 text-xs text-rift-mutedbright focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 const segment = "inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 const segmentState = (on: boolean) => on ? "border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright";
@@ -28,10 +28,12 @@ export default function EventStatsPanel(props: Props) {
 	const [view, setView] = useState<View>({ scopeId: "all", lane: "top", point: "current", sort: "performance", champions: { role: "all", limit: "10" } });
 	const identity = props.record ?? props.identity;
 	const games = props.record?.scopes[0]?.stats.games;
-	return <CollapsibleSection ariaLabel={`${identity.label} event statistics`} label={`${identity.label} · Player Rankings`} headingClassName="font-display text-sm"
+	const content = <EventStatsContent {...props} view={view} updateView={patch => setView(current => ({ ...current, ...patch }))} />;
+	if (props.embedded) return <section aria-label={`${identity.label} event statistics`}>{content}</section>;
+	return <CollapsibleSection headingLevel={props.seasonId ? 4 : 3} ariaLabel={`${identity.label} event statistics`} label={`${identity.label} · Player Rankings`} headingClassName="font-display text-sm"
 		icon={identity.split ? <SplitIcon split={identity.split} size={16} /> : identity.event ? <LeagueIcon league={identity.event} size={16} /> : <IconChartBar size={16} aria-hidden="true" />}
 		summary={games !== undefined ? `${games} games` : <span className="hidden sm:inline">Players &amp; champions</span>}>
-		<EventStatsContent {...props} view={view} updateView={patch => setView(current => ({ ...current, ...patch }))} />
+		{content}
 	</CollapsibleSection>;
 }
 

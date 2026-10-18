@@ -39,7 +39,7 @@ export default function SSHistoryPanel({ entry }: { entry: SSArchive }) {
 	const checkpoints = useMemo(() => ssHistory(entry), [entry]);
 	const closing = useMemo(() => closingSSHolders(entry), [entry]);
 	const held = new Set(checkpoints.flatMap(c => c.holders.map(h => h.playerId)));
-	return <CollapsibleSection ariaLabel="Season SS history" label="SS history" icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />} summary={`${checkpoints.length} reviews · ${held.size} holders`} className="">
+	return <CollapsibleSection ariaLabel="Season SS history" label="SS history" icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />} summary={entry.ssReviews === undefined ? "Not recorded" : `${checkpoints.length} reviews · ${held.size} holders`} className="">
 		<div className="p-3 text-xs md:p-4">
 		<p className="mb-3 leading-relaxed text-rift-mutedbright">Ownership after each phase review. Tournament cards keep the tier actually used during play.</p>
 		{!checkpoints.length && <p className="py-2 text-rift-mutedbright">SS reviews were not recorded for this season.</p>}
@@ -50,7 +50,7 @@ export default function SSHistoryPanel({ entry }: { entry: SSArchive }) {
 				<details className="border border-rift-line/50 bg-rift-bg/30 px-3"><summary className={summaryClass}><span className="ml-1 inline-flex max-w-full items-center gap-2 align-middle"><PhaseIcon phase={c} /><span>{c.label} · SS review · {c.holders.length}/5</span></span></summary>
 					<div className="grid grid-cols-1 gap-2 border-t border-rift-line/30 py-3 sm:grid-cols-2 xl:grid-cols-5">{LANE_ORDER.map(lane => {
 						const holder = c.holders.find(h => h.lane === lane);
-						return <article key={lane} className="min-w-0 border border-rift-line/50 bg-rift-bg/30"><h4 className="flex items-center gap-1.5 border-b border-rift-line/40 px-3 py-2 text-[10px] font-semibold text-rift-goldbright"><RoleLabel lane={lane} size="sm" />{!holder && <span className="ml-auto font-normal text-rift-mutedbright">· Vacant</span>}</h4>{holder && <div className="p-3"><Holder holder={holder} seasonId={entry.id} showRole={false} /><p className="mt-3 text-xs font-display text-rift-goldbright">{holder.decision ? decisions[holder.decision] : "Observed · earlier ownership unknown"}</p><Evidence holder={holder} /></div>}</article>;
+						return <article key={lane} className="min-w-0 border border-rift-line/50 bg-rift-bg/30"><h4 className="flex items-center gap-1.5 border-b border-rift-line/40 px-3 py-2 text-[10px] font-semibold text-rift-goldbright"><RoleLabel lane={lane} size="sm" />{!holder && <span className="ml-auto font-normal text-rift-mutedbright">Vacant</span>}</h4>{holder && <div className="p-3"><Holder holder={holder} seasonId={entry.id} showRole={false} /><p className="mt-3 text-xs font-display text-rift-goldbright">{holder.decision ? decisions[holder.decision] : "Observed · earlier ownership unknown"}</p><Evidence holder={holder} /></div>}</article>;
 					})}</div>
 					{c.lost.map(h => <div key={h.playerId} className="mb-3 border-t border-rift-line/30 pt-3"><p className="mb-2 text-rift-mutedbright">Lost SS · ownership changed at this review</p><Holder holder={h} seasonId={entry.id} /></div>)}
 				</details>
