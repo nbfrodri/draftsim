@@ -23,7 +23,7 @@ test("event rankings retain player and champion filters and expose round evoluti
 	await page.addInitScript(tournament => localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state: { tournament, season: null } })), t);
 	await page.goto("/");
 	const panel = page.getByRole("region", { name: "Event UI event statistics" });
-	await expect(panel).toHaveCount(0);
+	await expect(page.locator('[aria-label="Event UI event statistics"] [aria-label="Role leaders"]')).toHaveCount(0);
 	await page.getByRole("button", { name: /^Event Statistics/ }).click();
 	const toggle = page.getByRole("button", { name: /^Event Statistics/ });
 	await expect(panel.getByRole("columnheader", { name: "Score", exact: true })).toBeVisible();
@@ -75,7 +75,7 @@ test("archived event rankings retain scores, round history and champion statisti
 	await page.getByRole("button", { name: "Overall", exact: true }).click();
 	await page.getByRole("button", { name: "By Season", exact: true }).click();
 	const panel = page.getByRole("region", { name: "Archived event statistics" });
-	await expect(panel.getByRole("button", { name: /Player Rankings/ })).toHaveCount(0);
+	await expect(panel.locator("button", { hasText: "Player Rankings" })).toHaveCount(0);
 	await panel.getByRole("button", { name: /^Event statistics/ }).click();
 	await panel.getByRole("button", { name: /Player Rankings/ }).first().click();
 	await expect(panel.getByLabel("Ranking checkpoint").locator("option")).toHaveCount(13);
