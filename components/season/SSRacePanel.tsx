@@ -1,13 +1,14 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
-import { IconChevronDown, IconTrophy } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+import { IconTrophy } from "@tabler/icons-react";
 import { computeSSRace, type SSRaceLane, type SSRacePlayer } from "@/lib/season/ssRace";
 import { SS_REPLACE_MARGIN } from "@/lib/season/ssPlayers";
 import type { SeasonState } from "@/lib/season/types";
 import type { Lane } from "@/lib/types";
 import { ROLE_LABELS } from "@/lib/roles";
-import LaneIcon from "../LaneIcon";
+import CollapsibleSection from "../CollapsibleSection";
+import RoleLabel from "../RoleLabel";
 import RegionMark from "../RegionMark";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
@@ -67,7 +68,7 @@ function CurrentSeat({ row: { lane, holder } }: { row: SSRaceLane }) {
 	return (
 		<article aria-label={`${ROLE_LABELS[lane]} SS holder`} className="min-w-0 border border-rift-line/50 bg-rift-bg/30">
 			<h4 className="flex items-center gap-1.5 border-b border-rift-line/40 px-3 py-2 text-[10px] font-semibold text-rift-goldbright">
-				<LaneIcon lane={lane} />{ROLE_LABELS[lane]}
+				<RoleLabel lane={lane} size="sm" />
 				{!holder && <span className="ml-auto font-normal text-rift-mutedbright">Vacant</span>}
 			</h4>
 			{holder ? <div className="p-3">
@@ -142,7 +143,7 @@ function SSRaceContent({ season, lane, onLaneChange }: { season: SeasonState; la
 						type="button" key={row.lane} aria-pressed={row.lane === lane}
 						onClick={() => { onLaneChange(row.lane); setShowAll(false); }}
 						className={`inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-[11px] transition-colors ${FOCUS} ${lane === row.lane ? "border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright"}`}
-					><LaneIcon lane={row.lane} />{ROLE_LABELS[row.lane]}</button>)}
+					><RoleLabel lane={row.lane} /></button>)}
 				</fieldset>
 				<div className="border border-rift-line/50">
 					{contenders.length ? <ol aria-label={`${ROLE_LABELS[lane]} SS contenders`}>{contenders.map((row, index) => <Contender key={row.player.id} row={row} rank={index + 1} />)}</ol> : <p className="px-3 py-5 text-[11px] leading-relaxed text-rift-mutedbright">No S/S+ challengers in this role. Lower tiers must develop before they can qualify.</p>}
@@ -160,23 +161,13 @@ function SSRaceContent({ season, lane, onLaneChange }: { season: SeasonState; la
 }
 
 export default function SSRacePanel({ season }: { season: SeasonState }) {
-	const [open, setOpen] = useState(false);
 	const [lane, setLane] = useState<Lane>("top");
-	const bodyId = useId();
 	const holders = useMemo(() => new Set(season.teams.flatMap(t => t.players.filter(p => p.tier === "SS").map(p => p.lane))).size, [season.teams]);
 	return (
-		<section aria-label="SS Race" className="mb-7">
-			<h2>
-				<button type="button" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(value => !value)}
-					className={`flex w-full items-center gap-2.5 border px-3 py-2.5 text-left transition-colors ${FOCUS} ${open ? "border-rift-gold/40 bg-rift-gold/[0.06] text-rift-goldbright" : "border-rift-line/50 bg-rift-bg/40 text-rift-mutedbright hover:border-rift-gold/50 hover:text-rift-goldbright"}`}>
-					<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />
-					<span className="font-display text-[10px] uppercase tracking-[0.25em]">SS Race</span>
-					<span className="hidden text-[10px] text-rift-mutedbright sm:inline">World leaders &amp; contenders</span>
-					<span className="ml-auto text-[10px] tabular-nums text-rift-mutedbright">{holders}/5 holders</span>
-					<IconChevronDown size={14} className={`shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} aria-hidden="true" />
-				</button>
-			</h2>
-			{open && <div id={bodyId} className="border border-t-0 border-rift-line/40 bg-rift-bg/20"><SSRaceContent season={season} lane={lane} onLaneChange={setLane} /></div>}
-		</section>
+		<CollapsibleSection ariaLabel="SS Race" headingLevel={2} className="mb-7" icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />}
+			label={<>SS Race<span className="ml-2 hidden font-body text-[10px] font-normal normal-case tracking-normal text-rift-mutedbright sm:inline">World leaders &amp; contenders</span></>}
+			summary={`${holders}/5 holders`}>
+			<SSRaceContent season={season} lane={lane} onLaneChange={setLane} />
+		</CollapsibleSection>
 	);
 }
