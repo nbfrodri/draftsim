@@ -156,6 +156,7 @@ import RosterSnapshotCards from "./hall/RosterSnapshotCards";
 import CareerTeammates from "./hall/CareerTeammates";
 import ChampionRecords from "./hall/ChampionRecords";
 import TeamSeasonResultsHistory from "./team/TeamSeasonResultsHistory";
+import { plural } from "@/lib/plural";
 const MarketHistoryPanel = dynamic(() => import("./hall/MarketHistoryPanel"), { loading: () => <HallPanelLoading label="Loading roster moves..." /> });
 const BestRosters = dynamic(() => import("./hall/BestRosters"), { loading: () => <HallPanelLoading label="Loading best rosters..." /> });
 const TitlePlayground = dynamic(() => import("./hall/TitlePlayground"), { loading: () => <HallPanelLoading label="Loading title playground…" /> });
@@ -3730,7 +3731,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
             </SeasonScope.Provider>
           ))}
         </div>
-        <CollapsibleSection headingLevel={4} label="SS career" className="mt-3" summary={`${ssCareer.acquisitions} gained · ${ssCareer.checkpoints} review${ssCareer.checkpoints === 1 ? "" : "s"} held${ssCareer.partial ? " · partial" : ""}`} icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />}>
+        <CollapsibleSection headingLevel={4} label="SS career" className="mt-3" summary={`${ssCareer.acquisitions} gained · ${plural(ssCareer.checkpoints, "review")} held${ssCareer.partial ? " · partial" : ""}`} icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />}>
           <div className="p-3"><SSCareerSummary history={ssCareer} /></div>
         </CollapsibleSection>
       </section>

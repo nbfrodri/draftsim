@@ -8,6 +8,7 @@ import type { SSHolder, SSReview } from "@/lib/season/types";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import RoleLabel from "../RoleLabel";
 import RegionMark from "../RegionMark";
+import { plural } from "@/lib/plural";
 import CollapsibleSection from "../CollapsibleSection";
 import LeagueIcon from "../LeagueIcon";
 import SplitIcon from "../season/SplitIcon";
@@ -28,7 +29,7 @@ function HolderTeam({ holder, seasonId }: { holder: SSHolder; seasonId: string }
 }
 
 function Holder({ holder, seasonId, showRole = true }: { holder: SSHolder; seasonId: string; showRole?: boolean }) {
-	return <div className="min-w-0 space-y-2"><div className="flex min-w-0 items-center gap-2">{showRole && <RoleLabel lane={holder.lane} className="shrink-0 text-[10px] text-rift-mutedbright" />}<PlayerNameLink playerId={holder.playerId} name={holder.playerName} fallback="Unknown player" seasonId={seasonId} className="min-w-0 truncate font-display text-rift-goldbright" /></div><HolderTeam holder={holder} seasonId={seasonId} /></div>;
+	return <div className="min-w-0 space-y-2"><div className="flex min-w-0 items-center gap-2">{showRole && <RoleLabel lane={holder.lane} className="shrink-0 text-[10px] text-rift-mutedbright" />}<PlayerNameLink playerId={holder.playerId} name={holder.playerName} fallback="Unknown player" seasonId={seasonId} title={holder.playerName} className="min-w-0 truncate font-display text-rift-goldbright" /></div><HolderTeam holder={holder} seasonId={seasonId} /></div>;
 }
 
 function Evidence({ holder }: { holder: SSHolder }) {
@@ -38,8 +39,8 @@ function Evidence({ holder }: { holder: SSHolder }) {
 export default function SSHistoryPanel({ entry }: { entry: SSArchive }) {
 	const checkpoints = useMemo(() => ssHistory(entry), [entry]);
 	const closing = useMemo(() => closingSSHolders(entry), [entry]);
-	const held = new Set(checkpoints.flatMap(c => c.holders.map(h => h.playerId)));
-	return <CollapsibleSection ariaLabel="Season SS history" label="SS history" icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />} summary={entry.ssReviews === undefined ? "Not recorded" : `${checkpoints.length} review${checkpoints.length === 1 ? "" : "s"} · ${held.size} holder${held.size === 1 ? "" : "s"}`} className="">
+	const held = useMemo(() => new Set(checkpoints.flatMap(c => c.holders.map(h => h.playerId))), [checkpoints]);
+	return <CollapsibleSection ariaLabel="Season SS history" label="SS history" icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />} summary={entry.ssReviews === undefined ? "Not recorded" : `${plural(checkpoints.length, "review")} · ${plural(held.size, "holder")}`} className="">
 		<div className="p-3 text-xs md:p-4">
 		<p className="mb-3 leading-relaxed text-rift-mutedbright">Ownership after each phase review. Tournament cards keep the tier actually used during play.</p>
 		{!checkpoints.length && <p className="py-2 text-rift-mutedbright">{entry.ssReviews === undefined ? "SS reviews were not recorded for this season." : "No SS reviews took place this season."}</p>}
@@ -76,7 +77,7 @@ export function SSCareerYear({ history, seasonId }: { history: ReturnType<typeof
 	const losses = history.losses.filter(r => r.seasonId === seasonId);
 	const opening = history.openings.find(r => r.seasonId === seasonId);
 	const events = [...rows.map(r => ({ ...r, order: r.phaseIndex * 3 + 1, action: r.holder.decision ? decisions[r.holder.decision] : "Ownership observed", reason: "" })), ...losses.map(r => ({ ...r, order: r.phaseIndex * 3 + ("afterReview" in r ? r.afterReview ? 2 : 0 : 1), action: "Lost SS", reason: reasons[r.reason] ?? r.reason }))].sort((a, b) => a.order - b.order);
-	return <details className="mt-3 border border-rift-line/50 bg-rift-bg/30 px-3"><summary className={summaryClass}>SS history · {rows.length} review{rows.length === 1 ? "" : "s"} held</summary>
+	return <details className="mt-3 border border-rift-line/50 bg-rift-bg/30 px-3"><summary className={summaryClass}>SS history · {plural(rows.length, "review")} held</summary>
 		<p className="mb-3 text-xs leading-relaxed text-rift-mutedbright">When ownership changed, which team the player represented, and the evidence behind each review. Retaining or carrying SS is not another acquisition.</p>
 		{opening && <div className="mb-3 border border-l-2 border-rift-line/40 border-l-rift-gold/60 bg-rift-bg/20 px-3 py-2"><p className="mb-2 flex items-center gap-2 text-xs text-rift-goldbright"><IconCalendar size={16} />Season opening · Carried from previous season</p><HolderTeam holder={opening.holder} seasonId={seasonId} /><p className="mt-1 text-xs text-rift-mutedbright">Continuity reference, not a new award.</p></div>}
 		{!opening && !events.length && <p className="pb-3 text-xs text-rift-mutedbright">No ownership evidence available for this year.</p>}

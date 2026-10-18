@@ -219,7 +219,7 @@ test("Momentum shows named player cards and tournament teams expose their frozen
   await expect(page.getByRole("button", { name: /Presentation Cup/ })).toBeVisible();
   await page.evaluate(() => Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true }));
   await page.getByRole("button", { name: /Presentation Cup/ }).click();
-  await expect(page.getByRole("heading", { name: tournament.name })).toBeVisible();
+  await expect(page.getByRole("heading", { name: tournament.name, exact: true })).toBeVisible();
   const momentum = page.getByText("Momentum", { exact: true }).locator("../..");
   const hot = momentum.getByRole("region", { name: "On fire", exact: true });
   const cold = momentum.getByRole("region", { name: "Slumping", exact: true });
