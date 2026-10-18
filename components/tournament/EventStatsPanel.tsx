@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { IconChartBar } from "@tabler/icons-react";
 import type { Champion, Lane } from "@/lib/types";
 import type { TournamentState } from "@/lib/tournament";
 import { LANE_ORDER } from "@/lib/players";
@@ -14,12 +13,11 @@ import { plural } from "@/lib/plural";
 import RoleLabel from "../RoleLabel";
 import RegionMark from "../RegionMark";
 import CollapsibleSection from "../CollapsibleSection";
-import SplitIcon from "../season/SplitIcon";
-import LeagueIcon from "../LeagueIcon";
+import PlaygroundSelect from "../hall/PlaygroundSelect";
+import EventIdentityIcon from "./EventIdentityIcon";
 import EventChampionTables, { type ChampionTableFilters } from "./EventChampionTables";
 
 type Props = { champions: readonly Champion[]; seasonId?: string; embedded?: boolean; view?: View; onViewChange?: (update: (current: View) => View) => void } & ({ record: EventRecord; tournaments?: never; identity?: never } | { record?: never; tournaments: readonly TournamentState[]; identity: Omit<EventRecord, "version" | "scopes" | "championLanes"> });
-const control = "border border-rift-line/60 bg-rift-bg px-2 py-1.5 text-xs text-rift-mutedbright focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 const segment = "inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 const segmentState = (on: boolean) => on ? "border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright";
 const avg = (sum: number, n: number, digits = 2) => n ? (sum / n).toFixed(digits) : "—";
@@ -35,7 +33,7 @@ export default function EventStatsPanel(props: Props) {
 	const content = <EventStatsContent {...props} view={view} updateView={patch => applyView(c => ({ ...c, ...patch }))} updateChampions={patch => applyView(c => ({ ...c, champions: { ...c.champions, ...patch } }))} />;
 	if (props.embedded) return <section aria-label={`${identity.label} event statistics`}>{content}</section>;
 	return <CollapsibleSection headingLevel={4} ariaLabel={`${identity.label} event statistics`} label={`${identity.label} · Player Rankings`} headingClassName="font-display text-sm"
-		icon={identity.split ? <SplitIcon split={identity.split} size={16} /> : identity.event ? <LeagueIcon league={identity.event} size={16} /> : <IconChartBar size={16} aria-hidden="true" />}
+		icon={<EventIdentityIcon identity={identity} />}
 		summary={games !== undefined ? plural(games, "game") : <span className="hidden sm:inline">Players &amp; champions</span>}>
 		{content}
 	</CollapsibleSection>;
@@ -61,17 +59,18 @@ function EventStatsContent(props: Props & { view: View; updateView: (patch: Part
 	});
 	const phaseScope = record.split ?? record.event;
 	const lanes = useMemo(() => Object.keys(record.championLanes).length ? record.championLanes : props.record ? {} : Object.fromEntries(props.champions.map(c => [c.id, c.lanes])), [record.championLanes, props.record, props.champions]);
-	const label = "text-[10px] uppercase tracking-wider text-rift-mutedbright";
+	const hasPlayIn = scope.checkpoints.some(c => c.label.startsWith("Play-in · "));
 	return <div className="space-y-4 p-3 md:p-4">
-		<div className="flex flex-wrap gap-3"><label className={`flex flex-col gap-1 ${label}`}>Stage <select aria-label="Ranking stage" className={control} value={scope.id} onChange={e => setScope(e.target.value)}>{record.scopes.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
-			<label className={`flex flex-col gap-1 ${label}`}>Evolution <select aria-label="Ranking checkpoint" className={control} value={checkpoint ? point : "current"} onChange={e => setPoint(e.target.value)}><option value="current">Current / final standings</option>{scope.checkpoints.map(c => <option key={c.id} value={c.id}>{c.label} · {plural(c.games, "game")}</option>)}</select></label>
+		<div className="flex flex-wrap gap-3">
+			<PlaygroundSelect label="Stage" ariaLabel="Ranking stage" value={scope.id} onChange={setScope} options={record.scopes.map(s => ({ value: s.id, label: s.label, icon: s.id === "all" ? <EventIdentityIcon identity={record} /> : undefined }))} />
+			<PlaygroundSelect label="Evolution" ariaLabel="Ranking checkpoint" value={checkpoint ? point : "current"} onChange={setPoint} options={[{ value: "current", label: "Current / final standings" }, ...scope.checkpoints.map(c => ({ value: c.id, label: c.label, detail: plural(c.games, "game"), group: hasPlayIn ? c.label.startsWith("Play-in · ") ? "Play-in" : "Main event" : undefined }))]} />
 		</div>
 		<div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5" aria-label="Role leaders">{LANE_ORDER.map(role => {
 			const leader = rankEventPlayers(players, role)[0];
 			return <article key={role} className="min-w-0 border border-rift-line/50 bg-rift-bg/30"><h4 className="flex items-center border-b border-rift-line/40 px-3 py-2 text-[10px] font-semibold text-rift-goldbright"><RoleLabel lane={role} size="sm" /></h4>
 				{leader ? <div className="p-3"><PlayerNameLink playerId={leader.playerId} name={leader.name} seasonId={props.seasonId} phaseScope={phaseScope} className="block truncate text-[13px] font-display text-rift-goldbright" /><PlayerTeams player={leader} seasonId={props.seasonId} phaseScope={phaseScope} /><div className="mt-3 flex items-baseline justify-between gap-2 border-t border-rift-line/30 pt-2"><span className="font-display text-xl tabular-nums text-rift-goldbright">{leader.score?.toFixed(2) ?? "—"}</span><span className="text-[10px] text-rift-mutedbright">{leader.qualified ? "Leading" : "Provisional"}{leader.score === null && " · Partial evidence"}</span></div></div> : <p className="px-3 py-3 text-[10px] text-rift-mutedbright">No recorded games</p>}</article>;
 		})}</div>
-		<div className="flex flex-wrap items-end justify-between gap-2"><fieldset aria-label="Player role" className="m-0 flex min-w-0 flex-wrap gap-1.5 border-0 p-0">{LANE_ORDER.map(role => <button type="button" key={role} aria-pressed={role === lane} onClick={() => setLane(role)} className={`${segment} ${segmentState(role === lane)}`}><RoleLabel lane={role} size="sm" /></button>)}</fieldset><label className={`flex flex-col gap-1 ${label}`}>Sort <select aria-label="Player sort" className={control} value={sort} onChange={e => setSort(e.target.value)}><option value="performance">Performance score</option><option value="grade">Avg grade</option><option value="gold">Avg gold diff</option><option value="games">Games</option><option value="wins">Win rate</option></select></label></div>
+		<div className="flex flex-wrap items-end justify-between gap-2"><fieldset aria-label="Player role" className="m-0 flex min-w-0 flex-wrap gap-1.5 border-0 p-0">{LANE_ORDER.map(role => <button type="button" key={role} aria-pressed={role === lane} onClick={() => setLane(role)} className={`${segment} ${segmentState(role === lane)}`}><RoleLabel lane={role} size="sm" /></button>)}</fieldset><PlaygroundSelect label="Sort" ariaLabel="Player sort" value={sort} onChange={setSort} options={[{ value: "performance", label: "Performance score" }, { value: "grade", label: "Avg grade" }, { value: "gold", label: "Avg gold diff" }, { value: "games", label: "Games" }, { value: "wins", label: "Win rate" }]} /></div>
 		<p className="text-[11px] leading-relaxed text-rift-mutedbright">{checkpoint ? `${checkpoint.label} · ${plural(checkpoint.games, "game")} at this checkpoint` : `${plural(scope.stats.games, "completed game")} · current / final standings`}. {scope.checkpoints.length ? "Movement compares performance rank with the previous recorded checkpoint." : "Earlier round history was not recorded. Current statistics remain available."}</p>
 		<div className="overflow-x-auto border border-rift-line/40"><table className="w-full text-left text-xs tabular-nums"><thead className="border-b border-rift-line/40 bg-rift-bg/40 text-[10px] uppercase tracking-wider text-rift-mutedbright"><tr>{["Rank", "Player / team", "Score", "Avg grade", "Avg gold ±", "Games", "WR", "KDA"].map((h, i) => <th key={h} className={`whitespace-nowrap px-2 py-2 font-semibold ${i > 1 ? "text-right" : ""}`}>{h}</th>)}</tr></thead><tbody>{sorted.map(p => {
 			const rank = ranked.indexOf(p) + 1, prev = previousRanks.get(p.key);

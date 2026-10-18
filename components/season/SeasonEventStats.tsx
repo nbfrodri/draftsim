@@ -8,6 +8,10 @@ import type { Champion } from "@/lib/types";
 import { syncKey, type Keyed } from "@/lib/keyedState";
 import CollapsibleSection from "../CollapsibleSection";
 import EventStatsPanel, { INITIAL_VIEW, type View } from "../tournament/EventStatsPanel";
+import PlaygroundSelect from "../hall/PlaygroundSelect";
+import EventIdentityIcon from "../tournament/EventIdentityIcon";
+import SplitIcon from "./SplitIcon";
+import LeagueIcon from "../LeagueIcon";
 
 export default function SeasonEventStats({ season, champions }: { season: SeasonState; champions: readonly Champion[] }) {
 	const groups = useMemo(() => seasonEventGroups(season).filter(g => g.tournaments.length), [season]);
@@ -18,6 +22,11 @@ export default function SeasonEventStats({ season, champions }: { season: Season
 	const synced = syncKey(view, group.identity.id, INITIAL_VIEW);
 	if (synced !== view) setView(synced);
 	return <CollapsibleSection label="Event Statistics" icon={<IconChartBar size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />} summary={group.identity.label} className="my-4">
-		<div className="space-y-3 p-3"><label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-rift-mutedbright">Event<select aria-label="Statistics event" className="max-w-full border border-rift-line/60 bg-rift-bg px-2 py-1.5 text-xs normal-case tracking-normal focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold" value={group.identity.id} onChange={e => setSelected(e.target.value)}>{groups.map(g => <option key={g.identity.id} value={g.identity.id}>{g.identity.label}</option>)}</select></label><EventStatsPanel key={group.identity.id} tournaments={group.tournaments} identity={group.identity} embedded champions={champions} view={synced.value} onViewChange={fn => setView(v => ({ key: v.key, value: fn(v.value) }))} /></div>
+		<div className="space-y-3 p-3">
+			<PlaygroundSelect label="Statistics event" className="w-full sm:w-fit sm:min-w-[14rem]" value={group.identity.id} onChange={setSelected}
+				groups={Object.fromEntries(groups.map(({ identity }) => [season.phases[identity.phaseIndex!].label, identity.event ? <LeagueIcon key={identity.id} league={identity.event} size={14} /> : identity.split ? <SplitIcon key={identity.id} split={identity.split} size={14} /> : null]))}
+				options={groups.map(({ identity }) => ({ value: identity.id, label: identity.label, displayLabel: identity.leagueId ?? identity.label, icon: <EventIdentityIcon identity={{ ...identity, split: undefined }} />, group: season.phases[identity.phaseIndex!].label }))} />
+			<EventStatsPanel key={group.identity.id} tournaments={group.tournaments} identity={group.identity} embedded champions={champions} view={synced.value} onViewChange={fn => setView(v => ({ key: v.key, value: fn(v.value) }))} />
+		</div>
 	</CollapsibleSection>;
 }

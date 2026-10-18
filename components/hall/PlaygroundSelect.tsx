@@ -1,7 +1,7 @@
 "use client";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 /** Compact Hall picker with a themed popup and native-style keyboard controls. */
 export default function PlaygroundSelect({
@@ -9,10 +9,16 @@ export default function PlaygroundSelect({
   value,
   options,
   onChange,
+  ariaLabel = label,
+  groups,
+  className = "",
 }: {
   label: string;
+  ariaLabel?: string;
   value: string;
-  options: { value: string; label: string; icon?: ReactNode }[];
+  options: { value: string; label: string; displayLabel?: string; icon?: ReactNode; detail?: ReactNode; group?: string }[];
+  groups?: Record<string, ReactNode>;
+  className?: string;
   onChange: (value: string) => void;
 }) {
   const id = useId();
@@ -30,7 +36,7 @@ export default function PlaygroundSelect({
     const rect = root.current?.getBoundingClientRect();
     setAbove(
       !!rect &&
-        window.innerHeight - rect.bottom < 240 &&
+        window.innerHeight - rect.bottom < 300 &&
         rect.top > window.innerHeight - rect.bottom,
     );
     setActive(selected);
@@ -50,12 +56,12 @@ export default function PlaygroundSelect({
   }, [open]);
   useEffect(() => {
     if (open)
-      list.current?.children[active]?.scrollIntoView({ block: "nearest" });
+      list.current?.querySelectorAll('[role="option"]')[active]?.scrollIntoView({ block: "nearest" });
   }, [open, active]);
   return (
     <div
       ref={root}
-      className="relative grid min-w-0 gap-1.5"
+      className={`relative grid min-w-0 max-w-full gap-1.5 ${className}`}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
       }}
@@ -67,7 +73,7 @@ export default function PlaygroundSelect({
         id={id}
         type="button"
         role="combobox"
-        aria-label={label}
+        aria-label={ariaLabel}
         aria-expanded={open}
         aria-controls={`${id}-list`}
         aria-haspopup="listbox"
@@ -131,7 +137,7 @@ export default function PlaygroundSelect({
         <svg
           aria-hidden
           viewBox="0 0 12 12"
-          className={`h-3 w-3 text-rift-gold/70 ${open ? "rotate-180" : ""}`}
+          className={`h-3 w-3 shrink-0 text-rift-gold/70 ${open ? "rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
         >
@@ -143,25 +149,34 @@ export default function PlaygroundSelect({
           ref={list}
           id={`${id}-list`}
           role="listbox"
-          aria-label={label}
-          className={`absolute left-0 z-30 max-h-60 w-full overflow-y-auto border border-rift-gold/50 bg-rift-panel py-1 shadow-xl ${above ? "bottom-10" : "top-full mt-1"}`}
+          aria-label={ariaLabel}
+          className={`absolute left-0 z-30 max-h-72 w-max min-w-full max-w-[calc(100vw-3rem)] overflow-y-auto border border-rift-gold/50 bg-rift-panel py-1 shadow-xl ${above ? "bottom-full mb-1" : "top-full mt-1"}`}
           onMouseDown={(event) => event.preventDefault()}
         >
           {options.map((option, index) => (
-            <div
-              key={option.value}
-              id={`${id}-${index}`}
-              role="option"
-              aria-selected={option.value === value}
-              onMouseEnter={() => setActive(index)}
-              onClick={() => choose(index)}
-              className={`flex cursor-pointer items-center justify-between gap-2 border-l-2 px-3 py-2 text-[11px] ${active === index ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-transparent text-rift-mutedbright"}`}
-            >
-              <span className="flex min-w-0 items-center gap-1.5">{option.icon}<span className="truncate">{option.label}</span></span>
-              <span aria-hidden className="w-3 text-rift-gold">
-                {option.value === value ? "✓" : ""}
-              </span>
-            </div>
+            <Fragment key={option.value}>
+              {option.group && option.group !== options[index - 1]?.group && (
+                <div role="presentation" className="sticky top-0 z-10 flex items-center gap-1.5 border-b border-rift-line/40 bg-rift-panel px-3 py-2 text-[10px] uppercase tracking-wider text-rift-mutedbright">
+                  {groups?.[option.group] ?? option.icon}{option.group}
+                </div>
+              )}
+              <div
+                id={`${id}-${index}`}
+                role="option"
+                aria-label={option.label}
+                aria-describedby={option.detail != null ? `${id}-${index}-detail` : undefined}
+                aria-selected={option.value === value}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => choose(index)}
+                className={`flex scroll-mt-8 cursor-pointer items-center justify-between gap-2 border-l-2 px-3 py-2 text-[11px] ${active === index ? "border-rift-gold/70 bg-rift-gold/10 text-rift-goldbright" : "border-transparent text-rift-mutedbright"}`}
+              >
+                <span className="flex min-w-0 items-center gap-1.5">{option.icon}<span className="truncate">{option.displayLabel ?? option.label}</span></span>
+                {option.detail != null && <span id={`${id}-${index}-detail`} className="ml-auto shrink-0 text-rift-mutedbright">{option.detail}</span>}
+                <span aria-hidden className="w-3 shrink-0 text-rift-gold">
+                  {option.value === value ? "✓" : ""}
+                </span>
+              </div>
+            </Fragment>
           ))}
         </div>
       )}
