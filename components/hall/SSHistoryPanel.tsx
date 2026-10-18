@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { IconArrowRight, IconCalendar, IconTrophy } from "@tabler/icons-react";
 import { LANE_ORDER } from "@/lib/players";
-import { ssHistory, playerSSHistory, closingSSHolders, type SSArchive } from "@/lib/season/ssHistory";
+import { ssHistory, ssHistorySummary, playerSSHistory, closingSSHolders, type SSArchive } from "@/lib/season/ssHistory";
 import type { SSHolder, SSReview } from "@/lib/season/types";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import RoleLabel from "../RoleLabel";
@@ -37,8 +37,8 @@ function Evidence({ holder }: { holder: SSHolder }) {
 }
 
 export default function SSHistoryPanel({ entry }: { entry: SSArchive }) {
-	// Cheap header counts: ssHistory keeps one checkpoint per review with the same holder ids.
-	const summary = useMemo(() => entry.ssReviews === undefined ? "Not recorded" : `${plural(entry.ssReviews.length, "review")} · ${plural(new Set(entry.ssReviews.flatMap(r => r.holders.map(h => h.playerId))).size, "holder")}`, [entry.ssReviews]);
+	const counts = useMemo(() => ssHistorySummary(entry), [entry]);
+	const summary = counts ? `${plural(counts.reviews, "review")} · ${plural(counts.holders, "holder")}` : "Not recorded";
 	return <CollapsibleSection ariaLabel="Season SS history" label="SS history" icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />} summary={summary} className="">
 		<SSHistoryBody entry={entry} />
 	</CollapsibleSection>;

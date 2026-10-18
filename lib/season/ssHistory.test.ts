@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ssHistory, playerSSHistory, snapshotSSHolders, recordSSLosses, type SSArchive } from "./ssHistory";
+import { ssHistory, ssHistorySummary, playerSSHistory, snapshotSSHolders, recordSSLosses, type SSArchive } from "./ssHistory";
 import { makeAuditSeason } from "../auditFixtures";
 import type { SSHolder } from "./types";
 import { validSeason, validHistoryEntry } from "../importValidation";
@@ -13,6 +13,25 @@ import { applyPlayerDevelopment } from "./engine";
 
 const holder = (playerId: string, phaseIndex = 0): SSHolder => ({ playerId, lane: "top", evidence: { baseTier: "S+", lane: "top", seasonId: "s", phaseIndex, phaseLabel: "Winter", games: 16, score: 7.2 } });
 const archive = (overrides: Partial<SSArchive> = {}): SSArchive => ({ id: "s", name: "Year 1", ssOpening: [], ...overrides });
+
+describe("SS history summary", () => {
+	it("distinguishes unrecorded reviews from a recorded empty list", () => {
+		const entry = archive({ ssReviews: undefined });
+		expect(ssHistorySummary(entry)).toBeUndefined();
+		expect(ssHistory(entry)).toEqual([]);
+	});
+	it.each([
+		{ name: "no reviews", holders: [], reviews: 0, distinct: 0 },
+		{ name: "a vacant review", holders: [[]], reviews: 1, distinct: 0 },
+		{ name: "repeated ownership and replacement", holders: [[holder("a")], [holder("a")], [holder("b")], [holder("a")]], reviews: 4, distinct: 2 },
+	])("matches the full projection for $name", ({ holders, reviews, distinct }) => {
+		const entry = archive({ ssReviews: holders.map((holders, phaseIndex) => ({ phaseIndex, label: `Phase ${phaseIndex}`, holders })) });
+		const checkpoints = ssHistory(entry);
+		const summary = ssHistorySummary(entry);
+		expect(summary).toEqual({ reviews, holders: distinct });
+		expect(summary).toEqual({ reviews: checkpoints.length, holders: new Set(checkpoints.flatMap(c => c.holders.map(h => h.playerId))).size });
+	});
+});
 
 describe("SS historical chronology", () => {
 	it("records a development decline at its actual boundary without waiting for a later review", () => {

@@ -30,6 +30,11 @@ export interface SSCheckpoint extends SSReview {
 	knownBefore: boolean;
 }
 
+export function ssHistorySummary(entry: SSArchive): { reviews: number; holders: number } | undefined {
+	if (entry.ssReviews === undefined) return undefined;
+	return { reviews: entry.ssReviews.length, holders: new Set(entry.ssReviews.flatMap(r => r.holders.map(h => h.playerId))).size };
+}
+
 export function ssHistory(entry: SSArchive): SSCheckpoint[] {
 	let previous = entry.ssOpening;
 	let previousPhase = -1;
