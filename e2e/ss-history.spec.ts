@@ -50,7 +50,7 @@ test("SS timeline, phase cards and career history distinguish played tiers from 
 	await career.getByRole("button", { name: /^SS career/ }).click();
 	await expect(career.getByLabel("SS career summary")).toContainText("Times gained SS1");
 	await expect(career.getByLabel("SS career summary")).toContainText("Reviews held1");
-	await career.getByText("SS history · 1 reviews held", { exact: true }).click();
+	await career.getByText("SS history · 1 review held", { exact: true }).click();
 	await expect(career).toContainText("Gained SS");
 	await expect(career.locator("details[open] span[title='LCK'] img").last()).toBeVisible();
 	await expect(career.locator("details[open]").getByText("Top", { exact: true }).first()).toBeVisible();

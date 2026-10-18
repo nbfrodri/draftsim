@@ -3730,7 +3730,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
             </SeasonScope.Provider>
           ))}
         </div>
-        <CollapsibleSection headingLevel={4} label="SS career" className="mt-3" summary={`${ssCareer.acquisitions} gained · ${ssCareer.checkpoints} reviews held${ssCareer.partial ? " · partial" : ""}`} icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />}>
+        <CollapsibleSection headingLevel={4} label="SS career" className="mt-3" summary={`${ssCareer.acquisitions} gained · ${ssCareer.checkpoints} review${ssCareer.checkpoints === 1 ? "" : "s"} held${ssCareer.partial ? " · partial" : ""}`} icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />}>
           <div className="p-3"><SSCareerSummary history={ssCareer} /></div>
         </CollapsibleSection>
       </section>
