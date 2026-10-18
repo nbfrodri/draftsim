@@ -32,6 +32,8 @@ Los documentos de `plans/` y las auditorías registran objetivos y decisiones de
 
 ## Versiones
 
+- [v1.12.0: estadísticas de evento y SS plegables, roles, regiones y equipos unificados](releases/v1.12.0.md).
+
 - [v1.11.0: rankings por evento, picks/bans e historial SS mejorado](releases/v1.11.0.md).
 
 - [v1.10.0: historial SS por fase, Career History y cards históricas](releases/v1.10.0.md).
