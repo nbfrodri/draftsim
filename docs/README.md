@@ -32,6 +32,8 @@ Los documentos de `plans/` y las auditorías registran objetivos y decisiones de
 
 ## Versiones
 
+- [v1.13.0: selectores de estadísticas de evento con logos de región, split y evento](releases/v1.13.0.md).
+
 - [v1.12.0: estadísticas de evento y SS plegables, roles, regiones y equipos unificados](releases/v1.12.0.md).
 
 - [v1.11.0: rankings por evento, picks/bans e historial SS mejorado](releases/v1.11.0.md).
