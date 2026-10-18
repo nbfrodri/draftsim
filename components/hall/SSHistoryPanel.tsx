@@ -37,10 +37,17 @@ function Evidence({ holder }: { holder: SSHolder }) {
 }
 
 export default function SSHistoryPanel({ entry }: { entry: SSArchive }) {
+	// Cheap header counts: ssHistory keeps one checkpoint per review with the same holder ids.
+	const summary = useMemo(() => entry.ssReviews === undefined ? "Not recorded" : `${plural(entry.ssReviews.length, "review")} · ${plural(new Set(entry.ssReviews.flatMap(r => r.holders.map(h => h.playerId))).size, "holder")}`, [entry.ssReviews]);
+	return <CollapsibleSection ariaLabel="Season SS history" label="SS history" icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />} summary={summary} className="">
+		<SSHistoryBody entry={entry} />
+	</CollapsibleSection>;
+}
+
+function SSHistoryBody({ entry }: { entry: SSArchive }) {
 	const checkpoints = useMemo(() => ssHistory(entry), [entry]);
 	const closing = useMemo(() => closingSSHolders(entry), [entry]);
-	const held = useMemo(() => new Set(checkpoints.flatMap(c => c.holders.map(h => h.playerId))), [checkpoints]);
-	return <CollapsibleSection ariaLabel="Season SS history" label="SS history" icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />} summary={entry.ssReviews === undefined ? "Not recorded" : `${plural(checkpoints.length, "review")} · ${plural(held.size, "holder")}`} className="">
+	return (
 		<div className="p-3 text-xs md:p-4">
 		<p className="mb-3 leading-relaxed text-rift-mutedbright">Ownership after each phase review. Tournament cards keep the tier actually used during play.</p>
 		{!checkpoints.length && <p className="py-2 text-rift-mutedbright">{entry.ssReviews === undefined ? "SS reviews were not recorded for this season." : "No SS reviews took place this season."}</p>}
@@ -61,7 +68,7 @@ export default function SSHistoryPanel({ entry }: { entry: SSArchive }) {
 		{(entry.ssLosses ?? []).filter(l => !checkpoints.some(c => c.phaseIndex === l.phaseIndex)).map(l => <LossRow key={`${l.phaseIndex}:${l.holder.playerId}`} loss={l} seasonId={entry.id} />)}
 		{closing && <details className="mt-3 border border-rift-line/50 bg-rift-bg/30 px-3"><summary className={summaryClass}>Closing recorded ownership · {closing.length}/5</summary><div className="grid grid-cols-1 gap-3 border-t border-rift-line/30 py-3 sm:grid-cols-2 xl:grid-cols-5">{closing.map(h => <Holder key={h.playerId} holder={h} seasonId={entry.id} />)}</div>{!closing.length && <p className="pb-3 text-rift-mutedbright">All seats vacant at the last recorded boundary.</p>}</details>}
 		</div>
-	</CollapsibleSection>;
+	);
 }
 
 function LossRow({ loss, seasonId }: { loss: NonNullable<SSArchive["ssLosses"]>[number]; seasonId: string }) {
