@@ -81,6 +81,33 @@ test("event rankings stage selection sticks and survives collapsing", async ({ p
 	await expect(panel.getByLabel("Ranking stage")).toHaveValue("regular");
 });
 
+test("season event statistics preserve the role when collapsed and reset it when switching events", async ({ page }) => {
+	const season = makeAuditSeason("Event switching");
+	await page.addInitScript(season => {
+		if (!localStorage.getItem("draftsim-store")) localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state: { season, seasonViewOpen: true } }));
+	}, season);
+	await page.goto("/");
+	const toggle = page.getByRole("button", { name: /^Event Statistics/ });
+	await toggle.click();
+	const events = page.getByLabel("Statistics event");
+	const first = await events.inputValue();
+	const options = await events.locator("option").evaluateAll((options: HTMLOptionElement[]) => options.map(option => ({ value: option.value, label: option.textContent! })));
+	expect(options.length).toBeGreaterThan(1);
+	const second = options.find(option => option.value !== first)!;
+	const firstPanel = page.getByRole("region", { name: `${options.find(option => option.value === first)!.label} event statistics`, exact: true });
+	const firstRoles = firstPanel.getByRole("group", { name: "Player role", exact: true });
+	await firstRoles.getByRole("button", { name: "Mid", exact: true }).click();
+	await toggle.click();
+	await expect(firstPanel).toBeHidden();
+	await toggle.click();
+	await expect(firstRoles.getByRole("button", { name: "Mid", exact: true })).toHaveAttribute("aria-pressed", "true");
+	await events.selectOption(second.value);
+	const secondRoles = page.getByRole("region", { name: `${second.label} event statistics`, exact: true }).getByRole("group", { name: "Player role", exact: true });
+	await expect(secondRoles.getByRole("button", { name: "Top", exact: true })).toHaveAttribute("aria-pressed", "true");
+	await events.selectOption(first);
+	await expect(firstRoles.getByRole("button", { name: "Top", exact: true })).toHaveAttribute("aria-pressed", "true");
+});
+
 test("archived event rankings retain scores, round history and champion statistics", async ({ page }) => {
 	const season = makeAuditSeason("Archived event"); const t = eventFixture();
 	season.tournaments = { [t.id]: t }; season.phases[0].tournamentIds = [t.id];
