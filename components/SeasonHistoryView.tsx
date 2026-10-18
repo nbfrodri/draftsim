@@ -750,7 +750,7 @@ function SeasonDetail({
 
       {/* International title holders — with the winning roster that lifted it */}
       {intls.length > 0 && (
-        <div className="cv-section">
+        <div className="cv-section" role="region" aria-label="International Champions">
           <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
             International Champions
           </div>
@@ -3730,7 +3730,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
             </SeasonScope.Provider>
           ))}
         </div>
-        <CollapsibleSection label="SS career" className="mt-3" summary={`${ssCareer.acquisitions} gained · ${ssCareer.checkpoints} reviews held`} icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />}>
+        <CollapsibleSection headingLevel={4} label="SS career" className="mt-3" summary={`${ssCareer.acquisitions} gained · ${ssCareer.checkpoints} reviews held${ssCareer.partial ? " · partial" : ""}`} icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />}>
           <div className="p-3"><SSCareerSummary history={ssCareer} /></div>
         </CollapsibleSection>
       </section>

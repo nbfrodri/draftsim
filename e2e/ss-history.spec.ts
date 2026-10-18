@@ -26,7 +26,7 @@ test("SS timeline, phase cards and career history distinguish played tiers from 
 	await expect(review).toContainText("Gained SS");
 	await expect(review).toContainText("16 rated games");
 	await expect(review).toContainText("7.20");
-	await expect(review.getByText(/· Vacant$/)).toHaveCount(4);
+	await expect(review.getByText(/Vacant$/)).toHaveCount(4);
 	await expect(review.getByRole("heading", { name: "Top" })).toBeVisible();
 	await expect(review.getByRole("heading", { name: /^Mid/ })).toContainText("Vacant");
 	await expect(review.locator("span[title='LCK']")).toBeVisible();
@@ -38,7 +38,7 @@ test("SS timeline, phase cards and career history distinguish played tiers from 
 	await expect(page.getByRole("tooltip")).toContainText("Played tier comes from the last roster snapshot");
 	await page.mouse.move(0, 0);
 	await expect(page.getByRole("tooltip")).toBeHidden();
-	await page.getByRole("button", { name: "SS Veteran", exact: true }).first().hover();
+	await page.getByRole("region", { name: "International Champions" }).getByRole("button", { name: "SS Veteran", exact: true }).hover();
 	await expect(page.getByRole("tooltip")).toContainText("Tier during Worlds: S+. SS after Worlds · gained.");
 	await page.getByRole("tooltip").screenshot({ path: "test-results/playwright/ss-historical-card.png" });
 	await page.keyboard.press("Escape");
@@ -52,7 +52,7 @@ test("SS timeline, phase cards and career history distinguish played tiers from 
 	await expect(career.getByLabel("SS career summary")).toContainText("Reviews held1");
 	await career.getByText("SS history · 1 reviews held", { exact: true }).click();
 	await expect(career).toContainText("Gained SS");
-	await expect(career.locator("details[open] span[title='LCK']").last()).toBeAttached();
+	await expect(career.locator("details[open] span[title='LCK'] img").last()).toBeVisible();
 	await expect(career.locator("details[open]").getByText("Top", { exact: true }).first()).toBeVisible();
 	await expect(career.locator("details[open] img[src='/league-logos/worlds.png']").last()).toBeVisible();
 	await page.setViewportSize({ width: 390, height: 844 });

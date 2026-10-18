@@ -13,7 +13,6 @@ import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
 import TierChip from "./TierChip";
 
-const ROLE_NAMES = ROLE_LABELS;
 const FOCUS = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 
 function PlayerIdentity({ row }: { row: SSRacePlayer }) {
@@ -66,9 +65,9 @@ function PlayerMetrics({ row, className = "grid-cols-2" }: { row: SSRacePlayer; 
 
 function CurrentSeat({ row: { lane, holder } }: { row: SSRaceLane }) {
 	return (
-		<article aria-label={`${ROLE_NAMES[lane]} SS holder`} className="min-w-0 border border-rift-line/50 bg-rift-bg/30">
+		<article aria-label={`${ROLE_LABELS[lane]} SS holder`} className="min-w-0 border border-rift-line/50 bg-rift-bg/30">
 			<h4 className="flex items-center gap-1.5 border-b border-rift-line/40 px-3 py-2 text-[10px] font-semibold text-rift-goldbright">
-				<LaneIcon lane={lane} />{ROLE_NAMES[lane]}
+				<LaneIcon lane={lane} />{ROLE_LABELS[lane]}
 				{!holder && <span className="ml-auto font-normal text-rift-mutedbright">Vacant</span>}
 			</h4>
 			{holder ? <div className="p-3">
@@ -143,10 +142,10 @@ function SSRaceContent({ season, lane, onLaneChange }: { season: SeasonState; la
 						type="button" key={row.lane} aria-pressed={row.lane === lane}
 						onClick={() => { onLaneChange(row.lane); setShowAll(false); }}
 						className={`inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-[11px] transition-colors ${FOCUS} ${lane === row.lane ? "border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright"}`}
-					><LaneIcon lane={row.lane} />{ROLE_NAMES[row.lane]}</button>)}
+					><LaneIcon lane={row.lane} />{ROLE_LABELS[row.lane]}</button>)}
 				</fieldset>
 				<div className="border border-rift-line/50">
-					{contenders.length ? <ol aria-label={`${ROLE_NAMES[lane]} SS contenders`}>{contenders.map((row, index) => <Contender key={row.player.id} row={row} rank={index + 1} />)}</ol> : <p className="px-3 py-5 text-[11px] leading-relaxed text-rift-mutedbright">No S/S+ challengers in this role. Lower tiers must develop before they can qualify.</p>}
+					{contenders.length ? <ol aria-label={`${ROLE_LABELS[lane]} SS contenders`}>{contenders.map((row, index) => <Contender key={row.player.id} row={row} rank={index + 1} />)}</ol> : <p className="px-3 py-5 text-[11px] leading-relaxed text-rift-mutedbright">No S/S+ challengers in this role. Lower tiers must develop before they can qualify.</p>}
 				</div>
 				{selected.contenders.length > 5 && <button type="button" onClick={() => setShowAll(!showAll)} className={`mt-2 border border-rift-line/50 px-3 py-1.5 text-[11px] text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright ${FOCUS}`}>{showAll ? "Show top 5" : `Show all ${selected.contenders.length} contenders`}</button>}
 				<p className="mt-2 text-[10px] leading-relaxed text-rift-mutedbright">Estimates reflect current results, not future-match odds. Ownership changes only at phase reviews.</p>
