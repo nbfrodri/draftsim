@@ -62,8 +62,12 @@ test("quota failure preserves the old save and Retry saves the latest game", asy
   await page.getByRole("button", { name: "BEGIN DRAFT" }).click();
   await expect(page.getByRole("button", { name: "Retry save" })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("draftsim-store"))).toBe(before);
-  await page.evaluate(() => (window as unknown as { restoreStorage: () => void }).restoreStorage());
-  await page.getByRole("button", { name: "Retry save" }).click();
+  await page.evaluate(() => {
+    (window as unknown as { restoreStorage: () => void }).restoreStorage();
+    const retry = [...document.querySelectorAll("button")].find(button => button.textContent === "Retry save");
+    if (!retry) throw new Error("Retry save button is missing");
+    retry.click();
+  });
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("draftsim-store")!).state?.series?.id)).toBeTruthy();
   const id = await page.evaluate(() => JSON.parse(localStorage.getItem("draftsim-store")!).state.series.id);
   await page.reload();
