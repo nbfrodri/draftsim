@@ -927,7 +927,6 @@ function SeasonDetail({
   );
 }
 
-// ─── All-Pro teams ───────────────────────────────────────────────────────────
 // One All-Pro team's five members, on a single wrapping row.
 function AllProMembers({
   members,
@@ -3089,8 +3088,6 @@ function OverallTimeline({
     </div>
   );
 }
-
-// ─── Search (Liquipedia-style profiles) ──────────────────────────────────────
 
 function StatChip({ label, value, tone }: { label: string; value: number | string; tone?: string }) {
   return (
