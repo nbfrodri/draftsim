@@ -22,8 +22,9 @@ test("event rankings retain player and champion filters and expose round evoluti
 	const t = eventFixture();
 	await page.addInitScript(tournament => localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state: { tournament, season: null } })), t);
 	await page.goto("/");
-	await page.getByRole("button", { name: /^Event Statistics/ }).click();
 	const panel = page.getByRole("region", { name: "Event UI event statistics" });
+	await expect(panel).toHaveCount(0);
+	await page.getByRole("button", { name: /^Event Statistics/ }).click();
 	const toggle = page.getByRole("button", { name: /^Event Statistics/ });
 	await expect(panel.getByRole("columnheader", { name: "Score", exact: true })).toBeVisible();
 	await expect(panel.getByRole("columnheader", { name: /Tier/ })).toHaveCount(0);

@@ -42,7 +42,7 @@ export default function SSHistoryPanel({ entry }: { entry: SSArchive }) {
 	return <CollapsibleSection ariaLabel="Season SS history" label="SS history" icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />} summary={entry.ssReviews === undefined ? "Not recorded" : `${checkpoints.length} reviews · ${held.size} holders`} className="">
 		<div className="p-3 text-xs md:p-4">
 		<p className="mb-3 leading-relaxed text-rift-mutedbright">Ownership after each phase review. Tournament cards keep the tier actually used during play.</p>
-		{!checkpoints.length && <p className="py-2 text-rift-mutedbright">SS reviews were not recorded for this season.</p>}
+		{!checkpoints.length && <p className="py-2 text-rift-mutedbright">{entry.ssReviews === undefined ? "SS reviews were not recorded for this season." : "No SS reviews took place this season."}</p>}
 		<div className="space-y-2">{checkpoints.map(c => {
 			const losses = (entry.ssLosses ?? []).filter(l => l.phaseIndex === c.phaseIndex);
 			return <div key={c.phaseIndex}>
