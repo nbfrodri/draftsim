@@ -25,7 +25,7 @@ export default function SeasonEventStats({ season, champions }: { season: Season
 		<div className="space-y-3 p-3">
 			<PlaygroundSelect label="Statistics event" className="w-full sm:w-fit sm:min-w-[14rem]" value={group.identity.id} onChange={setSelected}
 				groups={Object.fromEntries(groups.map(({ identity }) => [season.phases[identity.phaseIndex!].label, identity.event ? <LeagueIcon key={identity.id} league={identity.event} size={14} /> : identity.split ? <SplitIcon key={identity.id} split={identity.split} size={14} /> : null]))}
-				options={groups.map(({ identity }) => ({ value: identity.id, label: identity.label, displayLabel: identity.label.replace(`${identity.leagueId ?? "League"} · `, ""), icon: <EventIdentityIcon identity={identity} />, group: season.phases[identity.phaseIndex!].label }))} />
+				options={groups.map(({ identity }) => ({ value: identity.id, label: identity.label, displayLabel: identity.leagueId ?? identity.label, icon: <EventIdentityIcon identity={{ ...identity, split: undefined }} />, group: season.phases[identity.phaseIndex!].label }))} />
 			<EventStatsPanel key={group.identity.id} tournaments={group.tournaments} identity={group.identity} embedded champions={champions} view={synced.value} onViewChange={fn => setView(v => ({ key: v.key, value: fn(v.value) }))} />
 		</div>
 	</CollapsibleSection>;

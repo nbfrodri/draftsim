@@ -133,7 +133,7 @@ export default function PlaygroundSelect({
           }
         }}
       >
-        <span className="flex min-w-0 items-center gap-1.5">{options[selected]?.icon}<span className="truncate">{options[selected]?.displayLabel ?? options[selected]?.label}</span></span>
+        <span className="flex min-w-0 items-center gap-1.5">{options[selected]?.icon}<span className="truncate">{options[selected]?.label}</span></span>
         <svg
           aria-hidden
           viewBox="0 0 12 12"
