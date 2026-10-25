@@ -20,6 +20,7 @@ import {
 import type { RosterNewsEvent } from "./playerLifecycle";
 import { transfersForDigestEvent } from "./transfers";
 import type { Lane, PlayerTier } from "../types";
+import type { SimYearEventSummary } from "./simEventSummary";
 
 export interface SimResultTeamRef {
   id: string;
@@ -143,6 +144,8 @@ export interface SimYearResultEntry {
   intls: SimIntlResultEntry[];
   worldsChampion: SimResultTeamRef | null;
   followedTeam: SimFollowedTeamSummary | null;
+  /** Compact event statistics from the archived year; attached once archiving has run. Absent = not recorded. */
+  eventSummary?: SimYearEventSummary;
 }
 
 export type SimResultEntry =
@@ -825,6 +828,22 @@ export function compressSimResultsFeed(
     return entries;
   }
   return out;
+}
+
+/**
+ * Attach an event summary to the matching season-complete entry. Returns the
+ * same array when no year entry matches so store updates can bail out.
+ */
+export function attachYearEventSummary(
+  entries: SimResultEntry[],
+  seasonId: string,
+  eventSummary: SimYearEventSummary,
+): SimResultEntry[] {
+  const index = entries.findIndex((e) => e.kind === "year" && e.seasonId === seasonId);
+  if (index < 0) return entries;
+  const next = entries.slice();
+  next[index] = { ...(entries[index] as SimYearResultEntry), eventSummary };
+  return next;
 }
 
 export function simResultKey(entry: SimResultEntry): string {
