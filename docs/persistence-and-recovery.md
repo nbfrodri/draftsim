@@ -97,6 +97,8 @@ SQLite se configura con WAL y `synchronous=NORMAL`. Esta elección mejora concur
 
 La compactación de recaps reduce el tamaño persistido. Las cachés por referencia evitan recodificar temporadas o realidades intactas. Deben actualizarse después del commit, no antes: de lo contrario, un reintento puede omitir datos que nunca se escribieron.
 
+El historial usa la misma regla por entrada: solo se codifican las entradas nuevas o sustituidas, las movidas actualizan `sort_order` sin JSON y las retiradas se borran. Un fallo de escritura, el borrado de una realidad, la limpieza del almacén, una recarga o una restauración descartan esas referencias, y `forceAllHistory` reescribe todas las filas. Las entradas archivadas no se mutan en sitio; se sustituyen por objetos nuevos.
+
 La comparación del estado global ignora el placeholder vacío de realidades. Recrear ese array no debe obligar por sí solo a serializar todo el estado global.
 
 El flujo de salida de temporada crea el snapshot y usa la cola normal. Hacer antes un upsert independiente puede invalidar cachés y provocar que el flush reescriba otras realidades e historiales. La corrección debe preservar tanto el estado activo como la ausencia de trabajo innecesario sobre slots ajenos.

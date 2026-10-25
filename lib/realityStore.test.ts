@@ -7,12 +7,16 @@ vi.mock("./desktopStorage", async (original) => ({
   isDesktop: () => desktop.enabled,
   flushPendingPersistWrites: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock("./desktopSqlite", async (original) => ({
-  ...await original<typeof import("./desktopSqlite")>(),
-  loadRealityHistoryFromDb: vi.fn(),
-  loadRealitySeasonFromDb: vi.fn(),
-}));
-import { loadRealitySeasonFromDb, loadRealityHistoryFromDb, resetSqliteStorageForTests } from "./desktopSqlite";
+vi.mock("./desktopSqlite", async (original) => {
+  const actual = await original<typeof import("./desktopSqlite")>();
+  return {
+    ...actual,
+    loadRealityHistoryFromDb: vi.fn(),
+    loadRealitySeasonFromDb: vi.fn(),
+    markRealityHistoryLoaded: vi.fn(actual.markRealityHistoryLoaded),
+  };
+});
+import { loadRealitySeasonFromDb, loadRealityHistoryFromDb, markRealityHistoryLoaded, resetSqliteStorageForTests } from "./desktopSqlite";
 import { useDraftStore } from "../store/draftStore";
 const entry: SeasonHistoryEntry = { id: "past", name: "Past", archivedAt: 1, complete: true, champion: null, runnerUp: null, intlChampions: {}, splitChampions: {} };
 function slot(id: string) { return { id, name: id, year: 1, season: makeAuditSeason(id), history: [] as SeasonHistoryEntry[] }; }
@@ -39,9 +43,12 @@ describe("reality state transitions", () => {
     const switching = useDraftStore.getState().switchReality("B");
     await vi.waitFor(() => expect(loadRealityHistoryFromDb).toHaveBeenCalled());
     expect(useDraftStore.getState().activeRealityId).toBe("A");
-    resolve([entry]); await switching;
+    const read = [entry];
+    resolve(read); await switching;
     expect(useDraftStore.getState().activeRealityId).toBe("B");
-    expect(useDraftStore.getState().realities.find(r => r.id === "B")?.history).toEqual([entry]);
+    expect(useDraftStore.getState().realities.find(r => r.id === "B")?.history).toBe(read);
+    // Installing the exact array read from SQLite lets the next save skip its unchanged rows.
+    expect(markRealityHistoryLoaded).toHaveBeenCalledWith("B", read);
   });
   it("keeps the current reality on a failed history read", async () => {
     desktop.enabled = true;

@@ -29,5 +29,5 @@ Event records dominated the archives, and their per-checkpoint `computeEventStat
 ## Remaining risks
 
 - Event records are still about 74% of each entry: most players change at every round, and the regular-season scope repeats the whole-event checkpoints.
-- Desktop history sync re-serializes and upserts every history entry whenever the history array changes (`syncRealityHistory`), so each archived year rewrites the whole history. Over a long bulk run this write load grows quadratically and is a likely remaining contributor.
+- ~~Desktop history sync re-serializes and upserts every history entry whenever the history array changes.~~ Addressed in `2026-10-25-history-incremental-write.md`: each save now encodes only new or replaced entries.
 - Not verified on Windows WebView2 or in a native desktop build.
