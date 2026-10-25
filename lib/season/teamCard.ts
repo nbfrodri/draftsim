@@ -83,7 +83,8 @@ export interface TeamCardData {
   logoUrl?: string;
   color?: string;
   roster: TeamCardRosterLine[];
-  academyCount: number;
+  /** Null when the archive recorded no academy data (unknown, not zero). */
+  academyCount: number | null;
   starRating: number;
   avgTier: PlayerTier;
   standing?: string | null;
@@ -240,8 +241,10 @@ export function liveAcademyCount(
   let n = 0;
   for (const e of pool) {
     if (e.status !== "academy") continue;
-    if (team.id && e.lastTeamId === team.id) n++;
-    else if (team.name && e.lastTeamName === team.name) n++;
+    // A recorded team id is authoritative: a matching name never overrides it.
+    if (team.id && e.lastTeamId) {
+      if (e.lastTeamId === team.id) n++;
+    } else if (team.name && e.lastTeamName === team.name) n++;
   }
   return n;
 }
@@ -250,9 +253,9 @@ function academyStampMatchesTeam(
   stamp: { teamId?: string; teamName?: string },
   team: { name: string; teamId?: string },
 ): boolean {
-  if (team.teamId && stamp.teamId === team.teamId) return true;
-  if (stamp.teamName === team.name) return true;
-  return false;
+  // Stable ids are authoritative when both sides recorded one.
+  if (team.teamId && stamp.teamId) return stamp.teamId === team.teamId;
+  return stamp.teamName === team.name;
 }
 
 function countPhaseAcademy(
@@ -329,12 +332,12 @@ function resolveArchivedTeamId(
 /**
  * Academy size for one archived year.
  * Prefer mid-year {@link PhaseInactiveSnapshot}; else end-of-year
- * `inactivePlayers`; `0` when neither source exists.
+ * `inactivePlayers`; `null` (unknown, not zero) when neither source exists.
  */
 export function archivedAcademyCount(
   entry: SeasonHistoryEntry,
   team: { name: string; leagueId: LeagueId },
-): number {
+): number | null {
   const teamId = resolveArchivedTeamId(entry, team);
   const org = { name: team.name, ...(teamId ? { teamId } : {}) };
 
@@ -350,7 +353,7 @@ export function archivedAcademyCount(
     return countYearEndAcademy(entry.inactivePlayers, org);
   }
 
-  return 0;
+  return null;
 }
 
 /**
@@ -360,7 +363,7 @@ export function archivedAcademyCount(
 export function latestAcademyCount(
   entries: readonly SeasonHistoryEntry[],
   team: { name: string; leagueId: LeagueId },
-): number {
+): number | null {
   const ordered = [...entries].sort((a, b) => b.archivedAt - a.archivedAt);
   for (const entry of ordered) {
     const hasPhaseInactive = (entry.phaseRosters ?? []).some(
@@ -369,7 +372,7 @@ export function latestAcademyCount(
     if (!hasPhaseInactive && entry.inactivePlayers === undefined) continue;
     return archivedAcademyCount(entry, team);
   }
-  return 0;
+  return null;
 }
 
 /**
@@ -423,7 +426,8 @@ export function teamTitleHighlightsFromEntry(
   }
   const intlTitles: Partial<Record<InternationalId, boolean>> = {};
   for (const ev of Object.keys(entry.intlChampions) as InternationalId[]) {
-    if (entry.intlChampions[ev]?.name === team.name) intlTitles[ev] = true;
+    const champ = entry.intlChampions[ev];
+    if (champ?.name === team.name && champ.leagueId === team.leagueId) intlTitles[ev] = true;
   }
   const worlds =
     entry.champion?.name === team.name && entry.champion?.leagueId === team.leagueId
