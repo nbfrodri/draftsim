@@ -2562,21 +2562,18 @@ export const useDraftStore = create<DraftStore>()(
       return { series: updatedSeries, ...(forms ? { playerForms: forms } : {}),
         ...(tournament ? { tournament, ...seasonPatchFor(state, tournament) } : {}) };
     });
-    // Update player forms if recap has ratings.
+    // declareWinner is the single owner of player-form updates: each game is
+    // folded in once, when it is recorded. Series completion must not replay.
     if (recap) {
       const { playerForms, tournament } = get();
       const game = series.games[series.games.length - 1];
-      const ratings = recap.ratings ?? null;
+      const ratings = recap.ratings ?? computeGameRatings(recap, side);
       if (ratings) {
-        const blueKey = tournament
-          ? (tournament.teams.find((t) => t.name === game.blueTeam)?.id ?? game.blueTeam)
-          : game.blueTeam;
-        const redKey = tournament
-          ? (tournament.teams.find((t) => t.name === game.redTeam)?.id ?? game.redTeam)
-          : game.redTeam;
+        const keyFor = (name: string) =>
+          tournament ? (tournament.teams.find((t) => t.name === name)?.id ?? name) : name;
         const newForms = applyRatingsToForms(
-          applyRatingsToForms(playerForms, blueKey, ratings.blue),
-          redKey,
+          applyRatingsToForms(playerForms, keyFor(game.blueTeam), ratings.blue),
+          keyFor(game.redTeam),
           ratings.red,
         );
         publishSeries(newForms);
@@ -2928,28 +2925,6 @@ export const useDraftStore = create<DraftStore>()(
       redWins,
     });
 
-    // ── Feature 5: update player forms from all games in the just-finished series ──
-    let updatedForms = get().playerForms;
-    for (const game of series.games) {
-      if (game.winner == null || !game.recap) continue;
-      const recap = game.recap;
-      const ratings = recap.ratings ?? null;
-      if (!ratings) {
-        // Attempt to derive ratings via computeGameRatings.
-        const derived = computeGameRatings(recap, game.winner);
-        if (!derived) continue;
-        const bKey = tournament.teams.find((t) => t.name === game.blueTeam)?.id ?? game.blueTeam;
-        const rKey = tournament.teams.find((t) => t.name === game.redTeam)?.id ?? game.redTeam;
-        updatedForms = applyRatingsToForms(updatedForms, bKey, derived.blue);
-        updatedForms = applyRatingsToForms(updatedForms, rKey, derived.red);
-      } else {
-        const bKey = tournament.teams.find((t) => t.name === game.blueTeam)?.id ?? game.blueTeam;
-        const rKey = tournament.teams.find((t) => t.name === game.redTeam)?.id ?? game.redTeam;
-        updatedForms = applyRatingsToForms(updatedForms, bKey, ratings.blue);
-        updatedForms = applyRatingsToForms(updatedForms, rKey, ratings.red);
-      }
-    }
-
     // ── Feature 6: live meta evolution ──
     const evo = evolveMetaForTournament(advanced, get().champions);
     let tournamentAfterEvo = evo.tournament;
@@ -2992,7 +2967,6 @@ export const useDraftStore = create<DraftStore>()(
         secondsLeft: null,
         aiRationale: null,
         aiRationaleHistory: [],
-        playerForms: updatedForms,
         sideChoicePending: false,
         ...restorePatch,
       };
