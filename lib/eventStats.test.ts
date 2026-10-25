@@ -93,6 +93,19 @@ describe("event performance", () => {
 		const reset = structuredClone(done); reset.matches[0].id = "reset"; reset.matches[0].bracket = "grand-final-reset";
 		expect(recordEventCheckpoint(reset, "reset").eventCheckpoints).toHaveLength(2);
 	});
+	it("keeps elimination play-in games out of main-event regular and playoffs scopes", () => {
+		const playIn = fixture(); playIn.seasonSubStage = "play-in"; playIn.format = "single-elim";
+		const main = structuredClone(playIn); main.id = "main"; delete main.seasonSubStage; main.format = "groups-playoffs";
+		main.matches[0].bracket = "winners"; main.matches[1].bracket = undefined; main.matches[1].feedsInto = null; main.matches[2].bracket = undefined; main.matches[2].feedsInto = null;
+		const e = buildEventRecord([playIn, main], { id: "worlds", label: "Worlds" });
+		const games = (id: string) => e.scopes.find(s => s.id === id)!.stats.games;
+		expect(games("all")).toBe(6);
+		expect(games("play-in")).toBe(3);
+		expect(games("main")).toBe(3);
+		expect(games("playoffs") + games("regular")).toBe(3);
+		expect(games("playoffs")).toBe(1);
+		expect(validEventRecords([e])).toBe(true);
+	});
 	it("rejects malformed archive metrics and checkpoint references before import", () => {
 		const e = buildEventRecord([fixture()], { id: "event", label: "Event" });
 		expect(validEventRecords(JSON.parse(JSON.stringify([e])))).toBe(true);

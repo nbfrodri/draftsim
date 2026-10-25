@@ -20,7 +20,9 @@ export type EventRecord = EventRecordBase & ({ version: 1; scopes: EventScopeV1[
 export type EventRecordIdentity = Omit<EventRecordBase, "championLanes">;
 
 function scopeTournaments(tournaments: readonly TournamentState[], scope: string): TournamentState[] {
-	return tournaments.filter(t => scope === "play-in" ? t.seasonSubStage === "play-in" : scope === "main" ? t.seasonSubStage !== "play-in" : true)
+	// Play-in games belong only to "all" and "play-in"; main-event stage scopes never include them.
+	const mainOnly = scope === "main" || scope === "regular" || scope === "playoffs";
+	return tournaments.filter(t => scope === "play-in" ? t.seasonSubStage === "play-in" : mainOnly ? t.seasonSubStage !== "play-in" : true)
 		.map(t => scope === "regular" || scope === "playoffs" ? { ...t, matches: t.matches.filter(m => isPlayoffMatch(t, m) === (scope === "playoffs")) } : t);
 }
 
@@ -105,7 +107,7 @@ function buildScope(tournaments: readonly TournamentState[], id: string, label: 
 export function buildEventRecord(tournaments: readonly TournamentState[], identity: EventRecordIdentity): EventRecord {
 	const scopeLabels: [string, string][] = [["all", "Whole event"]];
 	if (tournaments.some(t => t.seasonSubStage === "play-in")) scopeLabels.push(["play-in", "Play-in"], ["main", "Main event"]);
-	if (tournaments.some(t => t.format.includes("playoffs"))) scopeLabels.push(["regular", "Regular / groups"], ["playoffs", "Playoffs"]);
+	if (tournaments.some(t => t.seasonSubStage !== "play-in" && t.format.includes("playoffs"))) scopeLabels.push(["regular", "Regular / groups"], ["playoffs", "Playoffs"]);
 	const scopes = scopeLabels.map(([id, label]) => buildScope(tournaments, id, label));
 	return { version: 2, ...identity, championLanes: Object.assign({}, ...tournaments.map(t => t.championLanes ?? {})), scopes };
 }
