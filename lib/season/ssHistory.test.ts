@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ssHistory, ssHistorySummary, playerSSHistory, snapshotSSHolders, recordSSLosses, type SSArchive } from "./ssHistory";
+import { ssHistory, ssHistorySummary, playerSSHistory, ssStreaks, ssSeasonViews, ssRecords, ssRegionView, ssTimeline, snapshotSSHolders, recordSSLosses, type SSArchive } from "./ssHistory";
 import { makeAuditSeason } from "../auditFixtures";
 import type { SSHolder } from "./types";
 import { validSeason, validHistoryEntry } from "../importValidation";
@@ -122,5 +122,52 @@ describe("SS historical chronology", () => {
 		const invalid = { ...entry, ssReviews: [{ phaseIndex: 0, label: "Winter", holders: [{ ...holder("a"), team: { teamId: "t", teamName: "T1", leagueId: "INVALID" } }] }] };
 		expect(validHistoryEntry(invalid)).toBe(false);
 		expect(validSeason({ ...season, ssOpening: [holder("a"), holder("b")] })).toBe(false);
+	});
+});
+
+describe("SS cross-season records", () => {
+	const team = (teamName: string, leagueId: "LCK" | "LEC" = "LCK") => ({ teamId: `${leagueId}-${teamName}`, teamName, leagueId });
+	const h = (playerId: string, t?: ReturnType<typeof team>, lane: SSHolder["lane"] = "top"): SSHolder => ({ ...holder(playerId), lane, playerName: playerId.toUpperCase(), ...(t ? { team: t } : {}) });
+	const year = (n: number, holders?: SSHolder[][]): SSArchive => ({ id: `y${n}`, name: `Year ${n}`, franchiseYear: n, archivedAt: n, ...(holders ? { ssOpening: [], ssReviews: holders.map((hs, phaseIndex) => ({ phaseIndex, label: `P${phaseIndex}`, holders: hs })) } : { ssOpening: undefined, ssReviews: undefined }) });
+
+	it("finds the longest consecutive streak and breaks it on unknown years", () => {
+		const e = [year(1, [[h("a")]]), year(2, [[h("a")]]), year(3), year(4, [[h("a")]]), year(5, [[h("a")]]), year(6, [[h("a")]])];
+		const [s] = ssStreaks(ssSeasonViews(e));
+		expect(s).toMatchObject({ playerId: "a", length: 3, startYear: 4, endYear: 6, open: true });
+	});
+	it("flags a run bordered by a missing archive year as open and ignores undated seasons", () => {
+		const e = [year(1, [[h("a")]]), year(3, [[h("a")]]), { ...year(9, [[h("a")]]), franchiseYear: undefined }];
+		const [s] = ssStreaks(ssSeasonViews(e));
+		expect(s.length).toBe(1);
+		expect(s.open).toBe(true);
+	});
+	it("counts seasons per player without treating unknown years as zero", () => {
+		const r = ssRecords([year(1, [[h("a")], [h("a"), h("b")]]), year(2), year(3, [[h("a")]])]);
+		expect(r.seasons.map(x => [x.playerId, x.seasons])).toEqual([["a", 2], ["b", 1]]);
+		expect(r).toMatchObject({ knownSeasons: 2, unknownSeasons: 1 });
+	});
+	it("keeps same-named teams in different regions apart and tracks peak holders", () => {
+		const r = ssRecords([year(1, [[h("a", team("Nova")), h("b", team("Nova"), "jungle"), h("c", team("Nova", "LEC"))]]), year(2, [[h("a", team("Nova"))]])]);
+		const lck = r.teams.find(t => t.key === "LCK:Nova")!;
+		expect(r.teams).toHaveLength(2);
+		expect(lck).toMatchObject({ holderSeasons: 3, distinctHolders: 2, peak: 2 });
+		expect(r.teams.find(t => t.key === "LEC:Nova")).toMatchObject({ holderSeasons: 1, peak: 1 });
+		expect(r.regions).toEqual([{ leagueId: "LCK", distinctHolders: 2, holderSeasons: 3 }, { leagueId: "LEC", distinctHolders: 1, holderSeasons: 1 }]);
+	});
+	it("excludes holders without a recorded team from team and region tables", () => {
+		const r = ssRecords([year(1, [[h("a")]])]);
+		expect(r.teams).toEqual([]);
+		expect(r.regions).toEqual([]);
+		expect(r.unattributed).toBe(1);
+		expect(r.seasons).toHaveLength(1);
+	});
+	it("builds a per-region view and a comparable timeline with unknown cells", () => {
+		const views = ssSeasonViews([year(1, [[h("a", team("Nova")), h("b", team("Zed", "LEC"), "mid")]]), year(2), year(3, [[h("a", team("Nova", "LEC"))]])]);
+		expect(ssRegionView(views, "LEC").map(v => v.holders.map(x => x.playerId))).toEqual([["b"], [], ["a"]]);
+		const t = ssTimeline(views, ["a", "b", "a"]);
+		expect(t.rows).toHaveLength(2);
+		expect(t.rows[0].cells.map(c => c.state)).toEqual(["held", "unknown", "held"]);
+		expect(t.rows[1].cells.map(c => c.state)).toEqual(["held", "unknown", "none"]);
+		expect(t.rows[0].playerName).toBe("A");
 	});
 });
