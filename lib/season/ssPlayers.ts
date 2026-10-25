@@ -86,6 +86,7 @@ function collectGameSamples(frame: RecordedGame, context: PhaseSampleContext, wi
 	const { game, blue, red, strengths } = frame;
 	for (const side of ["blue", "red"] as const) {
 		const teamId = gameSideTeamId(blue.id, red.id, blue.name, red.name, game.blueTeam, side);
+		if (!teamId) continue; // same-named teams: side unknown
 		const team = teamId === blue.id ? blue : red;
 		const opponent = teamId === blue.id ? red : blue;
 		if (context.domestic && team.leagueId) {

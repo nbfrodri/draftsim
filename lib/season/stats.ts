@@ -406,7 +406,10 @@ export function gameSideTeamId(
   matchRedTeamName: string,
   gameBlueTeamName: string,
   side: "blue" | "red",
-): string {
+): string | null {
+  // Same-named match teams cannot be told apart by the game's team name; with
+  // no team ids recorded on games, the side is unknown, not the nominal one.
+  if (matchBlueTeamName === matchRedTeamName) return null;
   // Swap ONLY when the game's blue side positively matches the match's red
   // team. If the game name matches the blue team (normal) — or matches neither
   // (corrupt/renamed data) — keep the nominal sides, the safer default.
@@ -476,6 +479,7 @@ export function computePlayerSeasonLines(season: SeasonState): PlayerSeasonLine[
             g.blueTeam,
             side,
           );
+          if (!teamId) continue; // same-named teams: side unknown
           const ids = recap.perPickIds[side];
           const names = recap.perPickNames?.[side];
           const kda = recap.perPickKDA?.[side];
@@ -926,6 +930,8 @@ export function computeSeasonStats(season: SeasonState): SeasonStats {
             };
           }
         }
+        // Every record below is side-dependent: unknown sides stay unattributed.
+        if (!gBlueId || !gRedId) continue;
         // Biggest stomp — largest end-of-game team gold gap (net lane gold,
         // blue-positive). laneGoldDiff survives persistence.
         if (recap.laneGoldDiff) {
@@ -1401,6 +1407,8 @@ export function teamSeasonGrades(
         if (!ratings) continue;
         // Sides swap between games of a series, so resolve the team's side IN
         // THIS GAME by name (else swapped games read the opponent's notes).
+        // Both sides carrying the team's name (same-named opponent) is unknown.
+        if (game.blueTeam === game.redTeam) continue;
         const gSide: "blue" | "red" =
           game.blueTeam === teamName
             ? "blue"
@@ -1414,9 +1422,10 @@ export function teamSeasonGrades(
         for (let i = 0; i < 5; i++) {
           const v = notes[i];
           if (typeof v !== "number" || !Number.isFinite(v)) continue;
-          // Attribute to the actual player; fall back to the current slot only
-          // for legacy recaps without perPickIds.
-          const pid = ids?.[i] ?? idAt[i];
+          // Attribute to the player who actually played. Legacy recaps without
+          // perPickIds stay unknown for the player (the team total still counts);
+          // the current slot occupant may not have played.
+          const pid = ids?.[i] ?? null;
           bump(pid, pSum, v);
           bump(pid, pCnt, 1);
           bump(pid, matchSum, v);

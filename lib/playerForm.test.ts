@@ -19,6 +19,8 @@ import {
   clampForm,
   formComfortBonus,
   formTierBias,
+  formCandidateTeams,
+  formKeyForTeamName,
   normalizeRating,
   playerFormKey,
   sideFormsFor,
@@ -387,5 +389,38 @@ describe("simulateMatch playerForms seam", () => {
     );
     expect(dTop).toBeGreaterThan(4); // funnel piled extra into the hot lane
     expect(total).toBeCloseTo(4, 9); // funnel nets to zero; only form bias remains
+  });
+});
+
+
+describe("formKeyForTeamName", () => {
+  const a = { id: "a", name: "Same" };
+  const b = { id: "b", name: "Same" };
+  const c = { id: "c", name: "Other" };
+  it("resolves a unique name to its team id", () => {
+    expect(formKeyForTeamName([a, c], "Same")).toBe("a");
+    expect(formKeyForTeamName([a, c], "Other")).toBe("c");
+  });
+  it("is unknown (null) when several teams share the name", () => {
+    expect(formKeyForTeamName([a, b, c], "Same")).toBeNull();
+  });
+  it("falls back to the name itself for standalone series", () => {
+    expect(formKeyForTeamName([a, c], "Nobody")).toBe("Nobody");
+  });
+});
+
+describe("formCandidateTeams", () => {
+  const teams = [
+    { id: "a", name: "Same" },
+    { id: "b", name: "Other" },
+    { id: "c", name: "Same" },
+  ];
+  const matches = [{ id: "m1", blueTeamId: "a", redTeamId: "b" }];
+  it("narrows to the active match so a same-named team elsewhere cannot capture the lookup", () => {
+    const cand = formCandidateTeams({ teams, matches, activeMatchId: "m1" });
+    expect(formKeyForTeamName(cand, "Same")).toBe("a");
+  });
+  it("uses every team when there is no active match", () => {
+    expect(formKeyForTeamName(formCandidateTeams({ teams, matches }), "Same")).toBeNull();
   });
 });
