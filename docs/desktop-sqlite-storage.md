@@ -61,6 +61,7 @@ When the user calls `switchReality(id)` on desktop, if the target history is not
 - Debounced **500 ms** (same as the old file adapter).
 - Computes changes to `global_state`, reality rows and loaded history. Reference caches avoid serializing and rewriting unchanged aggregates; caches advance only after commit.
 - History rows are written only for realities whose history is **loaded in memory** (active reality, or one the user switched to). This prevents wiping dormant franchise halls when their history was not hydrated.
+- History rows are incremental. A per-reality baseline of committed rows (entry object and `sort_order`) skips unchanged entries, moves reordered ones with a JSON-free `sort_order` update, upserts new or replaced entries, and deletes removed ids. Archiving a year therefore encodes one entry, not the whole Hall. Baselines advance only after commit; a failed save, deleted reality, store clear, reload or backup restore drops them, and `forceAllHistory` rewrites every row.
 
 ### Flush
 
