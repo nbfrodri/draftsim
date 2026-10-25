@@ -201,3 +201,52 @@ describe("event performance", () => {
 		expect(event.scopes[0].stats.games).toBe(300);
 	});
 });
+
+describe("event record validation against simulated data", () => {
+	async function simulated(format: "round-robin-playoffs" | "single-elim", seed: string) {
+		const { createTournament } = await import("./tournament");
+		const { autoPlayMatch } = await import("./sim/autoPlayMatch");
+		const { LANE_ORDER, rosterFromStar } = await import("./players");
+		const champions = Array.from({ length: 80 }, (_, i) => ({ id: i + 1, name: `C${i + 1}`, alias: `C${i + 1}`, roles: [], iconUrl: "", lanes: [LANE_ORDER[i % 5]] }));
+		let t = createTournament({
+			name: seed, format, sideRule: "alternate",
+			teams: Array.from({ length: 6 }, (_, i) => ({ id: `${seed}${i}`, name: `Team ${i}`, seed: i + 1, starRating: 2 + (i % 3), players: rosterFromStar(2 + (i % 3)).map(p => ({ ...p, id: `${seed}${i}-${p.lane}`, name: `${p.lane} ${i}` })) })),
+			defaults: { format: "bo3", fearless: false, mode: "aivai", aiSide: null, aiDifficulty: "normal", timerEnabled: false },
+		});
+		for (let i = 0; i < 200; i++) {
+			const next = t.matches.find(m => !m.winner && !m.isBye && m.blueTeamId && m.redTeamId);
+			if (!next) break;
+			[t] = autoPlayMatch(t, next.id, champions);
+		}
+		return t;
+	}
+	it("always validates records built from simulated tournaments, v2 and the v1 equivalent", async () => {
+		const t = await simulated("round-robin-playoffs", "a");
+		expect(t.eventCheckpoints?.length).toBeGreaterThan(2);
+		const e = buildEventRecord([t], { id: "event", label: "Event" });
+		expect(e.scopes.find(s => s.id === "all")!.stats.players.length).toBeGreaterThan(5);
+		expect(validEventRecords(JSON.parse(JSON.stringify([e])))).toBe(true);
+		const { computeEventStats: compute, packEventPlayer } = await import("./eventStats");
+		const final = compute([t]), ids = new Map(final.players.map(p => [p.key, p]));
+		const v1 = { version: 1 as const, id: "event", label: "Event", championLanes: {}, scopes: [{ id: "all" as const, label: "Whole event", stats: final,
+			checkpoints: t.eventCheckpoints!.map(c => { const at = compute([t], new Set(c.gameIds.map(id => `${t.id}:${id}`))); return { id: c.key, label: c.label, games: at.games, players: at.players.map(p => packEventPlayer(p, ids.get(p.key)!)) }; }) }] };
+		expect(validEventRecords(JSON.parse(JSON.stringify([v1])))).toBe(true);
+	});
+	it("rejects impossible rating moments and checkpoint totals beyond the final row", () => {
+		const base = async () => buildEventRecord([await simulated("single-elim", "b")], { id: "event", label: "Event" });
+		return base().then(e => {
+			const clone = () => JSON.parse(JSON.stringify([e]));
+			const mutate = (f: (p: Record<string, number>) => void) => { const r = clone(); f(r[0].scopes[0].stats.players[0]); return validEventRecords(r); };
+			expect(mutate(() => {})).toBe(true);
+			expect(mutate(p => { p.adjusted = 1; p.rated = Math.max(p.rated, 1); p.games = Math.max(p.games, 1); p.sum = 10; p.squares = 0; })).toBe(false);
+			expect(mutate(p => { p.adjusted = 1; p.rated = 1; p.games = Math.max(p.games, 1); p.opportunities = Math.max(p.opportunities, p.games); p.sum = 0.5; p.squares = 0.25; })).toBe(false);
+			expect(mutate(p => { p.rated = 1; p.ratingSum = 0; })).toBe(false);
+			const r = clone(); const cp = r[0].scopes[0].checkpoints.at(-1);
+			const [, values] = cp.players[0]; values[3] = r[0].scopes[0].stats.players[cp.players[0][0]].ratingSum + 5;
+			expect(validEventRecords(r)).toBe(false);
+			const g = clone(); const gp = g[0].scopes[0].checkpoints.at(-1).players[0];
+			gp[1][8] = g[0].scopes[0].stats.players[gp[0]].goldSum - 1000; // signed gold may decrease
+			expect(validEventRecords(g)).toBe(true);
+		});
+	});
+});
