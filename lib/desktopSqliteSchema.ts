@@ -76,6 +76,10 @@ ON CONFLICT(reality_id, entry_id) DO UPDATE SET
   entry_json = excluded.entry_json,
   sort_order = excluded.sort_order`;
 
+/** Move an unchanged Hall history row without re-encoding its JSON. */
+export const UPDATE_REALITY_HISTORY_ORDER_SQL =
+  "UPDATE reality_history SET sort_order = ? WHERE reality_id = ? AND entry_id = ?";
+
 export type PersistedStoreState = Record<string, unknown> & {
   realities?: Array<{
     id: string;
