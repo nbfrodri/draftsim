@@ -73,7 +73,10 @@ export function playerSSHistory(entries: readonly SSArchive[], playerId: string)
 		}),
 	]);
 	const openings = years.flatMap(({ entry }) => (entry.ssOpening ?? []).filter(h => h.playerId === playerId).map(holder => ({ seasonId: entry.id, holder })));
+	let streak: { value: SSStreak | undefined } | undefined;
 	return {
+		/** Computed on first read so callers that never show it pay nothing. */
+		get streak() { return (streak ??= { value: playerSSStreak(entries, playerId) }).value; },
 		rows, acquisitions: rows.filter(r => r.holder.decision === "gained").length,
 		losses, openings,
 		checkpoints: rows.length, years: new Set([...rows.map(r => r.seasonId), ...years.filter(({ entry }) => entry.ssOpening?.some(h => h.playerId === playerId) || entry.ssLosses?.some(l => l.holder.playerId === playerId)).map(({ entry }) => entry.id)]).size,
@@ -158,6 +161,11 @@ export function ssStreaks(views: readonly SSSeasonView[]): SSStreak[] {
 	}
 	for (const id of [...runs.keys()]) close(id, false);
 	return [...best.values()].sort((a, b) => b.length - a.length || a.startYear - b.startYear || a.playerId.localeCompare(b.playerId));
+}
+
+/** One player's longest recorded SS streak, or undefined when no recorded SS season exists for them. */
+export function playerSSStreak(entries: readonly SSArchive[], playerId: string): SSStreak | undefined {
+	return ssStreaks(ssSeasonViews(entries)).find(s => s.playerId === playerId);
 }
 
 export interface SSRecords {
