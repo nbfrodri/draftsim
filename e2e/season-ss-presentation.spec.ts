@@ -50,6 +50,11 @@ test("live SS race shows ownership, contenders, evidence and responsive role fil
 	await expect(holder.locator("img[src*='t1']")).toBeVisible();
 	await expect(holder.locator("img[src='/league-logos/LCK.png']")).toBeVisible();
 	await expect(holder.locator("img[src='/league-logos/LEC.png']")).toHaveCount(0);
+	const holderName = holder.getByRole("group", { name: /^Race 0 0/ });
+	await holderName.focus();
+	await expect(page.getByRole("tooltip")).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(page.getByRole("tooltip")).toHaveCount(0);
 	const contenders = panel.getByRole("list", { name: "Top SS contenders" });
 	await expect(contenders).toContainText("Race 1 0");
 	await expect(contenders.locator("img[src='/league-logos/LCK.png']").first()).toBeVisible();

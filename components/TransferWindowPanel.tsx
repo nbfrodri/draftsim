@@ -973,6 +973,14 @@ export default function TransferWindowPanel() {
       {/* League digest — transfers + roster timeline */}
       {(!atWindow || panelTab === "league") && (
       <div className="px-3 py-2 min-h-0">
+        {offseasonMarketNotice(season) && (
+          <p
+            role="note"
+            className="mb-2 border border-rift-gold/35 border-l-2 border-l-rift-gold bg-rift-gold/[0.06] px-3 py-2 text-xs leading-relaxed text-white/90"
+          >
+            {offseasonMarketNotice(season)}
+          </p>
+        )}
         <div className="-mx-3 px-3 py-2 mb-2 border-b border-rift-line/25 bg-[#010a13]/92 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[9px] uppercase tracking-[0.25em] text-rift-gold/60">
@@ -1014,11 +1022,6 @@ export default function TransferWindowPanel() {
           )}
         </div>
 
-        {offseasonMarketNotice(season) && (
-          <p role="note" className="text-[10px] leading-relaxed text-rift-mutedbright border-l-2 border-rift-gold/40 pl-2">
-            {offseasonMarketNotice(season)}
-          </p>
-        )}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 items-start min-h-0">
           {/* Completed cross-team swaps */}
           <section className="min-w-0 border border-rift-line/35 bg-rift-bg/25 overflow-visible">
@@ -1048,10 +1051,17 @@ export default function TransferWindowPanel() {
                     detail="Cross-team trades show up here once clubs finalize moves this window."
                   />
                 ) : (
-                  <EmptyDigest
-                    title="No transfer history"
-                    detail="Completed swaps from this window will appear in the digest."
-                  />
+                  offseasonMarketNotice(season) ? (
+                    <EmptyDigest
+                      title="AI moves not resolved yet"
+                      detail="Transfers appear here once you advance to the next year."
+                    />
+                  ) : (
+                    <EmptyDigest
+                      title="No transfer history"
+                      detail="Completed swaps from this window will appear in the digest."
+                    />
+                  )
                 )
               ) : (
                 windows.map((e) => {
