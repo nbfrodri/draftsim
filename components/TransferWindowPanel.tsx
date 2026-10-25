@@ -1,4 +1,5 @@
 "use client";
+import { offseasonMarketNotice } from "@/lib/season/offseasonNotice";
 import { groupRosterNewsByTime, rosterNewsForDigest } from "@/lib/season/rosterNews";
 
 import { useMemo,useState } from "react";
@@ -1013,6 +1014,11 @@ export default function TransferWindowPanel() {
           )}
         </div>
 
+        {offseasonMarketNotice(season) && (
+          <p role="note" className="text-[10px] leading-relaxed text-rift-mutedbright border-l-2 border-rift-gold/40 pl-2">
+            {offseasonMarketNotice(season)}
+          </p>
+        )}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 items-start min-h-0">
           {/* Completed cross-team swaps */}
           <section className="min-w-0 border border-rift-line/35 bg-rift-bg/25 overflow-visible">
