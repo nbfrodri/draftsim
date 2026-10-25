@@ -215,8 +215,12 @@ export function autoPlayMatch(
       ...series,
       games: [...series.games.slice(0, -1), game],
     };
-    const blueKey = blueTeam.id;
-    const redKey = redTeam.id;
+    // Sides can swap between games: resolve form keys from this game's
+    // actual blue/red teams, not the match's original slots.
+    const teamIdFor = (name: string) =>
+      name === blueTeam.name ? blueTeam.id : redTeam.id;
+    const blueKey = teamIdFor(game.blueTeam);
+    const redKey = teamIdFor(game.redTeam);
     const result = simulateMatch(game, champions, {
       scoreBias: starRatingBias(series),
       bluePlayers: series.bluePlayers,
