@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { IconArrowRight, IconCalendar, IconTrophy } from "@tabler/icons-react";
 import { LANE_ORDER } from "@/lib/players";
-import { ssHistory, ssHistorySummary, playerSSHistory, closingSSHolders, type SSArchive } from "@/lib/season/ssHistory";
-import type { SSHolder, SSReview } from "@/lib/season/types";
+import { ssHistory, ssHistorySummary, playerSSHistory, closingSSHolders, ssRecords, ssSeasonViews, ssRegionView, ssTimeline, type SSArchive } from "@/lib/season/ssHistory";
+import { LEAGUE_IDS, type LeagueId, type SSHolder, type SSReview } from "@/lib/season/types";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import RoleLabel from "../RoleLabel";
 import RegionMark from "../RegionMark";
@@ -90,4 +90,49 @@ export function SSCareerYear({ history, seasonId }: { history: ReturnType<typeof
 		{!opening && !events.length && <p className="pb-3 text-xs text-rift-mutedbright">No ownership evidence available for this year.</p>}
 		<ol className="divide-y divide-rift-line/30">{events.map(r => <li key={`${r.phaseIndex}:${r.action}:${r.holder.playerId}`} className="py-3"><div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs"><span className="inline-flex items-center gap-2 font-display text-rift-goldbright"><PhaseIcon phase={r} />{r.label}</span><IconArrowRight size={13} className="text-rift-mutedbright" aria-hidden /><span className="text-rift-goldbright">{r.action}</span></div><div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1"><RoleLabel lane={r.holder.lane} size="sm" className="text-[10px] text-rift-mutedbright" /><HolderTeam holder={r.holder} seasonId={seasonId} /></div>{r.reason ? <p className="mt-2 text-xs text-rift-mutedbright">{r.reason}</p> : <Evidence holder={r.holder} />}</li>)}</ol>
 	</details>;
+}
+
+const th = "px-2 py-1.5 text-left text-[10px] font-semibold text-rift-mutedbright";
+const td = "px-2 py-1.5 align-middle";
+const chip = (on: boolean) => `rounded-sm border px-2 py-1 text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold ${on ? "border-rift-gold/60 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:text-rift-goldbright"}`;
+
+function Table({ label, head, children }: { label: string; head: string[]; children: React.ReactNode }) {
+	return <div className="overflow-x-auto"><table aria-label={label} className="w-full min-w-[320px] border-collapse text-xs"><thead><tr className="border-b border-rift-line/40">{head.map(h => <th key={h} scope="col" className={th}>{h}</th>)}</tr></thead><tbody className="divide-y divide-rift-line/20">{children}</tbody></table></div>;
+}
+
+/** All-time SS records across the archive. Projection is computed only once the panel is first opened. */
+export function SSRecordsPanel({ entries }: { entries: readonly SSArchive[] }) {
+	return <CollapsibleSection ariaLabel="All-time SS records" label="SS records" icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />} summary={plural(entries.length, "season")} className="my-3">
+		<SSRecordsBody entries={entries} />
+	</CollapsibleSection>;
+}
+
+function SSRecordsBody({ entries }: { entries: readonly SSArchive[] }) {
+	const views = useMemo(() => ssSeasonViews(entries), [entries]);
+	const records = useMemo(() => ssRecords(entries), [entries]);
+	const [region, setRegion] = useState<LeagueId | undefined>();
+	const [picked, setPicked] = useState<string[]>([]);
+	const regionRows = useMemo(() => region ? ssRegionView(views, region).filter(v => v.holders.length || !v.known) : [], [views, region]);
+	const timeline = useMemo(() => ssTimeline(views, picked), [views, picked]);
+	const names = new Map(records.seasons.map(p => [p.playerId, p.playerName]));
+	const candidates = records.seasons.slice(0, 12);
+	const toggle = (id: string) => setPicked(p => p.includes(id) ? p.filter(x => x !== id) : p.length >= 4 ? p : [...p, id]);
+	if (!records.knownSeasons) return <p className="p-3 text-xs text-rift-mutedbright">No SS history has been recorded yet.</p>;
+	return <div className="space-y-5 p-3 text-xs md:p-4">
+		{records.unknownSeasons > 0 && <p className="text-rift-mutedbright">{plural(records.unknownSeasons, "season")} without recorded SS data are left out, not counted as zero.</p>}
+		<section aria-label="Most SS seasons"><h4 className="mb-1 font-display text-rift-goldbright">Most SS seasons</h4>
+			<Table label="Most SS seasons" head={["Player", "Seasons", "Longest streak"]}>{records.seasons.slice(0, 5).map(p => {
+				const s = records.streaks.find(x => x.playerId === p.playerId);
+				return <tr key={p.playerId}><td className={td}><PlayerNameLink playerId={p.playerId} name={p.playerName} fallback="Unknown player" className="font-display text-rift-goldbright" /></td><td className={`${td} tabular-nums`}>{p.seasons}</td><td className={`${td} tabular-nums`}>{s ? `${plural(s.length, "year")} (${s.startName}${s.length > 1 ? ` – ${s.endName}` : ""})${s.open ? " · at least" : ""}` : "Unknown"}</td></tr>;
+			})}</Table></section>
+		<section aria-label="Most SS by team"><h4 className="mb-1 font-display text-rift-goldbright">Most SS by team</h4>
+			{records.teams.length ? <Table label="Most SS by team" head={["Team", "SS seasons", "Players", "Peak at once"]}>{records.teams.slice(0, 5).map(t => <tr key={t.key}><td className={td}><span className="inline-flex items-center gap-2"><RegionMark league={t.leagueId} size={16} /><span className="font-display text-rift-goldbright">{t.teamName}</span></span></td><td className={`${td} tabular-nums`}>{t.holderSeasons}</td><td className={`${td} tabular-nums`}>{t.distinctHolders}</td><td className={`${td} tabular-nums`}>{t.peak}</td></tr>)}</Table> : <p className="text-rift-mutedbright">No team attribution recorded.</p>}
+			{records.unattributed > 0 && <p className="mt-1 text-rift-mutedbright">{plural(records.unattributed, "holder season")} with unknown team excluded.</p>}</section>
+		<section aria-label="SS holders by region"><h4 className="mb-1 font-display text-rift-goldbright">Distinct holders by region</h4>
+			<div className="flex flex-wrap gap-1.5" role="group" aria-label="Region">{LEAGUE_IDS.filter(l => records.regions.some(r => r.leagueId === l)).map(l => { const r = records.regions.find(x => x.leagueId === l)!; return <button key={l} type="button" aria-pressed={region === l} onClick={() => setRegion(region === l ? undefined : l)} className={`${chip(region === l)} inline-flex items-center gap-1.5`}><LeagueIcon league={l} size={14} />{l}<span className="tabular-nums text-rift-mutedbright">{r.distinctHolders}</span></button>; })}</div>
+			{region && <ul className="mt-2 space-y-1.5" aria-label={`${region} SS by season`}>{regionRows.map(v => <li key={v.seasonId} className="border border-rift-line/30 px-2 py-1.5"><span className="font-display text-rift-goldbright">{v.name}</span>{!v.known ? <span className="ml-2 text-rift-mutedbright">SS not recorded</span> : <span className="ml-2 inline-flex flex-wrap gap-x-3 gap-y-1">{v.holders.map(x => <span key={x.playerId} className="inline-flex items-center gap-1.5"><RoleLabel lane={x.lane} size="sm" className="text-[10px] text-rift-mutedbright" /><PlayerNameLink playerId={x.playerId} name={x.playerName} fallback="Unknown player" seasonId={v.seasonId} className="text-rift-goldbright" /><span className="text-rift-mutedbright">{x.team.teamName}</span></span>)}</span>}</li>)}</ul>}</section>
+		<section aria-label="Compare SS timelines"><h4 className="mb-1 font-display text-rift-goldbright">Compare timelines</h4>
+			<div className="flex flex-wrap gap-1.5" role="group" aria-label="Players to compare (up to 4)">{candidates.map(p => <button key={p.playerId} type="button" aria-pressed={picked.includes(p.playerId)} onClick={() => toggle(p.playerId)} className={chip(picked.includes(p.playerId))}>{p.playerName ?? "Unknown player"}</button>)}</div>
+			{timeline.rows.length > 0 && <div className="mt-2 overflow-x-auto"><table aria-label="SS timeline comparison" className="min-w-full border-collapse text-xs"><thead><tr className="border-b border-rift-line/40"><th scope="col" className={th}>Player</th>{timeline.seasons.map(s => <th key={s.seasonId} scope="col" className={`${th} whitespace-nowrap`}>{s.name}</th>)}</tr></thead><tbody className="divide-y divide-rift-line/20">{timeline.rows.map(r => <tr key={r.playerId}><th scope="row" className={`${td} whitespace-nowrap text-left font-display text-rift-goldbright`}>{r.playerName ?? names.get(r.playerId) ?? "Unknown player"}</th>{r.cells.map((c, i) => <td key={i} className={`${td} text-center`}>{c.state === "held" ? <span className="inline-flex items-center justify-center gap-1 text-rift-goldbright" title={c.team ? `${c.team.teamName} (${c.team.leagueId})` : "Team unknown"}>{c.team ? <RegionMark league={c.team.leagueId} size={14} /> : null}<span aria-label="Held SS">SS</span></span> : c.state === "none" ? <span className="text-rift-mutedbright" aria-label="Did not hold SS">–</span> : <span className="text-rift-mutedbright" aria-label="Not recorded" title="SS not recorded for this season">?</span>}</td>)}</tr>)}</tbody></table></div>}</section>
+	</div>;
 }

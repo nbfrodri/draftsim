@@ -13,7 +13,7 @@ import dynamic from "next/dynamic";
 import { ComparePanel } from "./hall/ComparePanel";
 import InternationalAppearanceFilters from "./hall/InternationalAppearanceFilters";
 import CareerHistoryControls, { type CareerEvent } from "./hall/CareerHistoryControls";
-import SSHistoryPanel, { SSCareerSummary, SSCareerYear } from "./hall/SSHistoryPanel";
+import SSHistoryPanel, { SSCareerSummary, SSCareerYear, SSRecordsPanel } from "./hall/SSHistoryPanel";
 import CollapsibleSection from "./CollapsibleSection";
 import { IconTrophy } from "@tabler/icons-react";
 import ArchivedEventStats from "./hall/ArchivedEventStats";
@@ -2007,6 +2007,7 @@ function RecordsPanel({
   return (
     <div className="space-y-6">
       <ChampionRecords entries={entries} />
+      <SSRecordsPanel entries={entries} />
       {/* All-time leaderboards */}
       <div className="cv-section">
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
