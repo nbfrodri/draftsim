@@ -106,6 +106,26 @@ describe("event performance", () => {
 		expect(games("playoffs")).toBe(1);
 		expect(validEventRecords([e])).toBe(true);
 	});
+	it("resolves same-name teams by participant IDs and leaves unresolvable sides unattributed", () => {
+		const same = () => { const t = fixture(); t.teams[1].name = t.teams[0].name; for (const m of t.matches) { const g = m.series!.games[0]; g.blueTeam = g.redTeam = t.teams[0].name; } return t; };
+		const t = same();
+		const a = t.teams[0].players![0].id!, b = t.teams[1].players![0].id!;
+		const nominal = computeEventStats([t]);
+		expect(nominal.players.find(p => p.playerId === a)!.teams.map(x => x.id)).toEqual([t.teams[0].id]);
+		expect(nominal.players.find(p => p.playerId === b)!.teams.map(x => x.id)).toEqual([t.teams[1].id]);
+		expect(nominal.players.find(p => p.playerId === a)!.wins).toBe(3);
+		const swapped = same(); const g = swapped.matches[0].series!.games[0];
+		[g.recap!.perPickIds!.blue, g.recap!.perPickIds!.red] = [g.recap!.perPickIds!.red, g.recap!.perPickIds!.blue];
+		g.winner = "red";
+		const s = computeEventStats([swapped]);
+		expect(s.players.find(p => p.playerId === swapped.teams[0].players![0].id)!.wins).toBe(3);
+		const unknown = same(); const u = unknown.matches[0].series!.games[0];
+		u.recap!.perPickIds = { blue: Array(5).fill("x"), red: Array(5).fill("y") }; u.recap!.perPickIds.blue = ["x1", "x2", "x3", "x4", "x5"]; u.recap!.perPickIds.red = ["y1", "y2", "y3", "y4", "y5"];
+		const r = computeEventStats([unknown]);
+		expect(r.games).toBe(3);
+		expect(r.players.some(p => p.playerId === "x1")).toBe(false);
+		expect(r.players.find(p => p.playerId === unknown.teams[0].players![0].id)!.games).toBe(2);
+	});
 	it("rejects malformed archive metrics and checkpoint references before import", () => {
 		const e = buildEventRecord([fixture()], { id: "event", label: "Event" });
 		expect(validEventRecords(JSON.parse(JSON.stringify([e])))).toBe(true);
