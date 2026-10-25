@@ -7,9 +7,12 @@ const five = <T,>(v: T) => [v, v, v, v, v];
 // Minimal shape: only the fields computeTournamentPlayerStats reads.
 function game(blueTeam: string, redTeam: string, blueTopKda: { k: number; d: number; a: number }, topGold: number) {
   const idle = { k: 0, d: 1, a: 0 };
+  const ids = (team: string) => five(0).map((_, i) => `${team.toLowerCase()}${i}`);
   return {
     blueTeam, redTeam, winner: "blue",
     recap: {
+      // Recorded participants, as the simulator writes them.
+      perPickIds: { blue: ids(blueTeam), red: ids(redTeam) },
       perPickKDA: { blue: [blueTopKda, idle, idle, idle, idle], red: five(idle) },
       ratings: { blue: [8, 5, 5, 5, 5], red: five(4) },
       laneGoldDiff: { top: topGold },
@@ -39,5 +42,25 @@ describe("computeTournamentPlayerStats", () => {
     });
     // Lanes with no recorded gold stay unknown rather than counting as zero.
     expect(stats.find((s) => s.playerId === "a1")!.goldGames).toBe(0);
+  });
+
+  it("does not credit entrant players for legacy games with no recorded participants", () => {
+    const players = (team: string) => five(0).map((_, i) => ({ id: `${team}${i}`, name: `${team}${i}` }));
+    const g = game("A", "B", { k: 5, d: 0, a: 2 }, 900);
+    delete (g.recap as { perPickIds?: unknown }).perPickIds;
+    const t = {
+      teams: [{ id: "a", name: "A", players: players("a") }, { id: "b", name: "B", players: players("b") }],
+      matches: [{ blueTeamId: "a", redTeamId: "b", series: { games: [g] } }],
+    } as unknown as TournamentState;
+    expect(computeTournamentPlayerStats(t)).toEqual([]);
+  });
+
+  it("does not guess sides when both teams share a name", () => {
+    const players = (team: string) => five(0).map((_, i) => ({ id: `${team}${i}`, name: `${team}${i}` }));
+    const t = {
+      teams: [{ id: "a", name: "Twin", players: players("a") }, { id: "b", name: "Twin", players: players("b") }],
+      matches: [{ blueTeamId: "a", redTeamId: "b", series: { games: [game("Twin", "Twin", { k: 5, d: 0, a: 2 }, 900)] } }],
+    } as unknown as TournamentState;
+    expect(computeTournamentPlayerStats(t)).toEqual([]);
   });
 });

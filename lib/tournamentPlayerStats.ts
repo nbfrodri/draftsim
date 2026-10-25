@@ -30,6 +30,8 @@ export function computeTournamentPlayerStats(tournament: TournamentState): Tourn
     const matchBlue = tournament.teams.find((t) => t.id === match.blueTeamId);
     const matchRed = tournament.teams.find((t) => t.id === match.redTeamId);
     if (!matchBlue || !matchRed) continue;
+    // Same-named teams cannot be told apart by a game's team names: unknown.
+    if (matchBlue.name === matchRed.name) continue;
     for (const game of match.series.games) {
       const recap = game.recap;
       if (!recap || game.winner == null) continue;
@@ -40,12 +42,15 @@ export function computeTournamentPlayerStats(tournament: TournamentState): Tourn
       for (const side of ["blue", "red"] as const) {
         const team = (side === "blue") !== swapped ? matchBlue : matchRed;
         LANES.forEach(({ key: lane }, i) => {
-          // A backup who subs in mid-event is their own row.
-          const playerId = recap.perPickIds?.[side]?.[i] ?? team.players?.[i]?.id;
-          const key = `${team.id}:${lane}:${playerId ?? ""}`;
+          // A backup who subs in mid-event is their own row. Without a recorded
+          // participant (legacy recaps) the entrant roster may not have played:
+          // that appearance stays unknown rather than credited to them.
+          const playerId = recap.perPickIds?.[side]?.[i];
+          if (!playerId) return;
+          const key = `${team.id}:${lane}:${playerId}`;
           let row = rows.get(key);
           if (!row) {
-            const playerName = recap.perPickNames?.[side]?.[i] ?? team.players?.[i]?.name;
+            const playerName = recap.perPickNames?.[side]?.[i] ?? team.players?.find((p) => p.id === playerId)?.name;
             row = {
               key, teamId: team.id, lane,
               ...(playerName ? { playerName } : {}),

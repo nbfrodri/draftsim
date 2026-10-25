@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computePlayerSeasonLines, computeSeasonHeadToHead } from "./stats";
+import { computePlayerSeasonLines, computeSeasonHeadToHead, computeSeasonStats } from "./stats";
 import type { SeasonState } from "./types";
 
 // Minimal season with one finished game whose recap carries lane gold diffs
@@ -120,5 +120,21 @@ describe("computeSeasonHeadToHead", () => {
       { scope: "winter", meetings: 2, aWins: 1, bWins: 1 },
       { scope: "msi", meetings: 1, aWins: 0, bWins: 1 },
     ]);
+  });
+});
+
+
+describe("same-named teams in one match", () => {
+  it("leaves side-dependent player lines and records unattributed", () => {
+    const s = seasonWithGame();
+    s.teams[1].name = "A";
+    Object.assign(s.tournaments.t.matches[0].series!.games[0], {
+      blueBans: [], redBans: [], bluePicks: [], redPicks: [],
+    });
+    expect(computePlayerSeasonLines(s)).toEqual([]);
+    Object.assign(s, { splitResults: {}, intlResults: {}, phases: [], awards: [] });
+    const stats = computeSeasonStats(s);
+    expect(stats.records.biggestStomp).toBeFalsy();
+    expect(stats.records.longestGame).toBeFalsy();
   });
 });
