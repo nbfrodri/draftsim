@@ -155,6 +155,7 @@ import TeamNameLink from "./team/TeamNameLink";
 import RosterSnapshotCards from "./hall/RosterSnapshotCards";
 import CareerTeammates from "./hall/CareerTeammates";
 import ChampionRecords from "./hall/ChampionRecords";
+import AllTimeEventStats from "./hall/AllTimeEventStats";
 import TeamSeasonResultsHistory from "./team/TeamSeasonResultsHistory";
 import { plural } from "@/lib/plural";
 const MarketHistoryPanel = dynamic(() => import("./hall/MarketHistoryPanel"), { loading: () => <HallPanelLoading label="Loading roster moves..." /> });
@@ -2008,6 +2009,7 @@ function RecordsPanel({
     <div className="space-y-6">
       <ChampionRecords entries={entries} />
       <SSRecordsPanel entries={entries} />
+      <AllTimeEventStats entries={entries} />
       {/* All-time leaderboards */}
       <div className="cv-section">
         <div className="text-[9px] uppercase tracking-[0.35em] text-rift-gold/60 mb-1.5">
