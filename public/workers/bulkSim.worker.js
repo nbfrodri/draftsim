@@ -36462,6 +36462,7 @@
   }
 
   // lib/eventStats.ts
+  var EVENT_METRICS = ["games", "wins", "rated", "ratingSum", "adjusted", "sum", "squares", "goldGames", "goldSum", "kills", "deaths", "assists", "kdaGames", "opportunities"];
   function isPlayoffMatch(t, m) {
     if (!t.format.includes("playoffs")) return !["round-robin", "swiss"].includes(t.format);
     return !!m.bracket || !!m.feedsInto || t.matches.some((other) => other.feedsInto?.matchId === m.id);
@@ -36478,6 +36479,9 @@
     if (!gameIds.length) return t;
     return { ...t, eventCheckpoints: [...t.eventCheckpoints ?? [], { key, label: `${group.replaceAll("-", " ")} \xB7 Round ${m.round}`, gameIds: [...new Set(gameIds)] }] };
   }
+
+  // lib/eventStatsValidation.ts
+  var MONOTONIC = EVENT_METRICS.filter((k) => k !== "goldSum");
 
   // lib/tournament.ts
   function formatHasPlayoffs(format) {
