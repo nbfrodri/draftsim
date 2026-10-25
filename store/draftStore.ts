@@ -1346,7 +1346,8 @@ export const useDraftStore = create<DraftStore>()(
       const target = s.realities.find(r => r.id === id);
       if (!target || target !== initial) return;
       const decodedSeason = repairNameRegistry(decodeCompactSeason(ensureSeasonIdentities(seasonBody)), history);
-      if (isDesktop()) markRealityHistoryLoaded(id);
+      // Passing the read array lets the next save skip its unchanged rows.
+      if (isDesktop()) markRealityHistoryLoaded(id, history);
       set({
         realities: s.realities.map(r => {
           if (r.id === id) return { ...r, season: decodedSeason, history };
