@@ -104,10 +104,12 @@ type SeasonHistoryEntry,
 import { inactiveSnapshotsForArchivedYear } from "@/lib/season/playerLifecycle";
 import {
 collectSimResultUpdates,
+attachYearEventSummary,
 compressSimResultsFeed,
 type SimResultEntry,
 type SimResultEntryCache,
 } from "@/lib/season/simResultsSummary";
+import { buildYearEventSummary } from "@/lib/season/simEventSummary";
 import { ensureTeamIdentities } from "@/lib/season/teamGen";
 import {
 aiResolveUserOffseason,
@@ -558,6 +560,16 @@ function scheduleSimResultsFlush(set: StoreSet): void {
     simResultsFlushTimer = null;
     flushSimResultsFeed(set);
   }, SIM_RESULTS_FLUSH_MS);
+}
+
+/** Attach the archived year's compact event statistics to its feed entry (pending or already flushed). */
+export function attachSimYearEventSummary(set: StoreSet, archived: SeasonHistoryEntry): void {
+  const summary = buildYearEventSummary(archived.eventRecords);
+  pendingSimResultUpdates = attachYearEventSummary(pendingSimResultUpdates, archived.id, summary);
+  set((s) => {
+    const next = attachYearEventSummary(s.simResultsFeed, archived.id, summary);
+    return next === s.simResultsFeed ? s : { simResultsFeed: next };
+  });
 }
 
 export function appendSimResults(
@@ -1322,7 +1334,7 @@ export const useDraftStore = create<DraftStore>()(
 
 
 
-  ...createSimulationActions(get, set, { resetSimResultsBatch, runFranchiseSeasonSim, appendSimResults, autoResolveOffseasonShop, rollFranchiseToNextYearState, applyMetaSnapshotPatch, flushSimResultsFeed }),
+  ...createSimulationActions(get, set, { resetSimResultsBatch, runFranchiseSeasonSim, appendSimResults, attachSimYearEventSummary, autoResolveOffseasonShop, rollFranchiseToNextYearState, applyMetaSnapshotPatch, flushSimResultsFeed }),
 
 
 

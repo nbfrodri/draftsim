@@ -42,6 +42,7 @@ import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
 import TeamIcon from "../TeamIcon";
 import SplitIcon from "./SplitIcon";
+import SimEventStatsBlock from "./SimEventStatsBlock";
 import TierChip from "./TierChip";
 import LivePlayerSearch from "./LivePlayerSearch";
 import { useDraftStore } from "@/store/draftStore";
@@ -862,6 +863,8 @@ const YearCard = memo(function YearCard({
       {entry.followedTeam && (
         <FollowedTeamSummary summary={entry.followedTeam} logoSize={logoSize} />
       )}
+
+      <SimEventStatsBlock summary={entry.eventSummary} />
     </div>
   );
 });
