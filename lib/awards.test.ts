@@ -43,7 +43,14 @@ function makeGame(
     actionIndex: 0,
     status: "complete",
     winner,
-    recap,
+    // Recorded participants: stable per-team ids, as the simulator writes them.
+    recap: {
+      ...recap,
+      perPickIds: {
+        blue: [0, 1, 2, 3, 4].map((i) => `${blueTeam}-${i}`),
+        red: [0, 1, 2, 3, 4].map((i) => `${redTeam}-${i}`),
+      },
+    },
   };
 }
 
@@ -389,6 +396,18 @@ describe("computeTournamentAwards", () => {
       expect(r.mvp).toBeNull();
       expect(r.allPro).toHaveLength(0);
       expect(r.awards).toHaveLength(0);
+    });
+
+    it("does not credit entrant roster players when recaps record no participant ids", () => {
+      const t = buildTestTournament();
+      for (const m of t.matches)
+        for (const g of m.series?.games ?? [])
+          if (g.recap) g.recap.perPickIds = undefined;
+      for (const team of t.teams)
+        team.players = [0, 1, 2, 3, 4].map((i) => ({ id: `${team.id}-p${i}`, name: `P${i}` })) as never;
+      const r = computeTournamentAwards(t);
+      expect(r.mvp).toBeNull();
+      expect(r.allPro).toEqual([]);
     });
 
     it("handles matches with no series gracefully (series: null)", () => {
