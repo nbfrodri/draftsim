@@ -47,12 +47,27 @@ function stats(v: unknown): boolean {
 }
 
 export function validEventRecords(v: unknown): boolean {
-	return rows(v, 500, e => obj(e) && e.version === 1 && text(e.id) && text(e.label) && optional(e.phaseIndex, count) && optional(e.split, s => ["winter", "spring", "summer"].includes(String(s))) && optional(e.event, s => ["first-stand", "msi", "worlds", "global-cup"].includes(String(s))) && optional(e.leagueId, l => LEAGUE_IDS.includes(l as never)) && validChampionLanes(e.championLanes) && rows(e.scopes, 5, s => {
+	return rows(v, 500, e => obj(e) && (e.version === 1 || e.version === 2) && text(e.id) && text(e.label) && optional(e.phaseIndex, count) && optional(e.split, s => ["winter", "spring", "summer"].includes(String(s))) && optional(e.event, s => ["first-stand", "msi", "worlds", "global-cup"].includes(String(s))) && optional(e.leagueId, l => LEAGUE_IDS.includes(l as never)) && validChampionLanes(e.championLanes) && rows(e.scopes, 5, s => {
 		if (!obj(s) || !["all", "regular", "playoffs", "play-in", "main"].includes(String(s.id)) || !text(s.label) || !stats(s.stats)) return false;
+		if (e.version === 2 ? s.checkpointEncoding !== "delta-v2" : s.checkpointEncoding !== undefined) return false;
 		const final = s.stats as Obj; const identities = new Map((final.players as EventPlayer[]).map(p => [p.key, p]));
 		let games = 0;
 		return rows(s.checkpoints, 10000, c => {
 			if (!obj(c) || !text(c.id) || !text(c.label) || !count(c.games) || c.games <= games || c.games > (final.games as number)) return false;
+			if (e.version === 2) {
+				const indices = new Set<number>();
+				if (!rows(c.players, 2000, p => {
+					if (!Array.isArray(p) || p.length < 2 || p.length > 4 || !count(p[0]) || indices.has(p[0])) return false;
+					indices.add(p[0]);
+					const identity = (final.players as EventPlayer[])[p[0]];
+					if (!identity || !rows(p[1], EVENT_METRICS.length, finite) || p[1].length !== EVENT_METRICS.length) return false;
+					if (p.length >= 3 && (!rows(p[2], 100, n => count(n) && n < identity.teams.length) || !p[2].length || new Set(p[2]).size !== p[2].length)) return false;
+					if (p.length === 4 && !text(p[3])) return false;
+					const expanded = unpackEventPlayer({ key: identity.key, name: p[3] ?? identity.name, values: p[1] as number[], teams: p[2] ?? identity.teams.map((_, i) => i) }, identity);
+					return player(expanded) && expanded.games <= (c.games as number) && expanded.games <= identity.games;
+				})) return false;
+				games = c.games; return true;
+			}
 			if (!rows(c.players, 2000, p => {
 				if (!obj(p) || !text(p.key) || !text(p.name) || !rows(p.values, EVENT_METRICS.length, finite) || p.values.length !== EVENT_METRICS.length) return false;
 				const identity = identities.get(p.key);

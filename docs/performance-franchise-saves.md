@@ -28,6 +28,7 @@ Existing mitigations retained: recap `recapC` compression, tournament/match/reca
 
 - **Persist version unchanged (v6)** — No schema bump. Realities that were saved uncompressed load normally; the next save writes compact form.
 - **Kill totals** — New optional `blueKills` / `redKills` on `GameRecap`; UI falls back to summing `perPickKDA` for older recaps.
+- **Completed stages in SQLite** — `encodeSeasonForDesktopDb` drops chart payloads from completed tournaments but keeps per-pick KDA as a compact `recapC.kda`, which `decodeCompactSeason` restores. Older binaries decode the same field. Stages slimmed by earlier versions have no KDA; it stays unknown rather than zero.
 - **Inactive reality decode** — If code reads an inactive reality's tournaments before `switchReality`, recaps may still be compact (`recapC`). Always use the live `season` field or call `decodeCompactSeason` before replay UI.
 
 ## Measuring locally

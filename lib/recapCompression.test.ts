@@ -405,7 +405,7 @@ function makeTournamentWithRecap(
 }
 
 describe("slimTournamentForArchive / encodeSeasonForDesktopDb", () => {
-  it("strips timeline fields and recapC but keeps mvp", () => {
+  it("strips timeline fields but keeps mvp and compact KDA", () => {
     const recap = buildRealisticRecap();
     const slimmed = slimTournamentForArchive(
       makeTournamentWithRecap("complete", recap),
@@ -417,7 +417,8 @@ describe("slimTournamentForArchive / encodeSeasonForDesktopDb", () => {
     expect(out.goldLeadTimeline).toBeUndefined();
     expect(out.notableEvents).toBeUndefined();
     expect(out.perPickKDA).toBeUndefined();
-    expect(out.recapC).toBeUndefined();
+    expect(out.recapC).toEqual({ kda: encodeRecapHeavyFields(recap).compact.kda });
+    expect(decodeRecapHeavyFields(out, out.recapC as RecapCompact).perPickKDA).toEqual(recap.perPickKDA);
     expect(out.mvp).toEqual(recap.mvp);
     expect(out.durationMinutes).toBe(recap.durationMinutes);
   });
@@ -438,7 +439,8 @@ describe("slimTournamentForArchive / encodeSeasonForDesktopDb", () => {
     const doneRecap = encoded.tournaments.done!.matches[0]!.series!.games[0]!
       .recap as GameRecap & { recapC?: RecapCompact };
     expect(doneRecap.winProbTimeline).toBeUndefined();
-    expect(doneRecap.recapC).toBeUndefined();
+    expect(doneRecap.recapC).toEqual({ kda: encodeRecapHeavyFields(buildRealisticRecap()).compact.kda });
+    expect(encodeSeasonForDesktopDb(encoded)).toEqual(encoded);
     expect(doneRecap.mvp).toBeDefined();
 
     const liveRecap = encoded.tournaments.live!.matches[0]!.series!.games[0]!

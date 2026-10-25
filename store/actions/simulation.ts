@@ -72,7 +72,9 @@ simulateRealityYears: (count, options) => {
           entryCache.clear();
 
           set({ season: autoResolveOffseasonShop(finished, get().champions) });
-          if (shouldCancel()) break;
+          // Yield so the completed year can paint and a queued cancel can run before synchronous archival.
+          await new Promise((r) => setTimeout(r, 0));
+          if (shouldCancel() || !bulkSimRealityMatches(get().season, realityId)) break;
 
           const rid = finished.franchise.id;
           const prevHistory =
@@ -111,6 +113,9 @@ simulateRealityYears: (count, options) => {
               : {}),
           }));
 
+          // Season and history were published together; yield once, then always flush
+          // that checkpoint, even if a cancel arrives during the yield.
+          await new Promise((r) => setTimeout(r, 0));
           await flushPendingPersistWrites();
 
           if (exportTarget) {

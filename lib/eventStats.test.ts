@@ -3,6 +3,7 @@ import { makeAuditSeason } from "./auditFixtures";
 import { createSeries } from "./series";
 import { computeEventStats, rankEventPlayers, recordEventCheckpoint } from "./eventStats";
 import type { TournamentState } from "./tournament";
+import type { SeasonState } from "./season/types";
 import { recordMatchWinner } from "./tournament";
 import { buildEventRecord, eventCheckpointPlayers } from "./season/eventHistory";
 import { validEventRecords, validEventCheckpoints } from "./eventStatsValidation";
@@ -128,6 +129,27 @@ describe("event performance", () => {
 			expect(loaded.season!.tournaments[t.id].eventCheckpoints).toEqual(t.eventCheckpoints);
 			resetSqliteStorageForTests(); await savePersistedStateToDbExecutor(executor, "draftsim-store", loaded);
 			expect((await loadPersistedStateFromDbExecutor(executor, "draftsim-store"))!.realities![0].history[0].eventRecords).toEqual(expected);
+		} finally { db.close(); resetSqliteStorageForTests(); }
+	});
+	it("keeps completed-stage KDA through a desktop save so a later archive retains KDA totals", async () => {
+		const season = makeAuditSeason("Event KDA restart");
+		const t = fixture(); t.status = "complete";
+		for (const m of t.matches) m.series!.games[0].recap!.perPickKDA = { blue: Array.from({ length: 5 }, (_, i) => ({ k: i + 1, d: 1, a: 2 })), red: Array.from({ length: 5 }, () => ({ k: 0, d: 3, a: 1 })) };
+		season.tournaments = { [t.id]: t }; season.phases[0].tournamentIds = [t.id];
+		const expected = buildSeasonHistoryEntry(season, 1).eventRecords!;
+		expect(expected[0].scopes[0].stats.players.find(p => p.kdaGames)?.kills).toBeGreaterThan(0);
+		const reality = { id: season.franchise.id, name: "Event KDA restart", year: 1, season, history: [] };
+		const db = new DatabaseSync(":memory:"); db.exec(SCHEMA_SQL);
+		const executor: SqlExecutor = { execute: async (q, values = []) => ({ rowsAffected: Number(db.prepare(q).run(...values as SQLInputValue[]).changes) }), select: async <T>(q: string, values: unknown[] = []) => db.prepare(q).all(...values as SQLInputValue[]) as T[] };
+		try {
+			resetSqliteStorageForTests();
+			await savePersistedStateToDbExecutor(executor, "draftsim-store", { season, activeRealityId: reality.id, realities: [reality] } as PersistedStoreState);
+			resetSqliteStorageForTests();
+			// Switching realities restores the season from its reality row, not the active-season fragment.
+			const row = (await loadPersistedStateFromDbExecutor(executor, "draftsim-store"))!.realities![0].season as SeasonState;
+			const restored = decodeCompactSeason(row);
+			expect(restored.tournaments[t.id].matches[0].series!.games[0].recap!.perPickKDA).toEqual(t.matches[0].series!.games[0].recap!.perPickKDA);
+			expect(buildSeasonHistoryEntry(restored, 1).eventRecords).toEqual(expected);
 		} finally { db.close(); resetSqliteStorageForTests(); }
 	});
 	it("keeps a 300-game split archive bounded without storing recaps", () => {

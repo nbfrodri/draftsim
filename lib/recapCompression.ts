@@ -70,6 +70,14 @@ export interface RecapCompact {
 
 // ── Encode ────────────────────────────────────────────────────────────────────
 
+/** perPickKDA → flat [bk0,bd0,ba0,...(5 blue), rk0,...(5 red)] */
+function encodeKda(perPickKDA: NonNullable<GameRecap["perPickKDA"]>): number[] {
+  const kda: number[] = [];
+  for (const entry of perPickKDA.blue) kda.push(entry.k, entry.d, entry.a);
+  for (const entry of perPickKDA.red) kda.push(entry.k, entry.d, entry.a);
+  return kda;
+}
+
 /**
  * Encode the heavy fields of a GameRecap into a compact RecapCompact object.
  * Returns the compact payload and a new recap object with those fields removed.
@@ -110,17 +118,7 @@ export function encodeRecapHeavyFields(recap: GameRecap): {
     } as CompactEvent));
   }
 
-  // perPickKDA → flat array
-  if (recap.perPickKDA) {
-    const kda: number[] = [];
-    for (const entry of recap.perPickKDA.blue) {
-      kda.push(entry.k, entry.d, entry.a);
-    }
-    for (const entry of recap.perPickKDA.red) {
-      kda.push(entry.k, entry.d, entry.a);
-    }
-    compact.kda = kda;
-  }
+  if (recap.perPickKDA) compact.kda = encodeKda(recap.perPickKDA);
 
   // ratings → flat ×10 integers
   if (recap.ratings) {
@@ -396,9 +394,10 @@ export function compactEncodeSeasonForPersist(season: SeasonState): SeasonState 
 /**
  * Strip heavy per-game chart fields from a tournament before archive / DB
  * persist of completed stages. Keeps lightweight summary fields (mvp,
- * biggestSwing, duration, lane gold diff) so Hall of Fame and opening a
- * completed stage still show basic recaps — just without win-prob / gold
- * charts and damage bars.
+ * biggestSwing, duration, lane gold diff, ratings) so Hall of Fame and opening
+ * a completed stage still show basic recaps — just without win-prob / gold
+ * charts and damage bars. Per-pick KDA stays as a compact `recapC.kda`, decoded
+ * on load, because event archives, awards and form read it after a restart.
  */
 export function slimTournamentForArchive(
   tournament: TournamentState,
@@ -414,14 +413,15 @@ export function slimTournamentForArchive(
           games: m.series.games.map((g) => {
             if (!g.recap) return g;
             const slim = { ...g.recap } as typeof g.recap & {
-              recapC?: unknown;
+              recapC?: RecapCompact;
             };
+            const kda = slim.perPickKDA ? encodeKda(slim.perPickKDA) : slim.recapC?.kda;
             delete slim.winProbTimeline;
             delete slim.goldLeadTimeline;
             delete slim.notableEvents;
             delete slim.perPickKDA;
             delete slim.recapC;
-            return { ...g, recap: slim };
+            return { ...g, recap: kda ? { ...slim, recapC: { kda } } : slim };
           }),
         },
       };

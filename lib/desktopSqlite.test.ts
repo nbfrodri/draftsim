@@ -874,7 +874,7 @@ describe("recompactAllRealitySeasonsInDb", () => {
     expect(doneRecap.goldLeadTimeline).toBeUndefined();
     expect(doneRecap.notableEvents).toBeUndefined();
     expect(doneRecap.perPickKDA).toBeUndefined();
-    expect(doneRecap.recapC).toBeUndefined();
+    expect(doneRecap.recapC).toEqual({ kda: [1, 0, 2, 2, 1, 3, 3, 0, 4, 4, 1, 5, 5, 0, 6, 0, 1, 1, 1, 2, 1, 0, 3, 2, 1, 2, 0, 0, 4, 1] });
     expect(doneRecap.mvp?.playerName).toBe("MVP");
 
     const liveRecap = next.tournaments.live!.matches[0]!.series!.games[0]!
