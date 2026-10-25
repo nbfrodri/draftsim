@@ -247,3 +247,49 @@ describe("latestAcademyCount", () => {
     ).toBe(3);
   });
 });
+
+describe("academy identity and unknown sizes", () => {
+  const bare = {
+    id: "Y1",
+    archivedAt: 1,
+    name: "Year 1",
+    complete: true,
+    champion: null,
+    runnerUp: null,
+    intlChampions: {},
+    splitChampions: {},
+    phaseRosters: [],
+  };
+
+  it("lets a recorded team id outrank a matching name", () => {
+    const pool = [
+      { status: "academy", lastTeamId: "other-id", lastTeamName: "Gen.G" },
+      { status: "academy", lastTeamId: "T0", lastTeamName: "Gen.G" },
+    ];
+    expect(liveAcademyCount(pool, { id: "T0", name: "Gen.G" })).toBe(1);
+
+    const entry = {
+      ...bare,
+      phaseRosters: [
+        {
+          phaseIndex: 0,
+          label: "Summer",
+          kind: "split",
+          split: "summer",
+          teams: [{ teamId: "tid-a", teamName: "Gen.G", leagueId: "LCK", players: rosterPlayers("g") }],
+          inactive: [
+            { playerId: "a1", status: "academy", teamId: "tid-a", teamName: "Gen.G" },
+            { playerId: "a2", status: "academy", teamId: "tid-b", teamName: "Gen.G" },
+          ],
+        },
+      ],
+    } as unknown as SeasonHistoryEntry;
+    expect(archivedAcademyCount(entry, { name: "Gen.G", leagueId: "LCK" })).toBe(1);
+  });
+
+  it("reports unknown, not zero, when no pool data was archived", () => {
+    const entry = bare as unknown as SeasonHistoryEntry;
+    expect(archivedAcademyCount(entry, { name: "Gen.G", leagueId: "LCK" })).toBeNull();
+    expect(latestAcademyCount([entry], { name: "Gen.G", leagueId: "LCK" })).toBeNull();
+  });
+});

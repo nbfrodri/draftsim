@@ -68,7 +68,9 @@ function ensureSample(samples: Map<string, Sample>, id: string): Sample {
 
 function* recordedGames(tournament: TournamentState): Generator<RecordedGame> {
 	const teams = new Map(tournament.teams.map(team => [team.id, team]));
-	const strengths = new Map(tournament.teams.map(team => [team.id, deriveStar(team.players?.map(player => ({ tier: developmentTier(player) })))]));
+	// Only a complete frozen roster supports an opponent-strength adjustment.
+	const strengths = new Map(tournament.teams.filter(team => team.players?.length === 5)
+		.map(team => [team.id, deriveStar(team.players!.map(player => ({ tier: developmentTier(player) })))]));
 	for (const match of tournament.matches) {
 		if (match.isBye || !match.series || !match.blueTeamId || !match.redTeamId) continue;
 		const blue = teams.get(match.blueTeamId);
@@ -96,8 +98,9 @@ function collectGameSamples(frame: RecordedGame, context: PhaseSampleContext, wi
 			if (!id || typeof rating !== "number" || !Number.isFinite(rating) || rating < 1 || rating > 10) continue;
 			const entrant = team.players?.find(player => player.id === id && player.lane === lane);
 			if (!entrant) continue;
+			const strength = strengths.get(opponent.id);
+			if (strength === undefined) continue; // unknown opposition is not evidence
 			const sample = ensureSample(context.samples, `${id}:${lane}`);
-			const strength = strengths.get(opponent.id) ?? 3;
 			const ssCorrection = entrant.tier === "SS" ? 0.1 : 0;
 			sample.values.push(Math.max(1, Math.min(10, rating + (strength - 3) * 0.1 - ssCorrection)));
 			if (context.domestic && team.leagueId) {
