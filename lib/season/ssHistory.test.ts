@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ssHistory, ssHistorySummary, playerSSHistory, ssStreaks, ssSeasonViews, ssRecords, ssRegionView, ssTimeline, snapshotSSHolders, recordSSLosses, type SSArchive } from "./ssHistory";
+import { ssHistory, ssHistorySummary, playerSSHistory, ssStreaks, playerSSStreak, ssSeasonViews, ssRecords, ssRegionView, ssTimeline, snapshotSSHolders, recordSSLosses, type SSArchive } from "./ssHistory";
 import { makeAuditSeason } from "../auditFixtures";
 import type { SSHolder } from "./types";
 import { validSeason, validHistoryEntry } from "../importValidation";
@@ -169,5 +169,27 @@ describe("SS cross-season records", () => {
 		expect(t.rows[0].cells.map(c => c.state)).toEqual(["held", "unknown", "held"]);
 		expect(t.rows[1].cells.map(c => c.state)).toEqual(["held", "unknown", "none"]);
 		expect(t.rows[0].playerName).toBe("A");
+	});
+});
+
+describe("playerSSStreak", () => {
+	const yr = (n: number, ids: string[] | undefined): SSArchive => ({ id: `y${n}`, name: `Year ${n}`, franchiseYear: n, archivedAt: n, ...(ids ? { ssOpening: ids.map(i => holder(i)) } : {}) });
+	it("returns a single run", () => {
+		const s = playerSSStreak([yr(1, ["a"]), yr(2, ["a"]), yr(3, ["a"])], "a")!;
+		expect([s.length, s.startYear, s.endYear, s.open]).toEqual([3, 1, 3, false]);
+	});
+	it("picks the longest of two runs, earliest on ties", () => {
+		const longest = playerSSStreak([yr(1, ["a"]), yr(2, []), yr(3, ["a"]), yr(4, ["a"])], "a")!;
+		expect([longest.length, longest.startYear]).toEqual([2, 3]);
+		const tie = playerSSStreak([yr(1, ["a"]), yr(2, ["a"]), yr(3, []), yr(4, ["a"]), yr(5, ["a"])], "a")!;
+		expect([tie.length, tie.startYear]).toEqual([2, 1]);
+	});
+	it("treats an unknown year as a break and flags the run open", () => {
+		const s = playerSSStreak([yr(1, ["a"]), yr(2, ["a"]), yr(3, undefined)], "a")!;
+		expect([s.length, s.open]).toEqual([2, true]);
+	});
+	it("is undefined for an absent player", () => {
+		expect(playerSSStreak([yr(1, ["a"])], "b")).toBeUndefined();
+		expect(playerSSHistory([yr(1, ["a"])], "b").streak).toBeUndefined();
 	});
 });
