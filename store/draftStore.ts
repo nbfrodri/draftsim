@@ -67,7 +67,9 @@ savePowerSpikeOverride,
 saveSynergyOverride
 } from "@/lib/metaRandomizer";
 import {
-applyRatingsToForms
+applyRatingsToForms,
+formCandidateTeams,
+formKeyForTeamName
 } from "@/lib/playerForm";
 import { randomizeRoster } from "@/lib/players";
 import { encodeRealityShareCode } from "@/lib/realityShare";
@@ -2369,7 +2371,7 @@ export const useDraftStore = create<DraftStore>()(
           {
             map: playerForms,
             keyFor: tournament
-              ? (n) => tournament.teams.find((t) => t.name === n)?.id ?? n
+              ? (n) => formKeyForTeamName(formCandidateTeams(tournament), n) ?? n
               : undefined,
           },
           teamWR,
@@ -2448,7 +2450,7 @@ export const useDraftStore = create<DraftStore>()(
         {
           map: playerForms,
           keyFor: tournament
-            ? (n) => tournament.teams.find((t) => t.name === n)?.id ?? n
+            ? (n) => formKeyForTeamName(formCandidateTeams(tournament), n) ?? n
             : undefined,
         },
         teamWR,
@@ -2569,13 +2571,13 @@ export const useDraftStore = create<DraftStore>()(
       const game = series.games[series.games.length - 1];
       const ratings = recap.ratings ?? computeGameRatings(recap, side);
       if (ratings) {
-        const keyFor = (name: string) =>
-          tournament ? (tournament.teams.find((t) => t.name === name)?.id ?? name) : name;
-        const newForms = applyRatingsToForms(
-          applyRatingsToForms(playerForms, keyFor(game.blueTeam), ratings.blue),
-          keyFor(game.redTeam),
-          ratings.red,
-        );
+        // Same-named teams are unknown, not guessed: their form is not updated.
+        const teams = formCandidateTeams(tournament);
+        const blueKey = formKeyForTeamName(teams, game.blueTeam);
+        const redKey = formKeyForTeamName(teams, game.redTeam);
+        let newForms = playerForms;
+        if (blueKey) newForms = applyRatingsToForms(newForms, blueKey, ratings.blue);
+        if (redKey) newForms = applyRatingsToForms(newForms, redKey, ratings.red);
         publishSeries(newForms);
         return;
       }

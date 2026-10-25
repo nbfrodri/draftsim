@@ -70,3 +70,32 @@ describe("autoPlayMatch player form with swapped sides", () => {
     );
   });
 });
+
+describe("autoPlayMatch player form with same-named teams", () => {
+  it("does not collapse both sides onto one team's form", () => {
+    const { tournament, matchId } = setup();
+    const twins = {
+      ...tournament,
+      teams: tournament.teams.map((t, i) => ({
+        ...t,
+        name: "Twin",
+        leagueId: (i === 0 ? "LCK" : "LPL") as never,
+      })),
+    };
+    const forms: PlayerFormMap = {};
+    for (const lane of LANE_ORDER) {
+      forms[playerFormKey("t1", lane)] = 0.9;
+      forms[playerFormKey("t2", lane)] = -0.9;
+    }
+    vi.mocked(simulateMatch).mockClear();
+    const [, after] = autoPlayMatch(twins, matchId, CHAMPIONS, forms);
+    for (const [, , opts] of vi.mocked(simulateMatch).mock.calls) {
+      // The sides cannot be told apart by name: neither may borrow the other's
+      // (or a single team's) form.
+      expect(opts?.playerForms?.blue).toEqual({});
+      expect(opts?.playerForms?.red).toEqual({});
+    }
+    // Unattributable games never write form to either team or a name key.
+    expect(after).toEqual(forms);
+  });
+});

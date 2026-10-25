@@ -104,6 +104,42 @@ export function playerFormKey(teamKey: string, lane: Lane): string {
   return `${teamKey}:${lane}`;
 }
 
+// Resolve a game's team NAME to its form-map key (team id) among the teams that
+// can be on the pitch. Several teams sharing a name (same-named clubs from
+// different regions) cannot be told apart by name: that is unknown (null), not
+// a guess. A name matching no team is a standalone series keyed by name.
+export function formKeyForTeamName(
+  teams: readonly { id: string; name: string }[],
+  name: string,
+): string | null {
+  const hits = teams.filter((t) => t.name === name);
+  if (hits.length === 0) return name;
+  return hits.length === 1 ? hits[0].id : null;
+}
+
+// The teams a form-key lookup should consider: the two teams of the active
+// match when it is known (so a same-named team elsewhere in the event cannot
+// capture the lookup), otherwise every team in the event.
+export function formCandidateTeams(
+  tournament:
+    | {
+        teams: readonly { id: string; name: string }[];
+        activeMatchId?: string | null;
+        matches: readonly { id: string; blueTeamId: string | null; redTeamId: string | null }[];
+      }
+    | null
+    | undefined,
+): readonly { id: string; name: string }[] {
+  if (!tournament) return [];
+  const m = tournament.activeMatchId
+    ? tournament.matches.find((x) => x.id === tournament.activeMatchId)
+    : undefined;
+  const pair = m
+    ? tournament.teams.filter((t) => t.id === m.blueTeamId || t.id === m.redTeamId)
+    : [];
+  return pair.length === 2 ? pair : tournament.teams;
+}
+
 // Project a team's five lanes out of the flat map, for handing to
 // SimulateOptions.playerForms. Lanes with no entry are omitted (neutral).
 export function sideFormsFor(

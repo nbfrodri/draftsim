@@ -22,6 +22,7 @@ import { chooseAIStrategyForGame, type PriorGameSummary } from "@/lib/sim/strate
 import { buildGameRecap, computeGameRatings, simulateMatch } from "@/lib/matchSimulator";
 import {
   applyRatingsToForms,
+  formKeyForTeamName,
   sideFormsFor,
   type PlayerFormMap,
 } from "@/lib/playerForm";
@@ -150,7 +151,7 @@ export function autoPlayMatch(
           tournamentWR,
           {
             map: currentForms,
-            keyFor: (n) => workingTournament.teams.find((t) => t.name === n)?.id ?? n,
+            keyFor: (n) => formKeyForTeamName([blueTeam, redTeam], n) ?? n,
           },
           teamWR,
         ),
@@ -217,17 +218,17 @@ export function autoPlayMatch(
     };
     // Sides can swap between games: resolve form keys from this game's
     // actual blue/red teams, not the match's original slots.
-    const teamIdFor = (name: string) =>
-      name === blueTeam.name ? blueTeam.id : redTeam.id;
-    const blueKey = teamIdFor(game.blueTeam);
-    const redKey = teamIdFor(game.redTeam);
+    // Same-named teams cannot be told apart by name: their form stays unknown.
+    const slots = [blueTeam, redTeam];
+    const blueKey = formKeyForTeamName(slots, game.blueTeam);
+    const redKey = formKeyForTeamName(slots, game.redTeam);
     const result = simulateMatch(game, champions, {
       scoreBias: starRatingBias(series),
       bluePlayers: series.bluePlayers,
       redPlayers: series.redPlayers,
       playerForms: {
-        blue: sideFormsFor(currentForms, blueKey),
-        red: sideFormsFor(currentForms, redKey),
+        blue: blueKey ? sideFormsFor(currentForms, blueKey) : {},
+        red: redKey ? sideFormsFor(currentForms, redKey) : {},
       },
       adaptiveMidgame: true,
     });
@@ -238,15 +239,10 @@ export function autoPlayMatch(
       series.bluePlayers,
       series.redPlayers,
     );
-    if (recap.ratings) {
-      currentForms = applyRatingsToForms(currentForms, blueKey, recap.ratings.blue);
-      currentForms = applyRatingsToForms(currentForms, redKey, recap.ratings.red);
-    } else {
-      const derived = computeGameRatings(recap, result.winner);
-      if (derived) {
-        currentForms = applyRatingsToForms(currentForms, blueKey, derived.blue);
-        currentForms = applyRatingsToForms(currentForms, redKey, derived.red);
-      }
+    const rated = recap.ratings ?? computeGameRatings(recap, result.winner);
+    if (rated) {
+      if (blueKey) currentForms = applyRatingsToForms(currentForms, blueKey, rated.blue);
+      if (redKey) currentForms = applyRatingsToForms(currentForms, redKey, rated.red);
     }
     series = recordWinner(series, result.winner, recap);
     if (series.status === "between-games") {
