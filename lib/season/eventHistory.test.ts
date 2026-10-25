@@ -95,8 +95,8 @@ describe("delta event archives", () => {
 		const stage = (t: TournamentState, playoffs: boolean) => ({ ...t, matches: t.matches.filter(m => !!m.bracket === playoffs) });
 		for (const scope of next.scopes) {
 			const selected = scope.id === "main" ? [main] : scope.id === "play-in" ? [playIn]
-				: scope.id === "regular" ? [stage(playIn, false), stage(main, false)]
-					: scope.id === "playoffs" ? [stage(playIn, true), stage(main, true)] : [playIn, main];
+				: scope.id === "regular" ? [stage(main, false)]
+					: scope.id === "playoffs" ? [stage(main, true)] : [playIn, main];
 			expect(scope.stats).toEqual(computeEventStats(selected));
 			expect(scope.checkpoints.length).toBeGreaterThan(0);
 			for (const c of scope.checkpoints) {

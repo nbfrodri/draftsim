@@ -35,6 +35,22 @@ export function isPlayoffMatch(t: TournamentState, m: TournamentMatch): boolean 
 	return !!m.bracket || !!m.feedsInto || t.matches.some(other => other.feedsInto?.matchId === m.id);
 }
 
+type EventTeamRow = TournamentState["teams"][number];
+/**
+ * Whether a game's sides are swapped relative to its match, or null when unknowable.
+ * Games carry team names only, so same-name teams are resolved from participant IDs.
+ */
+function gameSidesSwapped(blue: EventTeamRow, red: EventTeamRow, g: GameDraft): boolean | null {
+	if (blue.name !== red.name) return g.blueTeam === red.name && g.redTeam === blue.name;
+	const ids = g.recap?.perPickIds;
+	const overlap = (picked: readonly (string | null | undefined)[] | undefined, team: EventTeamRow) => (picked ?? []).filter(id => !!id && team.players?.some(p => p.id === id)).length;
+	const nominal = overlap(ids?.blue, blue) + overlap(ids?.red, red);
+	const swapped = overlap(ids?.blue, red) + overlap(ids?.red, blue);
+	if (nominal > 0 && swapped === 0) return false;
+	if (swapped > 0 && nominal === 0) return true;
+	return null;
+}
+
 /** Called after a series result, before state is persisted; never on read/render. */
 export function recordEventCheckpoint(t: TournamentState, matchId: string): TournamentState {
 	const m = t.matches.find(row => row.id === matchId);
@@ -84,7 +100,7 @@ export function createEventStatsAccumulator(): EventStatsAccumulator {
 		const gameKey = `${t.id}:${g.id}`;
 		if (g.status !== "complete" || !g.winner || seen.has(gameKey)) return;
 		seen.add(gameKey); games++;
-		const swapped = g.blueTeam === matchRed.name && g.redTeam === matchBlue.name;
+		const swapped = gameSidesSwapped(matchBlue, matchRed, g);
 		const appeared = new Set<number>(), picked = new Set<number>(), banned = new Set<number>();
 		const rolePicks = new Set<string>();
 		const ensureChampion = (id: number) => {
@@ -93,12 +109,14 @@ export function createEventStatsAccumulator(): EventStatsAccumulator {
 			appeared.add(id); return c;
 		};
 		for (const side of ["blue", "red"] as const) {
-			const team = (side === "blue") !== swapped ? matchBlue : matchRed;
-			const opponent = team === matchBlue ? matchRed : matchBlue;
-			const teamKey = `${t.id}:${team.id}`;
-			teamGames.set(teamKey, (teamGames.get(teamKey) ?? 0) + 1);
 			const won = g.winner === side;
+			// Unresolvable sides keep team and player attribution unknown rather than guessed.
+			const team = swapped === null ? null : (side === "blue") !== swapped ? matchBlue : matchRed;
+			const opponent = team === matchBlue ? matchRed : matchBlue;
+			const teamKey = team ? `${t.id}:${team.id}` : "";
+			if (team) teamGames.set(teamKey, (teamGames.get(teamKey) ?? 0) + 1);
 			for (const [i, lane] of LANE_ORDER.entries()) {
+				if (!team) break;
 				const id = g.recap?.perPickIds?.[side]?.[i];
 				if (!id) continue;
 				const key = `${id}:${lane}`;
