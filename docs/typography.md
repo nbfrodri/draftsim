@@ -6,7 +6,7 @@ DraftSim uses Inter for application text: page/section headings, team and player
 
 Cinzel is reserved for the DraftSim wordmark using `font-brand`. Do not use it for data rows, team names, filters or everyday buttons. Monospace is limited to literal import/export codes and other technical text; use `tabular-nums` with Inter to align normal statistics and scores. Team/league artwork and decorative glyphs inside external images are assets, not interface typography.
 
-The root layout loads Inter and Cinzel through `next/font`, which bundles the font files with the static export. No runtime Google Fonts request is required. Tailwind tokens, the root/body family and form-control defaults share that configuration. SVG text inherits its surrounding font. Avoid inline Arial/system-font overrides or new font families in individual components.
+`app/fonts.ts` defines Inter and Cinzel once through `next/font`; the root layout and the global error boundary (which replaces the layout) both apply it. `next/font` bundles the font files with the static export. No runtime Google Fonts request is required. Tailwind tokens, the root/body family and form-control defaults share that configuration. SVG text inherits its surrounding font. Avoid inline Arial/system-font overrides or new font families in individual components.
 
 ## Applying the rules
 
