@@ -109,6 +109,14 @@ describe("SS phase review", () => {
 		expect(candidate.reasons).toContain("Needs 8 rated games (7 recorded)");
 		expect(computeSSRace(fixture("B"))[0].contenders).toHaveLength(0);
 	});
+	it("does not turn a missing frozen opponent roster into three-star evidence", () => {
+		const s = fixture();
+		const t = Object.values(s.tournaments)[0];
+		t.teams.find(team => team.id === s.teams[1].id)!.players = undefined;
+		const row = computeSSRace(s)[0].contenders.find(c => c.player.id === "0-0")!;
+		expect(row).toMatchObject({ games: 0, eligible: false });
+		expect(reviewSSPlayers(s).teams[0].players[0].tier).not.toBe("SS");
+	});
 	it("assigns zero estimated eligibility when eight games do not meet participation", () => {
 		const s = fixture();
 		for (const t of Object.values(s.tournaments)) for (const m of t.matches.slice(8)) m.series!.games[0].recap!.perPickIds!.blue = [];

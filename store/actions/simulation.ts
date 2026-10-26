@@ -8,9 +8,9 @@ import {
 type SimResultEntryCache
 } from "@/lib/season/simResultsSummary";
 import type { DraftStore,StoreGet,StoreSet } from "../types";
-type Helpers = { resetSimResultsBatch: typeof import("../draftStore").resetSimResultsBatch; runFranchiseSeasonSim: typeof import("../draftStore").runFranchiseSeasonSim; appendSimResults: typeof import("../draftStore").appendSimResults; autoResolveOffseasonShop: typeof import("../draftStore").autoResolveOffseasonShop; rollFranchiseToNextYearState: typeof import("../draftStore").rollFranchiseToNextYearState; applyMetaSnapshotPatch: typeof import("../draftStore").applyMetaSnapshotPatch; flushSimResultsFeed: typeof import("../draftStore").flushSimResultsFeed };
+type Helpers = { resetSimResultsBatch: typeof import("../draftStore").resetSimResultsBatch; runFranchiseSeasonSim: typeof import("../draftStore").runFranchiseSeasonSim; appendSimResults: typeof import("../draftStore").appendSimResults; attachSimYearEventSummary: typeof import("../draftStore").attachSimYearEventSummary; autoResolveOffseasonShop: typeof import("../draftStore").autoResolveOffseasonShop; rollFranchiseToNextYearState: typeof import("../draftStore").rollFranchiseToNextYearState; applyMetaSnapshotPatch: typeof import("../draftStore").applyMetaSnapshotPatch; flushSimResultsFeed: typeof import("../draftStore").flushSimResultsFeed };
 export function createSimulationActions(get: StoreGet, set: StoreSet, helpers: Helpers): Pick<DraftStore, "cancelBulkYears" | "resumeBulkYears" | "simulateRealityYears"> {
-const { resetSimResultsBatch, runFranchiseSeasonSim, appendSimResults, autoResolveOffseasonShop, rollFranchiseToNextYearState, applyMetaSnapshotPatch, flushSimResultsFeed } = helpers;
+const { resetSimResultsBatch, runFranchiseSeasonSim, appendSimResults, attachSimYearEventSummary, autoResolveOffseasonShop, rollFranchiseToNextYearState, applyMetaSnapshotPatch, flushSimResultsFeed } = helpers;
 return {
 cancelBulkYears: () => {
     if (get().simulating || get().bulkYearsProgress) set({ bulkYearsCancelRequested: true });
@@ -72,7 +72,9 @@ simulateRealityYears: (count, options) => {
           entryCache.clear();
 
           set({ season: autoResolveOffseasonShop(finished, get().champions) });
-          if (shouldCancel()) break;
+          // Yield so the completed year can paint and a queued cancel can run before synchronous archival.
+          await new Promise((r) => setTimeout(r, 0));
+          if (shouldCancel() || !bulkSimRealityMatches(get().season, realityId)) break;
 
           const rid = finished.franchise.id;
           const prevHistory =
@@ -82,6 +84,8 @@ simulateRealityYears: (count, options) => {
             get().champions,
             prevHistory,
           );
+          const archived = history.find((e) => e.id === finished.id);
+          if (archived) attachSimYearEventSummary(set, archived);
           completed++;
           set((s) => ({
             season: next,
@@ -111,6 +115,9 @@ simulateRealityYears: (count, options) => {
               : {}),
           }));
 
+          // Season and history were published together; yield once, then always flush
+          // that checkpoint, even if a cancel arrives during the yield.
+          await new Promise((r) => setTimeout(r, 0));
           await flushPendingPersistWrites();
 
           if (exportTarget) {

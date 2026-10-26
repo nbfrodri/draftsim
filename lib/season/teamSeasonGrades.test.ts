@@ -66,4 +66,20 @@ describe("teamSeasonGrades", () => {
     expect(g.avg[0]).toBeCloseTo(7); // graded from RED notes, not blue's 1
     expect(g.avg[2]).toBeCloseTo(7); // "new" played mid this game → their note
   });
+
+  it("keeps legacy recaps without participant ids unknown per player but in the team average", () => {
+    const s = seasonWith([
+      {
+        status: "complete",
+        winner: "blue",
+        blueTeam: "Alpha",
+        redTeam: "Beta",
+        recap: { ratings: { blue: [6, 6, 9, 6, 6], red: [5, 5, 5, 5, 5] } },
+      },
+    ]);
+    const g = teamSeasonGrades(s, "T1");
+    expect(g.avg).toEqual([null, null, null, null, null]);
+    expect(g.last).toEqual([null, null, null, null, null]);
+    expect(g.teamAvg).toBeCloseTo(6.6, 1);
+  });
 });

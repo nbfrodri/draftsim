@@ -26,4 +26,9 @@ describe("gameSideTeamId", () => {
     expect(gameSideTeamId(MATCH_BLUE, MATCH_RED, blueName, redName, "Ghost", "blue")).toBe(MATCH_BLUE);
     expect(gameSideTeamId(MATCH_BLUE, MATCH_RED, blueName, redName, "Ghost", "red")).toBe(MATCH_RED);
   });
+
+  it("is unknown when both match teams share a name (sides cannot be told apart)", () => {
+    expect(gameSideTeamId(MATCH_BLUE, MATCH_RED, "Twin", "Twin", "Twin", "blue")).toBeNull();
+    expect(gameSideTeamId(MATCH_BLUE, MATCH_RED, "Twin", "Twin", "Twin", "red")).toBeNull();
+  });
 });

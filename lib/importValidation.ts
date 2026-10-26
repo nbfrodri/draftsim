@@ -262,6 +262,8 @@ const playerCareer = (p: unknown): boolean => record(p) && text(p.playerId) && t
 export function validHistoryEntry(v: unknown): boolean {
   if (!record(v) || !text(v.id) || !text(v.name) || !finite(v.archivedAt) ||
     typeof v.complete !== "boolean" || !record(v.intlChampions) || !record(v.splitChampions)) return false;
+  // Validate v1 snapshots and v2 deltas in place. Imports preserve their version;
+  // expansion belongs to the read-time eventCheckpointPlayers consumer.
   if (!optional(v.eventRecords, validEventRecords)) return false;
   const team = (t: unknown) => t === null || (record(t) && text(t.name) && enumeration(t.leagueId, LEAGUE_IDS) && text(t.color) && text(t.iconKey));
   const objectRows = ["awardTally", "allProTeams", "intlMvps", "splitMvps", "rookieOfYear", "playerCareers", "phaseRosters", "transfers", "rivalries", "headToHead", "inactivePlayers"];

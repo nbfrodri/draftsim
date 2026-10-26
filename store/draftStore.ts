@@ -67,7 +67,9 @@ savePowerSpikeOverride,
 saveSynergyOverride
 } from "@/lib/metaRandomizer";
 import {
-applyRatingsToForms
+applyRatingsToForms,
+formCandidateTeams,
+formKeyForTeamName
 } from "@/lib/playerForm";
 import { randomizeRoster } from "@/lib/players";
 import { encodeRealityShareCode } from "@/lib/realityShare";
@@ -102,10 +104,12 @@ type SeasonHistoryEntry,
 import { inactiveSnapshotsForArchivedYear } from "@/lib/season/playerLifecycle";
 import {
 collectSimResultUpdates,
+attachYearEventSummary,
 compressSimResultsFeed,
 type SimResultEntry,
 type SimResultEntryCache,
 } from "@/lib/season/simResultsSummary";
+import { buildYearEventSummary } from "@/lib/season/simEventSummary";
 import { ensureTeamIdentities } from "@/lib/season/teamGen";
 import {
 aiResolveUserOffseason,
@@ -556,6 +560,16 @@ function scheduleSimResultsFlush(set: StoreSet): void {
     simResultsFlushTimer = null;
     flushSimResultsFeed(set);
   }, SIM_RESULTS_FLUSH_MS);
+}
+
+/** Attach the archived year's compact event statistics to its feed entry (pending or already flushed). */
+export function attachSimYearEventSummary(set: StoreSet, archived: SeasonHistoryEntry): void {
+  const summary = buildYearEventSummary(archived.eventRecords);
+  pendingSimResultUpdates = attachYearEventSummary(pendingSimResultUpdates, archived.id, summary);
+  set((s) => {
+    const next = attachYearEventSummary(s.simResultsFeed, archived.id, summary);
+    return next === s.simResultsFeed ? s : { simResultsFeed: next };
+  });
 }
 
 export function appendSimResults(
@@ -1320,7 +1334,7 @@ export const useDraftStore = create<DraftStore>()(
 
 
 
-  ...createSimulationActions(get, set, { resetSimResultsBatch, runFranchiseSeasonSim, appendSimResults, autoResolveOffseasonShop, rollFranchiseToNextYearState, applyMetaSnapshotPatch, flushSimResultsFeed }),
+  ...createSimulationActions(get, set, { resetSimResultsBatch, runFranchiseSeasonSim, appendSimResults, attachSimYearEventSummary, autoResolveOffseasonShop, rollFranchiseToNextYearState, applyMetaSnapshotPatch, flushSimResultsFeed }),
 
 
 
@@ -1346,7 +1360,8 @@ export const useDraftStore = create<DraftStore>()(
       const target = s.realities.find(r => r.id === id);
       if (!target || target !== initial) return;
       const decodedSeason = repairNameRegistry(decodeCompactSeason(ensureSeasonIdentities(seasonBody)), history);
-      if (isDesktop()) markRealityHistoryLoaded(id);
+      // Passing the read array lets the next save skip its unchanged rows.
+      if (isDesktop()) markRealityHistoryLoaded(id, history);
       set({
         realities: s.realities.map(r => {
           if (r.id === id) return { ...r, season: decodedSeason, history };
@@ -2369,7 +2384,7 @@ export const useDraftStore = create<DraftStore>()(
           {
             map: playerForms,
             keyFor: tournament
-              ? (n) => tournament.teams.find((t) => t.name === n)?.id ?? n
+              ? (n) => formKeyForTeamName(formCandidateTeams(tournament), n) ?? n
               : undefined,
           },
           teamWR,
@@ -2448,7 +2463,7 @@ export const useDraftStore = create<DraftStore>()(
         {
           map: playerForms,
           keyFor: tournament
-            ? (n) => tournament.teams.find((t) => t.name === n)?.id ?? n
+            ? (n) => formKeyForTeamName(formCandidateTeams(tournament), n) ?? n
             : undefined,
         },
         teamWR,
@@ -2562,23 +2577,20 @@ export const useDraftStore = create<DraftStore>()(
       return { series: updatedSeries, ...(forms ? { playerForms: forms } : {}),
         ...(tournament ? { tournament, ...seasonPatchFor(state, tournament) } : {}) };
     });
-    // Update player forms if recap has ratings.
+    // declareWinner is the single owner of player-form updates: each game is
+    // folded in once, when it is recorded. Series completion must not replay.
     if (recap) {
       const { playerForms, tournament } = get();
       const game = series.games[series.games.length - 1];
-      const ratings = recap.ratings ?? null;
+      const ratings = recap.ratings ?? computeGameRatings(recap, side);
       if (ratings) {
-        const blueKey = tournament
-          ? (tournament.teams.find((t) => t.name === game.blueTeam)?.id ?? game.blueTeam)
-          : game.blueTeam;
-        const redKey = tournament
-          ? (tournament.teams.find((t) => t.name === game.redTeam)?.id ?? game.redTeam)
-          : game.redTeam;
-        const newForms = applyRatingsToForms(
-          applyRatingsToForms(playerForms, blueKey, ratings.blue),
-          redKey,
-          ratings.red,
-        );
+        // Same-named teams are unknown, not guessed: their form is not updated.
+        const teams = formCandidateTeams(tournament);
+        const blueKey = formKeyForTeamName(teams, game.blueTeam);
+        const redKey = formKeyForTeamName(teams, game.redTeam);
+        let newForms = playerForms;
+        if (blueKey) newForms = applyRatingsToForms(newForms, blueKey, ratings.blue);
+        if (redKey) newForms = applyRatingsToForms(newForms, redKey, ratings.red);
         publishSeries(newForms);
         return;
       }
@@ -2928,28 +2940,6 @@ export const useDraftStore = create<DraftStore>()(
       redWins,
     });
 
-    // ── Feature 5: update player forms from all games in the just-finished series ──
-    let updatedForms = get().playerForms;
-    for (const game of series.games) {
-      if (game.winner == null || !game.recap) continue;
-      const recap = game.recap;
-      const ratings = recap.ratings ?? null;
-      if (!ratings) {
-        // Attempt to derive ratings via computeGameRatings.
-        const derived = computeGameRatings(recap, game.winner);
-        if (!derived) continue;
-        const bKey = tournament.teams.find((t) => t.name === game.blueTeam)?.id ?? game.blueTeam;
-        const rKey = tournament.teams.find((t) => t.name === game.redTeam)?.id ?? game.redTeam;
-        updatedForms = applyRatingsToForms(updatedForms, bKey, derived.blue);
-        updatedForms = applyRatingsToForms(updatedForms, rKey, derived.red);
-      } else {
-        const bKey = tournament.teams.find((t) => t.name === game.blueTeam)?.id ?? game.blueTeam;
-        const rKey = tournament.teams.find((t) => t.name === game.redTeam)?.id ?? game.redTeam;
-        updatedForms = applyRatingsToForms(updatedForms, bKey, ratings.blue);
-        updatedForms = applyRatingsToForms(updatedForms, rKey, ratings.red);
-      }
-    }
-
     // ── Feature 6: live meta evolution ──
     const evo = evolveMetaForTournament(advanced, get().champions);
     let tournamentAfterEvo = evo.tournament;
@@ -2992,7 +2982,6 @@ export const useDraftStore = create<DraftStore>()(
         secondsLeft: null,
         aiRationale: null,
         aiRationaleHistory: [],
-        playerForms: updatedForms,
         sideChoicePending: false,
         ...restorePatch,
       };

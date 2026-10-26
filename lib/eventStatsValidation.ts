@@ -32,7 +32,22 @@ function player(v: unknown): boolean {
 	if (!["games", "wins", "rated", "adjusted", "goldGames", "kdaGames", "kills", "deaths", "assists", "opportunities"].every(k => count(v[k]))) return false;
 	if (!["ratingSum", "sum", "squares", "goldSum"].every(k => finite(v[k]))) return false;
 	if ((v.games as number) < 1 || !(v.teams as unknown[]).length) return false;
-	return (v.wins as number) <= (v.games as number) && (v.rated as number) <= (v.games as number) && (v.adjusted as number) <= (v.rated as number) && (v.goldGames as number) <= (v.games as number) && (v.kdaGames as number) <= (v.games as number) && (v.opportunities as number) >= (v.games as number) && (v.ratingSum as number) >= 0 && (v.ratingSum as number) <= (v.rated as number) * 10 && (v.sum as number) >= 0 && (v.sum as number) <= (v.adjusted as number) * 10 && (v.squares as number) >= 0 && (v.squares as number) <= (v.adjusted as number) * 100;
+	const n = (k: string) => v[k] as number;
+	return n("wins") <= n("games") && n("rated") <= n("games") && n("adjusted") <= n("rated") && n("goldGames") <= n("games") && n("kdaGames") <= n("games") && n("opportunities") >= n("games")
+		&& ratingMoments(n("rated"), n("ratingSum"), 0, false)
+		&& ratingMoments(n("adjusted"), n("sum"), n("squares"), true);
+}
+/** Ratings are in [1, 10]: sum is within [n, 10n] and squares follow from the sum (Cauchy-Schwarz and v^2 <= 10v). */
+function ratingMoments(n: number, sum: number, squares: number, hasSquares: boolean): boolean {
+	if (n === 0) return sum === 0 && (!hasSquares || squares === 0);
+	const eps = 1e-6 * n;
+	if (sum < n - eps || sum > n * 10 + eps) return false;
+	return !hasSquares || (squares >= sum * sum / n - eps * 10 && squares <= sum * 10 + eps * 10);
+}
+/** Cumulative counters never exceed a later total; signed gold sums may move either way. */
+const MONOTONIC = EVENT_METRICS.filter(k => k !== "goldSum");
+function notBeyond(earlier: EventPlayer, later: EventPlayer): boolean {
+	return MONOTONIC.every(k => earlier[k] <= later[k] + 1e-6 * Math.max(1, Math.abs(later[k])));
 }
 const players = (v: unknown) => rows(v, 2000, player) && unique(v, "key");
 const picks = (v: unknown) => obj(v) && count(v.picks) && count(v.wins) && count(v.losses) && v.wins + v.losses === v.picks;
@@ -47,18 +62,39 @@ function stats(v: unknown): boolean {
 }
 
 export function validEventRecords(v: unknown): boolean {
-	return rows(v, 500, e => obj(e) && e.version === 1 && text(e.id) && text(e.label) && optional(e.phaseIndex, count) && optional(e.split, s => ["winter", "spring", "summer"].includes(String(s))) && optional(e.event, s => ["first-stand", "msi", "worlds", "global-cup"].includes(String(s))) && optional(e.leagueId, l => LEAGUE_IDS.includes(l as never)) && validChampionLanes(e.championLanes) && rows(e.scopes, 5, s => {
+	return rows(v, 500, e => obj(e) && (e.version === 1 || e.version === 2) && text(e.id) && text(e.label) && optional(e.phaseIndex, count) && optional(e.split, s => ["winter", "spring", "summer"].includes(String(s))) && optional(e.event, s => ["first-stand", "msi", "worlds", "global-cup"].includes(String(s))) && optional(e.leagueId, l => LEAGUE_IDS.includes(l as never)) && validChampionLanes(e.championLanes) && rows(e.scopes, 5, s => {
 		if (!obj(s) || !["all", "regular", "playoffs", "play-in", "main"].includes(String(s.id)) || !text(s.label) || !stats(s.stats)) return false;
+		if (e.version === 2 ? s.checkpointEncoding !== "delta-v2" : s.checkpointEncoding !== undefined) return false;
 		const final = s.stats as Obj; const identities = new Map((final.players as EventPlayer[]).map(p => [p.key, p]));
 		let games = 0;
+		const earlier = new Map<string, EventPlayer>();
+		const monotonic = (p: EventPlayer, final: EventPlayer) => {
+			const prior = earlier.get(p.key);
+			earlier.set(p.key, p);
+			return notBeyond(p, final) && (!prior || notBeyond(prior, p));
+		};
 		return rows(s.checkpoints, 10000, c => {
 			if (!obj(c) || !text(c.id) || !text(c.label) || !count(c.games) || c.games <= games || c.games > (final.games as number)) return false;
+			if (e.version === 2) {
+				const indices = new Set<number>();
+				if (!rows(c.players, 2000, p => {
+					if (!Array.isArray(p) || p.length < 2 || p.length > 4 || !count(p[0]) || indices.has(p[0])) return false;
+					indices.add(p[0]);
+					const identity = (final.players as EventPlayer[])[p[0]];
+					if (!identity || !rows(p[1], EVENT_METRICS.length, finite) || p[1].length !== EVENT_METRICS.length) return false;
+					if (p.length >= 3 && (!rows(p[2], 100, n => count(n) && n < identity.teams.length) || !p[2].length || new Set(p[2]).size !== p[2].length)) return false;
+					if (p.length === 4 && !text(p[3])) return false;
+					const expanded = unpackEventPlayer({ key: identity.key, name: p[3] ?? identity.name, values: p[1] as number[], teams: p[2] ?? identity.teams.map((_, i) => i) }, identity);
+					return player(expanded) && expanded.games <= (c.games as number) && monotonic(expanded, identity);
+				})) return false;
+				games = c.games; return true;
+			}
 			if (!rows(c.players, 2000, p => {
 				if (!obj(p) || !text(p.key) || !text(p.name) || !rows(p.values, EVENT_METRICS.length, finite) || p.values.length !== EVENT_METRICS.length) return false;
 				const identity = identities.get(p.key);
 				if (!identity || !rows(p.teams, 100, n => count(n) && n < identity.teams.length) || !p.teams.length || new Set(p.teams).size !== p.teams.length) return false;
 				const expanded = unpackEventPlayer({ key: p.key, name: p.name, values: p.values as number[], teams: p.teams as number[] }, identity);
-				return player(expanded) && expanded.games <= (c.games as number);
+				return player(expanded) && expanded.games <= (c.games as number) && monotonic(expanded, identity);
 			}) || !unique(c.players, "key")) return false;
 			games = c.games; return true;
 		}) && unique(s.checkpoints, "id");
