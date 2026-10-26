@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  bulkMemoryGuardMessage,
   getBulkBreadcrumbContext,
   parseBulkBreadcrumbLog,
   readBulkBreadcrumbLog,
@@ -76,5 +77,16 @@ describe("recordBulkBreadcrumb", () => {
     expect(getBulkBreadcrumbContext()).toEqual({ realityId: "r1", year: 4 });
     setBulkBreadcrumbContext(null);
     expect(getBulkBreadcrumbContext()).toBeNull();
+  });
+});
+
+describe("bulkMemoryGuardMessage", () => {
+  it("stops when the JS heap is close to its limit", () => {
+    expect(bulkMemoryGuardMessage({ heapUsed: 3_500, heapLimit: 4_000 }, 2030)).toMatch(/paused before year 2030.*memory/i);
+  });
+
+  it("continues below the threshold or when the heap size is unknown", () => {
+    expect(bulkMemoryGuardMessage({ heapUsed: 1_000, heapLimit: 4_000 }, 2030)).toBeNull();
+    expect(bulkMemoryGuardMessage({}, 2030)).toBeNull();
   });
 });

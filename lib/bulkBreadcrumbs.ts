@@ -30,6 +30,8 @@ type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unkno
 const FIELDS = ["stage", "realityId", "year", "phase", "completed", "total", "payloadBytes", "statements"] as const;
 /** A run that stopped on one of these ended normally. */
 const CLEAN_STAGES = new Set<string>(["idle", "app-closed", "acknowledged"]);
+/** Stop bulk before the next year once the renderer heap passes this share of its limit. */
+export const BULK_HEAP_GUARD_RATIO = 0.85;
 
 let invokeForTests: Invoke | null = null;
 let context: { realityId: string; year: number } | null = null;
@@ -109,3 +111,10 @@ export function unexpectedBulkEnd(log: string): { year: number | null; stage: st
   return { year, stage: last.stage, message: `The previous session ended unexpectedly during ${when}, stage ${last.stage}.` };
 }
 
+/** Message that stops bulk before `year`, or null to continue. Unknown heap sizes never stop it. */
+export function bulkMemoryGuardMessage(heap: JsHeap, year: number): string | null {
+  if (!heap.heapUsed || !heap.heapLimit) return null;
+  if (heap.heapUsed / heap.heapLimit < BULK_HEAP_GUARD_RATIO) return null;
+  const used = Math.round(heap.heapUsed / 1048576), limit = Math.round(heap.heapLimit / 1048576);
+  return `Bulk simulation paused before year ${year}: the app is close to its memory limit (${used} of ${limit} MB). Completed years are saved. Restart DraftSim, then resume the simulation.`;
+}

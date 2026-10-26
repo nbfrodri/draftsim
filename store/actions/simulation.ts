@@ -1,4 +1,4 @@
-import { recordBulkBreadcrumb, setBulkBreadcrumbContext, type BulkStage } from "@/lib/bulkBreadcrumbs";
+import { bulkMemoryGuardMessage, readJsHeap, recordBulkBreadcrumb, setBulkBreadcrumbContext, type BulkStage } from "@/lib/bulkBreadcrumbs";
 import { holdDebouncedSqliteWrites } from "@/lib/desktopSqliteStorage";
 import { flushPendingPersistWrites } from "@/lib/desktopStorage";
 import { getPersistenceError, reportPersistenceError } from "@/lib/persistenceStatus";
@@ -64,6 +64,12 @@ simulateRealityYears: (count, options) => {
           if (shouldCancel()) break;
           const cur = get().season;
           if (!bulkSimRealityMatches(cur, realityId)) break;
+          const guard = bulkMemoryGuardMessage(readJsHeap(), cur.franchise!.year);
+          if (guard) {
+            await crumb("guard-stop");
+            set(s => ({ bulkYearJobs: { ...s.bulkYearJobs, [realityId]: { targetYear: startYear + total, startedAt, error: guard } } }));
+            break;
+          }
 
           if (cur.status !== "complete") {
             await crumb("season-sim");

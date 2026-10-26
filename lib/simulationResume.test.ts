@@ -105,4 +105,14 @@ describe("bulk simulation diagnostics", () => {
     expect(holdRelease.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(flushPendingPersistWrites).mock.invocationCallOrder.at(-1)!);
   });
 
+  it("stops before the next year with a recoverable message when memory is nearly exhausted", async () => {
+    const steps = recordSteps();
+    vi.stubGlobal("performance", { now: () => 0, memory: { usedJSHeapSize: 3_900, totalJSHeapSize: 3_950, jsHeapSizeLimit: 4_000 } });
+    const h = harness(); h.get().simulateRealityYears(2);
+    await vi.waitFor(() => expect(h.get().simulating).toBeNull());
+    expect(h.get().season?.franchise?.year).toBe(1);
+    expect(h.get().bulkYearJobs.Resume).toMatchObject({ targetYear: 3, error: expect.stringMatching(/memory limit/) });
+    expect(steps).toContain("guard-stop:1");
+    expect(steps).not.toContain("season-sim:1");
+  });
 });
