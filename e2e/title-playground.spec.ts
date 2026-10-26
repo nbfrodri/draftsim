@@ -387,8 +387,14 @@ test("title playground filters teams, player winning regions, years and realitie
         if (args.query?.includes("persist_version")) return [{ value: "8" }];
         if (args.query?.includes("FROM reality_history")) {
           const saved = JSON.parse(localStorage.getItem("draftsim-store")!) as { state: { realities: Array<{ id: string; history: typeof entries }> } };
-          const selected = saved.state.realities.find(reality => reality.id === args.values?.[0]);
-          return (selected?.history ?? []).map(entry => ({ entry_json: JSON.stringify(entry) }));
+          // Native history reads are chunked: sizes first, then substr parts.
+          const chunked = args.query.includes("substr(entry_json");
+          const selected = saved.state.realities.find(reality => reality.id === args.values?.[chunked ? 2 : 0]);
+          const history = selected?.history ?? [];
+          if (!chunked) return history.map((entry, i) => ({ entry_id: entry.id, sort_order: i, chars: JSON.stringify(entry).length }));
+          const [start, length, , entryId] = args.values as [number, number, string, string];
+          const entry = history.find(e => e.id === entryId);
+          return entry ? [{ part: JSON.stringify(entry).slice(start - 1, start - 1 + length) }] : [];
         }
         return [];
       }
