@@ -5,8 +5,7 @@ import type { Champion, Lane } from "@/lib/types";
 import type { EventStats } from "@/lib/eventStats";
 import { LANE_ORDER } from "@/lib/players";
 import RoleLabel from "../RoleLabel";
-
-const selectClass = "border border-rift-line bg-rift-bg px-2 py-1.5 text-xs text-rift-mutedbright focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
+import PlaygroundSelect from "../hall/PlaygroundSelect";
 
 export interface ChampionTableFilters { role: Lane | "all"; limit: "10" | "all" }
 
@@ -16,7 +15,7 @@ export default function EventChampionTables({ stats, champions, lanes, filters, 
 	return <section aria-label="Champion statistics" className="space-y-3 border-t border-rift-line/40 pt-4">
 		<div className="flex flex-wrap items-center justify-between gap-3"><h4 className="font-display text-sm text-rift-goldbright">Champion statistics</h4><div className="flex flex-wrap items-center gap-2">
 			<fieldset aria-label="Champion role" className="m-0 flex min-w-0 flex-wrap gap-1.5 border-0 p-0">{(["all", ...LANE_ORDER] as const).map(l => <button type="button" key={l} aria-pressed={l === role} onClick={() => onFilterChange({ role: l })} className={`inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold ${l === role ? "border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright"}`}>{l === "all" ? "All" : <RoleLabel lane={l} size="sm" />}</button>)}</fieldset>
-			<label className="text-xs text-rift-mutedbright">Show <select className={selectClass} aria-label="Champion limit" value={limit} onChange={e => onFilterChange({ limit: e.target.value as ChampionTableFilters["limit"] })}><option value="10">Top 10</option><option value="all">All</option></select></label>
+			<PlaygroundSelect label="Show" ariaLabel="Champion limit" value={limit} options={[{ value: "10", label: "Top 10" }, { value: "all", label: "All" }]} onChange={value => onFilterChange({ limit: value as ChampionTableFilters["limit"] })} />
 		</div></div>
 		<p className="text-xs text-rift-mutedbright">Completed games · picks use the played role; bans and presence use playable roles. WR always describes picked appearances. {role !== "all" && "Unknown playable roles are excluded from bans/presence filters."}</p>
 		<div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))]">{(["picks", "bans", "presenceGames"] as const).map(metric => {
