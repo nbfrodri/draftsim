@@ -67,28 +67,28 @@ function EventStatsContent(props: Props & { view: View; updateView: (patch: Part
 			<PlaygroundSelect label="Stage" ariaLabel="Ranking stage" value={scope.id} onChange={setScope} options={record.scopes.map(s => ({ value: s.id, label: s.label, icon: s.id === "all" ? <EventIdentityIcon identity={record} /> : undefined }))} />
 			<PlaygroundSelect label="Evolution" ariaLabel="Ranking checkpoint" value={checkpoint ? point : "current"} onChange={setPoint} options={[{ value: "current", label: "Current / final standings" }, ...scope.checkpoints.map(c => ({ value: c.id, label: c.label, detail: plural(c.games, "game"), group: hasPlayIn ? c.label.startsWith("Play-in · ") ? "Play-in" : "Main event" : undefined }))]} />
 		</div>
-		<div className="grid grid-cols-1 gap-2" role="group" aria-label="Role leaders">{LANE_ORDER.map(role => {
+		<fieldset className="m-0 grid min-w-0 items-stretch gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 border-0 p-0" aria-label="Role leaders">{LANE_ORDER.map(role => {
 			const leader = rankEventPlayers(players, role)[0];
-			return <article key={role} aria-label={`${ROLE_LABELS[role]} leader`} className="min-w-0 border border-rift-line/50 bg-rift-bg/30">
-				<h4 className="flex items-center gap-1.5 border-b border-rift-line/40 px-3 py-2 text-[10px] font-semibold text-rift-goldbright"><RoleLabel lane={role} size="sm" /></h4>
-				{leader ? <div className="p-3">
+			return <article key={role} aria-label={`${ROLE_LABELS[role]} leader`} className="flex h-full min-w-0 flex-col border border-rift-line/50 bg-rift-bg/30">
+				<h4 className="flex items-center gap-1.5 border-b border-rift-line/40 px-2 py-1.5 text-[10px] font-semibold text-rift-goldbright"><RoleLabel lane={role} size="sm" /></h4>
+				{leader ? <div className="flex flex-1 flex-col p-2">
 					<PlayerIdentity
-						name={<PlayerNameLink playerId={leader.playerId} name={leader.name} seasonId={props.seasonId} phaseScope={phaseScope} className="min-w-0 max-w-full" />}
+						name={<PlayerNameLink playerId={leader.playerId} name={leader.name} seasonId={props.seasonId} phaseScope={phaseScope} className="min-w-0 max-w-full truncate" />}
 						teams={<PlayerTeams player={leader} seasonId={props.seasonId} phaseScope={phaseScope} />}
 					/>
-					<div className="my-3"><PlayerMetrics className="grid-cols-2 sm:grid-cols-4" metrics={[
+					<div className="my-2"><PlayerMetrics className="grid-cols-2" metrics={[
 						["Avg grade", "Grade", avg(leader.ratingSum, leader.rated)],
 						["Avg gold diff", "Gold", avg(leader.goldSum, leader.goldGames, 0)],
 						["Win rate", "WR", leader.games ? `${avg(leader.wins * 100, leader.games, 0)}%` : "—"],
 						["Games", "Games", String(leader.games)],
 					]} /></div>
-					<div className="flex flex-wrap items-center justify-between gap-1 border-t border-rift-line/30 pt-2 text-[10px] text-rift-mutedbright">
+					<div className="mt-auto flex flex-wrap items-center justify-between gap-1 border-t border-rift-line/30 pt-2 text-[10px] text-rift-mutedbright">
 						<span>Performance score <span className="font-display tabular-nums text-rift-goldbright">{leader.score?.toFixed(2) ?? "—"}</span></span>
 						<span>{leader.qualified ? "Leading" : "Provisional"}{leader.score === null && " · Partial evidence"}</span>
 					</div>
 				</div> : <p className="px-3 py-2 text-[10px] text-rift-mutedbright">No recorded games</p>}
 			</article>;
-		})}</div>
+		})}</fieldset>
 		<div className="flex flex-wrap items-end justify-between gap-2"><fieldset aria-label="Player role" className="m-0 flex min-w-0 flex-wrap gap-1.5 border-0 p-0">{LANE_ORDER.map(role => <button type="button" key={role} aria-pressed={role === lane} onClick={() => setLane(role)} className={`${segment} ${segmentState(role === lane)}`}><RoleLabel lane={role} size="sm" /></button>)}</fieldset><PlaygroundSelect label="Sort" ariaLabel="Player sort" value={sort} onChange={setSort} options={[{ value: "performance", label: "Performance score" }, { value: "grade", label: "Avg grade" }, { value: "gold", label: "Avg gold diff" }, { value: "games", label: "Games" }, { value: "wins", label: "Win rate" }]} /></div>
 		<p className="text-[11px] leading-relaxed text-rift-mutedbright">{checkpoint ? `${checkpoint.label} · ${plural(checkpoint.games, "game")} at this checkpoint` : `${plural(scope.stats.games, "completed game")} · current / final standings`}. {scope.checkpoints.length ? "Movement compares performance rank with the previous recorded checkpoint." : "Earlier round history was not recorded. Current statistics remain available."}</p>
 		<div className="overflow-x-auto border border-rift-line/40"><table aria-label={`${lane} player rankings`} className="w-full text-left text-xs tabular-nums"><thead className="border-b border-rift-line/40 bg-rift-bg/40 text-[10px] uppercase tracking-wider text-rift-mutedbright"><tr>{["Rank", "Player / team", "Score", "Avg grade", "Avg gold ±", "Games", "WR", "KDA"].map((h, i) => <th key={h} scope="col" className={`whitespace-nowrap px-2 py-2 font-semibold ${i > 1 ? "text-right" : ""}`}>{h}</th>)}</tr></thead><tbody>{sorted.map(p => {

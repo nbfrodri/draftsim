@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 
 export const BRACES_ADVISORY = "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm";
 export const SELECTOR_PARSER_ADVISORY = "https://github.com/advisories/GHSA-rj75-hqrm-r3gf";
-export const EXCEPTION_EXPIRES = "2026-11-03T00:00:00Z";
+export const EXCEPTION_EXPIRES = "2026-12-03T00:00:00Z";
 // Known dev-only chains (Tailwind 3, ESLint/Next) and the severity npm reports for each.
 // Tailwind is moderate once only the selector-parser advisory remains in its chain.
 const DEVELOPMENT_CHAIN = new Map([
