@@ -550,6 +550,10 @@ export async function registerTauriCloseFlushHandler(): Promise<void> {
       setAppClosePhase("idle");
       return;
     }
+    // Closing mid-bulk is a clean end, not a crash.
+    const { getBulkBreadcrumbContext, recordBulkBreadcrumb } = await import("./bulkBreadcrumbs");
+    const bulk = getBulkBreadcrumbContext();
+    if (bulk) await recordBulkBreadcrumb({ stage: "app-closed", ...bulk });
     try {
       // destroy() force-closes WITHOUT re-emitting onCloseRequested
       // (unlike close()), so this can't loop.

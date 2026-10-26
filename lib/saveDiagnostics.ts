@@ -1,3 +1,4 @@
+import type { ParsedBreadcrumb } from "./bulkBreadcrumbs";
 /** Session-only, opt-in metrics. Never accepts payloads, paths or error messages. */
 export type SaveDiagnosticPhase = "global-encode" | "season-encode" | "history-encode" | "plan" | "commit" | "flush";
 export interface SaveDiagnostic {
@@ -6,6 +7,8 @@ export interface SaveDiagnostic {
   bytes: number;
   statements: number;
   success: boolean;
+  /** JS heap in use when the step finished (WebView2/Chromium only). */
+  heapUsed?: number;
 }
 const LIMIT = 200;
 const listeners = new Set<() => void>();
@@ -39,7 +42,9 @@ export function beginSaveDiagnostic(phase: SaveDiagnosticPhase) {
     if (finished || !state.enabled || current !== generation) return;
     finished = true;
     const finite = (n: number) => Number.isFinite(n) ? Math.max(0, n) : 0;
-    const entry = { phase, durationMs: finite(performance.now() - started), bytes: finite(bytes), statements: finite(statements), success };
+    const entry: SaveDiagnostic = { phase, durationMs: finite(performance.now() - started), bytes: finite(bytes), statements: finite(statements), success };
+    const heapUsed = (performance as { memory?: { usedJSHeapSize?: number } }).memory?.usedJSHeapSize;
+    if (typeof heapUsed === "number" && Number.isFinite(heapUsed)) entry.heapUsed = heapUsed;
     state = { ...state, entries: [...state.entries.slice(-(LIMIT - 1)), entry] };
     publish();
   };
@@ -53,6 +58,8 @@ export function encodeWithSaveDiagnostic(phase: SaveDiagnosticPhase, encode: () 
     return value;
   } catch (error) { finish(false); throw error; }
 }
-export function exportSaveDiagnostics(): string {
-  return JSON.stringify({ format: "draftsim-save-diagnostics", version: 1, entries: state.entries }, null, 2);
+/** `bulkBreadcrumbs` carries the native bulk log (stages, ids, sizes), which survives a crash. */
+export function exportSaveDiagnostics(bulkBreadcrumbs?: readonly ParsedBreadcrumb[]): string {
+  return JSON.stringify({ format: "draftsim-save-diagnostics", version: 1, entries: state.entries,
+    ...(bulkBreadcrumbs ? { bulkBreadcrumbs: bulkBreadcrumbs.slice(-LIMIT) } : {}) }, null, 2);
 }

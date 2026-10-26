@@ -53,6 +53,8 @@ Comprobación local en perfil debug con un fixture sintético de 32 MB: lectura 
 
 `lib/desktopSqliteStorage.ts` recibe snapshots del middleware de Zustand. Agrupa cambios con un debounce de 500 ms y mantiene una operación en vuelo. El flush drena también los snapshots que llegan mientras se espera una escritura anterior.
 
+Durante una simulación de varios años, `holdDebouncedSqliteWrites` mantiene el último snapshot en cola sin timer: solo lo escriben los flush explícitos (checkpoint de cada año archivado, pausa, error y cierre). La simulación publica tras cada partida y un snapshot de temporada en curso es el guardado más grande (14-18 MB medidos), así que el debounce ya no lo envía a mitad de año. Al terminar, la retención se libera y el debounce se rearma para lo que siga pendiente.
+
 ```mermaid
 sequenceDiagram
   participant UI as Interfaz
@@ -88,6 +90,8 @@ El flush es una frontera de coordinación, no un simple `setTimeout`. Salir, hac
 `src-tauri/src/storage.rs` obtiene una transacción del pool SQL, ejecuta el lote sobre esa misma transacción y confirma al final. Si una sentencia falla, las anteriores no deben quedar aplicadas parcialmente.
 
 Enviar `BEGIN` y después varias llamadas independientes a un pool no garantiza que utilicen la misma conexión. El comando `persist_batch` concentra esa responsabilidad en Rust y recibe sentencias con bindings escalares.
+
+Los bindings de texto de más de 256 K caracteres no viajan dentro del JSON del lote (`lib/persistBatchTransport.ts`). Antes de `persist_batch`, el frontend los envía como bytes UTF-8 en trozos de hasta 1 MiB con `persist_stage_chunk` (cuerpo binario, cabeceras `draftsim-stage` y `draftsim-blob`) y el lote lleva marcadores `{"$staged": n}`. Preparar trozos no escribe nada: Rust los resuelve al recibir el lote y ejecuta todas las sentencias en la misma transacción y en el mismo orden. Solo se conserva el token del guardado más reciente; `persist_batch` toma y borra siempre lo preparado, haya éxito o fallo, y valida UTF-8 al unir los trozos. Un trozo perdido hace fallar el guardado antes de cualquier SQL y el reintento lo prepara todo de nuevo.
 
 El comando resuelve la base de datos registrada de DraftSim y comprueba la ventana llamante. La seguridad depende además de las capacidades de Tauri y de CSP; una comprobación de nombre de ventana no sustituye esas otras barreras.
 

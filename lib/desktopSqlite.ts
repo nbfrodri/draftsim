@@ -1,5 +1,7 @@
 import { FRAGMENT_MANIFEST, GLOBAL_FRAGMENT_KEYS, joinGlobalState, partitionGlobalState } from "./globalStateFragments";
 import { beginSaveDiagnostic, encodeWithSaveDiagnostic } from "./saveDiagnostics";
+import { getBulkBreadcrumbContext, recordBulkBreadcrumb } from "./bulkBreadcrumbs";
+import { sendPersistBatch, type PersistInvoke, type SqlStatement } from "./persistBatchTransport";
 import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 /**
  * desktopSqlite.ts — SQLite persistence for DraftSim desktop (Tauri).
@@ -44,7 +46,16 @@ export type SqlExecutor = {
   batch?: (statements: SqlStatement[]) => Promise<void>;
 };
 
-type SqlStatement = { query: string; bindValues: unknown[] };
+
+/** Approximate persist_batch payload: string lengths (UTF-16 units, equal to bytes for ASCII JSON), 8 per scalar. */
+function statementPayloadSize(statements: SqlStatement[]): number {
+  let size = 0;
+  for (const s of statements) {
+    size += s.query.length;
+    for (const v of s.bindValues) size += typeof v === "string" ? v.length : 8;
+  }
+  return size;
+}
 let dbPromise: Promise<SqlExecutor> | null = null;
 const readHistorySources = new WeakMap<SeasonHistoryEntry[], { db: SqlExecutor; realityId: string; baseline: HistoryBaseline }>();
 const writeTails = new WeakMap<SqlExecutor, Promise<unknown>>();
@@ -127,9 +138,12 @@ async function atomicWrite(db: SqlExecutor, operation: (writer: SqlExecutor) => 
     const planDone = beginSaveDiagnostic("plan");
     try { await operation(writer); planDone(); } catch (error) { planDone(false); throw error; }
     if (db.batch && statements.length) {
+      const payloadBytes = statementPayloadSize(statements);
+      const bulk = getBulkBreadcrumbContext();
+      if (bulk) await recordBulkBreadcrumb({ stage: "persist-batch", ...bulk, statements: statements.length, payloadBytes });
       const commitDone = beginSaveDiagnostic("commit");
-      try { await db.batch(statements); commitDone(true, 0, statements.length); }
-      catch (error) { commitDone(false, 0, statements.length); throw error; }
+      try { await db.batch(statements); commitDone(true, payloadBytes, statements.length); }
+      catch (error) { commitDone(false, payloadBytes, statements.length); throw error; }
     }
   } catch (error) {
     loadedHistoryRealityIds.clear();
@@ -241,7 +255,8 @@ async function loadDatabase(): Promise<SqlExecutor> {
       return {
         execute: (query: string, values?: unknown[]) => db.execute(query, values),
         select: <T>(query: string, values?: unknown[]) => db.select<T[]>(query, values),
-        batch: (statements: SqlStatement[]) => invoke<void>("persist_batch", { statements }),
+        // Large values travel as raw chunks; the batch still commits in one transaction.
+        batch: (statements: SqlStatement[]) => sendPersistBatch(invoke as PersistInvoke, statements),
       } satisfies SqlExecutor;
     })().catch((error) => {
       dbPromise = null;

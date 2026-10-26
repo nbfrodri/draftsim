@@ -136,6 +136,7 @@ startNextGame,
 winsByTeamName
 } from "@/lib/series";
 import { runAutoPlayMatch } from "@/lib/sim/bulkSimClient";
+import { getBulkBreadcrumbContext, recordBulkBreadcrumb } from "@/lib/bulkBreadcrumbs";
 import { finalizeRoles } from "@/lib/sim/finalizeRoles";
 import { SOUND,playActionSound,sounds } from "@/lib/sounds";
 import {
@@ -597,12 +598,17 @@ export async function runFranchiseSeasonSim(
   const safetyCap = 5000;
   let sinceCommit = 0;
   const BATCH = 4;
+  let loggedPhase = -1;
   for (let step = 0; step < safetyCap; step++) {
           if (get().bulkYearsCancelRequested) break;
     if (shouldCancel()) return false;
     const cur = get().season;
     if (!bulkSimRealityMatches(cur, realityId)) return false;
     if (cur.status === "complete") return true;
+    if (cur.phaseIndex !== loggedPhase && getBulkBreadcrumbContext()) {
+      loggedPhase = cur.phaseIndex;
+      await recordBulkBreadcrumb({ stage: "phase", realityId, year: cur.franchise?.year, phase: cur.phaseIndex });
+    }
 
     const phase = cur.phases[cur.phaseIndex];
     if (phase?.kind === "transfer" && phase.status === "in-progress") {
