@@ -14,24 +14,23 @@ import RegionMark from "../RegionMark";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
 import TierChip from "./TierChip";
+import { PlayerIdentity as SharedPlayerIdentity, PlayerMetrics as SharedPlayerMetrics } from "./PlayerLine";
 import { gamesProgress, remainingReasons, seatLeaderHint, SS_ESTIMATE_NOTE } from "@/lib/season/ssRaceView";
 
 const FOCUS = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 
 function PlayerIdentity({ row }: { row: SSRacePlayer }) {
 	return (
-		<div className="min-w-0 space-y-1.5">
-			<div className="flex items-center gap-1.5 font-display text-[13px] text-rift-goldbright">
-				{row.player.tier === "SS" ? <SSBadge size="sm" /> : <TierChip tier={row.player.tier} size="md" />}
-				<PlayerNameLink playerId={row.player.id} name={row.player.name} className="min-w-0 max-w-full" />
-			</div>
-			<div className="flex min-w-0 items-center gap-2"><RegionMark league={row.team.leagueId} size={16} /><TeamNameLink
+		<SharedPlayerIdentity
+			badge={row.player.tier === "SS" ? <SSBadge size="sm" /> : <TierChip tier={row.player.tier} size="md" />}
+			name={<PlayerNameLink playerId={row.player.id} name={row.player.name} className="min-w-0 max-w-full" />}
+			teams={<div className="flex min-w-0 items-center gap-2"><RegionMark league={row.team.leagueId} size={16} /><TeamNameLink
 				teamId={row.team.id} name={row.team.name} leagueId={row.team.leagueId}
 				iconKey={row.team.iconKey} logoUrl={row.team.logoUrl} color={row.team.color}
 				hint={{ team: row.team }} logoSize={16}
 				className="inline-flex max-w-full items-center gap-1.5 text-[11px] text-rift-mutedbright"
-			/></div>
-		</div>
+			/></div>}
+		/>
 	);
 }
 
@@ -48,22 +47,12 @@ function chanceLabel(chance: number | null): string {
 }
 
 function PlayerMetrics({ row, className = "grid-cols-2" }: { row: SSRacePlayer; className?: string }) {
-	const metrics = [
+	return <SharedPlayerMetrics className={className} metrics={[
 		["Avg grade", "Grade", row.stats?.avgRating?.toFixed(1) ?? "—"],
 		["Avg gold diff", "Gold", goldAverage(row)],
 		["Win rate", "WR", row.stats?.games ? `${Math.round(row.stats.wins / row.stats.games * 100)}%` : "—"],
 		["Rated games", "Games", String(row.games)],
-	];
-	return (
-		<dl className={`grid gap-x-3 gap-y-2.5 tabular-nums ${className}`}>
-			{metrics.map(([label, short, value]) => (
-				<div key={label}>
-					<dt className="text-[10px] text-rift-mutedbright"><span className="sm:hidden">{short}</span><span className="hidden sm:inline">{label}</span></dt>
-					<dd className="mt-0.5 font-display text-[13px] text-rift-goldbright">{value}</dd>
-				</div>
-			))}
-		</dl>
-	);
+	]} />;
 }
 
 function SeatLeader({ contenders }: { contenders: SSRacePlayer[] }) {
