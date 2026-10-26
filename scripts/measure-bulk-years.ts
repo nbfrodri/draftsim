@@ -27,6 +27,7 @@ import { SCHEMA_SQL } from "../lib/desktopSqliteSchema";
 import { compactEncodeSeasonForPersist, encodeSeasonForDesktopDb } from "../lib/recapCompression";
 import { compactEncodeRealitiesForPersist } from "../store/persistenceEncoding";
 import { DEFAULT_INTL_CONFIGS, DEFAULT_LEAGUE_CONFIG } from "../components/season/configCards";
+import { sendPersistBatch, type PersistInvoke } from "../lib/persistBatchTransport";
 import type { PersistedStoreState } from "../lib/desktopSqliteSchema";
 import type { SavedReality } from "../store/types";
 
@@ -54,6 +55,8 @@ const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
 type Statement = { query: string; bindValues: unknown[] };
 type PersistSample = {
 	statements: number; payloadBytes: number; stringifyMs: number; saveMs: number;
+	// Same statements through lib/persistBatchTransport (raw chunks + small JSON batch).
+	chunkedMessages: number; chunkedMaxMessageBytes: number; chunkedPrepareMs: number;
 	largestStatementBytes: number; largestStatement: string;
 	seasonRowBytes: number; seasonFragmentBytes: number; historyRowBytes: number; otherBytes: number;
 };
@@ -87,7 +90,18 @@ async function summarizeBatch(statements: Statement[], saveMs: number): Promise<
 	const stringifyStart = performance.now();
 	const payload = JSON.stringify({ statements }, tauriReplacer);
 	const stringifyMs = performance.now() - stringifyStart;
+	// Each chunked message is what Tauri would serialize: raw bytes as-is, objects as JSON.
+	let chunkedMessages = 0, chunkedMaxMessageBytes = 0;
+	const measureInvoke: PersistInvoke = async (_command, args) => {
+		chunkedMessages++;
+		const size = args instanceof Uint8Array ? args.byteLength : Buffer.byteLength(JSON.stringify(args, tauriReplacer));
+		chunkedMaxMessageBytes = Math.max(chunkedMaxMessageBytes, size);
+	};
+	const chunkedStart = performance.now();
+	await sendPersistBatch(measureInvoke, statements);
+	const chunkedPrepareMs = performance.now() - chunkedStart;
 	const sample: PersistSample = { statements: statements.length, payloadBytes: Buffer.byteLength(payload), stringifyMs, saveMs,
+		chunkedMessages, chunkedMaxMessageBytes, chunkedPrepareMs,
 		largestStatementBytes: 0, largestStatement: "", seasonRowBytes: 0, seasonFragmentBytes: 0, historyRowBytes: 0, otherBytes: 0 };
 	for (const s of statements) {
 		const size = bytes(s);

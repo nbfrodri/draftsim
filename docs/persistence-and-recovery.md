@@ -91,6 +91,8 @@ El flush es una frontera de coordinación, no un simple `setTimeout`. Salir, hac
 
 Enviar `BEGIN` y después varias llamadas independientes a un pool no garantiza que utilicen la misma conexión. El comando `persist_batch` concentra esa responsabilidad en Rust y recibe sentencias con bindings escalares.
 
+Los bindings de texto de más de 256 K caracteres no viajan dentro del JSON del lote (`lib/persistBatchTransport.ts`). Antes de `persist_batch`, el frontend los envía como bytes UTF-8 en trozos de hasta 1 MiB con `persist_stage_chunk` (cuerpo binario, cabeceras `draftsim-stage` y `draftsim-blob`) y el lote lleva marcadores `{"$staged": n}`. Preparar trozos no escribe nada: Rust los resuelve al recibir el lote y ejecuta todas las sentencias en la misma transacción y en el mismo orden. Solo se conserva el token del guardado más reciente; `persist_batch` toma y borra siempre lo preparado, haya éxito o fallo, y valida UTF-8 al unir los trozos. Un trozo perdido hace fallar el guardado antes de cualquier SQL y el reintento lo prepara todo de nuevo.
+
 El comando resuelve la base de datos registrada de DraftSim y comprueba la ventana llamante. La seguridad depende además de las capacidades de Tauri y de CSP; una comprobación de nombre de ventana no sustituye esas otras barreras.
 
 SQLite se configura con WAL y `synchronous=NORMAL`. Esta elección mejora concurrencia y coste, pero no es una promesa absoluta frente a fallos de energía o hardware. Commit, integridad y respaldo cubren problemas diferentes.

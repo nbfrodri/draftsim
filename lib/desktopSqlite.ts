@@ -1,6 +1,7 @@
 import { FRAGMENT_MANIFEST, GLOBAL_FRAGMENT_KEYS, joinGlobalState, partitionGlobalState } from "./globalStateFragments";
 import { beginSaveDiagnostic, encodeWithSaveDiagnostic } from "./saveDiagnostics";
 import { getBulkBreadcrumbContext, recordBulkBreadcrumb } from "./bulkBreadcrumbs";
+import { sendPersistBatch, type PersistInvoke, type SqlStatement } from "./persistBatchTransport";
 import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operationProgress";
 /**
  * desktopSqlite.ts — SQLite persistence for DraftSim desktop (Tauri).
@@ -45,8 +46,6 @@ export type SqlExecutor = {
   batch?: (statements: SqlStatement[]) => Promise<void>;
 };
 
-
-type SqlStatement = { query: string; bindValues: unknown[] };
 
 /** Approximate persist_batch payload: string lengths (UTF-16 units, equal to bytes for ASCII JSON), 8 per scalar. */
 function statementPayloadSize(statements: SqlStatement[]): number {
@@ -256,7 +255,8 @@ async function loadDatabase(): Promise<SqlExecutor> {
       return {
         execute: (query: string, values?: unknown[]) => db.execute(query, values),
         select: <T>(query: string, values?: unknown[]) => db.select<T[]>(query, values),
-        batch: (statements: SqlStatement[]) => invoke<void>("persist_batch", { statements }),
+        // Large values travel as raw chunks; the batch still commits in one transaction.
+        batch: (statements: SqlStatement[]) => sendPersistBatch(invoke as PersistInvoke, statements),
       } satisfies SqlExecutor;
     })().catch((error) => {
       dbPromise = null;
