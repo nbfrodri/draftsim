@@ -294,7 +294,7 @@ function resolveHistory(
   opts: TeamCardResolveOpts | undefined,
 ): TeamCardData | null {
   const hint = opts?.hint;
-  const entry = opts?.seasonId ? idx.entryById.get(opts.seasonId) : undefined;
+  const entry = hint?.archive ?? (opts?.seasonId ? idx.entryById.get(opts.seasonId) : undefined);
 
   const name =
     hint?.team?.name ?? hint?.name ?? (teamId?.includes(":") ? teamId.slice(teamId.indexOf(":") + 1) : undefined);
@@ -305,7 +305,8 @@ function resolveHistory(
 
   if (!name || !leagueId) return null;
 
-  const ref = refFor(idx.identity, name, leagueId, hint?.logoUrl ?? hint?.team?.logoUrl);
+  const identity = hint?.archive && idx.entryById.get(hint.archive.id) !== hint.archive ? buildTeamIdentity([hint.archive]) : idx.identity;
+  const ref = refFor(identity, name, leagueId, hint?.logoUrl ?? hint?.team?.logoUrl);
   // Year-scoped: that season's phase roster. Career / all-time: newest
   // non-empty archived snapshot (hint players only as last resort).
   const yearSnap = entry

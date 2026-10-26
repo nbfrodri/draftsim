@@ -58,6 +58,11 @@ import { useDraftStore } from "@/store/draftStore";
  * stable id yet (legacy / one-off seasons).
  */
 export interface PlayerCardHint {
+  /** Exact contributing archive for aggregates across realities. */
+  archive?: SeasonHistoryEntry;
+  coverageLabel?: string;
+  /** Recorded display identity when an event archive has no roster snapshot. */
+  name?: string;
   faRow?: FaBoardRow;
   player?: Player;
   teamName?: string;
@@ -447,9 +452,11 @@ function resolveHistory(
   opts: PlayerCardResolveOpts | undefined,
 ): PlayerCardData | null {
   if (!playerId) return null;
-  const hit = idx.hits().get(playerId);
-  const entry = opts?.seasonId ? idx.entryById.get(opts.seasonId) : undefined;
   const hint = opts?.hint;
+  const entry = hint?.archive ?? (opts?.seasonId ? idx.entryById.get(opts.seasonId) : undefined);
+  // Aggregates can contribute a different reality with the same season/player ids.
+  const foreignArchive = !!hint?.archive && idx.entryById.get(hint.archive.id) !== hint.archive;
+  const hit = foreignArchive ? undefined : idx.hits().get(playerId);
   const hintPlayer = hint?.player;
   // Year pin → that season's roster. Career → newest archive appearance for
   // identity (tier/champs/team); never treat that snapshot as "active" status.
@@ -471,12 +478,13 @@ function resolveHistory(
     !inactiveSnap &&
     !hintPlayer &&
     !yearRecord &&
-    !hint?.teamName
+    !hint?.teamName &&
+    !hint?.name
   ) {
     return null;
   }
 
-  const asOf = entry && !opts?.phaseScope ? idx.statusAsOf(entry.id).get(playerId) : undefined;
+  const asOf = entry && !opts?.phaseScope ? (foreignArchive ? playerCareerStatuses([entry], { preferInactive: true }) : idx.statusAsOf(entry.id)).get(playerId) : undefined;
   // Year-scoped status stays inside that archive — never live-overlaid hit.
   const status: PlayerCardStatus = entry
     ? (asOf?.status ??
@@ -532,6 +540,7 @@ function resolveHistory(
       inactiveSnap?.playerName ??
       (entry ? yearRecord?.playerName : hit?.name) ??
       hintPlayer?.name ??
+      hint?.name ??
       hit?.name ??
       "Unknown",
     ...(lane ? { lane } : {}),

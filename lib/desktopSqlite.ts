@@ -935,6 +935,49 @@ async function reconcilePersistedState(
   return global;
 }
 
+/**
+ * Large text crosses the WebView IPC bridge in pieces of at most this many
+ * characters. One select of a long reality's history (hundreds of MB) can kill
+ * the renderer at startup; writes are already chunked the same way.
+ */
+export const READ_CHUNK_CHARS = 1 << 20;
+
+/** `sql` selects `substr(column, ?, ?) AS part`; its own bind values follow the two substr ones. */
+async function selectTextInChunks(db: SqlExecutor, sql: string, bindValues: unknown[], chars: number): Promise<string> {
+  const parts: string[] = [];
+  for (let start = 1; start <= chars; start += READ_CHUNK_CHARS) {
+    const rows = await db.select<{ part: string | null }>(sql, [start, READ_CHUNK_CHARS, ...bindValues]);
+    parts.push(rows[0]?.part ?? "");
+  }
+  return parts.join("");
+}
+
+export const SELECT_HISTORY_SIZES_SQL = "SELECT entry_id, sort_order, LENGTH(entry_json) AS chars FROM reality_history WHERE reality_id = ? ORDER BY sort_order";
+export const SELECT_HISTORY_PART_SQL = "SELECT substr(entry_json, ?, ?) AS part FROM reality_history WHERE reality_id = ? AND entry_id = ?";
+export const SELECT_FRAGMENT_SIZES_SQL = "SELECT fragment_key, LENGTH(value_json) AS chars FROM global_fragments WHERE store_key = ?";
+export const SELECT_FRAGMENT_PART_SQL = "SELECT substr(value_json, ?, ?) AS part FROM global_fragments WHERE store_key = ? AND fragment_key = ?";
+export const SELECT_SEASON_SIZE_SQL = "SELECT LENGTH(season_json) AS chars FROM realities WHERE id = ?";
+export const SELECT_SEASON_PART_SQL = "SELECT substr(season_json, ?, ?) AS part FROM realities WHERE id = ?";
+
+type HistoryRow = { entry_id: string; entry_json: string; sort_order: number };
+
+async function selectHistoryRows(db: SqlExecutor, realityId: string): Promise<HistoryRow[]> {
+  const sizes = await db.select<{ entry_id: string; sort_order: number; chars: number | null }>(SELECT_HISTORY_SIZES_SQL, [realityId]);
+  const rows: HistoryRow[] = [];
+  for (const row of sizes) {
+    const entry_json = row.chars == null ? "null" : await selectTextInChunks(db, SELECT_HISTORY_PART_SQL, [realityId, row.entry_id], row.chars);
+    rows.push({ entry_id: row.entry_id, sort_order: row.sort_order, entry_json });
+  }
+  return rows;
+}
+
+async function selectSeasonJson(db: SqlExecutor, realityId: string): Promise<string | null> {
+  const size = await db.select<{ chars: number | null }>(SELECT_SEASON_SIZE_SQL, [realityId]);
+  if (!size[0]) return null;
+  if (size[0].chars == null) return null;
+  return selectTextInChunks(db, SELECT_SEASON_PART_SQL, [realityId], size[0].chars);
+}
+
 export async function loadPersistedStateFromDb(
   storeKey: string,
 ): Promise<PersistedStoreState | null> {
@@ -969,7 +1012,12 @@ export async function loadPersistedStateFromDbExecutor(
   }
   if (partitioned) {
     setPersistLoadStage("Reading competitive save fragments");
-    const fragments = await db.select<{ fragment_key: string; value_json: string }>("SELECT fragment_key, value_json FROM global_fragments WHERE store_key = ?", [storeKey]);
+    const sizes = await db.select<{ fragment_key: string; chars: number | null }>(SELECT_FRAGMENT_SIZES_SQL, [storeKey]);
+    const fragments: { fragment_key: string; value_json: string }[] = [];
+    for (const row of sizes) {
+      if (row.chars == null) continue;
+      fragments.push({ fragment_key: row.fragment_key, value_json: await selectTextInChunks(db, SELECT_FRAGMENT_PART_SQL, [storeKey, row.fragment_key], row.chars) });
+    }
     global = joinGlobalState(global, fragments);
   }
   const activeRealityId =
@@ -980,15 +1028,13 @@ export async function loadPersistedStateFromDbExecutor(
     id: string;
     name: string;
     year: number;
-    season_json: string | null;
     summary_json: string;
   }>(`SELECT realities.id, realities.name, realities.year,
-      CASE WHEN realities.id = ? THEN realities.season_json ELSE NULL END AS season_json,
       COALESCE(reality_catalog.summary_json,
         CASE WHEN json_valid(realities.season_json)
           THEN json_object('status', json_extract(realities.season_json, '$.status')) ELSE '{}' END) AS summary_json
       FROM realities LEFT JOIN reality_catalog ON reality_catalog.reality_id = realities.id
-      ORDER BY realities.name`, [activeRealityId]);
+      ORDER BY realities.name`);
 
   loadedHistoryRealityIds.clear();
   // A load replaces every baseline; a failed load leaves none to trust.
@@ -1005,8 +1051,9 @@ export async function loadPersistedStateFromDbExecutor(
 
   for (const row of realityRows) {
     let season: unknown;
+    const seasonJson = row.id === activeRealityId ? await selectSeasonJson(db, row.id) : null;
     try {
-      season = row.season_json == null ? null : JSON.parse(row.season_json);
+      season = seasonJson == null ? null : JSON.parse(seasonJson);
     } catch {
       throw new Error("Saved reality is invalid; refusing to overwrite it.");
     }
@@ -1014,10 +1061,7 @@ export async function loadPersistedStateFromDbExecutor(
     let history: unknown[] = [];
     if (activeRealityId && row.id === activeRealityId) {
       setPersistLoadStage("Reading active reality history");
-      const histRows = await db.select<{ entry_id: string; entry_json: string; sort_order: number }>(
-        "SELECT entry_id, entry_json, sort_order FROM reality_history WHERE reality_id = ? ORDER BY sort_order",
-        [row.id],
-      );
+      const histRows = await selectHistoryRows(db, row.id);
       const parsed = histRows.map((h) => {
         try {
           return JSON.parse(h.entry_json);
@@ -1065,10 +1109,10 @@ export async function loadPersistedStateFromDbExecutor(
 /** Load an inactive season without activating it or changing write ownership. */
 export async function loadRealitySeasonFromDb(realityId: string): Promise<SeasonState> {
   const db = await loadDatabase();
-  const rows = await db.select<{ season_json: string }>("SELECT season_json FROM realities WHERE id = ?", [realityId]);
-  if (!rows[0]) throw new Error("Saved reality is missing; refusing to open an empty season.");
+  const seasonJson = await serializeDbWrite(db, () => selectSeasonJson(db, realityId));
+  if (seasonJson == null) throw new Error("Saved reality is missing; refusing to open an empty season.");
   try {
-    const season = JSON.parse(rows[0].season_json);
+    const season = JSON.parse(seasonJson);
     if (!season || typeof season !== "object" || Array.isArray(season)) throw new Error("Invalid season");
     return season as SeasonState;
   } catch { throw new Error("Saved reality is invalid; existing data has been preserved."); }
@@ -1079,10 +1123,8 @@ export async function loadRealityHistoryFromDb(
   realityId: string,
 ): Promise<SeasonHistoryEntry[]> {
   const db = await loadDatabase();
-  const rows = await db.select<{ entry_id: string; entry_json: string; sort_order: number }>(
-    "SELECT entry_id, entry_json, sort_order FROM reality_history WHERE reality_id = ? ORDER BY sort_order",
-    [realityId],
-  );
+  // Serialized with writes so a multi-part read never sees a half-updated row.
+  const rows = await serializeDbWrite(db, () => selectHistoryRows(db, realityId));
   const parsed = rows.map((r) => {
     try {
       return JSON.parse(r.entry_json) as SeasonHistoryEntry | null;

@@ -202,14 +202,20 @@ test("dormant SQLite history is shared by Timeline, records and market without o
   // Simulate native reads after browser hydration; no personal database is used.
   await page.evaluate(entries => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {
-      invoke: async (command: string, args: { query?: string; path?: string } = {}) => {
+      invoke: async (command: string, args: { query?: string; path?: string; values?: unknown[] } = {}) => {
         if (command === "plugin:path|resolve_directory") return "fixture";
         if (command === "plugin:path|join") return "fixture/draftsim.db";
         if (command === "plugin:sql|load") return args.path;
         if (command === "plugin:sql|execute") return [0, 0];
         if (command === "plugin:sql|select") {
           if (args.query?.includes("persist_version")) return [{ value: "8" }];
-          if (args.query?.includes("FROM reality_history")) return entries.map(entry => ({ entry_json: JSON.stringify(entry) }));
+          // Native history reads are chunked: sizes first, then substr parts.
+          if (args.query?.includes("LENGTH(entry_json)")) return entries.map((entry, i) => ({ entry_id: entry.id, sort_order: i, chars: JSON.stringify(entry).length }));
+          if (args.query?.includes("substr(entry_json")) {
+            const [start, length, , entryId] = args.values as [number, number, string, string];
+            const entry = entries.find(e => e.id === entryId);
+            return entry ? [{ part: JSON.stringify(entry).slice(start - 1, start - 1 + length) }] : [];
+          }
           return [];
         }
         return null;

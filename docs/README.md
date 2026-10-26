@@ -32,6 +32,8 @@ Los documentos de `plans/` y las auditorías registran objetivos y decisiones de
 
 ## Versiones
 
+- [v1.15.0: carga por partes de guardados grandes y comparación de trayectorias SS](releases/v1.15.0.md).
+
 - [v1.14.2: cambios del bulk contra la ventana en blanco en Windows, insignia SS y cuadrícula de líderes por rol](releases/v1.14.2.md).
 
 - [v1.14.1: guardados bulk más seguros con registro de fallos, selector de evento en dos pasos e insignia SS](releases/v1.14.1.md).
