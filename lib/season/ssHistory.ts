@@ -1,6 +1,6 @@
 import { LANE_ORDER } from "../players";
 import type { SeasonHistoryEntry } from "./history";
-import type { SeasonState, SSHolder, SSReview, SSLoss } from "./types";
+import { LEAGUE_IDS, type LeagueId, type SeasonState, type SSHolder, type SSReview, type SSLoss } from "./types";
 
 export function snapshotSSHolders(teams: SeasonState["teams"]): SSHolder[] {
 	return LANE_ORDER.flatMap(lane => teams.flatMap(t => t.players.filter(p => p.lane === lane && p.tier === "SS" && p.id && p.ss).map(p => ({
@@ -73,7 +73,10 @@ export function playerSSHistory(entries: readonly SSArchive[], playerId: string)
 		}),
 	]);
 	const openings = years.flatMap(({ entry }) => (entry.ssOpening ?? []).filter(h => h.playerId === playerId).map(holder => ({ seasonId: entry.id, holder })));
+	let streak: { value: SSStreak | undefined } | undefined;
 	return {
+		/** Computed on first read so callers that never show it pay nothing. */
+		get streak() { return (streak ??= { value: playerSSStreak(entries, playerId) }).value; },
 		rows, acquisitions: rows.filter(r => r.holder.decision === "gained").length,
 		losses, openings,
 		checkpoints: rows.length, years: new Set([...rows.map(r => r.seasonId), ...years.filter(({ entry }) => entry.ssOpening?.some(h => h.playerId === playerId) || entry.ssLosses?.some(l => l.holder.playerId === playerId)).map(({ entry }) => entry.id)]).size,
@@ -85,4 +88,160 @@ export function playerSSHistory(entries: readonly SSArchive[], playerId: string)
 export function closingSSHolders(entry: SSArchive): SSHolder[] | undefined {
 	const last = ssHistory(entry).at(-1);
 	return last?.holders.filter(h => !(entry.ssLosses ?? []).some(l => l.holder.playerId === h.playerId && l.holder.lane === h.lane && (l.phaseIndex > last.phaseIndex || l.phaseIndex === last.phaseIndex && l.afterReview)));
+}
+
+// ---- Cross-season records (derived from the lazily projected archive; nothing persisted) ----
+
+export interface SSSeasonView {
+	seasonId: string;
+	name: string;
+	/** Franchise year; undefined when the archive predates it. */
+	year?: number;
+	/** False when this season has no recorded SS data at all (unknown, not "nobody held SS"). */
+	known: boolean;
+	/** playerId -> holder seen in this season (latest observation) and every team observed. */
+	holders: Map<string, { holder: SSHolder; teams: Map<string, NonNullable<SSHolder["team"]>> }>;
+	/** Highest simultaneous holder count per team key at one review. */
+	peakByTeam: Map<string, number>;
+}
+
+export const ssTeamKey = (t: { leagueId: string; teamName: string }) => `${t.leagueId}:${t.teamName}`;
+
+function chronological<T extends SSArchive>(entries: readonly T[]): T[] {
+	return [...entries].sort((a, b) => a.archivedAt !== undefined && b.archivedAt !== undefined ? a.archivedAt - b.archivedAt : (a.franchiseYear ?? 0) - (b.franchiseYear ?? 0));
+}
+
+export function ssSeasonViews(entries: readonly SSArchive[]): SSSeasonView[] {
+	return chronological(entries).map(entry => {
+		const holders: SSSeasonView["holders"] = new Map();
+		const peakByTeam = new Map<string, number>();
+		const seen = (h: SSHolder) => {
+			const cur = holders.get(h.playerId) ?? { holder: h, teams: new Map() };
+			cur.holder = { ...h, ...(h.playerName ? {} : cur.holder.playerName ? { playerName: cur.holder.playerName } : {}) };
+			if (h.team) cur.teams.set(ssTeamKey(h.team), h.team);
+			holders.set(h.playerId, cur);
+		};
+		const checkpoints = ssHistory(entry);
+		for (const h of entry.ssOpening ?? []) seen(h);
+		for (const c of checkpoints) {
+			const counts = new Map<string, number>();
+			for (const h of c.holders) { seen(h); if (h.team) { const k = ssTeamKey(h.team); counts.set(k, (counts.get(k) ?? 0) + 1); } }
+			for (const [k, n] of counts) peakByTeam.set(k, Math.max(peakByTeam.get(k) ?? 0, n));
+		}
+		for (const l of entry.ssLosses ?? []) seen(l.holder);
+		return { seasonId: entry.id, name: entry.name, ...(entry.franchiseYear !== undefined ? { year: entry.franchiseYear } : {}), known: entry.ssReviews !== undefined || entry.ssOpening !== undefined, holders, peakByTeam };
+	});
+}
+
+export interface SSStreak { playerId: string; playerName?: string; length: number; startYear: number; endYear: number; startName: string; endName: string;
+	/** True when an unknown year borders the run, so the real streak may be longer. */
+	open: boolean }
+
+/** Longest run of consecutive franchise years with recorded SS ownership per player. Unknown years break a run and flag it open. */
+export function ssStreaks(views: readonly SSSeasonView[]): SSStreak[] {
+	const dated = views.filter(v => v.year !== undefined).sort((a, b) => a.year! - b.year!);
+	const best = new Map<string, SSStreak>();
+	const runs = new Map<string, { start: SSSeasonView; last: SSSeasonView; length: number; openStart: boolean }>();
+	const close = (id: string, openEnd: boolean) => {
+		const r = runs.get(id); if (!r) return;
+		runs.delete(id);
+		const cur = best.get(id);
+		if (!cur || r.length > cur.length) best.set(id, { playerId: id, playerName: r.last.holders.get(id)?.holder.playerName, length: r.length, startYear: r.start.year!, endYear: r.last.year!, startName: r.start.name, endName: r.last.name, open: r.openStart || openEnd });
+	};
+	let prev: SSSeasonView | undefined;
+	for (const v of dated) {
+		const contiguous = prev !== undefined && v.year === prev.year! + 1;
+		const gapUnknown = !contiguous && prev !== undefined && v.year! > prev.year! + 1; // missing archive years are unknown too
+		for (const id of [...runs.keys()]) if (!contiguous || !v.known || !v.holders.has(id)) close(id, !contiguous || !v.known);
+		if (v.known) for (const id of v.holders.keys()) {
+			const r = runs.get(id);
+			if (r) { r.last = v; r.length++; } else runs.set(id, { start: v, last: v, length: 1, openStart: gapUnknown || (prev !== undefined && !prev.known) });
+		}
+		prev = v;
+	}
+	for (const id of [...runs.keys()]) close(id, false);
+	return [...best.values()].sort((a, b) => b.length - a.length || a.startYear - b.startYear || a.playerId.localeCompare(b.playerId));
+}
+
+/** One player's longest recorded SS streak, or undefined when no recorded SS season exists for them. */
+export function playerSSStreak(entries: readonly SSArchive[], playerId: string): SSStreak | undefined {
+	return ssStreaks(ssSeasonViews(entries)).find(s => s.playerId === playerId);
+}
+
+export interface SSRecords {
+	/** Most SS seasons per player (only seasons with recorded data count). */
+	seasons: { playerId: string; playerName?: string; seasons: number }[];
+	teams: { key: string; teamName: string; leagueId: LeagueId; logoUrl?: string; holderSeasons: number; distinctHolders: number; peak: number }[];
+	regions: { leagueId: LeagueId; distinctHolders: number; holderSeasons: number }[];
+	streaks: SSStreak[];
+	knownSeasons: number;
+	unknownSeasons: number;
+	/** Holder-seasons with no recorded team, excluded from team and region tables. */
+	unattributed: number;
+}
+
+export function ssRecords(entries: readonly SSArchive[]): SSRecords {
+	const views = ssSeasonViews(entries);
+	const players = new Map<string, { name?: string; seasons: number }>();
+	const teams = new Map<string, { team: NonNullable<SSHolder["team"]>; keys: Set<string>; holders: Set<string>; peak: number }>();
+	const regions = new Map<LeagueId, { holders: Set<string>; keys: Set<string> }>();
+	let unattributed = 0;
+	for (const v of views) {
+		if (!v.known) continue;
+		for (const [id, { holder, teams: ts }] of v.holders) {
+			const p = players.get(id) ?? { seasons: 0 };
+			p.seasons++; p.name = holder.playerName ?? p.name; players.set(id, p);
+			if (!ts.size) unattributed++;
+			const seenRegions = new Set<LeagueId>();
+			for (const [k, t] of ts) {
+				const cur = teams.get(k) ?? { team: t, keys: new Set(), holders: new Set(), peak: 0 };
+				cur.team = t; cur.keys.add(`${v.seasonId}:${id}`); cur.holders.add(id); teams.set(k, cur);
+				if (!seenRegions.has(t.leagueId)) {
+					seenRegions.add(t.leagueId);
+					const r = regions.get(t.leagueId) ?? { holders: new Set(), keys: new Set() };
+					r.holders.add(id); r.keys.add(`${v.seasonId}:${id}`); regions.set(t.leagueId, r);
+				}
+			}
+		}
+		for (const [k, n] of v.peakByTeam) { const t = teams.get(k); if (t) t.peak = Math.max(t.peak, n); }
+	}
+	const order = (a: string, b: string) => a.localeCompare(b);
+	return {
+		seasons: [...players].map(([playerId, p]) => ({ playerId, ...(p.name ? { playerName: p.name } : {}), seasons: p.seasons })).sort((a, b) => b.seasons - a.seasons || order(a.playerId, b.playerId)),
+		teams: [...teams].map(([key, t]) => ({ key, teamName: t.team.teamName, leagueId: t.team.leagueId, ...(t.team.logoUrl ? { logoUrl: t.team.logoUrl } : {}), holderSeasons: t.keys.size, distinctHolders: t.holders.size, peak: t.peak })).sort((a, b) => b.holderSeasons - a.holderSeasons || b.peak - a.peak || order(a.key, b.key)),
+		regions: [...regions].map(([leagueId, r]) => ({ leagueId, distinctHolders: r.holders.size, holderSeasons: r.keys.size })).sort((a, b) => b.distinctHolders - a.distinctHolders || LEAGUE_IDS.indexOf(a.leagueId) - LEAGUE_IDS.indexOf(b.leagueId)),
+		streaks: ssStreaks(views),
+		knownSeasons: views.filter(v => v.known).length,
+		unknownSeasons: views.filter(v => !v.known).length,
+		unattributed,
+	};
+}
+
+/** Per-region view: who held SS while representing a team from the region, by season. */
+export function ssRegionView(views: readonly SSSeasonView[], leagueId: LeagueId) {
+	return views.map(v => ({
+		seasonId: v.seasonId, name: v.name, known: v.known,
+		holders: !v.known ? [] : [...v.holders.values()].filter(h => [...h.teams.values()].some(t => t.leagueId === leagueId)).map(h => ({ playerId: h.holder.playerId, lane: h.holder.lane, playerName: h.holder.playerName, team: [...h.teams.values()].find(t => t.leagueId === leagueId)! })),
+	}));
+}
+
+export type SSTimelineCell = { state: "held"; team?: NonNullable<SSHolder["team"]> } | { state: "none" } | { state: "unknown" };
+export interface SSTimeline { seasons: { seasonId: string; name: string; known: boolean }[]; rows: { playerId: string; playerName?: string; cells: SSTimelineCell[] }[] }
+
+/** Comparable season-by-season timeline for chosen players. Seasons without recorded SS data are "unknown", never "none". */
+export function ssTimeline(views: readonly SSSeasonView[], playerIds: readonly string[]): SSTimeline {
+	return {
+		seasons: views.map(v => ({ seasonId: v.seasonId, name: v.name, known: v.known })),
+		rows: [...new Set(playerIds)].map(playerId => ({
+			playerId,
+			playerName: [...views].reverse().map(v => v.holders.get(playerId)?.holder.playerName).find(Boolean),
+			cells: views.map((v): SSTimelineCell => {
+				if (!v.known) return { state: "unknown" };
+				const h = v.holders.get(playerId);
+				if (!h) return { state: "none" };
+				const team = [...h.teams.values()].at(-1);
+				return team ? { state: "held", team } : { state: "held" };
+			}),
+		})),
+	};
 }

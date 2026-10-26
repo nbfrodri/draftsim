@@ -204,6 +204,7 @@ test("4 · season results stats show role icons on Performance / Most Consistent
     blueTeam: blue.name, redTeam: red.name, winner, bluePicks: [1, 2, 3, 4, 5], redPicks: [6, 7, 8, 9, 10],
     blueRoles: [...lanes], redRoles: [...lanes],
     recap: { durationMinutes: 30, mvp: null, biggestSwing: null,
+      perPickIds: { blue: blue.players!.map(p => p.id!), red: red.players!.map(p => p.id!) },
       ratings: { blue: [7, 9.4 - (i % 2) * 2, 7, 6.8, 6.5], red: [6, 6, 8.2 + (i % 2) * 0.2, 6, 6] } },
   }));
   series.status = "complete";

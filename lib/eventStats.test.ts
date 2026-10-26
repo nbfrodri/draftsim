@@ -3,6 +3,7 @@ import { makeAuditSeason } from "./auditFixtures";
 import { createSeries } from "./series";
 import { computeEventStats, rankEventPlayers, recordEventCheckpoint } from "./eventStats";
 import type { TournamentState } from "./tournament";
+import type { SeasonState } from "./season/types";
 import { recordMatchWinner } from "./tournament";
 import { buildEventRecord, eventCheckpointPlayers } from "./season/eventHistory";
 import { validEventRecords, validEventCheckpoints } from "./eventStatsValidation";
@@ -92,6 +93,39 @@ describe("event performance", () => {
 		const reset = structuredClone(done); reset.matches[0].id = "reset"; reset.matches[0].bracket = "grand-final-reset";
 		expect(recordEventCheckpoint(reset, "reset").eventCheckpoints).toHaveLength(2);
 	});
+	it("keeps elimination play-in games out of main-event regular and playoffs scopes", () => {
+		const playIn = fixture(); playIn.seasonSubStage = "play-in"; playIn.format = "single-elim";
+		const main = structuredClone(playIn); main.id = "main"; delete main.seasonSubStage; main.format = "groups-playoffs";
+		main.matches[0].bracket = "winners"; main.matches[1].bracket = undefined; main.matches[1].feedsInto = null; main.matches[2].bracket = undefined; main.matches[2].feedsInto = null;
+		const e = buildEventRecord([playIn, main], { id: "worlds", label: "Worlds" });
+		const games = (id: string) => e.scopes.find(s => s.id === id)!.stats.games;
+		expect(games("all")).toBe(6);
+		expect(games("play-in")).toBe(3);
+		expect(games("main")).toBe(3);
+		expect(games("playoffs") + games("regular")).toBe(3);
+		expect(games("playoffs")).toBe(1);
+		expect(validEventRecords([e])).toBe(true);
+	});
+	it("resolves same-name teams by participant IDs and leaves unresolvable sides unattributed", () => {
+		const same = () => { const t = fixture(); t.teams[1].name = t.teams[0].name; for (const m of t.matches) { const g = m.series!.games[0]; g.blueTeam = g.redTeam = t.teams[0].name; } return t; };
+		const t = same();
+		const a = t.teams[0].players![0].id!, b = t.teams[1].players![0].id!;
+		const nominal = computeEventStats([t]);
+		expect(nominal.players.find(p => p.playerId === a)!.teams.map(x => x.id)).toEqual([t.teams[0].id]);
+		expect(nominal.players.find(p => p.playerId === b)!.teams.map(x => x.id)).toEqual([t.teams[1].id]);
+		expect(nominal.players.find(p => p.playerId === a)!.wins).toBe(3);
+		const swapped = same(); const g = swapped.matches[0].series!.games[0];
+		[g.recap!.perPickIds!.blue, g.recap!.perPickIds!.red] = [g.recap!.perPickIds!.red, g.recap!.perPickIds!.blue];
+		g.winner = "red";
+		const s = computeEventStats([swapped]);
+		expect(s.players.find(p => p.playerId === swapped.teams[0].players![0].id)!.wins).toBe(3);
+		const unknown = same(); const u = unknown.matches[0].series!.games[0];
+		u.recap!.perPickIds = { blue: Array(5).fill("x"), red: Array(5).fill("y") }; u.recap!.perPickIds.blue = ["x1", "x2", "x3", "x4", "x5"]; u.recap!.perPickIds.red = ["y1", "y2", "y3", "y4", "y5"];
+		const r = computeEventStats([unknown]);
+		expect(r.games).toBe(3);
+		expect(r.players.some(p => p.playerId === "x1")).toBe(false);
+		expect(r.players.find(p => p.playerId === unknown.teams[0].players![0].id)!.games).toBe(2);
+	});
 	it("rejects malformed archive metrics and checkpoint references before import", () => {
 		const e = buildEventRecord([fixture()], { id: "event", label: "Event" });
 		expect(validEventRecords(JSON.parse(JSON.stringify([e])))).toBe(true);
@@ -130,6 +164,27 @@ describe("event performance", () => {
 			expect((await loadPersistedStateFromDbExecutor(executor, "draftsim-store"))!.realities![0].history[0].eventRecords).toEqual(expected);
 		} finally { db.close(); resetSqliteStorageForTests(); }
 	});
+	it("keeps completed-stage KDA through a desktop save so a later archive retains KDA totals", async () => {
+		const season = makeAuditSeason("Event KDA restart");
+		const t = fixture(); t.status = "complete";
+		for (const m of t.matches) m.series!.games[0].recap!.perPickKDA = { blue: Array.from({ length: 5 }, (_, i) => ({ k: i + 1, d: 1, a: 2 })), red: Array.from({ length: 5 }, () => ({ k: 0, d: 3, a: 1 })) };
+		season.tournaments = { [t.id]: t }; season.phases[0].tournamentIds = [t.id];
+		const expected = buildSeasonHistoryEntry(season, 1).eventRecords!;
+		expect(expected[0].scopes[0].stats.players.find(p => p.kdaGames)?.kills).toBeGreaterThan(0);
+		const reality = { id: season.franchise.id, name: "Event KDA restart", year: 1, season, history: [] };
+		const db = new DatabaseSync(":memory:"); db.exec(SCHEMA_SQL);
+		const executor: SqlExecutor = { execute: async (q, values = []) => ({ rowsAffected: Number(db.prepare(q).run(...values as SQLInputValue[]).changes) }), select: async <T>(q: string, values: unknown[] = []) => db.prepare(q).all(...values as SQLInputValue[]) as T[] };
+		try {
+			resetSqliteStorageForTests();
+			await savePersistedStateToDbExecutor(executor, "draftsim-store", { season, activeRealityId: reality.id, realities: [reality] } as PersistedStoreState);
+			resetSqliteStorageForTests();
+			// Switching realities restores the season from its reality row, not the active-season fragment.
+			const row = (await loadPersistedStateFromDbExecutor(executor, "draftsim-store"))!.realities![0].season as SeasonState;
+			const restored = decodeCompactSeason(row);
+			expect(restored.tournaments[t.id].matches[0].series!.games[0].recap!.perPickKDA).toEqual(t.matches[0].series!.games[0].recap!.perPickKDA);
+			expect(buildSeasonHistoryEntry(restored, 1).eventRecords).toEqual(expected);
+		} finally { db.close(); resetSqliteStorageForTests(); }
+	});
 	it("keeps a 300-game split archive bounded without storing recaps", () => {
 		let t = fixture(); const templates = t.matches; t.matches = [];
 		for (let i = 0; i < 300; i++) {
@@ -144,5 +199,54 @@ describe("event performance", () => {
 		expect(bytes).toBeLessThan(180_000);
 		expect(event.scopes[0].checkpoints).toHaveLength(30);
 		expect(event.scopes[0].stats.games).toBe(300);
+	});
+});
+
+describe("event record validation against simulated data", () => {
+	async function simulated(format: "round-robin-playoffs" | "single-elim", seed: string) {
+		const { createTournament } = await import("./tournament");
+		const { autoPlayMatch } = await import("./sim/autoPlayMatch");
+		const { LANE_ORDER, rosterFromStar } = await import("./players");
+		const champions = Array.from({ length: 80 }, (_, i) => ({ id: i + 1, name: `C${i + 1}`, alias: `C${i + 1}`, roles: [], iconUrl: "", lanes: [LANE_ORDER[i % 5]] }));
+		let t = createTournament({
+			name: seed, format, sideRule: "alternate",
+			teams: Array.from({ length: 6 }, (_, i) => ({ id: `${seed}${i}`, name: `Team ${i}`, seed: i + 1, starRating: 2 + (i % 3), players: rosterFromStar(2 + (i % 3)).map(p => ({ ...p, id: `${seed}${i}-${p.lane}`, name: `${p.lane} ${i}` })) })),
+			defaults: { format: "bo3", fearless: false, mode: "aivai", aiSide: null, aiDifficulty: "normal", timerEnabled: false },
+		});
+		for (let i = 0; i < 200; i++) {
+			const next = t.matches.find(m => !m.winner && !m.isBye && m.blueTeamId && m.redTeamId);
+			if (!next) break;
+			[t] = autoPlayMatch(t, next.id, champions);
+		}
+		return t;
+	}
+	it("always validates records built from simulated tournaments, v2 and the v1 equivalent", async () => {
+		const t = await simulated("round-robin-playoffs", "a");
+		expect(t.eventCheckpoints?.length).toBeGreaterThan(2);
+		const e = buildEventRecord([t], { id: "event", label: "Event" });
+		expect(e.scopes.find(s => s.id === "all")!.stats.players.length).toBeGreaterThan(5);
+		expect(validEventRecords(JSON.parse(JSON.stringify([e])))).toBe(true);
+		const { computeEventStats: compute, packEventPlayer } = await import("./eventStats");
+		const final = compute([t]), ids = new Map(final.players.map(p => [p.key, p]));
+		const v1 = { version: 1 as const, id: "event", label: "Event", championLanes: {}, scopes: [{ id: "all" as const, label: "Whole event", stats: final,
+			checkpoints: t.eventCheckpoints!.map(c => { const at = compute([t], new Set(c.gameIds.map(id => `${t.id}:${id}`))); return { id: c.key, label: c.label, games: at.games, players: at.players.map(p => packEventPlayer(p, ids.get(p.key)!)) }; }) }] };
+		expect(validEventRecords(JSON.parse(JSON.stringify([v1])))).toBe(true);
+	});
+	it("rejects impossible rating moments and checkpoint totals beyond the final row", () => {
+		const base = async () => buildEventRecord([await simulated("single-elim", "b")], { id: "event", label: "Event" });
+		return base().then(e => {
+			const clone = () => JSON.parse(JSON.stringify([e]));
+			const mutate = (f: (p: Record<string, number>) => void) => { const r = clone(); f(r[0].scopes[0].stats.players[0]); return validEventRecords(r); };
+			expect(mutate(() => {})).toBe(true);
+			expect(mutate(p => { p.adjusted = 1; p.rated = Math.max(p.rated, 1); p.games = Math.max(p.games, 1); p.sum = 10; p.squares = 0; })).toBe(false);
+			expect(mutate(p => { p.adjusted = 1; p.rated = 1; p.games = Math.max(p.games, 1); p.opportunities = Math.max(p.opportunities, p.games); p.sum = 0.5; p.squares = 0.25; })).toBe(false);
+			expect(mutate(p => { p.rated = 1; p.ratingSum = 0; })).toBe(false);
+			const r = clone(); const cp = r[0].scopes[0].checkpoints.at(-1);
+			const [, values] = cp.players[0]; values[3] = r[0].scopes[0].stats.players[cp.players[0][0]].ratingSum + 5;
+			expect(validEventRecords(r)).toBe(false);
+			const g = clone(); const gp = g[0].scopes[0].checkpoints.at(-1).players[0];
+			gp[1][8] = g[0].scopes[0].stats.players[gp[0]].goldSum - 1000; // signed gold may decrease
+			expect(validEventRecords(g)).toBe(true);
+		});
 	});
 });

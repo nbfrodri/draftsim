@@ -13,6 +13,7 @@ import RegionMark from "../RegionMark";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
 import TierChip from "./TierChip";
+import { gamesProgress, remainingReasons, seatLeaderHint, SS_ESTIMATE_NOTE } from "@/lib/season/ssRaceView";
 
 const FOCUS = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 
@@ -47,16 +48,16 @@ function chanceLabel(chance: number | null): string {
 
 function PlayerMetrics({ row, className = "grid-cols-2" }: { row: SSRacePlayer; className?: string }) {
 	const metrics = [
-		["Avg grade", row.stats?.avgRating?.toFixed(1) ?? "—"],
-		["Avg gold diff", goldAverage(row)],
-		["Win rate", row.stats?.games ? `${Math.round(row.stats.wins / row.stats.games * 100)}%` : "—"],
-		["Rated games", String(row.games)],
+		["Avg grade", "Grade", row.stats?.avgRating?.toFixed(1) ?? "—"],
+		["Avg gold diff", "Gold", goldAverage(row)],
+		["Win rate", "WR", row.stats?.games ? `${Math.round(row.stats.wins / row.stats.games * 100)}%` : "—"],
+		["Rated games", "Games", String(row.games)],
 	];
 	return (
 		<dl className={`grid gap-x-3 gap-y-2.5 tabular-nums ${className}`}>
-			{metrics.map(([label, value]) => (
+			{metrics.map(([label, short, value]) => (
 				<div key={label}>
-					<dt className="text-[10px] text-rift-mutedbright">{label}</dt>
+					<dt className="text-[10px] text-rift-mutedbright"><span className="sm:hidden">{short}</span><span className="hidden sm:inline">{label}</span></dt>
 					<dd className="mt-0.5 font-display text-[13px] text-rift-goldbright">{value}</dd>
 				</div>
 			))}
@@ -64,10 +65,22 @@ function PlayerMetrics({ row, className = "grid-cols-2" }: { row: SSRacePlayer; 
 	);
 }
 
-function CurrentSeat({ row: { lane, holder } }: { row: SSRaceLane }) {
+function SeatLeader({ contenders }: { contenders: SSRacePlayer[] }) {
+	const hint = seatLeaderHint(contenders);
+	if (!hint) return null;
+	return (
+		<p className="min-w-0 truncate border-t border-rift-line/30 px-3 py-1.5 text-[10px] text-rift-mutedbright">
+			Leader: <span className="text-rift-goldbright">{hint.name}</span>
+			{hint.score !== null && <span className="tabular-nums"> · {hint.score.toFixed(2)}</span>}
+			{hint.gamesNeeded > 0 && <span className="tabular-nums"> · needs {hint.gamesNeeded} more {hint.gamesNeeded === 1 ? "game" : "games"}</span>}
+		</p>
+	);
+}
+
+function CurrentSeat({ row: { lane, holder, contenders } }: { row: SSRaceLane }) {
 	return (
 		<article aria-label={`${ROLE_LABELS[lane]} SS holder`} className="min-w-0 border border-rift-line/50 bg-rift-bg/30">
-			<h4 className="flex items-center gap-1.5 border-b border-rift-line/40 px-3 py-2 text-[10px] font-semibold text-rift-goldbright">
+			<h4 className={`flex items-center gap-1.5 px-3 py-2 text-[10px] font-semibold text-rift-goldbright ${holder ? "border-b border-rift-line/40" : ""}`}>
 				<RoleLabel lane={lane} size="sm" />
 				{!holder && <span className="ml-auto font-normal text-rift-mutedbright">Vacant</span>}
 			</h4>
@@ -80,8 +93,19 @@ function CurrentSeat({ row: { lane, holder } }: { row: SSRaceLane }) {
 				</div>
 				{holder.carry && <p className="mt-2 text-[10px] text-rift-gold">Previous-season grace period</p>}
 				{!holder.eligible && !holder.carry && <p className="mt-2 text-[10px] text-rift-mutedbright">Review requirement: {holder.reasons.join(" · ")}</p>}
-			</div> : <p className="px-3 py-3 text-[10px] text-rift-mutedbright">Awaiting a qualifying player.</p>}
+			</div> : <SeatLeader contenders={contenders} />}
 		</article>
+	);
+}
+
+function GamesProgress({ games, required, percent }: NonNullable<ReturnType<typeof gamesProgress>>) {
+	return (
+		<div className="text-right">
+			<div className="font-display text-base tabular-nums text-rift-goldbright">{games}/{required} <span className="font-body text-[10px] text-rift-mutedbright">games</span></div>
+			<div aria-hidden="true" className="mt-1 h-1 bg-rift-line/60">
+				<div className="h-full bg-rift-gold/75" style={{ width: `${percent}%` }} />
+			</div>
+		</div>
 	);
 }
 
@@ -98,26 +122,28 @@ function ChanceEstimate({ row }: { row: SSRacePlayer }) {
 	);
 }
 
-function Contender({ row, rank }: { row: SSRacePlayer; rank: number }) {
+function Contender({ row, rank, extra }: { row: SSRacePlayer; rank: number; extra?: boolean }) {
+	const progress = gamesProgress(row);
+	const reasons = remainingReasons(row, !!progress);
 	return (
-		<li className="border-t border-rift-line/40 bg-rift-bg/20 px-3 py-3 first:border-t-0">
+		<li className={`${extra ? "hidden sm:block " : ""}border-t border-rift-line/40 bg-rift-bg/20 px-3 py-3 first:border-t-0`}>
 			<div className="grid grid-cols-[minmax(0,1fr)_7rem] items-start gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.6fr)_7rem] lg:items-center">
 				<div className="flex min-w-0 items-start gap-2.5">
 					<span className="mt-0.5 w-4 shrink-0 text-[11px] tabular-nums text-rift-mutedbright">{rank}</span>
 					<PlayerIdentity row={row} />
 				</div>
-				<div className="col-span-2 row-start-2 lg:col-span-1 lg:row-start-auto"><PlayerMetrics row={row} className="grid-cols-2 sm:grid-cols-4" /></div>
-				<div className="col-start-2 row-start-1 lg:col-start-3"><ChanceEstimate row={row} /></div>
+				<div className="col-span-2 row-start-2 lg:col-span-1 lg:row-start-auto"><PlayerMetrics row={row} className="grid-cols-4" /></div>
+				<div className="col-start-2 row-start-1 lg:col-start-3">{progress ? <GamesProgress {...progress} /> : <ChanceEstimate row={row} />}</div>
 			</div>
 			<div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rift-line/25 pt-2 text-[10px] tabular-nums text-rift-mutedbright">
 				<span>SS score <span className="font-display text-rift-goldbright">{row.score?.toFixed(2) ?? "—"}</span></span>
 				{row.gap !== null && <span>Gap to seat {row.gap.toFixed(2)}</span>}
-				<span>Participation {row.games}/{row.requiredGames} required</span>
-				<span className={`sm:ml-auto ${row.projected ? "text-rift-goldbright" : "text-rift-mutedbright"}`}>
+				{!progress && <span>Participation {row.games}/{row.requiredGames} required</span>}
+				{(row.eligible || !progress) && <span className={`sm:ml-auto ${row.projected ? "text-rift-goldbright" : "text-rift-mutedbright"}`}>
 					{row.eligible ? row.projected ? "Projected SS with current results" : "Eligible · chasing the seat" : "Requirements pending"}
-				</span>
+				</span>}
 			</div>
-			{!row.eligible && <p className="mt-2 text-[10px] text-rift-mutedbright">{row.reasons.join(" · ")}</p>}
+			{!row.eligible && reasons.length > 0 && <p className="mt-2 text-[10px] text-rift-mutedbright">{reasons.join(" · ")}</p>}
 		</li>
 	);
 }
@@ -127,6 +153,8 @@ function SSRaceContent({ season, lane, onLaneChange }: { season: SeasonState; la
 	const [showAll, setShowAll] = useState(false);
 	const selected = race.find(row => row.lane === lane)!;
 	const contenders = showAll ? selected.contenders : selected.contenders.slice(0, 5);
+	const anyProgress = contenders.some(row => gamesProgress(row));
+	const hasPhoneExtra = selected.contenders.length > 3;
 	return (
 		<div className="space-y-5 p-3 md:p-4">
 			<section aria-labelledby="ss-holders-heading">
@@ -134,7 +162,7 @@ function SSRaceContent({ season, lane, onLaneChange }: { season: SeasonState; la
 					<h3 id="ss-holders-heading" className="font-display text-xs text-rift-goldbright">Current SS players</h3>
 					<p className="text-[10px] text-rift-mutedbright">One world seat per role · Reviewed at phase end</p>
 				</div>
-				<div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">{race.map(row => <CurrentSeat key={row.lane} row={row} />)}</div>
+				<div className="grid items-start gap-2 sm:grid-cols-2 xl:grid-cols-5">{race.map(row => <CurrentSeat key={row.lane} row={row} />)}</div>
 			</section>
 			<section aria-labelledby="ss-contenders-heading">
 				<h3 id="ss-contenders-heading" className="mb-3 font-display text-xs text-rift-goldbright">SS contenders</h3>
@@ -145,10 +173,11 @@ function SSRaceContent({ season, lane, onLaneChange }: { season: SeasonState; la
 						className={`inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-[11px] transition-colors ${FOCUS} ${lane === row.lane ? "border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright"}`}
 					><RoleLabel lane={row.lane} /></button>)}
 				</fieldset>
+				{anyProgress && <p className="mb-2 text-[11px] leading-relaxed text-rift-mutedbright">{SS_ESTIMATE_NOTE}</p>}
 				<div className="border border-rift-line/50">
-					{contenders.length ? <ol aria-label={`${ROLE_LABELS[lane]} SS contenders`}>{contenders.map((row, index) => <Contender key={row.player.id} row={row} rank={index + 1} />)}</ol> : <p className="px-3 py-5 text-[11px] leading-relaxed text-rift-mutedbright">No S/S+ challengers in this role. Lower tiers must develop before they can qualify.</p>}
+					{contenders.length ? <ol aria-label={`${ROLE_LABELS[lane]} SS contenders`}>{contenders.map((row, index) => <Contender key={row.player.id} row={row} rank={index + 1} extra={!showAll && index >= 3} />)}</ol> : <p className="px-3 py-5 text-[11px] leading-relaxed text-rift-mutedbright">No S/S+ challengers in this role. Lower tiers must develop before they can qualify.</p>}
 				</div>
-				{selected.contenders.length > 5 && <button type="button" onClick={() => setShowAll(!showAll)} className={`mt-2 border border-rift-line/50 px-3 py-1.5 text-[11px] text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright ${FOCUS}`}>{showAll ? "Show top 5" : `Show all ${selected.contenders.length} contenders`}</button>}
+				{hasPhoneExtra && <button type="button" onClick={() => setShowAll(!showAll)} className={`${selected.contenders.length > 5 ? "" : "sm:hidden "}mt-2 border border-rift-line/50 px-3 py-1.5 text-[11px] text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright ${FOCUS}`}>{showAll ? <>Show top <span className="sm:hidden">3</span><span className="hidden sm:inline">5</span></> : `Show all ${selected.contenders.length} contenders`}</button>}
 				<p className="mt-2 text-[10px] leading-relaxed text-rift-mutedbright">Estimates reflect current results, not future-match odds. Ownership changes only at phase reviews.</p>
 			</section>
 			<details className="border-t border-rift-line/40 pt-2 text-[11px] leading-relaxed text-rift-mutedbright">

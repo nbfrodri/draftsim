@@ -72,7 +72,7 @@ function selectorFixture() {
     tailwindcss: { name: "tailwindcss", severity: "high", nodes: ["node_modules/tailwindcss"], via: ["postcss-nested", "postcss-selector-parser"] },
   } };
   const lock = { packages: Object.fromEntries(Object.keys(report.vulnerabilities).map((name) =>
-    [`node_modules/${name}`, { dev: true, version: name === "postcss-selector-parser" ? "6.1.4" : "1.0.0" }],
+    [`node_modules/${name}`, { dev: true, version: name === "postcss-selector-parser" ? "6.1.5" : "1.0.0" }],
   )) };
   return { report, lock };
 }
@@ -82,9 +82,16 @@ test("accepts the documented postcss-selector-parser advisory only for its dev-o
   lock.packages["node_modules/postcss-selector-parser"].dev = false;
   assert.equal(evaluateAudit(report, lock, beforeExpiry).allowed.length, 0);
 });
+test("accepts Tailwind at moderate severity once only the selector-parser advisory remains, but not critical", () => {
+  const { report, lock } = selectorFixture();
+  report.vulnerabilities.tailwindcss.severity = "moderate";
+  assert.deepEqual(evaluateAudit(report, lock, beforeExpiry).blocked, []);
+  report.vulnerabilities.tailwindcss.severity = "critical";
+  assert.ok(evaluateAudit(report, lock, beforeExpiry).blocked.includes("tailwindcss"));
+});
 test("blocks postcss-selector-parser on another version, severity or advisory", () => {
   for (const mutate of [
-    ({ lock }) => { lock.packages["node_modules/postcss-selector-parser"].version = "6.1.3"; },
+    ({ lock }) => { lock.packages["node_modules/postcss-selector-parser"].version = "6.1.4"; },
     ({ report }) => { report.vulnerabilities["postcss-selector-parser"].severity = "high"; },
     ({ report }) => { report.vulnerabilities["postcss-selector-parser"].via[0].url = BRACES_ADVISORY; },
   ]) {

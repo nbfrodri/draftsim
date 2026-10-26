@@ -9,6 +9,7 @@ import {
   buildRosterMovesEntry,
   buildYearResultEntry,
   collectSimResultUpdates,
+  attachYearEventSummary,
   compressSimResultsFeed,
   countSummarizedYears,
   feedEntryOrder,
@@ -1715,5 +1716,19 @@ describe("releases in live roster moves", () => {
     });
     const entry = buildRosterMovesEntry(season, "msi");
     expect(entry?.moves.map((m) => [m.kind, m.fromTeam.name])).toEqual([["release", "Alpha"], ["fa-sign", "Beta"]]);
+  });
+});
+
+describe("attachYearEventSummary", () => {
+  const year = (seasonId: string, y: number) =>
+    ({ kind: "year", seasonId, year: y, seasonName: "S", splits: [], intls: [], worldsChampion: null, followedTeam: null }) as SimResultEntry;
+  it("attaches to the matching year only and survives compression", () => {
+    const feed = [year("a", 1), year("b", 2)];
+    const summary = { events: [] };
+    const next = attachYearEventSummary(feed, "b", summary);
+    expect(next[0]).toBe(feed[0]);
+    expect((next[1] as { eventSummary?: unknown }).eventSummary).toBe(summary);
+    expect(compressSimResultsFeed(next, 1)).toEqual(next);
+    expect(attachYearEventSummary(feed, "missing", summary)).toBe(feed);
   });
 });

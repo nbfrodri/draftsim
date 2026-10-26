@@ -255,7 +255,7 @@ export function TeamCardBody({
 
         <Section label="Org">
           <div className="grid grid-cols-3 gap-x-2">
-            <Stat label="Academy" value={`${data.academyCount}`} />
+            <Stat label="Academy" value={data.academyCount == null ? "—" : `${data.academyCount}`} />
             <Stat label="Stars" value={`${data.starRating}★`} />
             <Stat label="Avg tier" value={data.avgTier} />
           </div>

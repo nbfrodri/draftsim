@@ -258,12 +258,16 @@ function collectPlayerStats(
           if (typeof blueRating !== "number" || !Number.isFinite(blueRating)) continue;
           const ids = recap.perPickIds?.blue;
           const names = recap.perPickNames?.blue;
+          // Unknown stays unknown: without a recorded participant ID we do not
+          // credit the entrant roster's player (legacy recaps).
+          const recordedId = ids?.[laneIdx];
+          if (!recordedId) continue;
           const stats = ensurePlayer(
             blueTeam.id,
             lane,
             blueTeam.name,
             names?.[laneIdx] ?? blueTeam.players?.[laneIdx]?.name,
-            ids?.[laneIdx] ?? blueTeam.players?.[laneIdx]?.id,
+            recordedId,
           );
           stats.ratings.push({ rating: blueRating, weight: gameWeight });
           if (blueRating > stats.peakRating) {
@@ -281,12 +285,16 @@ function collectPlayerStats(
           if (typeof redRating !== "number" || !Number.isFinite(redRating)) continue;
           const ids = recap.perPickIds?.red;
           const names = recap.perPickNames?.red;
+          // Unknown stays unknown: without a recorded participant ID we do not
+          // credit the entrant roster's player (legacy recaps).
+          const recordedId = ids?.[laneIdx];
+          if (!recordedId) continue;
           const stats = ensurePlayer(
             redTeam.id,
             lane,
             redTeam.name,
             names?.[laneIdx] ?? redTeam.players?.[laneIdx]?.name,
-            ids?.[laneIdx] ?? redTeam.players?.[laneIdx]?.id,
+            recordedId,
           );
           stats.ratings.push({ rating: redRating, weight: gameWeight });
           if (redRating > stats.peakRating) {

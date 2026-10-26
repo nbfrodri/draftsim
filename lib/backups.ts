@@ -119,8 +119,11 @@ export async function restoreBackup(id: string): Promise<void> {
     // On failed hydration, never flush the empty in-memory store.
     if (!getPersistenceError()) await flushPendingPersistWrites();
     if (running) await running;
-    if (isDesktop()) await invokeWithProgress("backup_restore", { id }, progressId);
-    else {
+    if (isDesktop()) {
+      // Whatever the outcome, the file may differ from what earlier saves committed.
+      try { await invokeWithProgress("backup_restore", { id }, progressId); }
+      finally { await (await import("./desktopSqlite")).forgetDesktopWriteBaselines(); }
+    } else {
       advanceOperationProgress("validate", progressId);
       const raw = localStorage.getItem(id);
       if (!id.startsWith(WEB_PREFIX) || !raw || !validWebBackup(JSON.parse(raw))) throw new Error("Backup is no longer available or is invalid.");

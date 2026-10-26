@@ -14,7 +14,9 @@ vi.mock("./desktopStorage", () => ({
 
 import {
   deleteRealityFromDb,
+  forgetDesktopWriteBaselines,
   loadPersistedStateFromDb,
+  loadPersistedStateFromDbExecutor,
   resetSqliteStorageForTests,
   savePersistedStateToDb,
   setDesktopDatabaseForTests,
@@ -31,7 +33,7 @@ import {
   type SqlExecutor,
 } from "./desktopSqlite";
 import { signalCompactingDatabase, clearDesktopOperation } from "./desktopStorage";
-import { UPSERT_REALITY_HISTORY_SQL } from "./desktopSqliteSchema";
+import { UPDATE_REALITY_HISTORY_ORDER_SQL, UPSERT_REALITY_HISTORY_SQL } from "./desktopSqliteSchema";
 import {
   compactEncodeTournamentForPersist,
   type RecapCompact,
@@ -68,6 +70,13 @@ function createMockHistoryDb() {
           sort_order: sortOrder,
         });
         return { rowsAffected: 1 };
+      }
+
+      if (query === UPDATE_REALITY_HISTORY_ORDER_SQL) {
+        const [sortOrder, realityId, entryId] = bindValues as [number, string, string];
+        const row = rows.get(historyKey(realityId, entryId));
+        if (row) row.sort_order = sortOrder;
+        return { rowsAffected: row ? 1 : 0 };
       }
 
       if (query === "DELETE FROM reality_history WHERE reality_id = ?") {
@@ -185,6 +194,13 @@ function createMockPersistDb() {
         return { rowsAffected: 1 };
       }
 
+      if (query === UPDATE_REALITY_HISTORY_ORDER_SQL) {
+        const [sortOrder, realityId, entryId] = bindValues as [number, string, string];
+        const row = historyRows.get(historyKey(realityId, entryId));
+        if (row) row.sort_order = sortOrder;
+        return { rowsAffected: row ? 1 : 0 };
+      }
+
       if (query === "DELETE FROM reality_history WHERE reality_id = ?") {
         const [realityId] = bindValues as [string];
         for (const key of [...historyRows.keys()]) {
@@ -276,7 +292,7 @@ function createMockPersistDb() {
         return [...historyRows.values()]
           .filter((r) => r.reality_id === realityId)
           .sort((a, b) => a.sort_order - b.sort_order)
-          .map((r) => ({ entry_json: r.entry_json })) as T[];
+          .map((r) => ({ entry_id: r.entry_id, entry_json: r.entry_json, sort_order: r.sort_order })) as T[];
       }
 
       throw new Error(`Unexpected select in mock persist db: ${query}`);
@@ -874,7 +890,7 @@ describe("recompactAllRealitySeasonsInDb", () => {
     expect(doneRecap.goldLeadTimeline).toBeUndefined();
     expect(doneRecap.notableEvents).toBeUndefined();
     expect(doneRecap.perPickKDA).toBeUndefined();
-    expect(doneRecap.recapC).toBeUndefined();
+    expect(doneRecap.recapC).toEqual({ kda: [1, 0, 2, 2, 1, 3, 3, 0, 4, 4, 1, 5, 5, 0, 6, 0, 1, 1, 1, 2, 1, 0, 3, 2, 1, 2, 0, 0, 4, 1] });
     expect(doneRecap.mvp?.playerName).toBe("MVP");
 
     const liveRecap = next.tournaments.live!.matches[0]!.series!.games[0]!
@@ -1057,7 +1073,7 @@ it("does not reinterpret a damaged format-8 root as a legacy save", async () => 
 
 it("does not re-encode or rewrite a dormant archive just read from SQLite, but saves subsequent edits", async () => {
   resetSqliteStorageForTests();
-  const { db } = createMockPersistDb();
+  const { db, historyRows } = createMockPersistDb();
   setDesktopDatabaseForTests(db);
   const active = makeReality("active", "Active");
   const dormant = { ...makeReality("dormant", "Dormant"), history: Array.from({ length: 5 }, (_, i) => makeEntry(`year-${i}`, `Year ${i}`)) };
@@ -1072,7 +1088,10 @@ it("does not re-encode or rewrite a dormant archive just read from SQLite, but s
   expect(execute).not.toHaveBeenCalled();
   const edited = { ...installed, realities: installed.realities.map(r => r.id === dormant.id ? { ...r, history: history.slice(1) } : r) };
   await savePersistedStateToDbExecutor(db, STORE_KEY, edited);
-  expect(execute.mock.calls.some(([query]) => query === UPSERT_REALITY_HISTORY_SQL)).toBe(true);
+  // The removed year is deleted and the remaining rows move up without re-encoding.
+  expect(execute.mock.calls.some(([query]) => query === UPSERT_REALITY_HISTORY_SQL)).toBe(false);
+  expect([...historyRows.values()].filter(r => r.reality_id === dormant.id).map(r => [r.entry_id, r.sort_order]).sort())
+    .toEqual(history.slice(1).map((e, i) => [e.id, i]).sort());
   resetSqliteStorageForTests();
 });
 
@@ -1085,4 +1104,208 @@ it("persists nonempty history after module load flags are lost, while empty dorm
   resetSqliteStorageForTests();
   await savePersistedStateToDbExecutor(db, STORE_KEY, { realities: [{ ...populated, history: [] }] });
   expect(historyRows.size).toBe(5);
+});
+
+describe("incremental history sync", () => {
+  beforeEach(() => resetSqliteStorageForTests());
+  afterEach(() => resetSqliteStorageForTests());
+
+  const realityWith = (history: SeasonHistoryEntry[]) => ({
+    id: "r", name: "Bulk", year: 2026, season: { franchise: { id: "r", year: 2026 } }, history,
+  });
+  const stateWith = (history: SeasonHistoryEntry[]) => ({ activeRealityId: "r", realities: [realityWith(history)] });
+  /** Entry ids whose JSON was encoded and upserted, in call order. */
+  const upsertedIds = (execute: { mock: { calls: unknown[][] } }) =>
+    execute.mock.calls.filter(([query]) => query === UPSERT_REALITY_HISTORY_SQL).map(([, values]) => (values as unknown[])[1]);
+  const storedOrder = (rows: ReturnType<typeof createMockPersistDb>["historyRows"]) =>
+    [...rows.values()].sort((a, b) => a.sort_order - b.sort_order).map(r => r.entry_id);
+
+  it.each([
+    ["prepended (archive order)", (history: SeasonHistoryEntry[], entry: SeasonHistoryEntry) => [entry, ...history]],
+    ["appended", (history: SeasonHistoryEntry[], entry: SeasonHistoryEntry) => [...history, entry]],
+  ])("encodes each %s year exactly once across sequential saves", async (_label, add) => {
+    const { db, historyRows } = createMockPersistDb();
+    const execute = vi.spyOn(db, "execute");
+    let history: SeasonHistoryEntry[] = [];
+    for (let year = 1; year <= 8; year++) {
+      history = add(history, makeEntry(`year-${year}`, `Year ${year}`));
+      await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith(history));
+    }
+    const ids = upsertedIds(execute);
+    expect(ids).toHaveLength(8);
+    expect(new Set(ids).size).toBe(8);
+    expect(storedOrder(historyRows)).toEqual(history.map(e => e.id));
+    expect([...historyRows.values()].map(r => r.sort_order).sort()).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it("rewrites an entry replaced by a new object with the same id", async () => {
+    const { db, historyRows } = createMockPersistDb();
+    const a = makeEntry("a", "A"); const b = makeEntry("b", "B");
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([b, a]));
+    const execute = vi.spyOn(db, "execute");
+    const rearchived = { ...b, name: "B rearchived" };
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([rearchived, a]));
+    expect(upsertedIds(execute)).toEqual(["b"]);
+    expect(JSON.parse(historyRows.get(historyKey("r", "b"))!.entry_json).name).toBe("B rearchived");
+  });
+
+  it("updates sort order for reordered rows without re-encoding them", async () => {
+    const { db, historyRows } = createMockPersistDb();
+    const entries = ["a", "b", "c"].map(id => makeEntry(id, id));
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith(entries));
+    const execute = vi.spyOn(db, "execute");
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([entries[2], entries[0], entries[1]]));
+    expect(upsertedIds(execute)).toEqual([]);
+    expect(storedOrder(historyRows)).toEqual(["c", "a", "b"]);
+  });
+
+  it("deletes a removed entry without rewriting the others", async () => {
+    const { db, historyRows } = createMockPersistDb();
+    const entries = ["a", "b", "c"].map(id => makeEntry(id, id));
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith(entries));
+    const execute = vi.spyOn(db, "execute");
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([entries[0], entries[2]]));
+    expect(upsertedIds(execute)).toEqual([]);
+    expect(storedOrder(historyRows)).toEqual(["a", "c"]);
+  });
+
+  it("writes the last occurrence of a duplicated id", async () => {
+    const { db, historyRows } = createMockPersistDb();
+    const a = makeEntry("a", "A");
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([a]));
+    const newer = { ...a, name: "A newer" };
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([newer, a]));
+    expect(historyRows.size).toBe(1);
+    expect(historyRows.get(historyKey("r", "a"))).toMatchObject({ sort_order: 1, entry_json: JSON.stringify(a) });
+  });
+
+  it("does not let a failed commit make the retry skip rows that never reached the database", async () => {
+    const { db, historyRows } = createMockPersistDb();
+    const committed: { query: string; bindValues: unknown[] }[][] = [];
+    db.batch = vi.fn(async (statements) => {
+      committed.push(statements);
+      for (const s of statements) await db.execute(s.query, s.bindValues);
+    });
+    const a = makeEntry("a", "A"); const b = makeEntry("b", "B");
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([a]));
+    vi.mocked(db.batch!).mockRejectedValueOnce(new Error("disk full"));
+    await expect(savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([b, a]))).rejects.toThrow("disk full");
+    expect(historyRows.has(historyKey("r", "b"))).toBe(false);
+    committed.length = 0;
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([b, a]));
+    const retried = committed.flat().filter(s => s.query === UPSERT_REALITY_HISTORY_SQL).map(s => s.bindValues[1]);
+    expect(retried).toEqual(["b", "a"]);
+    expect(storedOrder(historyRows)).toEqual(["b", "a"]);
+  });
+
+  it("does not trust rows planned by a save whose plan failed", async () => {
+    const { db, historyRows } = createMockPersistDb();
+    const a = makeEntry("a", "A"); const b = makeEntry("b", "B");
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([a]));
+    const execute = db.execute.bind(db);
+    // Without a native batch statements run directly: fail after b's upsert.
+    vi.spyOn(db, "execute").mockImplementation(async (query, values) => {
+      if (query.includes("entry_id NOT IN")) throw new Error("locked");
+      return execute(query, values);
+    });
+    await expect(savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([b, a]))).rejects.toThrow("locked");
+    historyRows.delete(historyKey("r", "b"));
+    vi.mocked(db.execute).mockImplementation(execute);
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([b, a]));
+    expect(storedOrder(historyRows)).toEqual(["b", "a"]);
+  });
+
+  it("forceAllHistory rewrites every entry", async () => {
+    const { db } = createMockPersistDb();
+    const entries = ["a", "b", "c"].map(id => makeEntry(id, id));
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith(entries));
+    const execute = vi.spyOn(db, "execute");
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith(entries), { forceAllHistory: true });
+    expect(upsertedIds(execute)).toEqual(["a", "b", "c"]);
+  });
+
+  it("rewrites everything after write baselines are forgotten (backup restore)", async () => {
+    const { db } = createMockPersistDb();
+    setDesktopDatabaseForTests(db);
+    const entries = ["a", "b"].map(id => makeEntry(id, id));
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith(entries));
+    await forgetDesktopWriteBaselines();
+    const execute = vi.spyOn(db, "execute");
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([makeEntry("c", "c"), ...entries]));
+    expect(upsertedIds(execute)).toEqual(["c", "a", "b"]);
+  });
+
+  it("encodes only the new year after hydrating the active history", async () => {
+    const { db, historyRows } = createMockPersistDb();
+    setDesktopDatabaseForTests(db);
+    const history = Array.from({ length: 20 }, (_, i) => makeEntry(`year-${i}`, `Year ${i}`));
+    await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith(history), { forceAllHistory: true });
+    resetSqliteStorageForTests(); setDesktopDatabaseForTests(db);
+    const loaded = (await loadPersistedStateFromDb(STORE_KEY))!;
+    const active = loaded.realities![0];
+    expect(active.history).toEqual(history);
+    const execute = vi.spyOn(db, "execute");
+    const next = [makeEntry("year-20", "Year 20"), ...(active.history as SeasonHistoryEntry[])];
+    await savePersistedStateToDbExecutor(db, STORE_KEY, { ...loaded, realities: [{ ...active, history: next }] });
+    expect(upsertedIds(execute)).toEqual(["year-20"]);
+    expect(storedOrder(historyRows)).toEqual(next.map(e => e.id));
+  });
+
+  it("encodes only the new year after installing a lazily read dormant history", async () => {
+    const { db } = createMockPersistDb();
+    setDesktopDatabaseForTests(db);
+    const active = makeReality("active", "Active");
+    const dormant = { ...makeReality("dormant", "Dormant"), history: Array.from({ length: 5 }, (_, i) => makeEntry(`d-${i}`, `D ${i}`)) };
+    await savePersistedStateToDbExecutor(db, STORE_KEY, { activeRealityId: active.id, realities: [active, dormant] }, { forceAllHistory: true });
+    resetSqliteStorageForTests(); setDesktopDatabaseForTests(db);
+    const loaded = (await loadPersistedStateFromDb(STORE_KEY))!;
+    const history = await loadRealityHistoryFromDb(dormant.id);
+    markRealityHistoryLoaded(dormant.id, history);
+    const execute = vi.spyOn(db, "execute");
+    const next = [makeEntry("d-5", "D 5"), ...history];
+    await savePersistedStateToDbExecutor(db, STORE_KEY, { ...loaded, realities: loaded.realities!.map(r => r.id === dormant.id ? { ...r, history: next } : r) });
+    expect(upsertedIds(execute)).toEqual(["d-5"]);
+  });
+
+  it("round-trips incrementally written years through a real SQLite database", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const { SCHEMA_SQL } = await import("./desktopSqliteSchema");
+    const sqlite = new DatabaseSync(":memory:"); sqlite.exec(SCHEMA_SQL);
+    type Value = import("node:sqlite").SQLInputValue;
+    const run = (query: string, values: unknown[] = []) => sqlite.prepare(query).run(...values as Value[]);
+    let failNext = false;
+    let historyBytes = 0;
+    const executor: SqlExecutor = {
+      execute: async (query, values = []) => ({ rowsAffected: Number(run(query, values).changes) }),
+      select: async <T>(query: string, values: unknown[] = []) => sqlite.prepare(query).all(...values as Value[]) as T[],
+      batch: async (statements) => {
+        sqlite.exec("BEGIN");
+        try {
+          statements.forEach((s, i) => {
+            if (failNext && i === statements.length - 1) throw new Error("injected failure");
+            if (s.query === UPSERT_REALITY_HISTORY_SQL) historyBytes += (s.bindValues[2] as string).length;
+            run(s.query, s.bindValues);
+          });
+          sqlite.exec("COMMIT");
+        } catch (error) { sqlite.exec("ROLLBACK"); failNext = false; throw error; }
+      },
+    };
+    try {
+      let history: SeasonHistoryEntry[] = [];
+      for (let year = 1; year <= 6; year++) {
+        history = [{ ...makeEntry(`year-${year}`, `Year ${year}`), archivedAt: year }, ...history];
+        if (year === 4) {
+          failNext = true;
+          await expect(savePersistedStateToDbExecutor(executor, STORE_KEY, stateWith(history))).rejects.toThrow("injected failure");
+        }
+        await savePersistedStateToDbExecutor(executor, STORE_KEY, stateWith(history));
+      }
+      const oneEntry = JSON.stringify(history[0]).length;
+      // 6 new years, plus one full rewrite of 4 years after the injected failure.
+      expect(historyBytes).toBeLessThanOrEqual(oneEntry * (6 + 4));
+      resetSqliteStorageForTests();
+      const loaded = (await loadPersistedStateFromDbExecutor(executor, STORE_KEY))!;
+      expect(loaded.realities![0].history).toEqual(history);
+    } finally { sqlite.close(); }
+  });
 });

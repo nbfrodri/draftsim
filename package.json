@@ -1,6 +1,6 @@
 {
   "name": "draftsim",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "private": true,
   "scripts": {
     "build:worker": "node scripts/build-bulk-sim-worker.mjs",
@@ -38,7 +38,7 @@
     "exceljs": "^4.4.0",
     "gsap": "3.12.7",
     "jszip": "^3.10.2",
-    "next": "^16.3.4",
+    "next": "^16.4.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "recharts": "^3.8.1",

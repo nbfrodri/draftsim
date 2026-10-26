@@ -1,20 +1,8 @@
 import ChampionImageFallback from "@/components/ChampionImageFallback";
 import PersistenceNotice from "@/components/PersistenceNotice";
 import type { Metadata } from "next";
-import { Cinzel,Inter } from "next/font/google";
+import { brand, body } from "./fonts";
 import "./globals.css";
-
-const brand = Cinzel({
-  subsets: ["latin"],
-  weight: ["400", "600", "700"],
-  variable: "--font-brand",
-});
-
-const body = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-body",
-});
 
 export const metadata: Metadata = {
   title: "DraftSim — League of Legends Draft Simulator",

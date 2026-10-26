@@ -30653,6 +30653,12 @@
     return { ...after, ssLosses: [...after.ssLosses ?? [], ...losses.filter((l) => !(after.ssLosses ?? []).some((x) => x.phaseIndex === l.phaseIndex && x.holder.playerId === l.holder.playerId && x.holder.lane === l.holder.lane))] };
   }
 
+  // lib/eventStats.ts
+  var EVENT_METRICS = ["games", "wins", "rated", "ratingSum", "adjusted", "sum", "squares", "goldGames", "goldSum", "kills", "deaths", "assists", "kdaGames", "opportunities"];
+
+  // lib/eventStatsValidation.ts
+  var MONOTONIC = EVENT_METRICS.filter((k) => k !== "goldSum");
+
   // lib/draftAI/personalities.ts
   var PERSONALITIES = {
     balanced: {

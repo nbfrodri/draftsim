@@ -2,6 +2,7 @@
 
 import { memo, type ReactNode } from "react";
 
+import { isDesktop } from "@/lib/desktopStorage";
 import PlayerHoverCard from "./PlayerHoverCard";
 import {
   usePlayerCardContext,
@@ -60,6 +61,16 @@ function PlayerNameLink({
     !noNavigate &&
     ctx.canOpenProfile(playerId);
 
+  // Without a profile button the hover card would be mouse-only: give the name a
+  // single tab stop (not when nested in another button) so focus opens the card.
+  const focusableCard =
+    !canNavigate &&
+    renderAs === "button" &&
+    !!ctx &&
+    isDesktop() &&
+    (!!playerId || !!hint?.player);
+  const cardLabel = typeof label === "string" ? label : (name ?? undefined);
+
   if (!ctx) {
     return (
       <span className={className} title={title}>
@@ -86,7 +97,13 @@ function PlayerNameLink({
           {label}
         </button>
       ) : (
-        <span className="min-w-0 truncate" title={title}>
+        <span
+          className={`min-w-0 truncate${focusableCard ? " focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold" : ""}`}
+          title={title}
+          {...(focusableCard
+            ? { tabIndex: 0, role: "group", "aria-label": cardLabel }
+            : {})}
+        >
           {label}
         </span>
       )}

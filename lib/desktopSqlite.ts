@@ -21,6 +21,7 @@ JSON_MIGRATION_FLAG,
 META_CONFIG_KEY,
 PERSIST_VERSION,
 SCHEMA_SQL,
+UPDATE_REALITY_HISTORY_ORDER_SQL,
 UPSERT_REALITY_HISTORY_SQL,
 mergePersistedState,
 parseMetaConfigJson,
@@ -45,7 +46,7 @@ export type SqlExecutor = {
 
 type SqlStatement = { query: string; bindValues: unknown[] };
 let dbPromise: Promise<SqlExecutor> | null = null;
-const readHistorySources = new WeakMap<SeasonHistoryEntry[], { db: SqlExecutor; realityId: string }>();
+const readHistorySources = new WeakMap<SeasonHistoryEntry[], { db: SqlExecutor; realityId: string; baseline: HistoryBaseline }>();
 const writeTails = new WeakMap<SqlExecutor, Promise<unknown>>();
 const savedGlobals = new WeakMap<SqlExecutor, { storeKey: string; value: Record<string, unknown> }>();
 
@@ -61,6 +62,43 @@ const savedRealities = new WeakMap<SqlExecutor, Map<string, {
   name: string; year: number; season: unknown; history: unknown[]; historySynced: boolean;
 }>>();
 
+/**
+ * Durable `reality_history` rows per database and reality: entry id → the
+ * in-memory entry object whose JSON the row holds, and its `sort_order`.
+ * Archived entries are replaced, never mutated, so object identity is the
+ * fingerprint. Advanced only after a commit; any failure drops the database's
+ * baselines so a retry rewrites rows instead of trusting unsaved ones.
+ */
+type HistoryBaseline = Map<string, { entry: SeasonHistoryEntry; index: number }>;
+let committedHistory = new WeakMap<SqlExecutor, Map<string, HistoryBaseline>>();
+/** Baselines planned by an atomic write, keyed by its writer; committed on success. */
+const historyTransactions = new WeakMap<SqlExecutor, { db: SqlExecutor; staged: Map<string, HistoryBaseline> }>();
+
+/** Stop trusting history rows (deleted, restored or uncertain). Always safe: it only adds writes. */
+function forgetHistoryBaseline(writer: SqlExecutor, realityId?: string): void {
+  const transaction = historyTransactions.get(writer);
+  const db = transaction?.db ?? writer;
+  if (realityId === undefined) {
+    committedHistory.delete(db);
+    transaction?.staged.clear();
+  } else {
+    committedHistory.get(db)?.delete(realityId);
+    transaction?.staged.delete(realityId);
+  }
+}
+
+/** Baseline for rows read from SQLite; rows whose id or order cannot be trusted are left out. */
+function baselineFromRows(rows: { entry_id?: unknown; sort_order?: unknown }[], entries: unknown[]): HistoryBaseline {
+  const baseline: HistoryBaseline = new Map();
+  rows.forEach((row, i) => {
+    const entry = entries[i] as SeasonHistoryEntry | null | undefined;
+    if (entry && typeof row.entry_id === "string" && entry.id === row.entry_id && typeof row.sort_order === "number") {
+      baseline.set(row.entry_id, { entry, index: row.sort_order });
+    }
+  });
+  return baseline;
+}
+
 function serializeDbWrite<T>(db: SqlExecutor, operation: () => Promise<T>): Promise<T> {
   const previous = writeTails.get(db) ?? Promise.resolve();
   const next = previous.catch(() => {}).then(operation);
@@ -72,13 +110,19 @@ function serializeDbWrite<T>(db: SqlExecutor, operation: () => Promise<T>): Prom
 async function atomicWrite(db: SqlExecutor, operation: (writer: SqlExecutor) => Promise<void>): Promise<void> {
   const loadedBefore = new Set(loadedHistoryRealityIds);
   const statements: SqlStatement[] = [];
+  // A distinct writer object identifies this transaction's staged history baselines.
   const writer: SqlExecutor = db.batch ? {
     select: (query, values) => db.select(query, values),
     execute: async (query, bindValues = []) => {
       statements.push({ query, bindValues });
       return { rowsAffected: 0 };
     },
-  } : db;
+  } : {
+    select: (query, values) => db.select(query, values),
+    execute: (query, values) => db.execute(query, values),
+  };
+  const transaction = { db, staged: new Map<string, HistoryBaseline>() };
+  historyTransactions.set(writer, transaction);
   try {
     const planDone = beginSaveDiagnostic("plan");
     try { await operation(writer); planDone(); } catch (error) { planDone(false); throw error; }
@@ -92,7 +136,13 @@ async function atomicWrite(db: SqlExecutor, operation: (writer: SqlExecutor) => 
     for (const id of loadedBefore) loadedHistoryRealityIds.add(id);
     savedRealities.delete(db);
     savedGlobals.delete(db);
+    committedHistory.delete(db);
     throw error;
+  }
+  if (transaction.staged.size) {
+    let committed = committedHistory.get(db);
+    if (!committed) committedHistory.set(db, committed = new Map());
+    for (const [realityId, baseline] of transaction.staged) committed.set(realityId, baseline);
   }
 }
 
@@ -103,6 +153,19 @@ const loadedHistoryRealityIds = new Set<string>();
 export function resetSqliteStorageForTests(): void {
   dbPromise = null;
   loadedHistoryRealityIds.clear();
+  committedHistory = new WeakMap();
+}
+
+/**
+ * Drop every write baseline for the open database after its file was replaced
+ * (backup restore), so a later save cannot skip rows the new file lacks.
+ */
+export async function forgetDesktopWriteBaselines(): Promise<void> {
+  const db = await dbPromise?.catch(() => null);
+  if (!db) return;
+  savedRealities.delete(db);
+  savedGlobals.delete(db);
+  committedHistory.delete(db);
 }
 
 /** @internal test helper — inject a mock SqlExecutor instead of opening Tauri DB. */
@@ -123,6 +186,10 @@ export function markRealityHistoryLoaded(realityId: string, history?: SeasonHist
       cached.history = history!;
       cached.historySynced = true;
     }
+    // Rows committed after this read are newer than it; never replace them.
+    let committed = committedHistory.get(source.db);
+    if (!committed) committedHistory.set(source.db, committed = new Map());
+    if (!committed.has(realityId)) committed.set(realityId, source.baseline);
   }
   loadedHistoryRealityIds.add(realityId);
 }
@@ -423,6 +490,7 @@ export async function upsertRealityInDb(
 export async function deleteRealityFromDb(realityId: string): Promise<void> {
   const db = await loadDatabase();
   await serializeDbWrite(db, () => atomicWrite(db, async (writer) => {
+    forgetHistoryBaseline(writer, realityId);
     await writer.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
     await writer.execute("DELETE FROM realities WHERE id = ?", [realityId]);
     loadedHistoryRealityIds.delete(realityId);
@@ -673,27 +741,41 @@ export async function compactDesktopDatabaseOnClose(): Promise<
 }
 
 /**
- * Sync history rows: upsert each entry, then drop rows removed from state.
+ * Sync history rows: write new or replaced entries, move reordered ones, then
+ * drop rows removed from state.
  *
- * Hall history entries are already lightweight résumés (champion / MVP
- * snapshots — not full tournament recaps), so we do not archive-slim them
- * here. Season `season_json` is where chart payloads live; prefer that slim
- * path (encodeSeasonForDesktopDb) for DB size reduction.
+ * Inside an atomic write, entries whose object and index match the committed
+ * baseline are skipped, so archiving a year encodes only that year (entries are
+ * several MB each). `force` or a call outside an atomic write rewrites every row.
  */
 export async function syncRealityHistory(
   db: SqlExecutor,
   realityId: string,
   history: SeasonHistoryEntry[],
+  options?: { force?: boolean },
 ): Promise<void> {
+  const transaction = historyTransactions.get(db);
+  const baseline = transaction && !options?.force
+    ? transaction.staged.get(realityId) ?? committedHistory.get(transaction.db)?.get(realityId)
+    : undefined;
+  const next: HistoryBaseline = new Map();
   for (let i = 0; i < history.length; i++) {
     const entry = history[i]!;
-    await db.execute(UPSERT_REALITY_HISTORY_SQL, [
-      realityId,
-      entry.id,
-      encodeWithSaveDiagnostic("history-encode", () => JSON.stringify(entry)),
-      i,
-    ]);
+    const saved = baseline?.get(entry.id);
+    // A repeated id is always written so the last occurrence wins, as before.
+    if (!saved || saved.entry !== entry || next.has(entry.id)) {
+      await db.execute(UPSERT_REALITY_HISTORY_SQL, [
+        realityId,
+        entry.id,
+        encodeWithSaveDiagnostic("history-encode", () => JSON.stringify(entry)),
+        i,
+      ]);
+    } else if (saved.index !== i) {
+      await db.execute(UPDATE_REALITY_HISTORY_ORDER_SQL, [i, realityId, entry.id]);
+    }
+    next.set(entry.id, { entry, index: i });
   }
+  transaction?.staged.set(realityId, next);
 
   if (history.length === 0) {
     await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
@@ -717,6 +799,7 @@ export async function syncRemovedRealities(
   const keep = new Set(keepIds);
 
   if (keepIds.length === 0) {
+    forgetHistoryBaseline(db);
     await db.execute("DELETE FROM reality_history");
     await db.execute("DELETE FROM realities");
     loadedHistoryRealityIds.clear();
@@ -725,6 +808,7 @@ export async function syncRemovedRealities(
 
   for (const row of existing) {
     if (!keep.has(row.id)) {
+      forgetHistoryBaseline(db, row.id);
       await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [row.id]);
       await db.execute("DELETE FROM realities WHERE id = ?", [row.id]);
       loadedHistoryRealityIds.delete(row.id);
@@ -824,7 +908,7 @@ async function reconcilePersistedState(
       // including years produced by store actions retained through dev HMR.
       r.history.length > 0;
     if (historyLoaded && (!prev?.historySynced || prev.history !== r.history || options?.forceAllHistory)) {
-      await syncRealityHistory(db, r.id, r.history as SeasonHistoryEntry[]);
+      await syncRealityHistory(db, r.id, r.history as SeasonHistoryEntry[], { force: options?.forceAllHistory });
       loadedHistoryRealityIds.add(r.id);
     }
   }
@@ -892,6 +976,9 @@ export async function loadPersistedStateFromDbExecutor(
       ORDER BY realities.name`, [activeRealityId]);
 
   loadedHistoryRealityIds.clear();
+  // A load replaces every baseline; a failed load leaves none to trust.
+  committedHistory.delete(db);
+  const historyBaselines = new Map<string, HistoryBaseline>();
   const realities: Array<{
     id: string;
     name: string;
@@ -912,19 +999,19 @@ export async function loadPersistedStateFromDbExecutor(
     let history: unknown[] = [];
     if (activeRealityId && row.id === activeRealityId) {
       setPersistLoadStage("Reading active reality history");
-      const histRows = await db.select<{ entry_json: string }>(
-        "SELECT entry_json FROM reality_history WHERE reality_id = ? ORDER BY sort_order",
+      const histRows = await db.select<{ entry_id: string; entry_json: string; sort_order: number }>(
+        "SELECT entry_id, entry_json, sort_order FROM reality_history WHERE reality_id = ? ORDER BY sort_order",
         [row.id],
       );
-      history = histRows
-        .map((h) => {
-          try {
-            return JSON.parse(h.entry_json);
-          } catch {
-            throw new Error("Saved history is invalid; refusing to overwrite it.");
-          }
-        })
-        .filter((e): e is unknown => e != null);
+      const parsed = histRows.map((h) => {
+        try {
+          return JSON.parse(h.entry_json);
+        } catch {
+          throw new Error("Saved history is invalid; refusing to overwrite it.");
+        }
+      });
+      history = parsed.filter((e): e is unknown => e != null);
+      historyBaselines.set(row.id, baselineFromRows(histRows, parsed));
       loadedHistoryRealityIds.add(row.id);
     }
 
@@ -956,6 +1043,7 @@ export async function loadPersistedStateFromDbExecutor(
     name: r.name, year: r.year, season: r.season, history: r.history ?? [],
     historySynced: loadedHistoryRealityIds.has(r.id),
   }])));
+  committedHistory.set(db, historyBaselines);
   return loaded;
 }
 
@@ -976,20 +1064,19 @@ export async function loadRealityHistoryFromDb(
   realityId: string,
 ): Promise<SeasonHistoryEntry[]> {
   const db = await loadDatabase();
-  const rows = await db.select<{ entry_json: string }>(
-    "SELECT entry_json FROM reality_history WHERE reality_id = ? ORDER BY sort_order",
+  const rows = await db.select<{ entry_id: string; entry_json: string; sort_order: number }>(
+    "SELECT entry_id, entry_json, sort_order FROM reality_history WHERE reality_id = ? ORDER BY sort_order",
     [realityId],
   );
-  const history = rows
-    .map((r) => {
-      try {
-        return JSON.parse(r.entry_json) as SeasonHistoryEntry;
-      } catch {
-        throw new Error("Saved history is invalid; refusing to overwrite it.");
-      }
-    })
-    .filter((e): e is SeasonHistoryEntry => e != null);
-  readHistorySources.set(history, { db, realityId });
+  const parsed = rows.map((r) => {
+    try {
+      return JSON.parse(r.entry_json) as SeasonHistoryEntry | null;
+    } catch {
+      throw new Error("Saved history is invalid; refusing to overwrite it.");
+    }
+  });
+  const history = parsed.filter((e): e is SeasonHistoryEntry => e != null);
+  readHistorySources.set(history, { db, realityId, baseline: baselineFromRows(rows, parsed) });
   // Reading alone does not authorize empty snapshots to replace this history.
   // The caller marks it loaded only when installing the result into state.
   return history;
@@ -1039,6 +1126,7 @@ export async function clearDesktopStoreFromDb(storeKey: string): Promise<void> {
   await serializeDbWrite(db, () => atomicWrite(db, async (writer) => {
     await writer.execute("DELETE FROM global_fragments WHERE store_key = ?", [storeKey]);
     await writer.execute("DELETE FROM global_state WHERE store_key = ?", [storeKey]);
+    forgetHistoryBaseline(writer);
     await writer.execute("DELETE FROM reality_history");
     await writer.execute("DELETE FROM realities");
     loadedHistoryRealityIds.clear();

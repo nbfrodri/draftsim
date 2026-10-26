@@ -19,6 +19,10 @@ function makeRecap(blueRatings: number[], redRatings: number[]): GameRecap {
     mvp: null,
     biggestSwing: null,
     ratings: { blue: blueRatings, red: redRatings },
+    perPickIds: {
+      blue: [0, 1, 2, 3, 4].map((i) => `blue-${i}`),
+      red: [0, 1, 2, 3, 4].map((i) => `red-${i}`),
+    },
   };
 }
 
