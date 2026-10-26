@@ -373,6 +373,16 @@ let lastSeasonResult: SeasonState | null = null;
  * Compact-encode every tournament in a season for persistence. Memoized by
  * season reference — unchanged seasons cost nothing across set() bursts.
  */
+// Finished events of the live season persist like archived years: no replay
+// charts, so a mid-year save stays a few MB instead of tens. Tournaments are
+// replaced wholesale on change, so identity memoization is safe.
+const slimFinishedCache = new WeakMap<TournamentState, TournamentState>();
+function slimFinishedTournament(t: TournamentState): TournamentState {
+  let slim = slimFinishedCache.get(t);
+  if (!slim) { slim = slimTournamentForArchive(t); slimFinishedCache.set(t, slim); }
+  return slim;
+}
+
 export function compactEncodeSeasonForPersist(season: SeasonState): SeasonState {
   if (season === lastSeasonInput && lastSeasonResult !== null) {
     return lastSeasonResult;
@@ -382,7 +392,7 @@ export function compactEncodeSeasonForPersist(season: SeasonState): SeasonState 
     tournaments: Object.fromEntries(
       Object.entries(season.tournaments).map(([id, t]) => [
         id,
-        compactEncodeTournamentForPersist(t),
+        t.status === "complete" ? slimFinishedTournament(t) : compactEncodeTournamentForPersist(t),
       ]),
     ),
   };
