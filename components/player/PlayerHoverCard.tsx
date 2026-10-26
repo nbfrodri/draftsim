@@ -1,5 +1,6 @@
 "use client";
 
+import SSBadge, { withSSBadge } from "@/components/SSBadge";
 import { formatAggregateKda } from "@/lib/formatKda";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
@@ -299,7 +300,7 @@ export function PlayerCardBody({
 
         {/* Identity */}
         <div className="player-card-hatch relative px-3 pt-2 pb-2 flex items-start gap-2">
-          <span
+          {data.tier === "SS" ? <SSBadge size="md" /> : <span
             className="player-card-pennant shrink-0 w-7 h-7 grid place-items-center font-display text-[13px] leading-none border"
             style={{
               borderColor: accent.hex,
@@ -308,7 +309,7 @@ export function PlayerCardBody({
             }}
           >
             {data.tier ?? "?"}
-          </span>
+          </span>}
           <div className="min-w-0 flex-1">
             <div className="font-display text-[15px] leading-tight tracking-[0.04em] text-rift-goldbright truncate">
               {data.name}
@@ -319,7 +320,7 @@ export function PlayerCardBody({
                 {data.lane ? LANE_LABEL[data.lane] : "—"}
                 {data.age != null ? ` · ${data.age}y` : ""}
                 {data.potential && data.potential !== data.tier
-                  ? ` · pot ${data.potential}`
+                  ? <> · pot {data.potential === "SS" ? <SSBadge /> : data.potential}</>
                   : ""}
               </span>
             </div>
@@ -334,10 +335,10 @@ export function PlayerCardBody({
           )}
         </div>
 
-        {data.ssContext && <p className="px-3 pb-2 text-[10px] leading-relaxed text-rift-mutedbright">{data.ssContext}</p>}
+        {data.ssContext && <p className="px-3 pb-2 text-[10px] leading-relaxed text-rift-mutedbright">{withSSBadge(data.ssContext)}</p>}
         {data.ss && (
           <div className="px-3 pb-2 text-[10px] text-cyan-100/90">
-            SS evidence · {data.ss.phaseLabel} · {data.ss.games} rated games · score {data.ss.score.toFixed(2)}
+            <SSBadge /> evidence · {data.ss.phaseLabel} · {data.ss.games} rated games · score {data.ss.score.toFixed(2)}
             <div className="text-rift-mutedbright">Development tier {data.ss.baseTier} · reviewed after each competitive phase</div>
           </div>
         )}

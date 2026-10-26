@@ -36,14 +36,15 @@ test("live SS race shows ownership, contenders, evidence and responsive role fil
 	await panel.scrollIntoViewIfNeeded();
 	const toggle = panel.getByRole("button", { name: /^SS Race/ });
 	await expect(toggle).toHaveAttribute("aria-expanded", "false");
-	await expect(toggle.getByText("SS", { exact: true })).toHaveCount(0);
+	await expect(toggle.locator("span[aria-hidden='true']").filter({ hasText: /^SS$/ })).toBeVisible();
+	await expect(toggle).toHaveAccessibleName(/^SS Race/);
 	await expect(panel.getByRole("article")).toHaveCount(0);
 	await panel.screenshot({ path: "test-results/playwright/ss-race-collapsed.png" });
 	await toggle.focus();
 	await page.keyboard.press("Enter");
 	await expect(toggle).toHaveAttribute("aria-expanded", "true");
 	const holder = panel.getByRole("article", { name: "Top SS holder", exact: true });
-	await expect(holder.getByText("SS", { exact: true })).toBeVisible();
+	await expect(holder.getByText("SS", { exact: true }).first()).toBeVisible();
 	await expect(holder).toContainText("Race 0 0");
 	await expect(holder).toContainText("7.0");
 	await expect(holder).toContainText("-500");
@@ -59,7 +60,7 @@ test("live SS race shows ownership, contenders, evidence and responsive role fil
 	await expect(contenders).toContainText("Race 1 0");
 	await expect(contenders.locator("img[src='/league-logos/LCK.png']").first()).toBeVisible();
 	await expect(contenders).toContainText("+500");
-	await expect(contenders).toContainText("Projected SS with current results");
+	await expect(contenders).toContainText(/Projected (?:SS)+ with current results/);
 	await expect(contenders).toContainText(">99%");
 	await expect(contenders.getByRole("listitem")).toHaveCount(5);
 	await panel.getByRole("button", { name: "Show all 7 contenders", exact: true }).click();
