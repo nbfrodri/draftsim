@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { beginSaveDiagnostic, clearSaveDiagnostics, encodeWithSaveDiagnostic, exportSaveDiagnostics, getSaveDiagnostics, setSaveDiagnosticsEnabled } from "./saveDiagnostics";
 beforeEach(() => setSaveDiagnosticsEnabled(false));
+afterEach(() => vi.unstubAllGlobals());
 describe("optional local save diagnostics", () => {
   it("does not record by default and does not alter encoding", () => {
     expect(encodeWithSaveDiagnostic("global-encode", () => "private-value")).toBe("private-value");
@@ -30,5 +31,16 @@ describe("optional local save diagnostics", () => {
     expect(() => encodeWithSaveDiagnostic("global-encode", () => { throw new Error("secret-path"); })).toThrow("secret-path");
     expect(getSaveDiagnostics().entries[0].success).toBe(false);
     expect(exportSaveDiagnostics()).not.toContain("secret-path");
+  });
+  it("adds the JS heap size when the WebView exposes it", () => {
+    vi.stubGlobal("performance", { now: () => 0, memory: { usedJSHeapSize: 123 } });
+    setSaveDiagnosticsEnabled(true);
+    beginSaveDiagnostic("commit")(true, 5_000_000, 12);
+    expect(getSaveDiagnostics().entries[0]).toMatchObject({ phase: "commit", bytes: 5_000_000, statements: 12, heapUsed: 123 });
+  });
+  it("exports bulk breadcrumbs next to the save measurements", () => {
+    setSaveDiagnosticsEnabled(true);
+    const result = JSON.parse(exportSaveDiagnostics([{ stage: "archive", year: 3 }]));
+    expect(result.bulkBreadcrumbs).toEqual([{ stage: "archive", year: 3 }]);
   });
 });

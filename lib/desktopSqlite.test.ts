@@ -34,6 +34,8 @@ import {
 } from "./desktopSqlite";
 import { signalCompactingDatabase, clearDesktopOperation } from "./desktopStorage";
 import { UPDATE_REALITY_HISTORY_ORDER_SQL, UPSERT_REALITY_HISTORY_SQL } from "./desktopSqliteSchema";
+import { getSaveDiagnostics, setSaveDiagnosticsEnabled } from "./saveDiagnostics";
+import { setBreadcrumbInvokeForTests, setBulkBreadcrumbContext } from "./bulkBreadcrumbs";
 import {
   compactEncodeTournamentForPersist,
   type RecapCompact,
@@ -1309,3 +1311,45 @@ describe("incremental history sync", () => {
     } finally { sqlite.close(); }
   });
 });
+
+describe("save payload diagnostics", () => {
+  beforeEach(() => resetSqliteStorageForTests());
+  afterEach(() => { resetSqliteStorageForTests(); setSaveDiagnosticsEnabled(false); setBulkBreadcrumbContext(null); setBreadcrumbInvokeForTests(null); });
+  const state = () => ({ activeRealityId: "r", realities: [{ id: "r", name: "Bulk", year: 2026, season: { franchise: { id: "r", year: 2026 } }, history: [makeEntry("y1", "Year 1")] }] });
+  const payloadSize = (statements: { query: string; bindValues: unknown[] }[]) =>
+    statements.reduce((n, s) => n + s.query.length + s.bindValues.reduce<number>((m, v) => m + (typeof v === "string" ? v.length : 8), 0), 0);
+
+  it("records the persist_batch payload size with each commit", async () => {
+    const { db } = createMockPersistDb();
+    let sent: { query: string; bindValues: unknown[] }[] = [];
+    db.batch = vi.fn(async statements => { sent = statements; });
+    setSaveDiagnosticsEnabled(true);
+    await savePersistedStateToDbExecutor(db, STORE_KEY, state());
+    const commit = getSaveDiagnostics().entries.find(e => e.phase === "commit")!;
+    expect(commit.statements).toBe(sent.length);
+    expect(commit.bytes).toBe(payloadSize(sent));
+  });
+
+  it("logs a persist-batch breadcrumb before sending a bulk save", async () => {
+    const { db } = createMockPersistDb();
+    const order: string[] = [];
+    let crumb: Record<string, unknown> = {};
+    setBreadcrumbInvokeForTests(async (_command, args) => { crumb = (args as { breadcrumb: Record<string, unknown> }).breadcrumb; order.push(String(crumb.stage)); });
+    db.batch = vi.fn(async () => { order.push("batch"); });
+    setBulkBreadcrumbContext({ realityId: "r", year: 2027 });
+    await savePersistedStateToDbExecutor(db, STORE_KEY, state());
+    expect(order).toEqual(["persist-batch", "batch"]);
+    expect(crumb).toMatchObject({ stage: "persist-batch", realityId: "r", year: 2027, statements: vi.mocked(db.batch!).mock.calls[0][0].length });
+    expect(crumb.payloadBytes).toBeGreaterThan(0);
+  });
+
+  it("does not log breadcrumbs for saves outside a bulk run", async () => {
+    const { db } = createMockPersistDb();
+    const invoke = vi.fn();
+    setBreadcrumbInvokeForTests(invoke);
+    db.batch = vi.fn(async () => {});
+    await savePersistedStateToDbExecutor(db, STORE_KEY, state());
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
