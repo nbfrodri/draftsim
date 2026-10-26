@@ -1,4 +1,5 @@
 import { recordBulkBreadcrumb, setBulkBreadcrumbContext, type BulkStage } from "@/lib/bulkBreadcrumbs";
+import { holdDebouncedSqliteWrites } from "@/lib/desktopSqliteStorage";
 import { flushPendingPersistWrites } from "@/lib/desktopStorage";
 import { getPersistenceError, reportPersistenceError } from "@/lib/persistenceStatus";
 import {
@@ -52,6 +53,8 @@ simulateRealityYears: (count, options) => {
         setBulkBreadcrumbContext({ realityId, year });
         return recordBulkBreadcrumb({ stage, realityId, year, completed, total });
       };
+      // Mid-year snapshots of the live season are the largest saves; checkpoints flush below.
+      const releaseDebounce = holdDebouncedSqliteWrites();
       try {
         await crumb("start");
         await new Promise((r) => setTimeout(r, 0));
@@ -155,6 +158,7 @@ simulateRealityYears: (count, options) => {
           const jobs = { ...get().bulkYearJobs }; delete jobs[realityId]; set({ bulkYearJobs: jobs });
         }
         set({ simulating: null, simProgress: null, simStartedAt: null, bulkYearsProgress: null, bulkYearsCancelRequested: false });
+        releaseDebounce();
         try { await flushPendingPersistWrites(); }
         catch (error) { reportPersistenceError(`Simulation paused but saving failed: ${String(error)}`, "simulation"); }
         await crumb("idle");

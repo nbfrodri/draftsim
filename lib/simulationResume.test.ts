@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./desktopStorage", () => ({ flushPendingPersistWrites: vi.fn().mockResolvedValue(undefined) }));
+const holdRelease = vi.fn();
+vi.mock("./desktopSqliteStorage", () => ({ holdDebouncedSqliteWrites: vi.fn(() => holdRelease) }));
 import { flushPendingPersistWrites } from "./desktopStorage";
+import { holdDebouncedSqliteWrites } from "./desktopSqliteStorage";
 import { getBulkBreadcrumbContext, setBreadcrumbInvokeForTests } from "./bulkBreadcrumbs";
 import { reportPersistenceError } from "./persistenceStatus";
 import { createSimulationActions } from "@/store/actions/simulation";
@@ -29,7 +32,7 @@ function harness(options: { cancelAfterShop?: boolean } = {}) {
   Object.assign(state, createSimulationActions(get, set, helpers));
   return { get, resume: () => { pauseAt = -1; get().resumeBulkYears(); } };
 }
-beforeEach(() => { reportPersistenceError(null, "simulation"); vi.mocked(flushPendingPersistWrites).mockReset().mockResolvedValue(undefined); });
+beforeEach(() => { reportPersistenceError(null, "simulation"); vi.mocked(flushPendingPersistWrites).mockReset().mockResolvedValue(undefined); holdRelease.mockClear(); vi.mocked(holdDebouncedSqliteWrites).mockClear(); });
 afterEach(() => { setBreadcrumbInvokeForTests(null); vi.unstubAllGlobals(); });
 describe("bulk simulation checkpoint", () => {
   it("lets a queued cancellation run before archiving the completed season", async () => {
@@ -92,4 +95,14 @@ describe("bulk simulation diagnostics", () => {
     ]);
     expect(getBulkBreadcrumbContext()).toBeNull();
   });
+
+  it("holds debounced saves for the whole run and releases them before the final flush", async () => {
+    recordSteps();
+    const h = harness(); h.get().simulateRealityYears(1);
+    await vi.waitFor(() => expect(h.get().simulating).toBeNull());
+    expect(holdDebouncedSqliteWrites).toHaveBeenCalledTimes(1);
+    expect(holdRelease).toHaveBeenCalledTimes(1);
+    expect(holdRelease.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(flushPendingPersistWrites).mock.invocationCallOrder.at(-1)!);
+  });
+
 });

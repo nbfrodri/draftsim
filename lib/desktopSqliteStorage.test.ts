@@ -22,6 +22,7 @@ import {
   createDesktopSqliteStorage,
   flushPendingSqliteWrites,
   hasPendingSqliteWrites,
+  holdDebouncedSqliteWrites,
   resetSqliteWriteQueueForTests,
 } from "./desktopSqliteStorage";
 
@@ -130,4 +131,31 @@ describe("desktopSqliteStorage flush", () => {
     expect(hasPendingSqliteWrites()).toBe(false);
   });
 
+  it("holds debounced writes for checkpoint flushes while a bulk run is active", async () => {
+    const storage = createDesktopSqliteStorage<{ realities: unknown[] }>();
+    const release = holdDebouncedSqliteWrites();
+    storage.setItem(STORE, sampleValue());
+    const latest = { state: { realities: [{ id: "latest" }] }, version: 6 };
+    storage.setItem(STORE, latest);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(saveStorageValueToSqlite).not.toHaveBeenCalled();
+    expect(hasPendingSqliteWrites()).toBe(true);
+    // The bulk checkpoint flush still writes the newest snapshot.
+    await flushPendingSqliteWrites();
+    expect(saveStorageValueToSqlite).toHaveBeenCalledTimes(1);
+    expect(saveStorageValueToSqlite).toHaveBeenCalledWith(STORE, latest);
+    release();
+  });
+
+  it("re-arms the debounce for a held snapshot when the hold is released", async () => {
+    const storage = createDesktopSqliteStorage<{ realities: unknown[] }>();
+    const release = holdDebouncedSqliteWrites();
+    const value = sampleValue();
+    storage.setItem(STORE, value);
+    release();
+    release(); // Idempotent.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(saveStorageValueToSqlite).toHaveBeenCalledWith(STORE, value);
+    expect(hasPendingSqliteWrites()).toBe(false);
+  });
 });

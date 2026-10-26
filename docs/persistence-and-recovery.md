@@ -53,6 +53,8 @@ Comprobación local en perfil debug con un fixture sintético de 32 MB: lectura 
 
 `lib/desktopSqliteStorage.ts` recibe snapshots del middleware de Zustand. Agrupa cambios con un debounce de 500 ms y mantiene una operación en vuelo. El flush drena también los snapshots que llegan mientras se espera una escritura anterior.
 
+Durante una simulación de varios años, `holdDebouncedSqliteWrites` mantiene el último snapshot en cola sin timer: solo lo escriben los flush explícitos (checkpoint de cada año archivado, pausa, error y cierre). La simulación publica tras cada partida y un snapshot de temporada en curso es el guardado más grande (14-18 MB medidos), así que el debounce ya no lo envía a mitad de año. Al terminar, la retención se libera y el debounce se rearma para lo que siga pendiente.
+
 ```mermaid
 sequenceDiagram
   participant UI as Interfaz
