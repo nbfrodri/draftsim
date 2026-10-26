@@ -32,6 +32,7 @@ impl PersistStaging {
         if token.is_empty() || token.len() > 64 || !token.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-') {
             return Err("Invalid staging token".into());
         }
+        if chunk.is_empty() { return Err("Empty staged chunk".into()); }
         let mut staged = self.lock();
         if staged.token != token {
             *staged = StagedSave { token: token.to_string(), ..Default::default() };
@@ -213,6 +214,7 @@ mod tests {
         assert!(staging.take(Some("other")).is_empty());
         assert!(staging.take(Some("save-3")).is_empty(), "a mismatched take still clears");
         assert!(staging.append("bad token!", 0, b"x").is_err());
+        assert!(staging.append("save-4", 0, b"").is_err(), "empty chunks could grow the blob map without bytes");
     }
 
     #[test]
