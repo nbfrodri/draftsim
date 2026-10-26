@@ -1,5 +1,6 @@
 mod storage;
 mod backups;
+mod diagnostics;
 
 // Tint the native Windows 11 title bar (caption bar + buttons strip + border)
 // to the app's dark-gold theme via DWM, so the OS chrome reads as part of the
@@ -41,7 +42,8 @@ fn integrate_titlebar(window: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
-    .invoke_handler(tauri::generate_handler![storage::persist_batch, backups::backup_create, backups::backup_list, backups::backup_delete, backups::backup_destination_get, backups::backup_destination_disable, backups::backup_restore, backups::backup_destination, backups::backup_import, backups::storage_size])
+    .invoke_handler(tauri::generate_handler![storage::persist_batch, storage::persist_stage_chunk, backups::backup_create, backups::backup_list, backups::backup_delete, backups::backup_destination_get, backups::backup_destination_disable, backups::backup_restore, backups::backup_destination, backups::backup_import, backups::storage_size, diagnostics::diagnostics_breadcrumb, diagnostics::diagnostics_breadcrumb_log])
+    .manage(storage::PersistStaging::default())
     .plugin(tauri_plugin_sql::Builder::default().build())
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_dialog::init())

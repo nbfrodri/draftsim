@@ -27,6 +27,35 @@ interface PendingSqliteWrite {
 const pendingSqliteWrites = new Map<string, PendingSqliteWrite>();
 let inFlight: Promise<void> | null = null;
 const SQLITE_DEBOUNCE_MS = 500;
+let debounceHolds = 0;
+
+function armDebounce(name: string, pending: PendingSqliteWrite): void {
+  pending.timer = setTimeout(() => {
+    pending.timer = undefined;
+    void flushPendingSqliteWrites().catch((err) => {
+      console.warn("[desktopSqliteStorage] write failed; snapshot retained for retry:", name, err);
+    });
+  }, SQLITE_DEBOUNCE_MS);
+}
+
+/**
+ * Keep the latest snapshot queued without its debounce timer, so only explicit
+ * flushes write it (bulk simulation checkpoints, pause, close). A mid-year
+ * snapshot of a live franchise season is the largest save payload (10-16 MB
+ * in docs/plans/2026-10-26-windows-bulk-blank-screen.md) and bulk publishes
+ * after every match. Releasing re-arms the debounce for anything still queued.
+ */
+export function holdDebouncedSqliteWrites(): () => void {
+  debounceHolds++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    debounceHolds--;
+    if (debounceHolds > 0) return;
+    for (const [name, pending] of pendingSqliteWrites) if (!pending.timer) armDebounce(name, pending);
+  };
+}
 
 /** Cancel a queued snapshot. Already-running I/O must still finish. */
 export function cancelPendingSqliteWrite(name: string): void {
@@ -39,12 +68,7 @@ export function cancelPendingSqliteWrite(name: string): void {
 function scheduleSqliteWrite<S>(name: string, value: StorageValue<S>): void {
   cancelPendingSqliteWrite(name);
   const pending: PendingSqliteWrite = { value };
-  pending.timer = setTimeout(() => {
-    pending.timer = undefined;
-    void flushPendingSqliteWrites().catch((err) => {
-      console.warn("[desktopSqliteStorage] write failed; snapshot retained for retry:", name, err);
-    });
-  }, SQLITE_DEBOUNCE_MS);
+  if (debounceHolds === 0) armDebounce(name, pending);
   pendingSqliteWrites.set(name, pending);
   markSavePending(`sqlite:${name}`);
 }
@@ -97,6 +121,7 @@ export function resetSqliteWriteQueueForTests(): void {
   }
   pendingSqliteWrites.clear();
   inFlight = null;
+  debounceHolds = 0;
 }
 
 /**

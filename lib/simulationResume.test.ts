@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./desktopStorage", () => ({ flushPendingPersistWrites: vi.fn().mockResolvedValue(undefined) }));
+const holdRelease = vi.fn();
+vi.mock("./desktopSqliteStorage", () => ({ holdDebouncedSqliteWrites: vi.fn(() => holdRelease) }));
 import { flushPendingPersistWrites } from "./desktopStorage";
+import { holdDebouncedSqliteWrites } from "./desktopSqliteStorage";
+import { getBulkBreadcrumbContext, setBreadcrumbInvokeForTests } from "./bulkBreadcrumbs";
 import { reportPersistenceError } from "./persistenceStatus";
 import { createSimulationActions } from "@/store/actions/simulation";
 import type { DraftStore, StoreSet } from "@/store/types";
@@ -28,7 +32,8 @@ function harness(options: { cancelAfterShop?: boolean } = {}) {
   Object.assign(state, createSimulationActions(get, set, helpers));
   return { get, resume: () => { pauseAt = -1; get().resumeBulkYears(); } };
 }
-beforeEach(() => { reportPersistenceError(null, "simulation"); vi.mocked(flushPendingPersistWrites).mockReset().mockResolvedValue(undefined); });
+beforeEach(() => { reportPersistenceError(null, "simulation"); vi.mocked(flushPendingPersistWrites).mockReset().mockResolvedValue(undefined); holdRelease.mockClear(); vi.mocked(holdDebouncedSqliteWrites).mockClear(); });
+afterEach(() => { setBreadcrumbInvokeForTests(null); vi.unstubAllGlobals(); });
 describe("bulk simulation checkpoint", () => {
   it("lets a queued cancellation run before archiving the completed season", async () => {
     const h = harness({ cancelAfterShop: true }); h.get().simulateRealityYears(3);
@@ -66,5 +71,48 @@ describe("bulk simulation checkpoint", () => {
     await vi.waitFor(() => expect(h.get().simulating).toBeNull());
     expect(h.get().bulkYearsProgress).toBeNull();
     expect(h.get().bulkYearJobs.Resume).toMatchObject({ targetYear: 4, error: "disk full" });
+  });
+});
+
+describe("bulk simulation diagnostics", () => {
+  function recordSteps() {
+    const steps: string[] = [];
+    setBreadcrumbInvokeForTests(async (_command, args) => {
+      const crumb = (args as { breadcrumb: { stage: string; year?: number } }).breadcrumb;
+      steps.push(`${crumb.stage}:${crumb.year}`);
+    });
+    vi.mocked(flushPendingPersistWrites).mockImplementation(async () => { steps.push("flush"); });
+    return steps;
+  }
+
+  it("writes each breadcrumb before its heavy step and ends idle", async () => {
+    const steps = recordSteps();
+    const h = harness(); h.get().simulateRealityYears(1);
+    await vi.waitFor(() => expect(h.get().simulating).toBeNull());
+    await vi.waitFor(() => expect(steps.at(-1)).toBe("idle:2"));
+    expect(steps).toEqual([
+      "start:1", "season-sim:1", "offseason:1", "archive:1", "publish:1", "save:2", "flush", "year-done:2", "flush", "idle:2",
+    ]);
+    expect(getBulkBreadcrumbContext()).toBeNull();
+  });
+
+  it("holds debounced saves for the whole run and releases them before the final flush", async () => {
+    recordSteps();
+    const h = harness(); h.get().simulateRealityYears(1);
+    await vi.waitFor(() => expect(h.get().simulating).toBeNull());
+    expect(holdDebouncedSqliteWrites).toHaveBeenCalledTimes(1);
+    expect(holdRelease).toHaveBeenCalledTimes(1);
+    expect(holdRelease.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(flushPendingPersistWrites).mock.invocationCallOrder.at(-1)!);
+  });
+
+  it("stops before the next year with a recoverable message when memory is nearly exhausted", async () => {
+    const steps = recordSteps();
+    vi.stubGlobal("performance", { now: () => 0, memory: { usedJSHeapSize: 3_900, totalJSHeapSize: 3_950, jsHeapSizeLimit: 4_000 } });
+    const h = harness(); h.get().simulateRealityYears(2);
+    await vi.waitFor(() => expect(h.get().simulating).toBeNull());
+    expect(h.get().season?.franchise?.year).toBe(1);
+    expect(h.get().bulkYearJobs.Resume).toMatchObject({ targetYear: 3, error: expect.stringMatching(/memory limit/) });
+    expect(steps).toContain("guard-stop:1");
+    expect(steps).not.toContain("season-sim:1");
   });
 });

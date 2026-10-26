@@ -5,6 +5,7 @@ import { getPersistenceSnapshot, getServerPersistenceSnapshot, subscribePersiste
 import { useDraftStore } from "@/store/draftStore";
 import { IconArchive, IconPlayerPause, IconAlertTriangle } from "@tabler/icons-react";
 import RecoveryPanel from "./RecoveryPanel";
+import BulkCrashNotice from "./BulkCrashNotice";
 import { startAutomaticBackups } from "@/lib/backups";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
@@ -48,5 +49,6 @@ export default function PersistenceNotice() {
       {simulating && <button type="button" disabled={pauseRequested} className="inline-flex min-h-8 items-center gap-1.5 border-l border-rift-gold/20 py-1 pl-3 text-rift-goldbright disabled:opacity-50" onClick={pause}><IconPlayerPause aria-hidden="true" size={13} />{pauseRequested ? "Pausing after current match..." : "Pause simulation"}</button>}
     </aside>}
     {backupsOpen && <RecoveryPanel open onClose={() => setBackupsOpen(false)} saveUnavailable={!!error} />}
+    <BulkCrashNotice />
   </>;
 }

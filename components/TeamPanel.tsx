@@ -1,5 +1,6 @@
 "use client";
 
+import SSBadge from "@/components/SSBadge";
 import {
   Fragment,
   useCallback,
@@ -20,8 +21,7 @@ import PlayerNameLink from "./player/PlayerNameLink";
 import TeamName from "./TeamName";
 
 // Per-tier styling for the small player-tier badge on a locked pick slot.
-const TIER_BADGE: Record<PlayerTier, string> = {
-  SS: "border-cyan-200 text-cyan-100 bg-cyan-300/15",
+const TIER_BADGE: Record<Exclude<PlayerTier, "SS">, string> = {
   "S+": "text-rift-goldbright border-rift-goldbright bg-rift-gold/25",
   S: "text-rift-goldbright border-rift-gold/60 bg-rift-gold/10",
   A: "text-rift-bluebright border-rift-blue/50 bg-rift-blue/10",
@@ -456,12 +456,12 @@ function ChampPools({
                   <div className="bg-black/40 border border-rift-gold/20 rounded-sm p-0.5 flex items-center justify-center">
                     <LaneIcon lane={p.lane} size="xs" />
                   </div>
-                  <span
+                  {p.tier === "SS" ? <span title="Player tier: SS"><SSBadge size="xs" /></span> : <span
                     className={`w-4 h-4 flex items-center justify-center border rounded-sm font-display text-[9px] ${TIER_BADGE[p.tier]}`}
                     title={`Player tier: ${p.tier}`}
                   >
                     {p.tier}
-                  </span>
+                  </span>}
                   {p.name && (
                     <span
                       className="text-[9px] font-medium text-rift-mutedbright max-w-[60px] truncate"
@@ -606,7 +606,7 @@ function PickSlot({
               </div>
             </div>
             {playerTier && (
-              <div
+              playerTier === "SS" ? <span title="Player tier: SS"><SSBadge size="sm" /></span> : <div
                 className={`shrink-0 w-5 h-5 flex items-center justify-center border rounded-sm font-display text-[10px] ${TIER_BADGE[playerTier]}`}
                 title={`Player tier: ${playerTier}`}
               >

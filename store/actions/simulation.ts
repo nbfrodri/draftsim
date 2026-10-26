@@ -1,3 +1,5 @@
+import { bulkMemoryGuardMessage, readJsHeap, recordBulkBreadcrumb, setBulkBreadcrumbContext, type BulkStage } from "@/lib/bulkBreadcrumbs";
+import { holdDebouncedSqliteWrites } from "@/lib/desktopSqliteStorage";
 import { flushPendingPersistWrites } from "@/lib/desktopStorage";
 import { getPersistenceError, reportPersistenceError } from "@/lib/persistenceStatus";
 import {
@@ -44,17 +46,33 @@ simulateRealityYears: (count, options) => {
     void (async () => {
       const seen = new Set<string>();
       const entryCache: SimResultEntryCache = new Map();
+      let completed = 0;
+      // Awaited before each heavy step so a renderer crash leaves the year and stage on disk.
+      const crumb = (stage: BulkStage) => {
+        const year = get().season?.franchise?.year ?? startYear;
+        setBulkBreadcrumbContext({ realityId, year });
+        return recordBulkBreadcrumb({ stage, realityId, year, completed, total });
+      };
+      // Mid-year snapshots of the live season are the largest saves; checkpoints flush below.
+      const releaseDebounce = holdDebouncedSqliteWrites();
       try {
+        await crumb("start");
         await new Promise((r) => setTimeout(r, 0));
         const shouldCancel = () => get().bulkYearsCancelRequested;
-        let completed = 0;
 
         while (completed < total) {
           if (shouldCancel()) break;
           const cur = get().season;
           if (!bulkSimRealityMatches(cur, realityId)) break;
+          const guard = bulkMemoryGuardMessage(readJsHeap(), cur.franchise!.year);
+          if (guard) {
+            await crumb("guard-stop");
+            set(s => ({ bulkYearJobs: { ...s.bulkYearJobs, [realityId]: { targetYear: startYear + total, startedAt, error: guard } } }));
+            break;
+          }
 
           if (cur.status !== "complete") {
+            await crumb("season-sim");
             const ok = await runFranchiseSeasonSim(
               get,
               set,
@@ -71,11 +89,13 @@ simulateRealityYears: (count, options) => {
           appendSimResults(set, finished, seen, entryCache);
           entryCache.clear();
 
+          await crumb("offseason");
           set({ season: autoResolveOffseasonShop(finished, get().champions) });
           // Yield so the completed year can paint and a queued cancel can run before synchronous archival.
           await new Promise((r) => setTimeout(r, 0));
           if (shouldCancel() || !bulkSimRealityMatches(get().season, realityId)) break;
 
+          await crumb("archive");
           const rid = finished.franchise.id;
           const prevHistory =
             get().realities.find((r) => r.id === rid)?.history ?? [];
@@ -86,6 +106,7 @@ simulateRealityYears: (count, options) => {
           );
           const archived = history.find((e) => e.id === finished.id);
           if (archived) attachSimYearEventSummary(set, archived);
+          await crumb("publish");
           completed++;
           set((s) => ({
             season: next,
@@ -118,15 +139,18 @@ simulateRealityYears: (count, options) => {
           // Season and history were published together; yield once, then always flush
           // that checkpoint, even if a cancel arrives during the yield.
           await new Promise((r) => setTimeout(r, 0));
+          await crumb("save");
           await flushPendingPersistWrites();
 
           if (exportTarget) {
+            await crumb("export");
             const json = await get().exportReality(realityId);
             if (json) {
               await writeRealityExportToTarget(exportTarget, json);
             }
           }
 
+          await crumb("year-done");
           await new Promise((r) => setTimeout(r, 0));
         }
       } catch (error) {
@@ -140,8 +164,11 @@ simulateRealityYears: (count, options) => {
           const jobs = { ...get().bulkYearJobs }; delete jobs[realityId]; set({ bulkYearJobs: jobs });
         }
         set({ simulating: null, simProgress: null, simStartedAt: null, bulkYearsProgress: null, bulkYearsCancelRequested: false });
+        releaseDebounce();
         try { await flushPendingPersistWrites(); }
         catch (error) { reportPersistenceError(`Simulation paused but saving failed: ${String(error)}`, "simulation"); }
+        await crumb("idle");
+        setBulkBreadcrumbContext(null);
       }
     })();
   }

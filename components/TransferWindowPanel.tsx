@@ -1,4 +1,5 @@
 "use client";
+import SSBadge from "@/components/SSBadge";
 import { offseasonMarketNotice } from "@/lib/season/offseasonNotice";
 import { groupRosterNewsByTime, rosterNewsForDigest } from "@/lib/season/rosterNews";
 
@@ -229,7 +230,7 @@ function PlayerChip({
         title={displayName}
         className="text-[10px] text-rift-mutedbright font-medium max-w-[7.5rem] truncate cursor-pointer"
       />
-      <TierChip tier={p.tier} size="xs" />
+      {p.tier === "SS" ? <SSBadge /> : <TierChip tier={p.tier} size="xs" />}
       <span className={`text-[9px] tabular-nums ${noteColor(p.grade)}`} title="Split grade (1-10)">
         {fmtNote(p.grade)}
       </span>

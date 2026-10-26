@@ -34,6 +34,15 @@ test("all-time event statistics aggregate recorded years and flag legacy years a
 	await expect(panel.getByRole("status")).toContainText("Not recorded: 1 of 2 seasons");
 	await expect(panel.getByRole("table", { name: "All-time top player rankings" }).locator("tbody tr")).not.toHaveCount(0);
 	await expect(panel.getByRole("heading", { name: /Most Picked/ })).toBeVisible();
+	const championLimit = panel.getByRole("combobox", { name: "Champion limit", exact: true });
+	await expect(championLimit).toContainText("Top 10");
+	await championLimit.click();
+	await panel.getByRole("listbox", { name: "Champion limit", exact: true }).getByRole("option", { name: "All", exact: true }).click();
+	await expect(championLimit).toContainText("All");
+	await championLimit.click();
+	await championLimit.press("Escape");
+	await expect(championLimit).toHaveAttribute("aria-expanded", "false");
+	await expect(panel.getByRole("table", { name: "Most picked champions" })).toBeVisible();
 	await panel.getByRole("combobox", { name: "Event filter" }).click();
 	await panel.getByRole("option", { name: "International events" }).click();
 	await expect(panel.getByRole("status")).toContainText("0 events");
