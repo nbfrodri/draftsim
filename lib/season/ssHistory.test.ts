@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ssHistory, ssHistorySummary, playerSSHistory, ssStreaks, playerSSStreak, ssSeasonViews, ssRecords, ssRegionView, ssTimeline, snapshotSSHolders, recordSSLosses, type SSArchive } from "./ssHistory";
+import { ssHistory, ssHistorySummary, playerSSHistory, ssStreaks, playerSSStreak, ssSeasonViews, ssRecords, ssRegionView, ssTimeline, ssPlayerIndex, ssCompare, snapshotSSHolders, recordSSLosses, type SSArchive } from "./ssHistory";
 import { makeAuditSeason } from "../auditFixtures";
 import type { SSHolder } from "./types";
 import { validSeason, validHistoryEntry } from "../importValidation";
@@ -130,6 +130,44 @@ describe("SS cross-season records", () => {
 	const h = (playerId: string, t?: ReturnType<typeof team>, lane: SSHolder["lane"] = "top"): SSHolder => ({ ...holder(playerId), lane, playerName: playerId.toUpperCase(), ...(t ? { team: t } : {}) });
 	const year = (n: number, holders?: SSHolder[][]): SSArchive => ({ id: `y${n}`, name: `Year ${n}`, franchiseYear: n, archivedAt: n, ...(holders ? { ssOpening: [], ssReviews: holders.map((hs, phaseIndex) => ({ phaseIndex, label: `P${phaseIndex}`, holders: hs })) } : { ssOpening: undefined, ssReviews: undefined }) });
 
+	it("indexes every recorded holder, including players outside the former top twelve", () => {
+		const entries = [year(1, [Array.from({ length: 14 }, (_, i) => h(`p${i}`, team("Nova")))]), year(2, [[h("p13", team("Nova", "LEC"), "middle")]])];
+		const index = ssPlayerIndex(ssSeasonViews(entries), ssRecords(entries));
+		expect(index).toHaveLength(14);
+		expect(index.find(p => p.playerId === "p13")).toMatchObject({ lane: "middle", seasons: 2, seasonId: "y2", regions: ["LCK", "LEC"], team: { leagueId: "LEC" } });
+	});
+	it("keeps same-named players distinct and includes opening-only and loss-only evidence", () => {
+		const entries = [{ ...year(1), ssOpening: [{ ...h("a"), playerName: "Shared name" }] }, { ...year(2), ssLosses: [{ phaseIndex: 0, label: "Roster change", reason: "inactive" as const, holder: { ...h("b"), playerName: "Shared name" } }] }];
+		const views = ssSeasonViews(entries);
+		expect(ssPlayerIndex(views).map(p => p.playerId)).toEqual(["a", "b"]);
+		expect(ssCompare(views, ["a", "b"]).rows.map(r => r.summary.seasons)).toEqual([1, 1]);
+	});
+	it("compares cells, shared seasons and summaries without merging names across regions", () => {
+		const views = ssSeasonViews([year(1, [[h("a", team("Nova")), h("b", team("Nova"))]]), year(2, [[h("a", team("Nova", "LEC"))]]), year(3), year(4, [[h("a"), h("b")]])]);
+		const result = ssCompare(views, ["a", "b", "a"]);
+		expect(result.rows).toHaveLength(2);
+		expect(result.rows[0].cells.map(c => c.state)).toEqual(["held", "held", "unknown", "held"]);
+		expect(result.overlapSeasons).toEqual(["y1", "y4"]);
+		expect(result.rows[0].summary).toMatchObject({ seasons: 3, longestStreak: { length: 2, open: true }, firstSeason: { seasonId: "y1" }, lastSeason: { seasonId: "y4" }, distinctTeams: 2, regions: ["LCK", "LEC"] });
+		expect(ssCompare(views, []).overlapSeasons).toEqual([]);
+	});
+	it("derives held phases from checkpoints, never from carried evidence or a guessed label", () => {
+		const entries = [year(1, [[h("a")]]), { ...year(2), ssOpening: [h("a")], ssReviews: [{ phaseIndex: 1, label: "Spring", split: "spring" as const, holders: [h("a")] }, { phaseIndex: 2, label: "MSI", event: "msi" as const, holders: [h("a")] }] }];
+		const timeline = ssTimeline(ssSeasonViews(entries), ["a"]);
+		expect(timeline.rows[0].cells[0]).toMatchObject({ state: "held", phases: [{ label: "P0", split: undefined, event: undefined }] });
+		expect(timeline.rows[0].cells[1]).toMatchObject({ phases: [{ split: "spring" }, { event: "msi" }] });
+		const carried = ssSeasonViews([{ ...year(3), ssOpening: [h("a")] }]);
+		expect(ssTimeline(carried, ["a"]).rows[0].cells[0]).toMatchObject({ state: "held", phases: [] });
+	});
+	it("keeps regional phase icons inside the player's recorded regional ownership", () => {
+		const entry = year(1, [[h("a", team("Nova"))], [h("a", team("Nova", "LEC"))]]);
+		entry.ssReviews![0].split = "winter";
+		entry.ssReviews![1].event = "msi";
+		const views = ssSeasonViews([entry]);
+		expect(ssRegionView(views, "LCK")[0].holders[0].phases).toMatchObject([{ split: "winter" }]);
+		expect(ssRegionView(views, "LEC")[0].holders[0].phases).toMatchObject([{ event: "msi" }]);
+	});
+
 	it("finds the longest consecutive streak and breaks it on unknown years", () => {
 		const e = [year(1, [[h("a")]]), year(2, [[h("a")]]), year(3), year(4, [[h("a")]]), year(5, [[h("a")]]), year(6, [[h("a")]])];
 		const [s] = ssStreaks(ssSeasonViews(e));
@@ -165,6 +203,12 @@ describe("SS cross-season records", () => {
 		expect(r.seasons[0]).not.toHaveProperty("team");
 		expect(r.seasons[1]).not.toHaveProperty("team");
 		expect(ssRecords([year(3)]).seasons).toEqual([]);
+	});
+	it("keeps the latest observation after an earlier lifecycle loss and reacquisition", () => {
+		const entry = { ...year(1, [[h("a", team("Old"))], [h("a", team("New", "LEC"))]]), ssLosses: [{ phaseIndex: 0, afterReview: true, label: "Winter", reason: "inactive" as const, holder: h("a", team("Old")) }] };
+		const views = ssSeasonViews([entry]);
+		expect(ssPlayerIndex(views)[0].team?.teamName).toBe("New");
+		expect(ssTimeline(views, ["a"]).rows[0].cells[0]).toMatchObject({ state: "held", team: { teamName: "New" } });
 	});
 	it("excludes holders without a recorded team from team and region tables", () => {
 		const r = ssRecords([year(1, [[h("a")]])]);

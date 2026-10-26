@@ -102,6 +102,8 @@ export interface TeamCardData {
 }
 
 export interface TeamCardHint {
+  archive?: SeasonHistoryEntry;
+  coverageLabel?: string;
   /** The roster and identity captured for this tournament, even after a transfer. */
   tournamentTeam?: Pick<import("../tournament").TournamentTeam, "id" | "name" | "players" | "leagueId" | "logoUrl" | "iconKey" | "color" | "starRating">;
   /** null means an old market event has no recorded roster; never use a later roster. */

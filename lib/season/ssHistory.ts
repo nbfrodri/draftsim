@@ -92,6 +92,8 @@ export function closingSSHolders(entry: SSArchive): SSHolder[] | undefined {
 
 // ---- Cross-season records (derived from the lazily projected archive; nothing persisted) ----
 
+export type SSPhase = Pick<SSReview, "phaseIndex" | "label" | "split" | "event">;
+
 export interface SSSeasonView {
 	seasonId: string;
 	name: string;
@@ -100,7 +102,9 @@ export interface SSSeasonView {
 	/** False when this season has no recorded SS data at all (unknown, not "nobody held SS"). */
 	known: boolean;
 	/** playerId -> holder seen in this season (latest observation) and every team observed. */
-	holders: Map<string, { holder: SSHolder; teams: Map<string, NonNullable<SSHolder["team"]>> }>;
+	holders: Map<string, { holder: SSHolder; teams: Map<string, NonNullable<SSHolder["team"]>>; phases?: (SSPhase & { team?: SSHolder["team"] })[] }>;
+	/** Only checkpoints with observed ownership; opening evidence may belong to a prior year. */
+	phases?: SSPhase[];
 	/** Highest simultaneous holder count per team key at one review. */
 	peakByTeam: Map<string, number>;
 }
@@ -115,21 +119,26 @@ export function ssSeasonViews(entries: readonly SSArchive[]): SSSeasonView[] {
 	return chronological(entries).map(entry => {
 		const holders: SSSeasonView["holders"] = new Map();
 		const peakByTeam = new Map<string, number>();
-		const seen = (h: SSHolder) => {
-			const cur = holders.get(h.playerId) ?? { holder: h, teams: new Map() };
+		const seen = (h: SSHolder, phase?: SSPhase) => {
+			const cur = holders.get(h.playerId) ?? { holder: h, teams: new Map(), phases: [] };
 			cur.holder = { ...h, ...(h.playerName ? {} : cur.holder.playerName ? { playerName: cur.holder.playerName } : {}) };
-			if (h.team) cur.teams.set(ssTeamKey(h.team), h.team);
+			if (h.team) { cur.teams.delete(ssTeamKey(h.team)); cur.teams.set(ssTeamKey(h.team), h.team); }
+			if (phase) (cur.phases ??= []).push({ ...phase, ...(h.team ? { team: h.team } : {}) });
 			holders.set(h.playerId, cur);
 		};
 		const checkpoints = ssHistory(entry);
-		for (const h of entry.ssOpening ?? []) seen(h);
+		const observations: { holder: SSHolder; order: number; phase?: SSPhase }[] = (entry.ssOpening ?? []).map(holder => ({ holder, order: -1 }));
 		for (const c of checkpoints) {
 			const counts = new Map<string, number>();
-			for (const h of c.holders) { seen(h); if (h.team) { const k = ssTeamKey(h.team); counts.set(k, (counts.get(k) ?? 0) + 1); } }
+			for (const h of c.holders) {
+				observations.push({ holder: h, order: c.phaseIndex * 3 + 1, phase: { phaseIndex: c.phaseIndex, label: c.label, split: c.split, event: c.event } });
+				if (h.team) { const k = ssTeamKey(h.team); counts.set(k, (counts.get(k) ?? 0) + 1); }
+			}
 			for (const [k, n] of counts) peakByTeam.set(k, Math.max(peakByTeam.get(k) ?? 0, n));
 		}
-		for (const l of entry.ssLosses ?? []) seen(l.holder);
-		return { seasonId: entry.id, name: entry.name, ...(entry.franchiseYear !== undefined ? { year: entry.franchiseYear } : {}), known: entry.ssReviews !== undefined || entry.ssOpening !== undefined, holders, peakByTeam };
+		for (const l of entry.ssLosses ?? []) observations.push({ holder: l.holder, order: l.phaseIndex * 3 + (l.afterReview ? 2 : 0) });
+		for (const observation of observations.sort((a, b) => a.order - b.order)) seen(observation.holder, observation.phase);
+		return { seasonId: entry.id, name: entry.name, ...(entry.franchiseYear !== undefined ? { year: entry.franchiseYear } : {}), known: entry.ssReviews !== undefined || entry.ssOpening !== undefined || !!entry.ssLosses?.length, holders, peakByTeam, phases: checkpoints.filter(c => c.holders.length).map(c => ({ phaseIndex: c.phaseIndex, label: c.label, split: c.split, event: c.event })) };
 	});
 }
 
@@ -222,19 +231,24 @@ export function ssRecords(entries: readonly SSArchive[]): SSRecords {
 
 /** Per-region view: who held SS while representing a team from the region, by season. */
 export function ssRegionView(views: readonly SSSeasonView[], leagueId: LeagueId) {
-	return views.map(v => ({
-		seasonId: v.seasonId, name: v.name, known: v.known,
-		holders: !v.known ? [] : [...v.holders.values()].filter(h => [...h.teams.values()].some(t => t.leagueId === leagueId)).map(h => ({ playerId: h.holder.playerId, lane: h.holder.lane, playerName: h.holder.playerName, team: [...h.teams.values()].find(t => t.leagueId === leagueId)! })),
-	}));
+	return views.map(v => {
+		const holders = !v.known ? [] : [...v.holders.values()].filter(h => [...h.teams.values()].some(t => t.leagueId === leagueId)).map(h => ({
+			playerId: h.holder.playerId, lane: h.holder.lane, playerName: h.holder.playerName,
+			phases: h.phases?.filter(p => p.team?.leagueId === leagueId),
+			team: [...h.teams.values()].filter(t => t.leagueId === leagueId).at(-1)!,
+		}));
+		const phases = [...new Map(holders.flatMap(h => h.phases ?? []).map(p => [p.phaseIndex, p])).values()].sort((a, b) => a.phaseIndex - b.phaseIndex);
+		return { seasonId: v.seasonId, name: v.name, known: v.known, phases, holders };
+	});
 }
 
-export type SSTimelineCell = { state: "held"; team?: NonNullable<SSHolder["team"]> } | { state: "none" } | { state: "unknown" };
-export interface SSTimeline { seasons: { seasonId: string; name: string; known: boolean }[]; rows: { playerId: string; playerName?: string; cells: SSTimelineCell[] }[] }
+export type SSTimelineCell = { state: "held"; team?: NonNullable<SSHolder["team"]>; phases?: SSPhase[] } | { state: "none" } | { state: "unknown" };
+export interface SSTimeline { seasons: { seasonId: string; name: string; known: boolean; phases?: SSPhase[] }[]; rows: { playerId: string; playerName?: string; cells: SSTimelineCell[] }[] }
 
 /** Comparable season-by-season timeline for chosen players. Seasons without recorded SS data are "unknown", never "none". */
 export function ssTimeline(views: readonly SSSeasonView[], playerIds: readonly string[]): SSTimeline {
 	return {
-		seasons: views.map(v => ({ seasonId: v.seasonId, name: v.name, known: v.known })),
+		seasons: views.map(v => ({ seasonId: v.seasonId, name: v.name, known: v.known, phases: v.phases })),
 		rows: [...new Set(playerIds)].map(playerId => ({
 			playerId,
 			playerName: [...views].reverse().map(v => v.holders.get(playerId)?.holder.playerName).find(Boolean),
@@ -242,9 +256,48 @@ export function ssTimeline(views: readonly SSSeasonView[], playerIds: readonly s
 				if (!v.known) return { state: "unknown" };
 				const h = v.holders.get(playerId);
 				if (!h) return { state: "none" };
-				const team = [...h.teams.values()].at(-1);
-				return team ? { state: "held", team } : { state: "held" };
+				return { state: "held", ...(h.holder.team ? { team: h.holder.team } : {}), phases: h.phases ?? [] };
 			}),
 		})),
+	};
+}
+
+export interface SSPlayerIndexEntry {
+	playerId: string;
+	playerName?: string;
+	lane: SSHolder["lane"];
+	team?: SSHolder["team"];
+	seasonId: string;
+	phases: SSPhase[];
+	seasons: number;
+	regions: LeagueId[];
+}
+
+/** Complete holder catalogue, ranked by recorded seasons; identity is always the stable id. */
+export function ssPlayerIndex(views: readonly SSSeasonView[], records?: SSRecords): SSPlayerIndexEntry[] {
+	const players = new Map<string, SSPlayerIndexEntry>();
+	for (const v of views) if (v.known) for (const [playerId, h] of v.holders) {
+		const previous = players.get(playerId);
+		const regions = new Set([...(previous?.regions ?? []), ...[...h.teams.values()].map(t => t.leagueId)]);
+		players.set(playerId, { playerId, playerName: h.holder.playerName ?? previous?.playerName, lane: h.holder.lane, team: h.holder.team, seasonId: v.seasonId, phases: h.phases ?? [], seasons: (previous?.seasons ?? 0) + 1, regions: LEAGUE_IDS.filter(l => regions.has(l)) });
+	}
+	const rank = records ? new Map(records.seasons.map((p, i) => [p.playerId, i])) : undefined;
+	return [...players.values()].sort((a, b) => rank ? (rank.get(a.playerId) ?? Infinity) - (rank.get(b.playerId) ?? Infinity) || a.playerId.localeCompare(b.playerId) : b.seasons - a.seasons || a.playerId.localeCompare(b.playerId));
+}
+
+/** Season overlap means ownership somewhere in the same season, not necessarily at the same review. */
+export function ssCompare(views: readonly SSSeasonView[], playerIds: readonly string[]) {
+	const timeline = ssTimeline(views, playerIds);
+	const streaks = new Map(ssStreaks(views).map(s => [s.playerId, s]));
+	return {
+		seasons: timeline.seasons,
+		overlapSeasons: timeline.rows.length ? views.filter((v, i) => v.known && timeline.rows.every(r => r.cells[i].state === "held")).map(v => v.seasonId) : [],
+		rows: timeline.rows.map(row => {
+			const held = views.filter(v => v.known && v.holders.has(row.playerId));
+			const teams = new Map(held.flatMap(v => [...v.holders.get(row.playerId)!.teams]));
+			const regions = new Set([...teams.values()].map(t => t.leagueId));
+			const season = (v?: SSSeasonView) => v ? { seasonId: v.seasonId, name: v.name } : undefined;
+			return { ...row, summary: { seasons: held.length, longestStreak: streaks.get(row.playerId), firstSeason: season(held[0]), lastSeason: season(held.at(-1)), distinctTeams: teams.size, regions: LEAGUE_IDS.filter(l => regions.has(l)) } };
+		}),
 	};
 }

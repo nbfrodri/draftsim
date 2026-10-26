@@ -11,24 +11,30 @@ import { plural } from "@/lib/plural";
 import type { Lane } from "@/lib/types";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 import { LEAGUE_IDS, type LeagueId } from "@/lib/season/types";
-import { aggregateAllTimeEventStats, allTimeEventYears, type AllTimeEventFilters, type AllTimeEventKind } from "@/lib/season/allTimeEventStats";
+import { aggregateAllTimeEventStats, allTimeEventYears, type AllTimeEventFilters, type AllTimeEventKind, type AllTimeEventPin } from "@/lib/season/allTimeEventStats";
 import CollapsibleSection from "../CollapsibleSection";
 import PlayerNameLink from "../player/PlayerNameLink";
 import RoleLabel from "../RoleLabel";
 import RegionMark from "../RegionMark";
 import EventChampionTables, { type ChampionTableFilters } from "../tournament/EventChampionTables";
 import PlaygroundSelect from "./PlaygroundSelect";
-import TeamLogoMark from "./TeamLogoMark";
+import TeamNameLink from "../team/TeamNameLink";
+import ChipRow from "../ChipRow";
+import SplitIcon from "../season/SplitIcon";
+import EventIdentityIcon from "../tournament/EventIdentityIcon";
 
 const segment = "inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 const segmentState = (on: boolean) => on ? "border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright";
 const EVENT_OPTIONS: { value: AllTimeEventKind; label: string }[] = [
-	{ value: "all", label: "All events" }, { value: "domestic", label: "Domestic splits" },
-	{ value: "winter", label: "Domestic · Winter" }, { value: "spring", label: "Domestic · Spring" }, { value: "summer", label: "Domestic · Summer" },
-	{ value: "international", label: "International events" },
+	{ value: "all", label: "All" }, { value: "domestic", label: "Domestic" }, { value: "international", label: "International" },
+	{ value: "winter", label: "Winter" }, { value: "spring", label: "Spring" }, { value: "summer", label: "Summer" },
 	{ value: "first-stand", label: "First Stand" }, { value: "msi", label: "MSI" }, { value: "worlds", label: "Worlds" }, { value: "global-cup", label: "Global Cup" },
 ];
 const avg = (sum: number, n: number) => n ? (sum / n).toFixed(2) : "—";
+const pinHint = (pin?: AllTimeEventPin) => pin ? {
+	archive: pin.archive,
+	coverageLabel: pin.fromYear === undefined ? "Records cover undated seasons" : `Records cover Year ${pin.fromYear}${pin.toYear !== pin.fromYear ? ` – Year ${pin.toYear}` : ""}${pin.undated ? " and undated seasons" : ""}`,
+} : undefined;
 
 /** Lazily mounted, so the aggregation only runs after the panel is first opened. */
 export default function AllTimeEventStats({ entries }: { entries: readonly SeasonHistoryEntry[] }) {
@@ -68,15 +74,19 @@ function Body({ entries }: { entries: readonly SeasonHistoryEntry[] }) {
 	const { coverage } = data;
 	const yearOptions = (blank: string) => [{ value: "", label: blank }, ...years.map(y => ({ value: String(y), label: `Year ${y}` }))];
 	const rows = limit === "all" ? ranked : ranked.slice(0, 10);
+	const domestic = event === "all" || event === "domestic" || event === "winter" || event === "spring" || event === "summer";
 
 	return <div className="space-y-4 p-3 md:p-4">
 		<div className="flex flex-wrap gap-3">
 			<PlaygroundSelect label="Reality" ariaLabel="Reality scope" value={scope} onChange={v => setScope(v as "current" | "all")} options={[{ value: "current", label: "Selected history" }, ...(realities.length ? [{ value: "all", label: "All realities" }] : [])]} />
-			<PlaygroundSelect label="Event" ariaLabel="Event filter" value={event} onChange={v => setEvent(v as AllTimeEventKind)} options={EVENT_OPTIONS} />
-			<PlaygroundSelect label="Region" ariaLabel="Region filter" value={leagueId} onChange={v => setLeagueId(v as LeagueId | "all")} options={[{ value: "all", label: "All regions" }, ...LEAGUE_IDS.map(l => ({ value: l, label: l, icon: <RegionMark league={l} size={14} /> }))]} />
 			<PlaygroundSelect label="From" ariaLabel="From year" value={from} onChange={setFrom} options={yearOptions("Earliest")} />
 			<PlaygroundSelect label="To" ariaLabel="To year" value={to} onChange={setTo} options={yearOptions("Latest")} />
 		</div>
+		<ChipRow label="Event" value={event} onChange={v => {
+			setEvent(v as AllTimeEventKind);
+			if (!["all", "domestic", "winter", "spring", "summer"].includes(v)) setLeagueId("all");
+		}} options={EVENT_OPTIONS.map(option => ({ ...option, icon: option.value === "winter" || option.value === "spring" || option.value === "summer" ? <SplitIcon split={option.value} size={16} /> : <EventIdentityIcon identity={option.value === "first-stand" || option.value === "msi" || option.value === "worlds" || option.value === "global-cup" ? { event: option.value } : {}} size={16} /> }))} />
+		{domestic && <ChipRow label="Region" value={leagueId} onChange={v => setLeagueId(v as LeagueId | "all")} options={[{ value: "all", label: "All regions" }, ...LEAGUE_IDS.map(l => ({ value: l, label: l, icon: <RegionMark league={l} size={14} /> }))]} />}
 		<p role="status" className="text-[11px] leading-relaxed text-rift-mutedbright">
 			{plural(coverage.events, "event")} from {plural(coverage.recordedSeasons, "season")} · {plural(data.stats.games, "completed game")}.{" "}
 			<span className={coverage.unrecordedSeasons ? "text-rift-goldbright" : ""}>Not recorded: {coverage.unrecordedSeasons} of {plural(coverage.seasons, "season")}</span>
@@ -91,8 +101,11 @@ function Body({ entries }: { entries: readonly SeasonHistoryEntry[] }) {
 		</div>
 		<div className="overflow-x-auto border border-rift-line/40"><table aria-label={`All-time ${lane} player rankings`} className="w-full text-left text-xs tabular-nums"><thead className="border-b border-rift-line/40 bg-rift-bg/40 text-[10px] uppercase tracking-wider text-rift-mutedbright"><tr>{["Rank", "Player / team", "Score", "Avg grade", "Games", "WR"].map((h, i) => <th key={h} scope="col" className={`whitespace-nowrap px-2 py-2 font-semibold ${i > 1 ? "text-right" : ""}`}>{h}</th>)}</tr></thead><tbody>{rows.map((p, i) => <tr key={p.key} className="border-b border-rift-line/25 text-rift-mutedbright last:border-b-0 hover:bg-rift-gold/[0.04]">
 			<td className="px-2 py-3 font-display text-rift-goldbright">#{i + 1}</td>
-			<td className="px-2 py-3"><span className="inline-flex items-center gap-1.5"><RoleLabel lane={p.lane} className="text-[10px]" /><PlayerNameLink playerId={p.playerId} name={p.name} className="font-display text-rift-goldbright" /></span>
-				<div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px]">{p.teams.map(t => <span key={`${t.leagueId}|${t.name}`} className="inline-flex items-center gap-1.5"><TeamLogoMark teamName={t.name} leagueId={t.leagueId} logoUrl={t.logoUrl} size={14} />{t.name}</span>)}</div>
+			<td className="px-2 py-3"><span className="inline-flex items-center gap-1.5"><RoleLabel lane={p.lane} className="text-[10px]" /><PlayerNameLink playerId={p.playerId} name={p.name} seasonId={data.playerPins[p.key]?.seasonId} phaseScope={data.playerPins[p.key]?.phaseScope} hint={{ name: p.name, lane: p.lane, ...pinHint(data.playerPins[p.key]) }} className="font-display text-rift-goldbright" /></span>
+				<div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px]">{p.teams.map(t => {
+					const pin = data.teamPins[`${t.leagueId ?? ""}|${t.name}`];
+					return <TeamNameLink key={`${t.leagueId}|${t.name}`} teamId={t.id} name={t.name} leagueId={t.leagueId} logoUrl={t.logoUrl} seasonId={pin?.seasonId} phaseScope={pin?.phaseScope} hint={{ name: t.name, leagueId: t.leagueId, logoUrl: t.logoUrl, ...pinHint(pin) }} logoSize={14} className="inline-flex items-center gap-1.5" />;
+				})}</div>
 				{!p.qualified && <p className="mt-1 text-[10px]">{p.score === null ? "Partial scoring evidence" : `Provisional · ${p.rated}/${p.required} rated games`}</p>}</td>
 			<td className="px-2 py-3 text-right font-display text-rift-goldbright">{p.score?.toFixed(2) ?? "—"}</td>
 			<td className="px-2 py-3 text-right" title={`${p.rated} rated games`}>{avg(p.ratingSum, p.rated)}</td>
