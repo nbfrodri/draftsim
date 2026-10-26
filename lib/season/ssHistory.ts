@@ -170,7 +170,7 @@ export function playerSSStreak(entries: readonly SSArchive[], playerId: string):
 
 export interface SSRecords {
 	/** Most SS seasons per player (only seasons with recorded data count). */
-	seasons: { playerId: string; playerName?: string; seasons: number }[];
+	seasons: { playerId: string; playerName?: string; seasons: number; lane?: SSHolder["lane"]; team?: SSHolder["team"] }[];
 	teams: { key: string; teamName: string; leagueId: LeagueId; logoUrl?: string; holderSeasons: number; distinctHolders: number; peak: number }[];
 	regions: { leagueId: LeagueId; distinctHolders: number; holderSeasons: number }[];
 	streaks: SSStreak[];
@@ -182,7 +182,7 @@ export interface SSRecords {
 
 export function ssRecords(entries: readonly SSArchive[]): SSRecords {
 	const views = ssSeasonViews(entries);
-	const players = new Map<string, { name?: string; seasons: number }>();
+	const players = new Map<string, { name?: string; seasons: number; holder?: SSHolder }>();
 	const teams = new Map<string, { team: NonNullable<SSHolder["team"]>; keys: Set<string>; holders: Set<string>; peak: number }>();
 	const regions = new Map<LeagueId, { holders: Set<string>; keys: Set<string> }>();
 	let unattributed = 0;
@@ -190,7 +190,7 @@ export function ssRecords(entries: readonly SSArchive[]): SSRecords {
 		if (!v.known) continue;
 		for (const [id, { holder, teams: ts }] of v.holders) {
 			const p = players.get(id) ?? { seasons: 0 };
-			p.seasons++; p.name = holder.playerName ?? p.name; players.set(id, p);
+			p.seasons++; p.name = holder.playerName ?? p.name; p.holder = holder; players.set(id, p);
 			if (!ts.size) unattributed++;
 			const seenRegions = new Set<LeagueId>();
 			for (const [k, t] of ts) {
@@ -207,7 +207,10 @@ export function ssRecords(entries: readonly SSArchive[]): SSRecords {
 	}
 	const order = (a: string, b: string) => a.localeCompare(b);
 	return {
-		seasons: [...players].map(([playerId, p]) => ({ playerId, ...(p.name ? { playerName: p.name } : {}), seasons: p.seasons })).sort((a, b) => b.seasons - a.seasons || order(a.playerId, b.playerId)),
+		seasons: [...players].map(([playerId, p]) => ({ playerId, ...(p.name ? { playerName: p.name } : {}), seasons: p.seasons,
+			// Attribute only the latest observed holder; missing legacy fields stay unknown.
+			...(p.holder?.lane ? { lane: p.holder.lane } : {}), ...(p.holder?.team ? { team: p.holder.team } : {}),
+		})).sort((a, b) => b.seasons - a.seasons || order(a.playerId, b.playerId)),
 		teams: [...teams].map(([key, t]) => ({ key, teamName: t.team.teamName, leagueId: t.team.leagueId, ...(t.team.logoUrl ? { logoUrl: t.team.logoUrl } : {}), holderSeasons: t.keys.size, distinctHolders: t.holders.size, peak: t.peak })).sort((a, b) => b.holderSeasons - a.holderSeasons || b.peak - a.peak || order(a.key, b.key)),
 		regions: [...regions].map(([leagueId, r]) => ({ leagueId, distinctHolders: r.holders.size, holderSeasons: r.keys.size })).sort((a, b) => b.distinctHolders - a.distinctHolders || LEAGUE_IDS.indexOf(a.leagueId) - LEAGUE_IDS.indexOf(b.leagueId)),
 		streaks: ssStreaks(views),

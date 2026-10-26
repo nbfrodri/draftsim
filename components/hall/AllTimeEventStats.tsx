@@ -18,6 +18,7 @@ import RoleLabel from "../RoleLabel";
 import RegionMark from "../RegionMark";
 import EventChampionTables, { type ChampionTableFilters } from "../tournament/EventChampionTables";
 import PlaygroundSelect from "./PlaygroundSelect";
+import TeamLogoMark from "./TeamLogoMark";
 
 const segment = "inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 const segmentState = (on: boolean) => on ? "border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright";
@@ -90,8 +91,8 @@ function Body({ entries }: { entries: readonly SeasonHistoryEntry[] }) {
 		</div>
 		<div className="overflow-x-auto border border-rift-line/40"><table aria-label={`All-time ${lane} player rankings`} className="w-full text-left text-xs tabular-nums"><thead className="border-b border-rift-line/40 bg-rift-bg/40 text-[10px] uppercase tracking-wider text-rift-mutedbright"><tr>{["Rank", "Player / team", "Score", "Avg grade", "Games", "WR"].map((h, i) => <th key={h} scope="col" className={`whitespace-nowrap px-2 py-2 font-semibold ${i > 1 ? "text-right" : ""}`}>{h}</th>)}</tr></thead><tbody>{rows.map((p, i) => <tr key={p.key} className="border-b border-rift-line/25 text-rift-mutedbright last:border-b-0 hover:bg-rift-gold/[0.04]">
 			<td className="px-2 py-3 font-display text-rift-goldbright">#{i + 1}</td>
-			<td className="px-2 py-3"><PlayerNameLink playerId={p.playerId} name={p.name} className="font-display text-rift-goldbright" />
-				<div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px]">{p.teams.map(t => <span key={`${t.leagueId}|${t.name}`} className="inline-flex items-center gap-1.5"><RegionMark league={t.leagueId} size={14} />{t.name}</span>)}</div>
+			<td className="px-2 py-3"><span className="inline-flex items-center gap-1.5"><RoleLabel lane={p.lane} className="text-[10px]" /><PlayerNameLink playerId={p.playerId} name={p.name} className="font-display text-rift-goldbright" /></span>
+				<div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px]">{p.teams.map(t => <span key={`${t.leagueId}|${t.name}`} className="inline-flex items-center gap-1.5"><TeamLogoMark teamName={t.name} leagueId={t.leagueId} logoUrl={t.logoUrl} size={14} />{t.name}</span>)}</div>
 				{!p.qualified && <p className="mt-1 text-[10px]">{p.score === null ? "Partial scoring evidence" : `Provisional · ${p.rated}/${p.required} rated games`}</p>}</td>
 			<td className="px-2 py-3 text-right font-display text-rift-goldbright">{p.score?.toFixed(2) ?? "—"}</td>
 			<td className="px-2 py-3 text-right" title={`${p.rated} rated games`}>{avg(p.ratingSum, p.rated)}</td>
