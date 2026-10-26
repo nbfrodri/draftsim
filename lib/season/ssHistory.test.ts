@@ -154,6 +154,18 @@ describe("SS cross-season records", () => {
 		expect(r.teams.find(t => t.key === "LEC:Nova")).toMatchObject({ holderSeasons: 1, peak: 1 });
 		expect(r.regions).toEqual([{ leagueId: "LCK", distinctHolders: 2, holderSeasons: 3 }, { leagueId: "LEC", distinctHolders: 1, holderSeasons: 1 }]);
 	});
+	it("exposes the latest recorded holder role and team in chronological order", () => {
+		const latestTeam = { ...team("Nova", "LEC"), logoUrl: "/archived-nova.png" };
+		const r = ssRecords([year(2, [[h("a", team("Old"))], [h("a", latestTeam, "support")]]), year(1, [[h("a", team("First"), "jungle")]])]);
+		expect(r.seasons).toEqual([{ playerId: "a", playerName: "A", seasons: 2, lane: "support", team: latestTeam }]);
+	});
+	it("does not infer an unrecorded team or retain stale attribution", () => {
+		const r = ssRecords([year(1, [[h("a", team("Old"))]]), year(2, [[h("a", undefined, "jungle"), h("b")]])]);
+		expect(r.seasons[0]).toMatchObject({ playerId: "a", lane: "jungle" });
+		expect(r.seasons[0]).not.toHaveProperty("team");
+		expect(r.seasons[1]).not.toHaveProperty("team");
+		expect(ssRecords([year(3)]).seasons).toEqual([]);
+	});
 	it("excludes holders without a recorded team from team and region tables", () => {
 		const r = ssRecords([year(1, [[h("a")]])]);
 		expect(r.teams).toEqual([]);
