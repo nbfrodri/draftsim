@@ -66,3 +66,26 @@ test("compare searches every holder, caps at four, highlights overlap and suppor
 	await panel.screenshot({ path: "test-results/playwright/ss-compare-mobile.png" });
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+test("Compare buttons in the records add and remove players from the comparison", async ({ page }) => {
+	const history: SeasonHistoryEntry[] = [1, 2].map(year => ({ id: `y${year}`, name: `Year ${year}`, franchiseYear: year, archivedAt: year, complete: true, champion: null, runnerUp: null, intlChampions: {}, splitChampions: {}, ssOpening: [],
+		ssReviews: Array.from({ length: 3 }, (_, index) => ({ phaseIndex: index, label: "Winter", split: "winter", holders: [holder(index, `y${year}`)] })),
+	}));
+	await page.addInitScript(entries => localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state: { seasonHistory: entries, realities: [], season: null } })), history);
+	await page.emulateMedia({ reducedMotion: "reduce" });
+	await page.goto("/");
+	await page.getByRole("button", { name: /^Season History/ }).click();
+	await page.getByRole("button", { name: "Records & Dynasties", exact: true }).click();
+	const records = page.getByRole("region", { name: "All-time SS records" });
+	await records.getByRole("button", { name: /^SS records/ }).click();
+	const panel = page.getByRole("region", { name: "Compare SS timelines", exact: true });
+	const toggle = records.getByRole("button", { name: "Compare Holder 01", exact: true });
+	await toggle.click();
+	await expect(toggle).toHaveAttribute("aria-pressed", "true");
+	await expect(panel.getByLabel("Selected player count")).toHaveText("1/4 players");
+	await expect(panel.getByRole("list", { name: "Selected players" })).toContainText("Holder 01");
+	await expect(panel.getByRole("table", { name: "SS timeline comparison", exact: true })).toContainText("Holder 01");
+	await panel.getByRole("button", { name: "Remove Holder 01", exact: true }).click();
+	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	await expect(panel.getByLabel("Selected player count")).toHaveText("0/4 players");
+});

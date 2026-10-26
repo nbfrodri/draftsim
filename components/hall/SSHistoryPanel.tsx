@@ -2,7 +2,7 @@
 
 import SSBadge from "@/components/SSBadge";
 import { useMemo, useState } from "react";
-import { IconArrowRight, IconCalendar, IconTrophy } from "@tabler/icons-react";
+import { IconArrowRight, IconCalendar, IconCheck, IconPlus, IconTrophy } from "@tabler/icons-react";
 import { LANE_ORDER } from "@/lib/players";
 import { ssHistory, ssHistorySummary, playerSSHistory, closingSSHolders, ssRecords, ssSeasonViews, ssRegionView, ssPlayerIndex, ssTeamKey, type SSArchive } from "@/lib/season/ssHistory";
 import { LEAGUE_IDS, type LeagueId, type SSHolder } from "@/lib/season/types";
@@ -13,7 +13,7 @@ import { plural } from "@/lib/plural";
 import CollapsibleSection from "../CollapsibleSection";
 import LeagueIcon from "../LeagueIcon";
 import SSPhaseIcons, { PhaseIcon } from "./SSPhaseIcons";
-import SSCompareTimelines from "./SSCompareTimelines";
+import SSCompareTimelines, { SS_COMPARE_LIMIT } from "./SSCompareTimelines";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
 
@@ -115,6 +115,7 @@ function SSRecordsBody({ entries }: { entries: readonly SSArchive[] }) {
 	const views = useMemo(() => ssSeasonViews(entries), [entries]);
 	const records = useMemo(() => ssRecords(entries), [entries]);
 	const [region, setRegion] = useState<LeagueId | undefined>();
+	const [compare, setCompare] = useState<string[]>([]);
 	const regionRows = useMemo(() => region ? ssRegionView(views, region).filter(v => v.holders.length || !v.known) : [], [views, region]);
 	const players = useMemo(() => ssPlayerIndex(views, records), [views, records]);
 	const playerById = useMemo(() => new Map(players.map(p => [p.playerId, p])), [players]);
@@ -127,11 +128,14 @@ function SSRecordsBody({ entries }: { entries: readonly SSArchive[] }) {
 	return <div className="space-y-5 p-3 text-xs md:p-4">
 		{records.unknownSeasons > 0 && <p className="text-rift-mutedbright">{plural(records.unknownSeasons, "season")} without recorded SS data are left out, not counted as zero.</p>}
 		<section aria-label="Most SS seasons"><h4 className="mb-1 font-display text-rift-goldbright">Most SS seasons</h4>
-			<Table label="Most SS seasons" head={["Player", "Seasons", "Longest streak"]}>{records.seasons.slice(0, 5).map(p => {
+			<Table label="Most SS seasons" head={["Player", "Seasons", "Longest streak", "Compare"]}>{records.seasons.slice(0, 5).map(p => {
 				const s = records.streaks.find(x => x.playerId === p.playerId);
 				const latest = playerById.get(p.playerId);
 				const phase = latest?.phases.at(-1);
-				return <tr key={p.playerId}><td className={td}><span className="inline-flex flex-wrap items-center gap-1.5">{p.lane && <RoleLabel lane={p.lane} className="text-[10px] text-rift-mutedbright" />}<PlayerNameLink playerId={p.playerId} name={p.playerName} fallback="Unknown player" seasonId={latest?.seasonId} phaseScope={phase?.split ?? phase?.event} className="font-display text-rift-goldbright" /><SSPhaseIcons phases={latest?.phases} /></span>{p.team && <div className="mt-1"><TeamNameLink teamId={p.team.teamId} name={p.team.teamName} leagueId={p.team.leagueId} logoUrl={resolveTeamLogo(p.team.teamName, p.team.logoUrl)} seasonId={latest?.seasonId} phaseScope={phase?.split ?? phase?.event} className="inline-flex items-center gap-1.5 text-rift-mutedbright" /></div>}</td><td className={`${td} tabular-nums`}>{p.seasons}</td><td className={`${td} tabular-nums`}>{s ? `${plural(s.length, "year")} (${s.startName}${s.length > 1 ? ` – ${s.endName}` : ""})${s.open ? " · at least" : ""}` : "Unknown"}</td></tr>;
+				return <tr key={p.playerId}><td className={td}><span className="inline-flex flex-wrap items-center gap-1.5">{p.lane && <RoleLabel lane={p.lane} className="text-[10px] text-rift-mutedbright" />}<PlayerNameLink playerId={p.playerId} name={p.playerName} fallback="Unknown player" seasonId={latest?.seasonId} phaseScope={phase?.split ?? phase?.event} className="font-display text-rift-goldbright" /><SSPhaseIcons phases={latest?.phases} /></span>{p.team && <div className="mt-1"><TeamNameLink teamId={p.team.teamId} name={p.team.teamName} leagueId={p.team.leagueId} logoUrl={resolveTeamLogo(p.team.teamName, p.team.logoUrl)} seasonId={latest?.seasonId} phaseScope={phase?.split ?? phase?.event} className="inline-flex items-center gap-1.5 text-rift-mutedbright" /></div>}</td><td className={`${td} tabular-nums`}>{p.seasons}</td><td className={`${td} tabular-nums`}>{s ? `${plural(s.length, "year")} (${s.startName}${s.length > 1 ? ` – ${s.endName}` : ""})${s.open ? " · at least" : ""}` : "Unknown"}</td><td className={td}>{(() => {
+					const on = compare.includes(p.playerId);
+					return <button type="button" aria-pressed={on} aria-label={`Compare ${p.playerName ?? "Unknown player"}`} disabled={!on && compare.length >= SS_COMPARE_LIMIT} onClick={() => setCompare(on ? compare.filter(x => x !== p.playerId) : [...compare, p.playerId])} className={`${chip(on)} inline-flex items-center gap-1 disabled:cursor-not-allowed disabled:opacity-40`}>{on ? <IconCheck size={12} aria-hidden /> : <IconPlus size={12} aria-hidden />}{on ? "Comparing" : "Compare"}</button>;
+				})()}</td></tr>;
 			})}</Table></section>
 		<section aria-label="Most SS by team"><h4 className="mb-1 font-display text-rift-goldbright">Most SS by team</h4>
 			{records.teams.length ? <Table label="Most SS by team" head={["Team", "SS seasons", "Players", "Peak at once"]}>{records.teams.slice(0, 5).map(t => <tr key={t.key}><td className={td}><TeamNameLink name={t.teamName} leagueId={t.leagueId} logoUrl={resolveTeamLogo(t.teamName, t.logoUrl)} seasonId={teamSeasons.get(t.key)} className="inline-flex items-center gap-2 font-display text-rift-goldbright" /></td><td className={`${td} tabular-nums`}>{t.holderSeasons}</td><td className={`${td} tabular-nums`}>{t.distinctHolders}</td><td className={`${td} tabular-nums`}>{t.peak}</td></tr>)}</Table> : <p className="text-rift-mutedbright">No team attribution recorded.</p>}
@@ -142,6 +146,6 @@ function SSRecordsBody({ entries }: { entries: readonly SSArchive[] }) {
 				const phase = x.phases?.at(-1);
 				return <span key={`${x.playerId}:${ssTeamKey(x.team)}`} className="inline-flex items-center gap-1.5"><RoleLabel lane={x.lane} size="sm" className="text-[10px] text-rift-mutedbright" /><PlayerNameLink playerId={x.playerId} name={x.playerName} fallback="Unknown player" seasonId={v.seasonId} phaseScope={phase?.split ?? phase?.event} className="text-rift-goldbright" /><TeamNameLink teamId={x.team.teamId} name={x.team.teamName} leagueId={x.team.leagueId} logoUrl={resolveTeamLogo(x.team.teamName, x.team.logoUrl)} seasonId={v.seasonId} className="inline-flex items-center gap-1.5 text-rift-mutedbright" /></span>;
 			})}</span>}</li>)}</ul>}</section>
-		<SSCompareTimelines views={views} players={players} />
+		<SSCompareTimelines views={views} players={players} picked={compare} onPickedChange={setCompare} />
 	</div>;
 }
