@@ -75,7 +75,7 @@ test("all-time cards pin the latest contributing year and update with year filte
 	await page.evaluate(() => Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true }));
 	await panel.getByRole("radio", { name: "Winter", exact: true }).click();
 	const row = panel.getByRole("table", { name: "All-time top player rankings" }).locator("tbody tr").filter({ hasText: participant.name });
-	const player = row.getByRole("group", { name: participant.name, exact: true });
+	const player = row.getByRole("button", { name: participant.name, exact: true });
 	await player.focus();
 	await expect(page.getByRole("tooltip")).toContainText("Year 2 · Records cover Year 1 – Year 2");
 	await page.keyboard.press("Escape");
