@@ -1,5 +1,6 @@
 "use client";
 
+import SSBadge from "@/components/SSBadge";
 import { useMemo, useState } from "react";
 import { IconTrophy } from "@tabler/icons-react";
 import { computeSSRace, type SSRaceLane, type SSRacePlayer } from "@/lib/season/ssRace";
@@ -21,7 +22,7 @@ function PlayerIdentity({ row }: { row: SSRacePlayer }) {
 	return (
 		<div className="min-w-0 space-y-1.5">
 			<div className="flex items-center gap-1.5 font-display text-[13px] text-rift-goldbright">
-				<TierChip tier={row.player.tier} size="md" />
+				{row.player.tier === "SS" ? <SSBadge size="sm" /> : <TierChip tier={row.player.tier} size="md" />}
 				<PlayerNameLink playerId={row.player.id} name={row.player.name} className="min-w-0 max-w-full" />
 			</div>
 			<div className="flex min-w-0 items-center gap-2"><RegionMark league={row.team.leagueId} size={16} /><TeamNameLink
@@ -88,7 +89,7 @@ function CurrentSeat({ row: { lane, holder, contenders } }: { row: SSRaceLane })
 				<PlayerIdentity row={holder} />
 				<div className="my-3"><PlayerMetrics row={holder} /></div>
 				<div className="flex flex-wrap items-center justify-between gap-1 border-t border-rift-line/30 pt-2 text-[10px] text-rift-mutedbright">
-					<span>Live SS score <span className="font-display tabular-nums text-rift-goldbright">{holder.score?.toFixed(2) ?? "—"}</span></span>
+					<span>Live <SSBadge /> score <span className="font-display tabular-nums text-rift-goldbright">{holder.score?.toFixed(2) ?? "—"}</span></span>
 					<span title={`Last awarded score: ${holder.player.ss?.score.toFixed(2)}`}>{holder.player.ss?.phaseLabel}</span>
 				</div>
 				{holder.carry && <p className="mt-2 text-[10px] text-rift-gold">Previous-season grace period</p>}
@@ -136,11 +137,11 @@ function Contender({ row, rank, extra }: { row: SSRacePlayer; rank: number; extr
 				<div className="col-start-2 row-start-1 lg:col-start-3">{progress ? <GamesProgress {...progress} /> : <ChanceEstimate row={row} />}</div>
 			</div>
 			<div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rift-line/25 pt-2 text-[10px] tabular-nums text-rift-mutedbright">
-				<span>SS score <span className="font-display text-rift-goldbright">{row.score?.toFixed(2) ?? "—"}</span></span>
+				<span><SSBadge /> score <span className="font-display text-rift-goldbright">{row.score?.toFixed(2) ?? "—"}</span></span>
 				{row.gap !== null && <span>Gap to seat {row.gap.toFixed(2)}</span>}
 				{!progress && <span>Participation {row.games}/{row.requiredGames} required</span>}
 				{(row.eligible || !progress) && <span className={`sm:ml-auto ${row.projected ? "text-rift-goldbright" : "text-rift-mutedbright"}`}>
-					{row.eligible ? row.projected ? "Projected SS with current results" : "Eligible · chasing the seat" : "Requirements pending"}
+					{row.eligible ? row.projected ? <>Projected <SSBadge /> with current results</> : "Eligible · chasing the seat" : "Requirements pending"}
 				</span>}
 			</div>
 			{!row.eligible && reasons.length > 0 && <p className="mt-2 text-[10px] text-rift-mutedbright">{reasons.join(" · ")}</p>}
@@ -159,13 +160,13 @@ function SSRaceContent({ season, lane, onLaneChange }: { season: SeasonState; la
 		<div className="space-y-5 p-3 md:p-4">
 			<section aria-labelledby="ss-holders-heading">
 				<div className="mb-3 flex flex-wrap items-baseline justify-between gap-1">
-					<h3 id="ss-holders-heading" className="font-display text-xs text-rift-goldbright">Current SS players</h3>
+					<h3 id="ss-holders-heading" className="font-display text-xs text-rift-goldbright">Current <SSBadge /> players</h3>
 					<p className="text-[10px] text-rift-mutedbright">One world seat per role · Reviewed at phase end</p>
 				</div>
 				<div className="grid items-start gap-2 sm:grid-cols-2 xl:grid-cols-5">{race.map(row => <CurrentSeat key={row.lane} row={row} />)}</div>
 			</section>
 			<section aria-labelledby="ss-contenders-heading">
-				<h3 id="ss-contenders-heading" className="mb-3 font-display text-xs text-rift-goldbright">SS contenders</h3>
+				<h3 id="ss-contenders-heading" className="mb-3 font-display text-xs text-rift-goldbright"><SSBadge /> contenders</h3>
 				<fieldset aria-label="Contender role" className="mb-3 flex min-w-0 flex-wrap gap-1.5 border-0 p-0">
 					{race.map(row => <button
 						type="button" key={row.lane} aria-pressed={row.lane === lane}
@@ -182,7 +183,7 @@ function SSRaceContent({ season, lane, onLaneChange }: { season: SeasonState; la
 			</section>
 			<details className="border-t border-rift-line/40 pt-2 text-[11px] leading-relaxed text-rift-mutedbright">
 				<summary className={`w-fit cursor-pointer py-1 text-rift-gold ${FOCUS}`}>Selection rules &amp; estimates</summary>
-				<p className="mt-2">S/S+ base tier, at least 8 rated games, 60% participation and recent domestic activity are required. Challengers must beat an eligible holder by {SS_REPLACE_MARGIN.toFixed(2)} score. Estimates repeatedly resample recorded grades using these same selection rules; all eligible players compete, including those outside the displayed top five. Too few rated games means no estimate; other unmet requirements mean 0%. SS score adjusts grades for opposition, sample size and consistency.</p>
+				<p className="mt-2">S/S+ base tier, at least 8 rated games, 60% participation and recent domestic activity are required. Challengers must beat an eligible holder by {SS_REPLACE_MARGIN.toFixed(2)} score. Estimates repeatedly resample recorded grades using these same selection rules; all eligible players compete, including those outside the displayed top five. Too few rated games means no estimate; other unmet requirements mean 0%. <SSBadge /> score adjusts grades for opposition, sample size and consistency.</p>
 				<p className="mt-2">Season stats follow the player across teams. Gold diff is measured at game end against the lane opponent. — means no recorded data.</p>
 			</details>
 		</div>
@@ -194,7 +195,7 @@ export default function SSRacePanel({ season }: { season: SeasonState }) {
 	const holders = useMemo(() => new Set(season.teams.flatMap(t => t.players.filter(p => p.tier === "SS").map(p => p.lane))).size, [season.teams]);
 	return (
 		<CollapsibleSection ariaLabel="SS Race" headingLevel={2} className="mb-7" icon={<IconTrophy size={15} className="shrink-0 text-rift-gold" aria-hidden="true" />}
-			label={<>SS Race<span className="ml-2 hidden font-body text-[10px] font-normal normal-case tracking-normal text-rift-mutedbright sm:inline">World leaders &amp; contenders</span></>}
+			label={<><SSBadge size="sm" /> Race<span className="ml-2 hidden font-body text-[10px] font-normal normal-case tracking-normal text-rift-mutedbright sm:inline">World leaders &amp; contenders</span></>}
 			summary={`${holders}/5 holders`}>
 			<SSRaceContent season={season} lane={lane} onLaneChange={setLane} />
 		</CollapsibleSection>
