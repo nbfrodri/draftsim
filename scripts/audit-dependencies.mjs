@@ -7,15 +7,16 @@ export const BRACES_ADVISORY = "https://github.com/advisories/GHSA-vfj7-8cjw-p6x
 export const SELECTOR_PARSER_ADVISORY = "https://github.com/advisories/GHSA-rj75-hqrm-r3gf";
 export const EXCEPTION_EXPIRES = "2026-11-03T00:00:00Z";
 // Known dev-only chains (Tailwind 3, ESLint/Next) and the severity npm reports for each.
+// Tailwind is moderate once only the selector-parser advisory remains in its chain.
 const DEVELOPMENT_CHAIN = new Map([
-  ["braces", "high"], ["chokidar", "high"], ["micromatch", "high"], ["fast-glob", "high"], ["tailwindcss", "high"],
-  ["@next/eslint-plugin-next", "high"], ["eslint-config-next", "high"],
-  ["postcss-nested", "moderate"], ["postcss-selector-parser", "moderate"],
+  ["braces", ["high"]], ["chokidar", ["high"]], ["micromatch", ["high"]], ["fast-glob", ["high"]], ["tailwindcss", ["high", "moderate"]],
+  ["@next/eslint-plugin-next", ["high"]], ["eslint-config-next", ["high"]],
+  ["postcss-nested", ["moderate"]], ["postcss-selector-parser", ["moderate"]],
 ]);
 // The only advisories accepted at the end of those chains, pinned to the audited version.
 const DEVELOPMENT_ADVISORIES = {
   braces: { url: BRACES_ADVISORY, severity: "high", range: "<=3.0.3", version: "3.0.3" },
-  "postcss-selector-parser": { url: SELECTOR_PARSER_ADVISORY, severity: "moderate", range: "<7.1.6", version: "6.1.4" },
+  "postcss-selector-parser": { url: SELECTOR_PARSER_ADVISORY, severity: "moderate", range: "<7.1.6", version: "6.1.5" },
 };
 
 function vulnerabilitiesFrom(report) {
@@ -35,7 +36,7 @@ export function evaluateAudit(report, lock, now = new Date()) {
   const isAllowed = (name, visiting = new Set()) => {
     const finding = vulnerabilities[name];
     if (!notExpired || visiting.has(name) || !DEVELOPMENT_CHAIN.has(name) ||
-        !finding || finding.name !== name || finding.severity !== DEVELOPMENT_CHAIN.get(name) ||
+        !finding || finding.name !== name || !DEVELOPMENT_CHAIN.get(name).includes(finding.severity) ||
         !Array.isArray(finding.nodes) || !finding.nodes.length ||
         !finding.nodes.every((node) => lock?.packages?.[node]?.dev === true) ||
         !Array.isArray(finding.via) || !finding.via.length) return false;
