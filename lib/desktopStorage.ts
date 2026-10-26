@@ -514,6 +514,17 @@ async function flushPendingWrites(): Promise<void> {
   finally { if (fileFlushInFlight === operation) fileFlushInFlight = null; }
 }
 
+let hiddenFlushHolds = 0;
+/**
+ * While a bulk run holds its saves, hiding the window (minimise, tab switch) must not
+ * write the multi-MB live-season snapshot; only real unload/close paths flush.
+ */
+export function holdHiddenFlush(): () => void {
+  hiddenFlushHolds++;
+  let released = false;
+  return () => { if (!released) { released = true; hiddenFlushHolds--; } };
+}
+
 /** Best-effort flush when the page is going away (can't await in sync handlers). */
 function schedulePersistFlushOnExit(): void {
   if (restoreReloadReady) return;
@@ -584,7 +595,7 @@ if (typeof window !== "undefined") {
   window.addEventListener("pagehide", onExit);
   // Tab switch / minimize / app background — backup so debounced writes land.
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") onExit();
+    if (document.visibilityState === "hidden" && hiddenFlushHolds === 0) onExit();
   });
 
   if (isDesktop()) {

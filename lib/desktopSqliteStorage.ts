@@ -13,6 +13,7 @@ saveStorageValueToSqlite,
 } from "./desktopSqlite";
 import {
 cancelPendingWrite,
+holdHiddenFlush,
 setPersistLoadStage,
 isDesktop,
 migrateWebStorageToDesktop,
@@ -47,10 +48,12 @@ function armDebounce(name: string, pending: PendingSqliteWrite): void {
  */
 export function holdDebouncedSqliteWrites(): () => void {
   debounceHolds++;
+  const releaseHiddenFlush = holdHiddenFlush();
   let released = false;
   return () => {
     if (released) return;
     released = true;
+    releaseHiddenFlush();
     debounceHolds--;
     if (debounceHolds > 0) return;
     for (const [name, pending] of pendingSqliteWrites) if (!pending.timer) armDebounce(name, pending);

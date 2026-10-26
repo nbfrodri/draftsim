@@ -2,18 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./desktopStorage", () => ({ flushPendingPersistWrites: vi.fn().mockResolvedValue(undefined) }));
 const holdRelease = vi.fn();
 vi.mock("./desktopSqliteStorage", () => ({ holdDebouncedSqliteWrites: vi.fn(() => holdRelease) }));
+vi.mock("./realityExport", () => ({ writeRealityExportToTarget: vi.fn().mockResolvedValue({ ok: true }) }));
 import { flushPendingPersistWrites } from "./desktopStorage";
+import { writeRealityExportToTarget } from "./realityExport";
 import { holdDebouncedSqliteWrites } from "./desktopSqliteStorage";
 import { getBulkBreadcrumbContext, setBreadcrumbInvokeForTests } from "./bulkBreadcrumbs";
 import { reportPersistenceError } from "./persistenceStatus";
 import { createSimulationActions } from "@/store/actions/simulation";
 import type { DraftStore, StoreSet } from "@/store/types";
 import { makeAuditSeason } from "./auditFixtures";
-function harness(options: { cancelAfterShop?: boolean } = {}) {
+function harness(options: { cancelAfterShop?: boolean; noPause?: boolean } = {}) {
   const season = makeAuditSeason("Resume");
   let state = { season, champions: [], playerForms: {}, bulkYearJobs: {}, simulating: null, bulkYearsProgress: null,
+    exportReality: vi.fn(async () => "{}"),
     realities: [{ id: "Resume", name: "Resume", year: 1, season, history: [] }] } as unknown as DraftStore;
-  let pauseAt = 2, cancelAfterShop = !!options.cancelAfterShop;
+  let pauseAt = options.noPause ? -1 : 2, cancelAfterShop = !!options.cancelAfterShop;
   const get = () => state;
   const set: StoreSet = patch => {
     state = { ...state, ...(typeof patch === "function" ? patch(state) : patch) };
@@ -32,7 +35,7 @@ function harness(options: { cancelAfterShop?: boolean } = {}) {
   Object.assign(state, createSimulationActions(get, set, helpers));
   return { get, resume: () => { pauseAt = -1; get().resumeBulkYears(); } };
 }
-beforeEach(() => { reportPersistenceError(null, "simulation"); vi.mocked(flushPendingPersistWrites).mockReset().mockResolvedValue(undefined); holdRelease.mockClear(); vi.mocked(holdDebouncedSqliteWrites).mockClear(); });
+beforeEach(() => { vi.mocked(writeRealityExportToTarget).mockClear(); reportPersistenceError(null, "simulation"); vi.mocked(flushPendingPersistWrites).mockReset().mockResolvedValue(undefined); holdRelease.mockClear(); vi.mocked(holdDebouncedSqliteWrites).mockClear(); });
 afterEach(() => { setBreadcrumbInvokeForTests(null); vi.unstubAllGlobals(); });
 describe("bulk simulation checkpoint", () => {
   it("lets a queued cancellation run before archiving the completed season", async () => {
@@ -71,6 +74,29 @@ describe("bulk simulation checkpoint", () => {
     await vi.waitFor(() => expect(h.get().simulating).toBeNull());
     expect(h.get().bulkYearsProgress).toBeNull();
     expect(h.get().bulkYearJobs.Resume).toMatchObject({ targetYear: 4, error: "disk full" });
+  });
+});
+
+describe("bulk simulation export and overlap", () => {
+  it("exports the reality once after the last year instead of after every year", async () => {
+    const h = harness({ noPause: true });
+    h.get().simulateRealityYears(3, { exportTarget: { kind: "file", path: "x.json" } as never });
+    await vi.waitFor(() => expect(h.get().simulating).toBeNull());
+    expect(h.get().season?.franchise?.year).toBe(4);
+    expect(h.get().exportReality).toHaveBeenCalledTimes(1);
+    expect(writeRealityExportToTarget).toHaveBeenCalledTimes(1);
+  });
+  it("stays busy until the final flush finishes so a second run cannot overlap", async () => {
+    let finish!: () => void;
+    let calls = 0;
+    vi.mocked(flushPendingPersistWrites).mockImplementation(() => ++calls < 2 ? Promise.resolve() : new Promise<void>(r => { finish = r; }));
+    const h = harness({ noPause: true });
+    h.get().simulateRealityYears(1);
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(h.get().simulating).not.toBeNull();
+    expect(h.get().bulkYearsProgress).not.toBeNull();
+    finish();
+    await vi.waitFor(() => expect(h.get().simulating).toBeNull());
   });
 });
 
