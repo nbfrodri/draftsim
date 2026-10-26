@@ -19,7 +19,7 @@ function playedSeason() {
   const series = createSeries({ format: "bo3", fearless: false, timerEnabled: false, mode: "aivai", aiSide: null, aiDifficulty: "normal", blueTeam: blue.name, redTeam: red.name });
   const game = series.games[0];
   series.games = [0, 1, 2].map(i => ({ ...game, id: `game-${i}`, gameNumber: i + 1, status: "complete" as const, blueTeam: i === 1 ? red.name : blue.name, redTeam: i === 1 ? blue.name : red.name, winner: (i === 1 ? "red" : "blue") as "blue" | "red", bluePicks: [1, 2, 3, 4, 5], redPicks: [6, 7, 8, 9, 10], blueRoles: ["top", "jungle", "middle", "bottom", "support"] as const, redRoles: ["top", "jungle", "middle", "bottom", "support"] as const,
-    recap: { durationMinutes: 30, mvp: null, biggestSwing: null, ratings: { blue: [8, 7, 7, 7, 7], red: [6, 6, 6, 6, 6] } },
+    recap: { durationMinutes: 30, mvp: null, biggestSwing: null, perPickIds: { blue: (i === 1 ? red : blue).players!.map(p => p.id!), red: (i === 1 ? blue : red).players!.map(p => p.id!) }, ratings: { blue: [8, 7, 7, 7, 7], red: [6, 6, 6, 6, 6] } },
   })).map(g => ({ ...g, blueRoles: [...g.blueRoles], redRoles: [...g.redRoles] }));
   series.status = "complete";
   match.series = series; match.winner = { teamId: blue.id, blueWins: 2, redWins: 1 };
