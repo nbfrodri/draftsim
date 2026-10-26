@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 export function PlayerIdentity({ badge, name, teams }: { badge?: ReactNode; name: ReactNode; teams: ReactNode }) {
 	return (
 		<div className="min-w-0 space-y-1.5">
-			<div className="flex items-center gap-1.5 font-display text-[13px] text-rift-goldbright">
+			<div className="flex min-w-0 items-center gap-1.5 font-display text-[13px] text-rift-goldbright">
 				{badge}
-				{name}
+				<span className="min-w-0 truncate">{name}</span>
 			</div>
 			{teams}
 		</div>
