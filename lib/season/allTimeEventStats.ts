@@ -25,7 +25,20 @@ export interface AllTimeEventCoverage {
 	/** Event records that passed the event and region filters. */
 	events: number;
 }
-export interface AllTimeEventStats { stats: EventStats; lanes: Record<string, Lane[]>; coverage: AllTimeEventCoverage }
+export interface AllTimeEventPin {
+	seasonId: string;
+	phaseScope?: SplitId | InternationalId;
+	/** Exact source prevents cross-reality season-id collisions from resolving another archive. */
+	archive: SeasonHistoryEntry;
+	fromYear?: number;
+	toYear?: number;
+	undated?: boolean;
+}
+export interface AllTimeEventStats {
+	stats: EventStats; lanes: Record<string, Lane[]>; coverage: AllTimeEventCoverage;
+	playerPins: Record<string, AllTimeEventPin>;
+	teamPins: Record<string, AllTimeEventPin>;
+}
 
 const SPLITS: readonly string[] = ["winter", "spring", "summer"];
 
@@ -71,6 +84,14 @@ export function aggregateAllTimeEventStats(histories: readonly (readonly SeasonH
 	const players = new Map<string, EventPlayer>();
 	const champions = new Map<number, EventChampion>();
 	const lanes: Record<string, Lane[]> = {};
+	const playerPins: Record<string, AllTimeEventPin> = {};
+	const teamPins: Record<string, AllTimeEventPin> = {};
+	const pin = (pins: Record<string, AllTimeEventPin>, key: string, e: SeasonHistoryEntry, r: EventRecord) => {
+		const previous = pins[key];
+		const year = entryEventYear(e);
+		const years = [previous?.fromYear, previous?.toYear, year].filter((y): y is number => y !== undefined);
+		pins[key] = { seasonId: e.id, archive: e, ...(r.split || r.event ? { phaseScope: r.split ?? r.event } : {}), ...(years.length ? { fromYear: Math.min(...years), toYear: Math.max(...years) } : {}), ...(year === undefined || previous?.undated ? { undated: true } : {}) };
+	};
 	let games = 0;
 	const inRange: SeasonHistoryEntry[] = [];
 	for (const h of histories) for (const e of uniqueEntries(h)) {
@@ -83,7 +104,7 @@ export function aggregateAllTimeEventStats(histories: readonly (readonly SeasonH
 	inRange.sort((a, b) => (entryEventYear(a) ?? Infinity) - (entryEventYear(b) ?? Infinity) || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
 	for (const e of inRange) {
 		coverage.seasons++;
-		const records = (e.eventRecords ?? []).filter(r => wholeEvent(r));
+		const records = (e.eventRecords ?? []).filter(r => wholeEvent(r)).sort((a, b) => (a.phaseIndex ?? -1) - (b.phaseIndex ?? -1) || a.id.localeCompare(b.id));
 		if (!records.length) { coverage.unrecordedSeasons++; continue; }
 		coverage.recordedSeasons++;
 		for (const r of records) {
@@ -93,11 +114,19 @@ export function aggregateAllTimeEventStats(histories: readonly (readonly SeasonH
 			games += s.games;
 			for (const [id, l] of Object.entries(r.championLanes ?? {})) lanes[id] = [...new Set([...lanes[id] ?? [], ...l])];
 			for (const p of s.players) {
+				if (p.games > 0) {
+					pin(playerPins, p.key, e, r);
+					for (const team of p.teams) pin(teamPins, teamKey(team), e, r);
+				}
 				let t = players.get(p.key);
 				if (!t) { t = { ...p, teams: [], ...Object.fromEntries(EVENT_METRICS.map(k => [k, 0])) }; players.set(p.key, t); }
 				else t.name = p.name;
 				for (const k of EVENT_METRICS) t[k] += p[k];
-				for (const team of p.teams) if (!t.teams.some(x => teamKey(x) === teamKey(team))) t.teams.push({ ...team });
+				for (const team of p.teams) {
+					const previous = t.teams.find(x => teamKey(x) === teamKey(team));
+					if (previous) Object.assign(previous, team);
+					else t.teams.push({ ...team });
+				}
 			}
 			for (const c of s.champions) {
 				let t = champions.get(c.championId);
@@ -112,6 +141,6 @@ export function aggregateAllTimeEventStats(histories: readonly (readonly SeasonH
 	}
 	return {
 		stats: { games, players: [...players.values()], champions: [...champions.values()].sort((a, b) => a.championId - b.championId) },
-		lanes, coverage,
+		lanes, coverage, playerPins, teamPins,
 	};
 }

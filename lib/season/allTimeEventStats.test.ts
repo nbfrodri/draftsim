@@ -25,6 +25,34 @@ function entry(id: string, year: number | undefined, records?: EventRecord[], ar
 }
 
 describe("aggregateAllTimeEventStats", () => {
+	it("pins the most recent actual contribution within filters, with per-entity year coverage", () => {
+		const h = [entry("s2", 2, [record("late", { players: [player("p", "top", "Nova", {}, "LPL")] }, { split: "summer", phaseIndex: 3 })]), entry("s1", 1, [record("early", { players: [player("p", "top", "Nova")] }, { phaseIndex: 0 })]), entry("s3", 3, [record("empty", { players: [player("p", "top", "Nova", { games: 0 })] })])];
+		const all = aggregateAllTimeEventStats([h], ALL);
+		expect(all.playerPins["p:top"]).toMatchObject({ seasonId: "s2", phaseScope: "summer", fromYear: 1, toYear: 2 });
+		expect(all.teamPins["LCK|Nova"]).toMatchObject({ seasonId: "s1", phaseScope: "winter" });
+		expect(all.teamPins["LPL|Nova"]).toMatchObject({ seasonId: "s2" });
+		expect(aggregateAllTimeEventStats([h], { ...ALL, event: "winter" }).playerPins["p:top"]).toMatchObject({ seasonId: "s1", fromYear: 1, toYear: 1 });
+		expect(aggregateAllTimeEventStats([h], { ...ALL, toYear: 1 }).playerPins["p:top"]?.seasonId).toBe("s1");
+	});
+	it("pins the latest phase in source order and preserves exact archives across reality id collisions", () => {
+		const winter = record("winter", { players: [player("p", "top", "Nova")] }, { phaseIndex: 0 });
+		const worlds = record("worlds", { players: [player("p", "top", "Nova")] }, { split: undefined, event: "worlds", phaseIndex: 4 });
+		const first = entry("same-id", 1, [winter]);
+		const latest = entry("same-id", 2, [worlds, winter]);
+		const data = aggregateAllTimeEventStats([[latest], [first]], ALL);
+		expect(data.playerPins["p:top"].archive).toBe(latest);
+		expect(data.playerPins["p:top"].phaseScope).toBe("worlds");
+		expect(data.teamPins["LCK|Nova"].archive).toBe(latest);
+	});
+	it("leaves missing years and phases unknown and keeps mixed coverage order independent", () => {
+		const undated = entry("legacy", undefined, [record("legacy-event", { players: [player("p", "top", "Nova")] }, { split: undefined })], 2);
+		const dated = entry("dated", 1, [record("winter", { players: [player("p", "top", "Nova")] })], 3);
+		const one = aggregateAllTimeEventStats([[undated, dated]], ALL);
+		expect(one).toEqual(aggregateAllTimeEventStats([[dated, undated]], ALL));
+		expect(one.playerPins["p:top"]).toMatchObject({ seasonId: "legacy", fromYear: 1, toYear: 1, undated: true });
+		expect(one.playerPins["p:top"]).not.toHaveProperty("phaseScope");
+		expect(aggregateAllTimeEventStats([[undated]], ALL).playerPins["p:top"]).not.toHaveProperty("fromYear");
+	});
 	it("sums raw totals per playerId:lane across events and years, merging teams and versions", () => {
 		const a = entry("s1", 1, [record("e1", { players: [player("p1", "top", "Alpha")] }, {}, 1)]);
 		const b = entry("s2", 2, [record("e2", { players: [player("p1", "top", "Beta", { games: 6, wins: 3, rated: 6, adjusted: 6, ratingSum: 30, sum: 30, squares: 150, opportunities: 6 })] }, {}, 2)]);

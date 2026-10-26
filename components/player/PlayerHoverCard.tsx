@@ -586,7 +586,10 @@ export default function PlayerHoverCard({
       if (hint.faRow) next.faRow = hint.faRow;
       if (hint.teamName) next.teamName = hint.teamName;
       if (hint.lane) next.lane = hint.lane;
-      return next.faRow || next.teamName || next.lane ? next : undefined;
+      if (hint.archive) next.archive = hint.archive;
+      if (hint.coverageLabel) next.coverageLabel = hint.coverageLabel;
+      if (hint.name) next.name = hint.name;
+      return Object.keys(next).length ? next : undefined;
     }
     return hint;
   })();
@@ -607,7 +610,7 @@ export default function PlayerHoverCard({
         }) : null);
         // A custom tournament may have an empty champion pool and no live
         // season index. Its actual roster is still a valid card fallback.
-        if (resolved) setData(resolved);
+        if (resolved) setData(hint?.coverageLabel ? { ...resolved, scope: `${resolved.scope} · ${hint.coverageLabel}` } : resolved);
       };
       if (immediate) run();
       else showTimer.current = setTimeout(run, SHOW_DELAY_MS);

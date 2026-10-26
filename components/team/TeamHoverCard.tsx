@@ -435,7 +435,7 @@ export default function TeamHoverCard({
           ...(opponentTeamId ? { opponentTeamId } : {}),
           ...(opponentHint ? { opponentHint } : {}),
         });
-        if (resolved) setData(resolved);
+        if (resolved) setData(hint?.coverageLabel ? { ...resolved, scope: `${resolved.scope} · ${hint.coverageLabel}` } : resolved);
       };
       if (immediate) run();
       else showTimer.current = setTimeout(run, SHOW_DELAY_MS);
