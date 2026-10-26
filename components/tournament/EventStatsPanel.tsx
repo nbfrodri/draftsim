@@ -5,6 +5,7 @@ import type { Champion, Lane } from "@/lib/types";
 import type { TournamentState } from "@/lib/tournament";
 import { LANE_ORDER } from "@/lib/players";
 import { rankEventPlayers, type EventPlayer } from "@/lib/eventStats";
+import { eventRankMovements } from "@/lib/eventRankMovement";
 import { buildEventRecord, eventCheckpointPlayers, type EventRecord } from "@/lib/season/eventHistory";
 import { resolveTeamLogo } from "@/lib/season/realTeams";
 import PlayerNameLink from "../player/PlayerNameLink";
@@ -51,8 +52,7 @@ function EventStatsContent(props: Props & { view: View; updateView: (patch: Part
 	const checkpoint = scope.checkpoints[pointIndex];
 	const players = useMemo(() => checkpoint ? eventCheckpointPlayers(scope, checkpoint) : scope.stats.players, [scope, checkpoint]);
 	const ranked = useMemo(() => rankEventPlayers(players, lane), [players, lane]);
-	const previous = scope.checkpoints[pointIndex >= 0 ? pointIndex - 1 : scope.checkpoints.length - 1];
-	const previousRanks = new Map(previous ? rankEventPlayers(eventCheckpointPlayers(scope, previous), lane).map((p, i) => [p.key, { rank: i + 1, qualified: p.qualified }]) : []);
+	const movements = useMemo(() => eventRankMovements(scope, lane, point, ranked), [scope, lane, point, ranked]);
 	const sorted = [...ranked].sort((a, b) => {
 		const value = (p: typeof a) => sort === "grade" ? (p.rated ? p.ratingSum / p.rated : -Infinity) : sort === "gold" ? (p.goldGames ? p.goldSum / p.goldGames : -Infinity) : sort === "games" ? p.games : sort === "wins" ? p.wins / p.games : 0;
 		return sort === "performance" ? 0 : value(b) - value(a) || a.key.localeCompare(b.key);
@@ -73,11 +73,10 @@ function EventStatsContent(props: Props & { view: View; updateView: (patch: Part
 		<div className="flex flex-wrap items-end justify-between gap-2"><fieldset aria-label="Player role" className="m-0 flex min-w-0 flex-wrap gap-1.5 border-0 p-0">{LANE_ORDER.map(role => <button type="button" key={role} aria-pressed={role === lane} onClick={() => setLane(role)} className={`${segment} ${segmentState(role === lane)}`}><RoleLabel lane={role} size="sm" /></button>)}</fieldset><PlaygroundSelect label="Sort" ariaLabel="Player sort" value={sort} onChange={setSort} options={[{ value: "performance", label: "Performance score" }, { value: "grade", label: "Avg grade" }, { value: "gold", label: "Avg gold diff" }, { value: "games", label: "Games" }, { value: "wins", label: "Win rate" }]} /></div>
 		<p className="text-[11px] leading-relaxed text-rift-mutedbright">{checkpoint ? `${checkpoint.label} · ${plural(checkpoint.games, "game")} at this checkpoint` : `${plural(scope.stats.games, "completed game")} · current / final standings`}. {scope.checkpoints.length ? "Movement compares performance rank with the previous recorded checkpoint." : "Earlier round history was not recorded. Current statistics remain available."}</p>
 		<div className="overflow-x-auto border border-rift-line/40"><table aria-label={`${lane} player rankings`} className="w-full text-left text-xs tabular-nums"><thead className="border-b border-rift-line/40 bg-rift-bg/40 text-[10px] uppercase tracking-wider text-rift-mutedbright"><tr>{["Rank", "Player / team", "Score", "Avg grade", "Avg gold ±", "Games", "WR", "KDA"].map((h, i) => <th key={h} scope="col" className={`whitespace-nowrap px-2 py-2 font-semibold ${i > 1 ? "text-right" : ""}`}>{h}</th>)}</tr></thead><tbody>{sorted.map(p => {
-			const rank = ranked.indexOf(p) + 1, prev = previousRanks.get(p.key);
-			const change = !prev ? "New" : p.qualified && !prev.qualified ? "Qualified" : prev.rank === rank ? "—" : `${prev.rank > rank ? "↑" : "↓"}${Math.abs(prev.rank - rank)}`;
-			const chip = change.startsWith("↑") || change === "Qualified" ? "text-rift-goldbright" : change.startsWith("↓") ? "text-rift-redbright" : "text-rift-mutedbright";
+			const rank = ranked.indexOf(p) + 1, change = movements.get(p.key);
+			const chip = change?.startsWith("↑") || change === "Qualified" ? "text-rift-goldbright" : change?.startsWith("↓") ? "text-rift-redbright" : "text-rift-mutedbright";
 			return <tr key={p.key} className="border-b border-rift-line/25 text-rift-mutedbright transition-colors last:border-b-0 hover:bg-rift-gold/[0.04]">
-				<td className="px-2 py-3"><span className="font-display text-rift-goldbright">#{rank}</span>{previous && <span className={`ml-1.5 border border-rift-line/40 px-1 text-[10px] ${chip}`} title="Performance rank movement">{change}</span>}</td>
+				<td className="px-2 py-3"><span className="font-display text-rift-goldbright">#{rank}</span>{change && <span className={`ml-1.5 border border-rift-line/40 px-1 text-[10px] ${chip}`} title="Performance rank movement">{change}</span>}</td>
 				<td className="px-2 py-3"><PlayerNameLink playerId={p.playerId} name={p.name} seasonId={props.seasonId} phaseScope={phaseScope} className="font-display text-rift-goldbright" /><PlayerTeams player={p} seasonId={props.seasonId} phaseScope={phaseScope} />{!p.qualified && <p className="mt-1 text-[10px] text-rift-mutedbright">{p.score === null ? "Partial scoring evidence" : `Provisional · ${p.rated}/${p.required} rated games`}</p>}</td>
 				<td className="px-2 py-3 text-right font-display text-rift-goldbright">{p.score?.toFixed(2) ?? "—"}</td>
 				<td className="px-2 py-3 text-right" title={`${p.rated} rated games`}>{avg(p.ratingSum, p.rated)}</td>
