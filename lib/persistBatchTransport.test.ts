@@ -12,6 +12,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import {
   forgetDesktopWriteBaselines,
   loadPersistedStateFromDbExecutor,
+  READ_CHUNK_CHARS,
   resetSqliteStorageForTests,
   savePersistedStateToDbExecutor,
   setDesktopDatabaseForTests,
@@ -153,6 +154,29 @@ describe("chunked persist_batch through the save path", () => {
     const loaded = (await loadPersistedStateFromDbExecutor(executor, "draftsim-store"))!;
     expect(loaded.realities![0].history).toEqual(history);
     expect(loaded.realities![0].season).toEqual(stateWith(history).realities[0].season);
+  });
+
+  it("reads large history, fragments and season back in bounded parts", async () => {
+    const { executor, sqlite } = nativeSqlite();
+    await savePersistedStateToDbExecutor(executor, "draftsim-store", stateWith([entry(2), entry(1)]));
+    // Grow the stored rows directly: the 256-byte staging harness is too slow for MB-sized saves.
+    const big = (year: number) => ({ ...entry(year), name: `Year ${year} ${"é🏆x".repeat(Math.ceil(READ_CHUNK_CHARS * 0.9))}` });
+    const history = [big(2), big(1)];
+    for (const e of history) sqlite.prepare("UPDATE reality_history SET entry_json = ? WHERE entry_id = ?").run(JSON.stringify(e), e.id);
+    const season = { franchise: { id: "r", year: 2026 }, note: "ß".repeat(READ_CHUNK_CHARS * 2) };
+    sqlite.prepare("UPDATE realities SET season_json = ? WHERE id = 'r'").run(JSON.stringify(season));
+    resetSqliteStorageForTests();
+    let largest = 0;
+    const select = executor.select;
+    const measured: SqlExecutor = { ...executor, select: async <T>(query: string, values?: unknown[]) => {
+      const rows = await select<T>(query, values);
+      for (const row of rows) for (const value of Object.values(row as object)) if (typeof value === "string") largest = Math.max(largest, [...value].length);
+      return rows;
+    } };
+    const loaded = (await loadPersistedStateFromDbExecutor(measured, "draftsim-store"))!;
+    expect(largest).toBeLessThanOrEqual(READ_CHUNK_CHARS);
+    expect(loaded.realities![0].history).toEqual(history);
+    expect(loaded.realities![0].season).toEqual(season);
   });
 
   it("rolls back the whole save when a statement fails after staging", async () => {

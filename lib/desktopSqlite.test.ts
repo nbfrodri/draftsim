@@ -1,4 +1,4 @@
-import { markRealityHistoryLoaded, loadRealitySeasonFromDb, loadRealityHistoryFromDb, savePersistedStateToDbExecutor } from "./desktopSqlite";
+import { markRealityHistoryLoaded, loadRealitySeasonFromDb, loadRealityHistoryFromDb, savePersistedStateToDbExecutor, SELECT_FRAGMENT_PART_SQL, SELECT_FRAGMENT_SIZES_SQL, SELECT_HISTORY_PART_SQL, SELECT_HISTORY_SIZES_SQL, SELECT_SEASON_PART_SQL, SELECT_SEASON_SIZE_SQL } from "./desktopSqlite";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 
@@ -263,6 +263,20 @@ function createMockPersistDb() {
     },
 
     async select<T>(query: string, bindValues: unknown[] = []): Promise<T[]> {
+      // Chunked large-text reads: sizes first, then substr parts (1-based, like SQLite).
+      const part = (text: string | undefined) => {
+        const [start, length] = bindValues as [number, number];
+        return (text == null ? [] : [{ part: text.slice(start - 1, start - 1 + length) }]) as T[];
+      };
+      if (query === SELECT_SEASON_SIZE_SQL) { const r = realities.get(bindValues[0] as string); return (r ? [{ chars: r.season_json?.length ?? null }] : []) as T[]; }
+      if (query === SELECT_SEASON_PART_SQL) return part(realities.get(bindValues[2] as string)?.season_json);
+      if (query === SELECT_FRAGMENT_SIZES_SQL) return [...fragments.values()].filter(row => row.store_key === bindValues[0]).map(row => ({ fragment_key: row.fragment_key, chars: row.value_json.length })) as T[];
+      if (query === SELECT_FRAGMENT_PART_SQL) return part([...fragments.values()].find(row => row.store_key === bindValues[2] && row.fragment_key === bindValues[3])?.value_json);
+      if (query === SELECT_HISTORY_SIZES_SQL) {
+        return [...historyRows.values()].filter(r => r.reality_id === bindValues[0]).sort((a, b) => a.sort_order - b.sort_order)
+          .map(r => ({ entry_id: r.entry_id, sort_order: r.sort_order, chars: r.entry_json.length })) as T[];
+      }
+      if (query === SELECT_HISTORY_PART_SQL) return part(historyRows.get(historyKey(bindValues[2] as string, bindValues[3] as string))?.entry_json);
       if (query.includes("FROM schema_meta")) return [{ value: schemaVersion }] as T[];
       if (query.includes("FROM global_fragments")) return [...fragments.values()].filter(row => row.store_key === bindValues[0]) as T[];
       if (query.includes("FROM global_state")) {
