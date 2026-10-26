@@ -32,6 +32,8 @@ Los documentos de `plans/` y las auditorías registran objetivos y decisiones de
 
 ## Versiones
 
+- [v1.15.1: comparación de trayectorias SS rediseñada, insignia SS alineada y guardados más ligeros](releases/v1.15.1.md).
+
 - [v1.15.0: carga por partes de guardados grandes y comparación de trayectorias SS](releases/v1.15.0.md).
 
 - [v1.14.2: cambios del bulk contra la ventana en blanco en Windows, insignia SS y cuadrícula de líderes por rol](releases/v1.14.2.md).

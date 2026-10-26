@@ -243,12 +243,12 @@ export function ssRegionView(views: readonly SSSeasonView[], leagueId: LeagueId)
 }
 
 export type SSTimelineCell = { state: "held"; team?: NonNullable<SSHolder["team"]>; phases?: SSPhase[] } | { state: "none" } | { state: "unknown" };
-export interface SSTimeline { seasons: { seasonId: string; name: string; known: boolean; phases?: SSPhase[] }[]; rows: { playerId: string; playerName?: string; cells: SSTimelineCell[] }[] }
+export interface SSTimeline { seasons: { seasonId: string; name: string; year?: number; known: boolean; phases?: SSPhase[] }[]; rows: { playerId: string; playerName?: string; cells: SSTimelineCell[] }[] }
 
 /** Comparable season-by-season timeline for chosen players. Seasons without recorded SS data are "unknown", never "none". */
 export function ssTimeline(views: readonly SSSeasonView[], playerIds: readonly string[]): SSTimeline {
 	return {
-		seasons: views.map(v => ({ seasonId: v.seasonId, name: v.name, known: v.known, phases: v.phases })),
+		seasons: views.map(v => ({ seasonId: v.seasonId, name: v.name, ...(v.year !== undefined ? { year: v.year } : {}), known: v.known, phases: v.phases })),
 		rows: [...new Set(playerIds)].map(playerId => ({
 			playerId,
 			playerName: [...views].reverse().map(v => v.holders.get(playerId)?.holder.playerName).find(Boolean),

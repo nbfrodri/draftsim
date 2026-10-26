@@ -10,7 +10,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  compactEncodeSeasonForPersist,
   compactEncodeTournamentForPersist,
+  decodeCompactSeason,
   encodeRecapForPersistCached,
   encodeRecapHeavyFields,
   decodeRecapHeavyFields,
@@ -448,5 +450,24 @@ describe("slimTournamentForArchive / encodeSeasonForDesktopDb", () => {
     expect(liveRecap.winProbTimeline).toBeUndefined();
     expect(liveRecap.recapC?.wp).toBeDefined();
     expect(liveRecap.mvp).toBeDefined();
+  });
+});
+
+describe("compactEncodeSeasonForPersist", () => {
+  it("drops replay charts of finished events but keeps them for the event in progress", () => {
+    const recap = buildRealisticRecap();
+    const season = { tournaments: { done: makeTournamentWithRecap("complete", recap), live: makeTournamentWithRecap("in-progress", buildRealisticRecap()) } } as unknown as SeasonState;
+    const encoded = compactEncodeSeasonForPersist(season);
+    const done = encoded.tournaments.done!.matches[0]!.series!.games[0]!.recap as GameRecap & { recapC?: RecapCompact };
+    expect(done.recapC).toEqual({ kda: encodeRecapHeavyFields(recap).compact.kda });
+    const live = encoded.tournaments.live!.matches[0]!.series!.games[0]!.recap as GameRecap & { recapC?: RecapCompact };
+    expect(live.recapC?.wp).toBeDefined();
+    const decoded = decodeCompactSeason(encoded);
+    const doneBack = decoded.tournaments.done!.matches[0]!.series!.games[0]!.recap!;
+    expect(doneBack.winProbTimeline).toBeUndefined();
+    expect(doneBack.perPickKDA).toEqual(recap.perPickKDA);
+    expect(doneBack.ratings).toEqual(recap.ratings);
+    expect(doneBack.mvp).toEqual(recap.mvp);
+    expect(decoded.tournaments.live!.matches[0]!.series!.games[0]!.recap!.winProbTimeline?.length).toBe(recap.winProbTimeline!.length);
   });
 });
