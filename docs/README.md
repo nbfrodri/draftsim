@@ -32,6 +32,8 @@ Los documentos de `plans/` y las auditorías registran objetivos y decisiones de
 
 ## Versiones
 
+- [v1.14.1: guardados bulk más seguros con registro de fallos, selector de evento en dos pasos e insignia SS](releases/v1.14.1.md).
+
 - [v1.14.0: guardados bulk más ligeros, estadísticas de evento históricas y récords SS](releases/v1.14.0.md).
 
 - [v1.13.0: selectores de estadísticas de evento con logos de región, split y evento](releases/v1.13.0.md).
