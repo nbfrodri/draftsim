@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { StorageValue } from "zustand/middleware";
 
+const releaseHiddenFlush = vi.hoisted(() => vi.fn());
 vi.mock("./desktopStorage", () => ({
+  holdHiddenFlush: vi.fn(() => releaseHiddenFlush),
   setPersistLoadStage: vi.fn(),
   cancelPendingWrite: vi.fn(),
   isDesktop: () => true,
@@ -157,5 +159,14 @@ describe("desktopSqliteStorage flush", () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(saveStorageValueToSqlite).toHaveBeenCalledWith(STORE, value);
     expect(hasPendingSqliteWrites()).toBe(false);
+  });
+
+  it("suppresses the hidden-window flush for as long as the hold lasts", () => {
+    releaseHiddenFlush.mockClear();
+    const release = holdDebouncedSqliteWrites();
+    expect(releaseHiddenFlush).not.toHaveBeenCalled();
+    release();
+    release();
+    expect(releaseHiddenFlush).toHaveBeenCalledTimes(1);
   });
 });

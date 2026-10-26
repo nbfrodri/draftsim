@@ -47,6 +47,7 @@ simulateRealityYears: (count, options) => {
       const seen = new Set<string>();
       const entryCache: SimResultEntryCache = new Map();
       let completed = 0;
+      let memoryStopped = false;
       // Awaited before each heavy step so a renderer crash leaves the year and stage on disk.
       const crumb = (stage: BulkStage) => {
         const year = get().season?.franchise?.year ?? startYear;
@@ -66,6 +67,7 @@ simulateRealityYears: (count, options) => {
           if (!bulkSimRealityMatches(cur, realityId)) break;
           const guard = bulkMemoryGuardMessage(readJsHeap(), cur.franchise!.year);
           if (guard) {
+            memoryStopped = true;
             await crumb("guard-stop");
             set(s => ({ bulkYearJobs: { ...s.bulkYearJobs, [realityId]: { targetYear: startYear + total, startedAt, error: guard } } }));
             break;
@@ -142,16 +144,16 @@ simulateRealityYears: (count, options) => {
           await crumb("save");
           await flushPendingPersistWrites();
 
-          if (exportTarget) {
-            await crumb("export");
-            const json = await get().exportReality(realityId);
-            if (json) {
-              await writeRealityExportToTarget(exportTarget, json);
-            }
-          }
-
           await crumb("year-done");
           await new Promise((r) => setTimeout(r, 0));
+        }
+
+        // One whole-reality JSON string costs >1 GB of heap on a long reality, so export
+        // once at the end (also after a cancel), never per year and never while memory is short.
+        if (exportTarget && completed > 0 && !memoryStopped && !bulkMemoryGuardMessage(readJsHeap(), get().season?.franchise?.year ?? startYear)) {
+          await crumb("export");
+          const json = await get().exportReality(realityId);
+          if (json) await writeRealityExportToTarget(exportTarget, json);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -163,10 +165,11 @@ simulateRealityYears: (count, options) => {
         if (fr?.id === realityId && fr.year >= startYear + total) {
           const jobs = { ...get().bulkYearJobs }; delete jobs[realityId]; set({ bulkYearJobs: jobs });
         }
-        set({ simulating: null, simProgress: null, simStartedAt: null, bulkYearsProgress: null, bulkYearsCancelRequested: false });
         releaseDebounce();
+        // Stay busy until the last save lands, or a new run could start on top of it.
         try { await flushPendingPersistWrites(); }
         catch (error) { reportPersistenceError(`Simulation paused but saving failed: ${String(error)}`, "simulation"); }
+        set({ simulating: null, simProgress: null, simStartedAt: null, bulkYearsProgress: null, bulkYearsCancelRequested: false });
         await crumb("idle");
         setBulkBreadcrumbContext(null);
       }
