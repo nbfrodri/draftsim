@@ -260,7 +260,7 @@ export function TeamCardBody({
             <Stat label="Stars" value={`${data.starRating}★`} />
             <Stat label="Avg tier" value={data.avgTier} />
           </div>
-          <details className="mt-2 text-[9px] leading-relaxed text-rift-mutedbright"><summary className="cursor-pointer text-rift-goldbright focus-visible:outline focus-visible:outline-rift-gold">How team stars work</summary><p className="mt-1">Stars use 3 + mean roster tier value, rounded to half stars and capped at 5. S = 2, S+ = 3, <SSBadge /> = 3.5. With five players, S+ → <SSBadge /> adds 0.1 before rounding; <SSBadge /> still affects simulation at the cap.</p></details>
+          <details className="mt-2 text-[9px] leading-relaxed text-rift-mutedbright"><summary className="cursor-pointer text-rift-goldbright focus-visible:outline focus-visible:outline-rift-gold">How team stars work</summary><p className="mt-1">Stars use 3 + mean roster tier value, rounded to half stars and capped at 5. S = 2, S+ = 3, SS = 3.5. With five players, S+ → SS adds 0.1 before rounding; SS still affects simulation at the cap.</p></details>
           {data.standing && (
             <div className="mt-1 text-[9px] text-rift-mutedbright/80 tabular-nums">
               {data.standing}

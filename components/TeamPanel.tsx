@@ -457,7 +457,7 @@ function ChampPools({
                     <LaneIcon lane={p.lane} size="xs" />
                   </div>
                   {p.tier === "SS" ? <span title="Player tier: SS"><SSBadge size="xs" /></span> : <span
-                    className={`w-4 h-4 flex items-center justify-center border rounded-sm font-display text-[9px] ${TIER_BADGE[p.tier]}`}
+                    className={`min-w-4 px-0.5 h-4 flex items-center justify-center border rounded-sm font-display text-[9px] ${TIER_BADGE[p.tier]}`}
                     title={`Player tier: ${p.tier}`}
                   >
                     {p.tier}
@@ -607,7 +607,7 @@ function PickSlot({
             </div>
             {playerTier && (
               playerTier === "SS" ? <span title="Player tier: SS"><SSBadge size="sm" /></span> : <div
-                className={`shrink-0 w-5 h-5 flex items-center justify-center border rounded-sm font-display text-[10px] ${TIER_BADGE[playerTier]}`}
+                className={`shrink-0 min-w-5 px-0.5 h-5 flex items-center justify-center border rounded-sm font-display text-[10px] ${TIER_BADGE[playerTier]}`}
                 title={`Player tier: ${playerTier}`}
               >
                 {playerTier}

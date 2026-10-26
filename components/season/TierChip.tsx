@@ -11,8 +11,8 @@ export const TIER_CLS: Record<PlayerTier, string> = {
 };
 
 const SIZE_CLS = {
-  xs: "w-4 text-[9px] px-0",
-  sm: "w-5 text-[10px] px-0",
+  xs: "min-w-4 text-[9px] px-0.5",
+  sm: "min-w-5 text-[10px] px-0.5",
   md: "min-w-[1.35rem] text-[10px] px-1",
 } as const;
 

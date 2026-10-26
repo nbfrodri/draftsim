@@ -21,7 +21,7 @@ test("SS timeline, phase cards and career history distinguish played tiers from 
 	const panel = page.getByRole("region", { name: "Season SS history" });
 	await expect(panel).toBeVisible();
 	await panel.getByRole("button", { name: /^SS history/ }).click();
-	const review = panel.locator("details").filter({ has: page.getByText(/^Worlds · (?:SS)+ review · 1\/5$/) });
+	const review = panel.locator("details").filter({ has: page.getByText(/^Worlds · SS review · 1\/5$/) });
 	await review.locator("summary").focus(); await page.keyboard.press("Enter");
 	await expect(review).toContainText("Gained SS");
 	await expect(review).toContainText("16 rated games");
@@ -39,7 +39,7 @@ test("SS timeline, phase cards and career history distinguish played tiers from 
 	await page.mouse.move(0, 0);
 	await expect(page.getByRole("tooltip")).toBeHidden();
 	await page.getByRole("region", { name: "International Champions" }).getByRole("button", { name: "SS Veteran", exact: true }).hover();
-	await expect(page.getByRole("tooltip")).toContainText(/Tier during Worlds: S\+\. (?:SS)+ after Worlds · gained\./);
+	await expect(page.getByRole("tooltip")).toContainText(/Tier during Worlds: S\+\. SS after Worlds · gained\./);
 	await page.getByRole("tooltip").screenshot({ path: "test-results/playwright/ss-historical-card.png" });
 	await page.keyboard.press("Escape");
 	await expect(page.getByRole("tooltip")).toBeHidden();
@@ -48,9 +48,9 @@ test("SS timeline, phase cards and career history distinguish played tiers from 
 	await review.getByRole("button", { name: "SS Veteran", exact: true }).click();
 	const career = page.getByRole("region", { name: "Career History", exact: true });
 	await career.getByRole("button", { name: /^SS career/ }).click();
-	await expect(career.getByLabel("SS career summary")).toContainText(/Times gained (?:SS)+1/);
+	await expect(career.getByLabel("SS career summary")).toContainText(/Times gained SS1/);
 	await expect(career.getByLabel("SS career summary")).toContainText("Reviews held1");
-	await career.getByText(/^(?:SS)+ history · 1 review held$/).click();
+	await career.getByText(/^SS history · 1 review held$/).click();
 	await expect(career).toContainText("Gained SS");
 	await expect(career.locator("details[open] span[title='LCK'] img").last()).toBeVisible();
 	await expect(career.locator("details[open]").getByText("Top", { exact: true }).first()).toBeVisible();

@@ -1,6 +1,6 @@
 "use client";
 
-import SSBadge, { withSSBadge } from "@/components/SSBadge";
+import SSBadge from "@/components/SSBadge";
 import { formatAggregateKda } from "@/lib/formatKda";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
@@ -335,10 +335,10 @@ export function PlayerCardBody({
           )}
         </div>
 
-        {data.ssContext && <p className="px-3 pb-2 text-[10px] leading-relaxed text-rift-mutedbright">{withSSBadge(data.ssContext)}</p>}
+        {data.ssContext && <p className="px-3 pb-2 text-[10px] leading-relaxed text-rift-mutedbright">{data.ssContext}</p>}
         {data.ss && (
           <div className="px-3 pb-2 text-[10px] text-cyan-100/90">
-            <SSBadge /> evidence · {data.ss.phaseLabel} · {data.ss.games} rated games · score {data.ss.score.toFixed(2)}
+            SS evidence · {data.ss.phaseLabel} · {data.ss.games} rated games · score {data.ss.score.toFixed(2)}
             <div className="text-rift-mutedbright">Development tier {data.ss.baseTier} · reviewed after each competitive phase</div>
           </div>
         )}
