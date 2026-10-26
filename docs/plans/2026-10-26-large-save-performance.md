@@ -1,6 +1,6 @@
 # Large-save performance: startup size, bulk heap growth, duplicated active season
 
-Status: proposed (2026-10-26). Follows v1.15.0, which made startup reads chunked (<= 1 MiB per select) but did not reduce how much is read.
+Status: approved (2026-10-26): order 2 -> 3 -> 1; option A for item 3. Follows v1.15.0, which made startup reads chunked (<= 1 MiB per select) but did not reduce how much is read.
 
 ## Evidence (read-only copy of the affected user's database, 540 MB, reality at year 58)
 
