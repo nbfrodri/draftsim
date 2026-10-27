@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventRecord } from "./season/eventHistory";
 import type { SeasonHistoryEntry } from "./season/history";
-import { eventRecordCount, eventRecordsAvailability, loadEventRecords, setEventRecordsLoader } from "./eventRecordsAccess";
+import { eventRecordCount, eventRecordsAvailability, joinDeferredEventRecords, loadEventRecords, setEventRecordsLoader } from "./eventRecordsAccess";
 
 const record = (id: string) => ({ id, label: id, version: 2, scopes: [] }) as unknown as EventRecord;
 const entry = (id: string, extra: Partial<SeasonHistoryEntry> = {}) => ({ id, name: id, archivedAt: 1, complete: true, champion: null, runnerUp: null, intlChampions: {}, splitChampions: {}, ...extra }) as SeasonHistoryEntry;
@@ -32,5 +32,16 @@ describe("event records access", () => {
 	it("rejects when a deferred read fails so views can offer a retry", async () => {
 		setEventRecordsLoader(async () => { throw new Error("disk"); });
 		await expect(loadEventRecords([entry("y", { eventRecordsDeferred: { realityId: "A", count: 1 } })])).rejects.toThrow("disk");
+	});
+
+	it("joins deferred records back inline for exports and drops the in-memory marker", async () => {
+		setEventRecordsLoader(async (_realityId, ids) => new Map(ids.map(id => [id, [record(`loaded:${id}`)]])));
+		const inline = entry("y1", { eventRecords: [record("inline")] });
+		const deferred = entry("y2", { eventRecordsDeferred: { realityId: "A", count: 1 } });
+		const [a, b, c] = await joinDeferredEventRecords([inline, deferred, entry("y3")]);
+		expect(a).toBe(inline);
+		expect(b.eventRecords![0].id).toBe("loaded:y2");
+		expect(b).not.toHaveProperty("eventRecordsDeferred");
+		expect(c.eventRecords).toBeUndefined();
 	});
 });

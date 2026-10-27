@@ -44,3 +44,15 @@ export async function loadEventRecords(entries: readonly SeasonHistoryEntry[]): 
 	}
 	return result;
 }
+
+/** Entries with deferred records loaded back inline and the marker removed (exports keep their format). */
+export async function joinDeferredEventRecords(entries: readonly SeasonHistoryEntry[]): Promise<SeasonHistoryEntry[]> {
+	if (!entries.some(e => e.eventRecordsDeferred)) return [...entries];
+	const loaded = await loadEventRecords(entries);
+	return entries.map(entry => {
+		if (!entry.eventRecordsDeferred) return entry;
+		const { eventRecordsDeferred: _deferred, ...rest } = entry;
+		const records = loaded.get(entry);
+		return records?.length ? { ...rest, eventRecords: records } : rest;
+	});
+}

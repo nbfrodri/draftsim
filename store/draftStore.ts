@@ -30,6 +30,7 @@ type Synergy,
 } from "@/lib/championMeta";
 import { PERSIST_VERSION,deleteRealityFromDb,isRealityHistoryLoaded,loadRealityHistoryFromDb,loadRealitySeasonFromDb,markRealityHistoryLoaded,shouldSuggestCompactAfterDelete } from "@/lib/desktopSqlite";
 import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
+import { joinDeferredEventRecords } from "@/lib/eventRecordsAccess";
 import { clearDesktopOperation,createWebLazyStorage,enablePersistWrites,flushPendingPersistWrites,forcePersistReady,gatePersistWritesUntilReady,isDesktop,isDesktopOperationBlocking,resolveWebStringStorage,setPersistLoadStage,signalBackingUpReality,signalDeletingReality,signalLeavingSeason,signalOpeningReality,waitForDesktopOverlayPaint } from "@/lib/desktopStorage";
 import {
 PERSONALITY_LIST,
@@ -1434,6 +1435,11 @@ export const useDraftStore = create<DraftStore>()(
         console.warn("[draftsim] export history could not be loaded:", error);
         return null;
       }
+    }
+    try { history = await joinDeferredEventRecords(history); }
+    catch (error) {
+      console.warn("[draftsim] export event statistics could not be loaded:", error);
+      return null;
     }
     let body = live ?? r.season;
     if (!body) {
