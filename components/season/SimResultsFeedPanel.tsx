@@ -864,7 +864,7 @@ const YearCard = memo(function YearCard({
         <FollowedTeamSummary summary={entry.followedTeam} logoSize={logoSize} />
       )}
 
-      <SimEventStatsBlock summary={entry.eventSummary} />
+      <SimEventStatsBlock summary={entry.eventSummary} seasonId={entry.seasonId} />
     </div>
   );
 });

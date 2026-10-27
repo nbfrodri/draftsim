@@ -14,6 +14,9 @@ export interface SimEventLeader {
   score: number;
   teamName?: string;
   leagueId?: LeagueId;
+  /** Team identity and artwork for logos and team cards (absent on older summaries). */
+  teamId?: string;
+  logoUrl?: string;
 }
 
 /** A role with recorded players; no `leader` means nobody qualified yet (Provisional). */
@@ -78,7 +81,7 @@ function summarizeRecord(record: EventRecord): SimEventSummary | null {
         id: top.playerId,
         name: top.name,
         score: Math.round(top.score * 100) / 100,
-        ...(team ? { teamName: team.name, ...(team.leagueId ? { leagueId: team.leagueId } : {}) } : {}),
+        ...(team ? { teamName: team.name, teamId: team.id, ...(team.leagueId ? { leagueId: team.leagueId } : {}), ...(team.logoUrl ? { logoUrl: team.logoUrl } : {}) } : {}),
       },
     });
   }
