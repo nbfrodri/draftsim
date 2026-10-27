@@ -28,8 +28,8 @@
 //   perPickKDA       exact integers (k/d/a are always whole numbers)
 //   ratings          exact to one decimal (stored as ×10 integer, ÷10 decoded)
 
-import type { GameRecap } from "./types";
-import type { Side } from "./types";
+import type { GameRecap, Side } from "./types";
+import { poolSeriesSynergies, restoreSeriesSynergies } from "./seriesSynergyPool";
 // Type-only imports — erased at compile time, so no runtime cycle with
 // lib/tournament.ts is possible.
 import type { TournamentMatch, TournamentState } from "./tournament";
@@ -351,7 +351,8 @@ export function seasonHasCompactRecaps(season: SeasonState): boolean {
 }
 
 /** Decode every stage tournament in a season (no-op when already decoded). */
-export function decodeCompactSeason(season: SeasonState): SeasonState {
+export function decodeCompactSeason(encoded: SeasonState): SeasonState {
+  const season = restoreSeriesSynergies(encoded);
   if (!seasonHasCompactRecaps(season)) return season;
   return {
     ...season,
@@ -387,7 +388,7 @@ export function compactEncodeSeasonForPersist(season: SeasonState): SeasonState 
   if (season === lastSeasonInput && lastSeasonResult !== null) {
     return lastSeasonResult;
   }
-  const result: SeasonState = {
+  const result = poolSeriesSynergies({
     ...season,
     tournaments: Object.fromEntries(
       Object.entries(season.tournaments).map(([id, t]) => [
@@ -395,7 +396,7 @@ export function compactEncodeSeasonForPersist(season: SeasonState): SeasonState 
         t.status === "complete" ? slimFinishedTournament(t) : compactEncodeTournamentForPersist(t),
       ]),
     ),
-  };
+  });
   lastSeasonInput = season;
   lastSeasonResult = result;
   return result;
