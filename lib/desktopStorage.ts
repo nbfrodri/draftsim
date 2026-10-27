@@ -867,16 +867,38 @@ export async function pickSavePathNative(opts: {
 /**
  * Write text to an absolute filesystem path (desktop only, no dialog).
  */
+/** Text written whole, or streamed in parts so no single string has to hold a huge file. */
+export type TextContent = string | AsyncIterable<string>;
+
+/** Write text in order; parts after the first are appended to the same file. */
+export async function writeTextContent(path: string, content: TextContent): Promise<void> {
+  const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+  if (typeof content === "string") { await writeTextFile(path, content); return; }
+  let first = true;
+  for await (const part of content) {
+    await writeTextFile(path, part, first ? undefined : { append: true });
+    first = false;
+  }
+  if (first) await writeTextFile(path, "");
+}
+
+/** Collect streamed text into a Blob (Blobs may exceed the engine's string length limit). */
+export async function textContentBlob(content: TextContent, type: string): Promise<Blob> {
+  if (typeof content === "string") return new Blob([content], { type });
+  const parts: string[] = [];
+  for await (const part of content) parts.push(part);
+  return new Blob(parts, { type });
+}
+
 export async function writeTextFileAtPathNative(
   path: string,
-  content: string,
+  content: TextContent,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isDesktop()) {
     return { ok: false, error: "Not running in desktop mode" };
   }
   try {
-    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-    await writeTextFile(path, content);
+    await writeTextContent(path, content);
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -891,14 +913,13 @@ export async function writeTextFileAtPathNative(
 export async function saveFileNative(opts: {
   defaultPath?: string;
   filters?: Array<{ name: string; extensions: string[] }>;
-  content: string;
+  content: TextContent;
 }): Promise<{ ok: boolean; error?: string }> {
   if (!isDesktop()) {
     return { ok: false, error: "Not running in desktop mode" };
   }
   try {
     const { save } = await import("@tauri-apps/plugin-dialog");
-    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
 
     const filePath = await save({
       defaultPath: opts.defaultPath,
@@ -908,7 +929,7 @@ export async function saveFileNative(opts: {
       // User cancelled.
       return { ok: false, error: "cancelled" };
     }
-    await writeTextFile(filePath, opts.content);
+    await writeTextContent(filePath, opts.content);
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

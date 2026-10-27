@@ -2,8 +2,33 @@ import {
   isDesktop,
   pickSavePathNative,
   saveFileNative,
+  textContentBlob,
   writeTextFileAtPathNative,
+  type TextContent,
 } from "@/lib/desktopStorage";
+import { joinDeferredEventRecords } from "@/lib/eventRecordsAccess";
+import type { SeasonHistoryEntry } from "@/lib/season/history";
+
+/**
+ * A reality export as ordered JSON text parts, byte-identical to
+ * JSON.stringify({ kind, version, reality: { id, name, year, season, history } }).
+ * One archived year (with its event records loaded just for it) is serialized at
+ * a time, so a long reality never needs one string beyond the engine's limit.
+ */
+export async function* realityExportParts(reality: { id: string; name: string; year: number; season: unknown; history: readonly SeasonHistoryEntry[] }): AsyncGenerator<string> {
+  yield `{"kind":"reality","version":1,"reality":{"id":${JSON.stringify(reality.id)},"name":${JSON.stringify(reality.name)},"year":${JSON.stringify(reality.year)},"season":${JSON.stringify(reality.season) ?? "null"},"history":[`;
+  for (let i = 0; i < reality.history.length; i++) {
+    const [entry] = await joinDeferredEventRecords([reality.history[i]!]);
+    yield `${i ? "," : ""}${JSON.stringify(entry) ?? "null"}`;
+  }
+  yield "]}}";
+}
+
+export async function textFromParts(parts: AsyncIterable<string>): Promise<string> {
+  const all: string[] = [];
+  for await (const part of parts) all.push(part);
+  return all.join("");
+}
 
 const REALITY_EXPORT_FILTER = {
   name: "DraftSim Reality",
@@ -106,7 +131,7 @@ export async function pickRealityExportTarget(
 /** Overwrite export JSON at a previously chosen target (no further prompts). */
 export async function writeRealityExportToTarget(
   target: RealityExportTarget,
-  json: string,
+  json: TextContent,
 ): Promise<{ ok: boolean; error?: string }> {
   switch (target.kind) {
     case "desktop": {
@@ -116,7 +141,7 @@ export async function writeRealityExportToTarget(
       return writeRealityExportToFileHandle(target.handle, json);
     }
     case "web-download": {
-      triggerBrowserDownload(json, target.filename);
+      await triggerBrowserDownload(json, target.filename);
       return { ok: true };
     }
   }
@@ -124,7 +149,7 @@ export async function writeRealityExportToTarget(
 
 async function writeRealityExportToFileHandle(
   handle: FileSystemFileHandle,
-  json: string,
+  json: TextContent,
 ): Promise<{ ok: boolean; error?: string }> {
   const writableHandle = handle as WritableFileHandle;
   try {
@@ -136,7 +161,8 @@ async function writeRealityExportToFileHandle(
       }
     }
     const writable = await writableHandle.createWritable();
-    await writable.write(json);
+    if (typeof json === "string") await writable.write(json);
+    else for await (const part of json) await writable.write(part);
     await writable.close();
     return { ok: true };
   } catch (err) {
@@ -145,8 +171,8 @@ async function writeRealityExportToFileHandle(
   }
 }
 
-function triggerBrowserDownload(json: string, filename: string): void {
-  const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+async function triggerBrowserDownload(json: TextContent, filename: string): Promise<void> {
+  const url = URL.createObjectURL(await textContentBlob(json, "application/json"));
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
@@ -156,7 +182,7 @@ function triggerBrowserDownload(json: string, filename: string): void {
 
 /** Save a reality export — native Save on desktop, browser download on web. */
 export async function saveRealityExportJson(
-  json: string,
+  json: TextContent,
   realityName: string,
 ): Promise<{ ok: boolean; error?: string; cancelled?: boolean }> {
   const filename = realityExportFilename(realityName);
@@ -172,6 +198,6 @@ export async function saveRealityExportJson(
       cancelled: res.error === "cancelled",
     };
   }
-  triggerBrowserDownload(json, filename);
+  await triggerBrowserDownload(json, filename);
   return { ok: true };
 }

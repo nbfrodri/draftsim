@@ -7,7 +7,7 @@ import {
 compactDesktopDatabase,
 formatCompactResultMessage,
 } from "@/lib/desktopSqlite";
-import { isDesktop,openFileNative,saveFileNative,isDesktopOperationBlocking,signalReviewingImport,waitForDesktopOverlayPaint,clearDesktopOperation } from "@/lib/desktopStorage";
+import { isDesktop,openFileNative,saveFileNative,textContentBlob,isDesktopOperationBlocking,signalReviewingImport,waitForDesktopOverlayPaint,clearDesktopOperation } from "@/lib/desktopStorage";
 import { REALITY_CODE_PREFIX } from "@/lib/realityShare";
 import { useDraftStore } from "@/store/draftStore";
 import Modal from "./Modal";
@@ -182,7 +182,7 @@ export default function RealitiesHub({ onChoose }: Props) {
   const beginNewReality = useDraftStore((s) => s.beginNewReality);
   const switchReality = useDraftStore((s) => s.switchReality);
   const deleteReality = useDraftStore((s) => s.deleteReality);
-  const exportReality = useDraftStore((s) => s.exportReality);
+  const exportRealityStream = useDraftStore((s) => s.exportRealityStream);
   const exportRealityShareCode = useDraftStore((s) => s.exportRealityShareCode);
   const importReality = useDraftStore((s) => s.importReality);
   const [preview, setPreview] = useState<RealityImportPreview | null>(null);
@@ -228,7 +228,8 @@ export default function RealitiesHub({ onChoose }: Props) {
       try {
         // Yield so the button disable paints before heavy stringify.
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
-        const json = await exportReality(id);
+        // Streamed: a long reality can exceed the longest string the engine allows.
+        const json = await exportRealityStream(id);
         if (!json) {
           flash("err", "Export failed");
           return;
@@ -249,9 +250,7 @@ export default function RealitiesHub({ onChoose }: Props) {
             flash("err", res.error ? `Export failed: ${res.error}` : "Export failed");
           return;
         }
-        const url = URL.createObjectURL(
-          new Blob([json], { type: "application/json" }),
-        );
+        const url = URL.createObjectURL(await textContentBlob(json, "application/json"));
         const a = document.createElement("a");
         a.href = url;
         a.download = filename;
@@ -262,7 +261,7 @@ export default function RealitiesHub({ onChoose }: Props) {
         setRowBusy(false);
       }
     },
-    [exportReality, flash, realityList, rowBusy],
+    [exportRealityStream, flash, realityList, rowBusy],
   );
 
   const prepareImport = async (read: () => Promise<string | null>) => {

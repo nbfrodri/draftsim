@@ -20,7 +20,7 @@ type ReactNode,
 } from "react";
 
 import { computeStageMvp } from "@/lib/awards";
-import { flushPendingPersistWrites,isDesktop,saveFileNative } from "@/lib/desktopStorage";
+import { flushPendingPersistWrites,isDesktop,saveFileNative,textContentBlob } from "@/lib/desktopStorage";
 import {
 computeAllProTeams,
 type RawAllProTeam,
@@ -146,7 +146,7 @@ export default function SeasonDashboard() {
   const abandonSeason = useDraftStore((s) => s.abandonSeason);
   const saveCurrentSeason = useDraftStore((s) => s.saveCurrentSeason);
   const exportCurrentSeason = useDraftStore((s) => s.exportCurrentSeason);
-  const exportReality = useDraftStore((s) => s.exportReality);
+  const exportRealityStream = useDraftStore((s) => s.exportRealityStream);
   const archiveSeasonToHistory = useDraftStore((s) => s.archiveSeasonToHistory);
   const inHistory = useDraftStore((s) =>
     s.seasonHistory.some((e) => e.id === s.season?.id),
@@ -179,7 +179,8 @@ export default function SeasonDashboard() {
   // For standalone seasons, fall back to the per-season export.
   const handleExportSeason = async () => {
     if (season.franchise) {
-      const json = await exportReality(season.franchise.id);
+      // Streamed: a long reality can exceed the longest string the engine allows.
+      const json = await exportRealityStream(season.franchise.id);
       if (!json) {
         setSaveFeedback("Export failed");
         return;
@@ -197,7 +198,7 @@ export default function SeasonDashboard() {
           setSaveFeedback(res.error ? `Export failed: ${res.error}` : "Export failed");
         return;
       }
-      const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+      const url = URL.createObjectURL(await textContentBlob(json, "application/json"));
       const a = document.createElement("a");
       a.href = url;
       a.download = filename;

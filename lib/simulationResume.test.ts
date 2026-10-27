@@ -14,7 +14,7 @@ import { makeAuditSeason } from "./auditFixtures";
 function harness(options: { cancelAfterShop?: boolean; noPause?: boolean } = {}) {
   const season = makeAuditSeason("Resume");
   let state = { season, champions: [], playerForms: {}, bulkYearJobs: {}, simulating: null, bulkYearsProgress: null,
-    exportReality: vi.fn(async () => "{}"),
+    exportRealityStream: vi.fn(async () => (async function* () { yield "{}"; })()),
     realities: [{ id: "Resume", name: "Resume", year: 1, season, history: [] }] } as unknown as DraftStore;
   let pauseAt = options.noPause ? -1 : 2, cancelAfterShop = !!options.cancelAfterShop;
   const get = () => state;
@@ -83,8 +83,16 @@ describe("bulk simulation export and overlap", () => {
     h.get().simulateRealityYears(3, { exportTarget: { kind: "file", path: "x.json" } as never });
     await vi.waitFor(() => expect(h.get().simulating).toBeNull());
     expect(h.get().season?.franchise?.year).toBe(4);
-    expect(h.get().exportReality).toHaveBeenCalledTimes(1);
+    expect(h.get().exportRealityStream).toHaveBeenCalledTimes(1);
     expect(writeRealityExportToTarget).toHaveBeenCalledTimes(1);
+  });
+  it("reports a failed export as an export problem after the years were saved", async () => {
+    vi.mocked(writeRealityExportToTarget).mockResolvedValueOnce({ ok: false, error: "Invalid string length" });
+    const h = harness({ noPause: true });
+    h.get().simulateRealityYears(2, { exportTarget: { kind: "file", path: "x.json" } as never });
+    await vi.waitFor(() => expect(h.get().simulating).toBeNull());
+    expect(h.get().season?.franchise?.year).toBe(3);
+    expect(h.get().bulkYearJobs.Resume?.error ?? "").toContain("Simulation saved, but the export file could not be written");
   });
   it("stays busy until the final flush finishes so a second run cannot overlap", async () => {
     let finish!: () => void;

@@ -152,8 +152,17 @@ simulateRealityYears: (count, options) => {
         // once at the end (also after a cancel), never per year and never while memory is short.
         if (exportTarget && completed > 0 && !memoryStopped && !bulkMemoryGuardMessage(readJsHeap(), get().season?.franchise?.year ?? startYear)) {
           await crumb("export");
-          const json = await get().exportReality(realityId);
-          if (json) await writeRealityExportToTarget(exportTarget, json);
+          // The years are already saved; an export problem must not read as a failed simulation.
+          let exportError: string | null = null;
+          try {
+            const parts = await get().exportRealityStream(realityId);
+            const written = parts ? await writeRealityExportToTarget(exportTarget, parts) : { ok: false, error: "the reality could not be read" };
+            if (!written.ok) exportError = written.error ?? "unknown error";
+          } catch (error) { exportError = error instanceof Error ? error.message : String(error); }
+          if (exportError) {
+            const message = `Simulation saved, but the export file could not be written: ${exportError}`;
+            set(s => ({ bulkYearJobs: { ...s.bulkYearJobs, [realityId]: { targetYear: startYear + total, startedAt, error: message } } }));
+          }
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -162,7 +171,8 @@ simulateRealityYears: (count, options) => {
       } finally {
         flushSimResultsFeed(set);
         const fr = get().season?.franchise;
-        if (fr?.id === realityId && fr.year >= startYear + total) {
+        // A finished run keeps its job only to show an export failure until dismissed.
+        if (fr?.id === realityId && fr.year >= startYear + total && !get().bulkYearJobs[realityId]?.error) {
           const jobs = { ...get().bulkYearJobs }; delete jobs[realityId]; set({ bulkYearJobs: jobs });
         }
         releaseDebounce();

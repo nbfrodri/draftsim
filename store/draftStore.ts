@@ -30,7 +30,7 @@ type Synergy,
 } from "@/lib/championMeta";
 import { PERSIST_VERSION,deleteRealityFromDb,isRealityHistoryLoaded,loadRealityHistoryFromDb,loadRealitySeasonFromDb,markRealityHistoryLoaded,shouldSuggestCompactAfterDelete } from "@/lib/desktopSqlite";
 import { createDesktopSqliteStorage } from "@/lib/desktopSqliteStorage";
-import { joinDeferredEventRecords } from "@/lib/eventRecordsAccess";
+import { realityExportParts, textFromParts } from "@/lib/realityExport";
 import { clearDesktopOperation,createWebLazyStorage,enablePersistWrites,flushPendingPersistWrites,forcePersistReady,gatePersistWritesUntilReady,isDesktop,isDesktopOperationBlocking,resolveWebStringStorage,setPersistLoadStage,signalBackingUpReality,signalDeletingReality,signalLeavingSeason,signalOpeningReality,waitForDesktopOverlayPaint } from "@/lib/desktopStorage";
 import {
 PERSONALITY_LIST,
@@ -1418,7 +1418,7 @@ export const useDraftStore = create<DraftStore>()(
     }
   },
 
-  exportReality: async (id) => {
+  exportRealityStream: async (id) => {
     // If the reality being exported is the live one, snapshot its progress
     // first so the export matches what's on screen.
     const s = get();
@@ -1436,39 +1436,40 @@ export const useDraftStore = create<DraftStore>()(
         return null;
       }
     }
-    try { history = await joinDeferredEventRecords(history); }
-    catch (error) {
-      console.warn("[draftsim] export event statistics could not be loaded:", error);
-      return null;
-    }
     let body = live ?? r.season;
     if (!body) {
       try { await flushPendingPersistWrites(); body = await loadRealitySeasonFromDb(id); }
       catch { return null; }
     }
     const season = decodeCompactSeason(body);
-    const payload = {
-      kind: "reality" as const,
-      version: 1,
-      reality: {
-        id: r.id,
-        name: r.name,
-        year: live?.franchise?.year ?? r.year,
-        // Compact-encode tournaments (the heavy part); history résumés ride
-        // along as-is.
-        season: {
-          ...season,
-          tournaments: Object.fromEntries(
-            Object.entries(season.tournaments).map(([tid, t]) => [
-              tid,
-              compactEncodeTournamentForPersist(t),
-            ]),
-          ),
-        },
-        history,
+    // Streamed one archived year at a time; event records load per year.
+    return realityExportParts({
+      id: r.id,
+      name: r.name,
+      year: live?.franchise?.year ?? r.year,
+      // Compact-encode tournaments (the heavy part); history résumés ride
+      // along as-is.
+      season: {
+        ...season,
+        tournaments: Object.fromEntries(
+          Object.entries(season.tournaments).map(([tid, t]) => [
+            tid,
+            compactEncodeTournamentForPersist(t),
+          ]),
+        ),
       },
-    };
-    return JSON.stringify(payload);
+      history,
+    });
+  },
+
+  exportReality: async (id) => {
+    const parts = await get().exportRealityStream(id);
+    if (!parts) return null;
+    try { return await textFromParts(parts); }
+    catch (error) {
+      console.warn("[draftsim] export could not be built:", error);
+      return null;
+    }
   },
 
   exportRealityShareCode: async (id) => {

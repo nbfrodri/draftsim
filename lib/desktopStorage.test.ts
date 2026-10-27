@@ -264,3 +264,16 @@ describe("startup watchdog", () => {
 		expect(startupLoadStalled()).toBe(false);
 	});
 });
+
+describe("streamed text files", () => {
+	it("writes the first part and appends the rest in order", async () => {
+		const writeTextFile = vi.fn().mockResolvedValue(undefined);
+		vi.doMock("@tauri-apps/plugin-fs", () => ({ writeTextFile }));
+		const { writeTextContent, textContentBlob } = await import("./desktopStorage");
+		async function* parts() { yield "{\"a\":"; yield "1"; yield "}"; }
+		await writeTextContent("out.json", parts());
+		expect(writeTextFile.mock.calls).toEqual([["out.json", "{\"a\":", undefined], ["out.json", "1", { append: true }], ["out.json", "}", { append: true }]]);
+		expect(await (await textContentBlob(parts(), "application/json")).text()).toBe("{\"a\":1}");
+		vi.doUnmock("@tauri-apps/plugin-fs");
+	});
+});

@@ -495,6 +495,8 @@ export interface DraftStore {
   deleteReality: (id: string) => Promise<{ suggestCompact: boolean } | void>;
   /** Serialize a reality (its timeline + its own season history) to a JSON
    *  string for download. Tournaments are compact-encoded. Null if unknown. */
+  /** Reality export as ordered JSON parts (one archived year at a time); null when it cannot be read. */
+  exportRealityStream: (id: string) => Promise<AsyncIterable<string> | null>;
   exportReality: (id: string) => Promise<string | null>;
   /** Export a reality as a REAL1: share code (compact import string). */
   exportRealityShareCode: (id: string) => Promise<string | null>;
