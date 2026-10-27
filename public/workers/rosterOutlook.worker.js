@@ -29054,7 +29054,7 @@
     return roster.map((p) => `${p.lane}:${p.tier}:${p.goodChamps.join(",")}:${p.badChamps.join(",")}`).join("|");
   }
   function signedRoll(rng) {
-    return Math.round((rng() - rng()) * 100) / 100;
+    return Math.round((rng() - rng()) * 100) / 100 + 0;
   }
   function isFullyAssigned(roster) {
     if (roster.some((p) => p.id == null)) return false;
@@ -29104,7 +29104,7 @@
         const hasB = b.synergy[a.id] != null;
         if (!hasA && !hasB) continue;
         const cur = hasA ? a.synergy[b.id] : b.synergy[a.id];
-        const next = clamp2(fn(cur), -1, 1);
+        const next = clamp2(fn(cur), -1, 1) + 0;
         a.synergy[b.id] = next;
         b.synergy[a.id] = next;
       }

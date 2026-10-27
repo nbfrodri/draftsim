@@ -13889,7 +13889,7 @@
     return roster.map((p) => `${p.lane}:${p.tier}:${p.goodChamps.join(",")}:${p.badChamps.join(",")}`).join("|");
   }
   function signedRoll(rng) {
-    return Math.round((rng() - rng()) * 100) / 100;
+    return Math.round((rng() - rng()) * 100) / 100 + 0;
   }
   function isFullyAssigned(roster) {
     if (roster.some((p) => p.id == null)) return false;
