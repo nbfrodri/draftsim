@@ -7,6 +7,7 @@ import {
 compactDesktopDatabase,
 formatCompactResultMessage,
 } from "@/lib/desktopSqlite";
+import { getCompressExports, REALITY_IMPORT_FILTERS, realityExportFilename, realityExportFilters, setCompressExports } from "@/lib/realityExport";
 import { isDesktop,openFileNative,saveFileNative,textContentBlob,isDesktopOperationBlocking,signalReviewingImport,waitForDesktopOverlayPaint,clearDesktopOperation } from "@/lib/desktopStorage";
 import { REALITY_CODE_PREFIX } from "@/lib/realityShare";
 import { useDraftStore } from "@/store/draftStore";
@@ -183,6 +184,7 @@ export default function RealitiesHub({ onChoose }: Props) {
   const switchReality = useDraftStore((s) => s.switchReality);
   const deleteReality = useDraftStore((s) => s.deleteReality);
   const exportRealityStream = useDraftStore((s) => s.exportRealityStream);
+  const [compressExports, setCompressExportsState] = useState(getCompressExports);
   const exportRealityShareCode = useDraftStore((s) => s.exportRealityShareCode);
   const importReality = useDraftStore((s) => s.importReality);
   const [preview, setPreview] = useState<RealityImportPreview | null>(null);
@@ -241,8 +243,8 @@ export default function RealitiesHub({ onChoose }: Props) {
         const filename = `${safe}.draftsim-reality.json`;
         if (isDesktop()) {
           const res = await saveFileNative({
-            defaultPath: filename,
-            filters: [{ name: "DraftSim Reality", extensions: ["json"] }],
+            defaultPath: realityExportFilename(item?.name ?? "reality", compressExports),
+            filters: realityExportFilters(compressExports),
             content: json,
           });
           if (res.ok) flash("ok", "Reality exported");
@@ -261,7 +263,7 @@ export default function RealitiesHub({ onChoose }: Props) {
         setRowBusy(false);
       }
     },
-    [exportRealityStream, flash, realityList, rowBusy],
+    [exportRealityStream, flash, realityList, rowBusy, compressExports],
   );
 
   const prepareImport = async (read: () => Promise<string | null>) => {
@@ -311,7 +313,7 @@ export default function RealitiesHub({ onChoose }: Props) {
   const handleImport = async () => {
     if (isDesktop()) {
       await prepareImport(async () => {
-        const res = await openFileNative({ filters: [{ name: "DraftSim Reality", extensions: ["json"] }] });
+        const res = await openFileNative({ filters: REALITY_IMPORT_FILTERS });
         if (!res.ok || res.content == null) {
           if (res.error && res.error !== "cancelled") throw new Error(res.error);
           return null;
@@ -562,13 +564,19 @@ export default function RealitiesHub({ onChoose }: Props) {
               Compact database
             </button>
           )}
+          {isDesktop() && (
+            <label className="ml-auto flex cursor-pointer select-none items-center gap-1.5 text-[9px] uppercase tracking-[0.2em] text-rift-mutedbright" title="Export realities as .json.gz: several times smaller; older DraftSim versions cannot import them">
+              <input type="checkbox" checked={compressExports} onChange={(e) => { setCompressExportsState(e.target.checked); setCompressExports(e.target.checked); }} className="accent-rift-gold" />
+              Compress exports
+            </label>
+          )}
           <button
             type="button"
             onClick={() => void handleImport()}
             title="Import a reality exported from DraftSim (its timeline + that reality's season history)"
-            className="ml-auto text-[9px] uppercase tracking-[0.3em] text-rift-gold/80 hover:text-rift-goldbright transition-colors"
+            className={`${isDesktop() ? "" : "ml-auto "}text-[9px] uppercase tracking-[0.3em] text-rift-gold/80 hover:text-rift-goldbright transition-colors`}
           >
-            Import (.json)
+            {isDesktop() ? "Import (.json, .gz)" : "Import (.json)"}
           </button>
         </div>
         {isDesktop() && (

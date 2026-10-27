@@ -9,7 +9,7 @@ test("bulk year event statistics show team logos and player and team cards", asy
 	const player = team.players[0];
 	const entry: SimYearResultEntry = {
 		kind: "year", seasonId: season.id, year: 1, seasonName: "Year 1", splits: [], intls: [], worldsChampion: null, followedTeam: null,
-		eventSummary: { events: [{ id: "e1", label: "LCK · Winter Split", split: "winter", leagueId: "LCK", games: 12, roles: [{ lane: player.lane, leader: { id: player.id!, name: "BulkLeader", score: 7.25, teamName: "T1", teamId: team.id, leagueId: "LCK" } }] }] },
+		eventSummary: { events: [{ id: "e1", label: "LCK · Winter Split", split: "winter", leagueId: "LCK", games: 12, roles: [{ lane: player.lane, leader: { id: player.id!, name: "BulkLeaderWithAVeryLongName", score: 7.25, teamName: "T1", teamId: team.id, leagueId: "LCK" } }] }] },
 	};
 	await page.addInitScript(state => { if (!localStorage.getItem("draftsim-store")) localStorage.setItem("draftsim-store", JSON.stringify({ version: 7, state })); },
 		{ season, seasonViewOpen: true, simResultsFeed: [entry] });
@@ -22,19 +22,24 @@ test("bulk year event statistics show team logos and player and team cards", asy
 	await page.evaluate(() => Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true }));
 	await block.getByRole("button", { name: /Event Statistics/ }).click();
 	const performers = block.getByRole("list", { name: "LCK · Winter Split top performers" });
-	await expect(performers).toContainText("BulkLeader");
+	await expect(performers).toContainText("BulkLeaderWithAVeryLongName");
 	await expect(performers.locator(`img[src="${resolveTeamLogo("T1")}"]`)).toBeVisible();
 	await expect(performers.getByText("T1", { exact: true })).toBeVisible();
 	await block.screenshot({ path: "test-results/playwright/bulk-event-stats-desktop.png" });
-	// Phones keep the logo; the team name stays as the card's accessible name.
+	// No region mark per player: the team identifies them.
+	await expect(performers.locator('[aria-label="LCK"], [title="LCK"]')).toHaveCount(0);
+	const fullyShown = () => performers.evaluate(list => [...list.querySelectorAll("li *:not(.sr-only)")].every(el => el.scrollWidth <= el.clientWidth + 1 && el.getBoundingClientRect().right <= list.getBoundingClientRect().right + 1));
+	expect(await fullyShown()).toBe(true);
+	// Phones wrap instead of truncating: name, team, logo and score stay whole.
 	await page.setViewportSize({ width: 390, height: 844 });
 	await expect(performers.locator(`img[src="${resolveTeamLogo("T1")}"]`)).toBeVisible();
-	// Visually hidden (screen-reader only), not removed.
-	expect((await performers.getByText("T1", { exact: true }).boundingBox())!.width).toBeLessThanOrEqual(1);
+	await expect(performers.getByText("T1", { exact: true })).toBeVisible();
+	await expect(performers.getByText("7.25", { exact: true })).toBeVisible();
+	expect(await fullyShown()).toBe(true);
 	await block.screenshot({ path: "test-results/playwright/bulk-event-stats-phone.png" });
 	// Player and team cards open from the same links.
 	await page.setViewportSize({ width: 1440, height: 900 });
-	await performers.getByRole("group", { name: "BulkLeader", exact: true }).focus();
+	await performers.getByRole("group", { name: "BulkLeaderWithAVeryLongName", exact: true }).focus();
 	await expect(page.getByRole("tooltip")).toBeVisible();
 	await page.keyboard.press("Escape");
 	await expect(page.getByRole("tooltip")).toHaveCount(0);

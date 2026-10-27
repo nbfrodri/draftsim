@@ -1,6 +1,7 @@
 "use client";
 
 import SSBadge from "@/components/SSBadge";
+import { TIER_CLS } from "@/components/season/TierChip";
 import { formatAggregateKda } from "@/lib/formatKda";
 import { useEscapeLayer } from "@/lib/useEscapeLayer";
 import { useHydrated } from "@/lib/useHydrated";
@@ -300,7 +301,8 @@ export function PlayerCardBody({
 
         {/* Identity */}
         <div className="player-card-hatch relative px-3 pt-2 pb-2 flex items-start gap-2">
-          {data.tier === "SS" ? <SSBadge size="md" /> : <span
+          {/* SS uses the same pennant as every other tier, in its own colours. */}
+          {data.tier === "SS" ? <span className={`player-card-pennant shrink-0 w-7 h-7 grid place-items-center font-display text-[13px] leading-none border ${TIER_CLS.SS}`}>SS</span> : <span
             className="player-card-pennant shrink-0 w-7 h-7 grid place-items-center font-display text-[13px] leading-none border"
             style={{
               borderColor: accent.hex,

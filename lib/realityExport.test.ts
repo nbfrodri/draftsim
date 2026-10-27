@@ -27,6 +27,10 @@ describe("realityExportFilename", () => {
     );
   });
 
+  it("names compressed exports .json.gz", () => {
+    expect(realityExportFilename("My Reality", true)).toBe("My Reality.draftsim-reality.json.gz");
+  });
+
   it("falls back when name is empty after trim", () => {
     expect(realityExportFilename("   ")).toBe("reality.draftsim-reality.json");
   });

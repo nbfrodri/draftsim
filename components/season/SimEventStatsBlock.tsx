@@ -7,8 +7,8 @@ import { LANE_ORDER } from "@/lib/players";
 import type { Champion } from "@/lib/types";
 import { useDraftStore } from "@/store/draftStore";
 import CollapsibleSection from "../CollapsibleSection";
-import RegionMark from "../RegionMark";
-import RoleLabel from "../RoleLabel";
+import LaneIcon from "../LaneIcon";
+import { roleLabel } from "@/lib/roles";
 import EventIdentityIcon from "../tournament/EventIdentityIcon";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TeamNameLink from "../team/TeamNameLink";
@@ -48,24 +48,23 @@ function EventSummaryCard({ event, byId, seasonId }: { event: SimEventSummary; b
           const line = byLane.get(lane);
           const leader = line?.leader;
           return (
-            <li key={lane} className="flex min-w-0 items-center gap-1.5 text-[11px] text-rift-mutedbright">
-              <RoleLabel lane={lane} size="sm" className="w-20 shrink-0" />
+            // Role icon | player and team (wrap, never truncate) | score: columns stay aligned.
+            <li key={lane} className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_auto] items-start gap-x-2 text-[11px] text-rift-mutedbright">
+              <span className="pt-px" title={roleLabel(lane)}><LaneIcon lane={lane} size="sm" /><span className="sr-only">{roleLabel(lane)}</span></span>
               {leader ? (
-                <span className="flex min-w-0 items-center gap-1.5 text-rift-goldbright">
-                  <PlayerNameLink playerId={leader.id} name={leader.name} seasonId={seasonId} phaseScope={phaseScope} className="min-w-0 truncate text-rift-goldbright" />
-                  {leader.leagueId && <RegionMark league={leader.leagueId} size={12} />}
-                  {leader.teamName && leader.leagueId ? (
-                    // Logo always; the name joins it from small screens up (it stays the card's accessible name).
-                    <TeamNameLink teamId={leader.teamId} name={leader.teamName} leagueId={leader.leagueId} logoUrl={resolveTeamLogo(leader.teamName, leader.logoUrl)} logoSize={14} seasonId={seasonId} phaseScope={phaseScope} className="inline-flex min-w-0 items-center gap-1 text-rift-mutedbright">
-                      <span className="sr-only truncate sm:not-sr-only">{leader.teamName}</span>
-                    </TeamNameLink>
-                  ) : leader.teamName && <span className="hidden truncate text-rift-mutedbright sm:inline">{leader.teamName}</span>}
-                  <span className="shrink-0 tabular-nums text-rift-mutedbright">{leader.score.toFixed(2)}</span>
-                </span>
-              ) : line ? (
-                <span>Provisional</span>
+                <>
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <PlayerNameLink playerId={leader.id} name={leader.name} seasonId={seasonId} phaseScope={phaseScope} className="min-w-0 break-words text-rift-goldbright" />
+                    {leader.teamName && leader.leagueId ? (
+                      <TeamNameLink teamId={leader.teamId} name={leader.teamName} leagueId={leader.leagueId} logoUrl={resolveTeamLogo(leader.teamName, leader.logoUrl)} logoSize={14} seasonId={seasonId} phaseScope={phaseScope} className="inline-flex min-w-0 items-center gap-1 text-rift-mutedbright">
+                        <span className="break-words">{leader.teamName}</span>
+                      </TeamNameLink>
+                    ) : leader.teamName && <span className="break-words">{leader.teamName}</span>}
+                  </span>
+                  <span className="tabular-nums text-rift-goldbright">{leader.score.toFixed(2)}</span>
+                </>
               ) : (
-                <span>{NOT_RECORDED}</span>
+                <span className="col-span-2">{line ? "Provisional" : NOT_RECORDED}</span>
               )}
             </li>
           );
