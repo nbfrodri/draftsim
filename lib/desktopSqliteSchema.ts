@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS reality_history (
 CREATE INDEX IF NOT EXISTS idx_reality_history_reality
   ON reality_history(reality_id, sort_order);
 
+-- Storage v9: an archived year's event records, kept apart from its history row
+-- and loaded only when an event-statistics view needs them.
+CREATE TABLE IF NOT EXISTS reality_event_records (
+  reality_id TEXT NOT NULL,
+  entry_id TEXT NOT NULL,
+  records_json TEXT NOT NULL,
+  record_count INTEGER NOT NULL,
+  PRIMARY KEY (reality_id, entry_id),
+  FOREIGN KEY (reality_id) REFERENCES realities(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS meta_config (
   config_key TEXT PRIMARY KEY NOT NULL,
   value TEXT
@@ -77,6 +88,13 @@ ON CONFLICT(reality_id, entry_id) DO UPDATE SET
   sort_order = excluded.sort_order`;
 
 /** Move an unchanged Hall history row without re-encoding its JSON. */
+export const UPSERT_EVENT_RECORDS_SQL = `
+INSERT INTO reality_event_records (reality_id, entry_id, records_json, record_count)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(reality_id, entry_id) DO UPDATE SET
+  records_json = excluded.records_json,
+  record_count = excluded.record_count`;
+
 export const UPDATE_REALITY_HISTORY_ORDER_SQL =
   "UPDATE reality_history SET sort_order = ? WHERE reality_id = ? AND entry_id = ?";
 

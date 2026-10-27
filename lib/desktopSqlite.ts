@@ -12,6 +12,9 @@ import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operatio
  */
 
 import { encodeSeasonForDesktopDb } from "@/lib/recapCompression";
+import { compressStoredJson, decompressStoredJson } from "@/lib/storedJson";
+import { setEventRecordsLoader } from "@/lib/eventRecordsAccess";
+import type { EventRecord } from "@/lib/season/eventHistory";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 import type { SeasonState } from "@/lib/season/types";
 import type { SavedReality } from "@/store/draftStore";
@@ -24,6 +27,7 @@ META_CONFIG_KEY,
 PERSIST_VERSION,
 SCHEMA_SQL,
 UPDATE_REALITY_HISTORY_ORDER_SQL,
+UPSERT_EVENT_RECORDS_SQL,
 UPSERT_REALITY_HISTORY_SQL,
 mergePersistedState,
 parseMetaConfigJson,
@@ -213,7 +217,8 @@ export async function getDesktopDatabase(): Promise<SqlExecutor> {
 }
 
 async function loadDatabase(): Promise<SqlExecutor> {
-  if (!isDesktop()) {
+  // A database injected for tests is used as is; otherwise only desktop opens one.
+  if (!dbPromise && !isDesktop()) {
     throw new Error("SQLite storage is desktop-only");
   }
   if (!dbPromise) {
@@ -506,6 +511,7 @@ export async function deleteRealityFromDb(realityId: string): Promise<void> {
   const db = await loadDatabase();
   await serializeDbWrite(db, () => atomicWrite(db, async (writer) => {
     forgetHistoryBaseline(writer, realityId);
+    await writer.execute("DELETE FROM reality_event_records WHERE reality_id = ?", [realityId]);
     await writer.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
     await writer.execute("DELETE FROM realities WHERE id = ?", [realityId]);
     loadedHistoryRealityIds.delete(realityId);
@@ -779,12 +785,20 @@ export async function syncRealityHistory(
     const saved = baseline?.get(entry.id);
     // A repeated id is always written so the last occurrence wins, as before.
     if (!saved || saved.entry !== entry || next.has(entry.id)) {
+      // Event records live in their own table (storage v9); a deferred marker
+      // means they are already stored and were never loaded, so keep them.
+      const { eventRecords, eventRecordsDeferred, ...row } = entry;
       await db.execute(UPSERT_REALITY_HISTORY_SQL, [
         realityId,
         entry.id,
-        encodeWithSaveDiagnostic("history-encode", () => JSON.stringify(entry)),
+        await compressStoredJson(encodeWithSaveDiagnostic("history-encode", () => JSON.stringify(row))),
         i,
       ]);
+      if (eventRecords?.length) {
+        await db.execute(UPSERT_EVENT_RECORDS_SQL, [realityId, entry.id, await compressStoredJson(JSON.stringify(eventRecords)), eventRecords.length]);
+      } else if (!eventRecordsDeferred) {
+        await db.execute("DELETE FROM reality_event_records WHERE reality_id = ? AND entry_id = ?", [realityId, entry.id]);
+      }
     } else if (saved.index !== i) {
       await db.execute(UPDATE_REALITY_HISTORY_ORDER_SQL, [i, realityId, entry.id]);
     }
@@ -793,11 +807,16 @@ export async function syncRealityHistory(
   transaction?.staged.set(realityId, next);
 
   if (history.length === 0) {
+    await db.execute("DELETE FROM reality_event_records WHERE reality_id = ?", [realityId]);
     await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
     return;
   }
 
   const placeholders = history.map(() => "?").join(", ");
+  await db.execute(
+    `DELETE FROM reality_event_records WHERE reality_id = ? AND entry_id NOT IN (${placeholders})`,
+    [realityId, ...history.map((e) => e.id)],
+  );
   await db.execute(
     `DELETE FROM reality_history WHERE reality_id = ? AND entry_id NOT IN (${placeholders})`,
     [realityId, ...history.map((e) => e.id)],
@@ -815,6 +834,7 @@ export async function syncRemovedRealities(
 
   if (keepIds.length === 0) {
     forgetHistoryBaseline(db);
+    await db.execute("DELETE FROM reality_event_records");
     await db.execute("DELETE FROM reality_history");
     await db.execute("DELETE FROM realities");
     loadedHistoryRealityIds.clear();
@@ -824,6 +844,7 @@ export async function syncRemovedRealities(
   for (const row of existing) {
     if (!keep.has(row.id)) {
       forgetHistoryBaseline(db, row.id);
+      await db.execute("DELETE FROM reality_event_records WHERE reality_id = ?", [row.id]);
       await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [row.id]);
       await db.execute("DELETE FROM realities WHERE id = ?", [row.id]);
       loadedHistoryRealityIds.delete(row.id);
@@ -965,11 +986,52 @@ async function selectHistoryRows(db: SqlExecutor, realityId: string): Promise<Hi
   const sizes = await db.select<{ entry_id: string; sort_order: number; chars: number | null }>(SELECT_HISTORY_SIZES_SQL, [realityId]);
   const rows: HistoryRow[] = [];
   for (const row of sizes) {
-    const entry_json = row.chars == null ? "null" : await selectTextInChunks(db, SELECT_HISTORY_PART_SQL, [realityId, row.entry_id], row.chars);
+    const entry_json = row.chars == null ? "null" : await decompressStoredJson(await selectTextInChunks(db, SELECT_HISTORY_PART_SQL, [realityId, row.entry_id], row.chars));
     rows.push({ entry_id: row.entry_id, sort_order: row.sort_order, entry_json });
   }
   return rows;
 }
+
+export const SELECT_EVENT_RECORD_COUNTS_SQL = "SELECT entry_id, record_count FROM reality_event_records WHERE reality_id = ?";
+export const SELECT_EVENT_RECORDS_SIZE_SQL = "SELECT LENGTH(records_json) AS chars FROM reality_event_records WHERE reality_id = ? AND entry_id = ?";
+export const SELECT_EVENT_RECORDS_PART_SQL = "SELECT substr(records_json, ?, ?) AS part FROM reality_event_records WHERE reality_id = ? AND entry_id = ?";
+
+/** Parse history rows; years whose records stay in storage get a deferred marker, never "not recorded". */
+async function parseHistoryRows(db: SqlExecutor, realityId: string, rows: HistoryRow[]): Promise<unknown[]> {
+  const counts = new Map((await db.select<{ entry_id: string; record_count: number }>(SELECT_EVENT_RECORD_COUNTS_SQL, [realityId])).map(r => [r.entry_id, r.record_count]));
+  return rows.map((h) => {
+    let entry: unknown;
+    try {
+      entry = JSON.parse(h.entry_json);
+    } catch {
+      throw new Error("Saved history is invalid; refusing to overwrite it.");
+    }
+    const count = counts.get(h.entry_id);
+    if (count && entry && typeof entry === "object" && !(entry as SeasonHistoryEntry).eventRecords?.length) {
+      (entry as SeasonHistoryEntry).eventRecordsDeferred = { realityId, count };
+    }
+    return entry;
+  });
+}
+
+/** Event records of archived years, read in bounded parts when a view needs them. */
+export async function loadEventRecordsFromDb(realityId: string, entryIds: readonly string[]): Promise<Map<string, EventRecord[]>> {
+  const db = await loadDatabase();
+  return serializeDbWrite(db, async () => {
+    const result = new Map<string, EventRecord[]>();
+    for (const entryId of entryIds) {
+      const size = await db.select<{ chars: number | null }>(SELECT_EVENT_RECORDS_SIZE_SQL, [realityId, entryId]);
+      if (size[0]?.chars == null) continue;
+      const json = await decompressStoredJson(await selectTextInChunks(db, SELECT_EVENT_RECORDS_PART_SQL, [realityId, entryId], size[0].chars));
+      let records: unknown;
+      try { records = JSON.parse(json); } catch { throw new Error("Saved event statistics are invalid; refusing to overwrite them."); }
+      if (!Array.isArray(records)) throw new Error("Saved event statistics are invalid; refusing to overwrite them.");
+      result.set(entryId, records as EventRecord[]);
+    }
+    return result;
+  });
+}
+setEventRecordsLoader(loadEventRecordsFromDb);
 
 async function selectSeasonJson(db: SqlExecutor, realityId: string): Promise<string | null> {
   const size = await db.select<{ chars: number | null }>(SELECT_SEASON_SIZE_SQL, [realityId]);
@@ -1062,13 +1124,7 @@ export async function loadPersistedStateFromDbExecutor(
     if (activeRealityId && row.id === activeRealityId) {
       setPersistLoadStage("Reading active reality history");
       const histRows = await selectHistoryRows(db, row.id);
-      const parsed = histRows.map((h) => {
-        try {
-          return JSON.parse(h.entry_json);
-        } catch {
-          throw new Error("Saved history is invalid; refusing to overwrite it.");
-        }
-      });
+      const parsed = await parseHistoryRows(db, row.id, histRows);
       history = parsed.filter((e): e is unknown => e != null);
       historyBaselines.set(row.id, baselineFromRows(histRows, parsed));
       loadedHistoryRealityIds.add(row.id);
@@ -1124,13 +1180,9 @@ export async function loadRealityHistoryFromDb(
 ): Promise<SeasonHistoryEntry[]> {
   const db = await loadDatabase();
   // Serialized with writes so a multi-part read never sees a half-updated row.
-  const rows = await serializeDbWrite(db, () => selectHistoryRows(db, realityId));
-  const parsed = rows.map((r) => {
-    try {
-      return JSON.parse(r.entry_json) as SeasonHistoryEntry | null;
-    } catch {
-      throw new Error("Saved history is invalid; refusing to overwrite it.");
-    }
+  const { rows, parsed } = await serializeDbWrite(db, async () => {
+    const rows = await selectHistoryRows(db, realityId);
+    return { rows, parsed: await parseHistoryRows(db, realityId, rows) as (SeasonHistoryEntry | null)[] };
   });
   const history = parsed.filter((e): e is SeasonHistoryEntry => e != null);
   readHistorySources.set(history, { db, realityId, baseline: baselineFromRows(rows, parsed) });
@@ -1184,6 +1236,7 @@ export async function clearDesktopStoreFromDb(storeKey: string): Promise<void> {
     await writer.execute("DELETE FROM global_fragments WHERE store_key = ?", [storeKey]);
     await writer.execute("DELETE FROM global_state WHERE store_key = ?", [storeKey]);
     forgetHistoryBaseline(writer);
+    await writer.execute("DELETE FROM reality_event_records");
     await writer.execute("DELETE FROM reality_history");
     await writer.execute("DELETE FROM realities");
     loadedHistoryRealityIds.clear();
