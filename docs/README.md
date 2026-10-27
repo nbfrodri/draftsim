@@ -32,6 +32,8 @@ Los documentos de `plans/` y las auditorías registran objetivos y decisiones de
 
 ## Versiones
 
+- [v1.17.1: importación por partes de realities largas](releases/v1.17.1.md).
+
 - [v1.17.0: exportaciones comprimidas y arreglos de tarjetas y estadísticas del bulk](releases/v1.17.0.md).
 
 - [v1.16.1: arreglos de arranque y exportación tras el formato de almacenamiento 9](releases/v1.16.1.md).
