@@ -64,9 +64,29 @@ export function pausePersistWrites(): () => void {
 let persistReady = false;
 const persistReadyListeners = new Set<() => void>();
 let persistLoadStage = "Reading saved data";
-/** Stage labels contain no saved payload, names or personal paths. */
-export function setPersistLoadStage(stage: string): void {
+let persistLoadProgress = { at: Date.now(), slow: false };
+const persistLoadStageListeners = new Set<(stage: string) => void>();
+/**
+ * Stage labels contain no saved payload, names or personal paths. Each call is
+ * progress for the startup watchdog; `slow` marks one long step (recovery copy,
+ * compaction) that may legitimately run for minutes without another update.
+ */
+export function setPersistLoadStage(stage: string, options?: { slow?: boolean }): void {
   persistLoadStage = stage;
+  persistLoadProgress = { at: Date.now(), slow: !!options?.slow };
+  for (const cb of persistLoadStageListeners) cb(stage);
+}
+export function getPersistLoadStage(): string { return persistLoadStage; }
+export function subscribePersistLoadStage(cb: (stage: string) => void): () => void {
+  persistLoadStageListeners.add(cb);
+  return () => { persistLoadStageListeners.delete(cb); };
+}
+
+export const STARTUP_IDLE_LIMIT_MS = 45_000;
+export const STARTUP_SLOW_STEP_LIMIT_MS = 10 * 60_000;
+/** Hydration counts as stuck only after no progress for the limit of its current step. */
+export function startupLoadStalled(now = Date.now(), progress = persistLoadProgress): boolean {
+  return now - progress.at > (progress.slow ? STARTUP_SLOW_STEP_LIMIT_MS : STARTUP_IDLE_LIMIT_MS);
 }
 
 /** Allow Zustand persist setItem calls (call once rehydration finishes). */
@@ -126,6 +146,8 @@ export function resetPersistGateForTests(): void {
   persistPauseCount = 0;
   persistReadGeneration = 0;
   persistLoadStage = "Reading saved data";
+  persistLoadProgress = { at: Date.now(), slow: false };
+  persistLoadStageListeners.clear();
   persistReady = false;
   persistReadyListeners.clear();
 }

@@ -249,3 +249,18 @@ describe("recovery during a slow hydration", () => {
     expect(write).not.toHaveBeenCalled();
   });
 });
+
+describe("startup watchdog", () => {
+	it("waits while loading keeps reporting progress and allows long single steps", async () => {
+		const { STARTUP_IDLE_LIMIT_MS, STARTUP_SLOW_STEP_LIMIT_MS, setPersistLoadStage, startupLoadStalled } = await import("./desktopStorage");
+		const at = 1_000_000;
+		expect(startupLoadStalled(at + STARTUP_IDLE_LIMIT_MS - 1, { at, slow: false })).toBe(false);
+		expect(startupLoadStalled(at + STARTUP_IDLE_LIMIT_MS + 1, { at, slow: false })).toBe(true);
+		// A recovery copy or compaction may run for minutes without another step.
+		expect(startupLoadStalled(at + 5 * 60_000, { at, slow: true })).toBe(false);
+		expect(startupLoadStalled(at + STARTUP_SLOW_STEP_LIMIT_MS + 1, { at, slow: true })).toBe(true);
+		// Each reported step restarts the idle limit.
+		setPersistLoadStage("Optimizing saved history (12 of 57 years)");
+		expect(startupLoadStalled()).toBe(false);
+	});
+});
