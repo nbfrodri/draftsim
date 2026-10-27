@@ -53,7 +53,7 @@ async fn read_summary(path: &Path, verify_contents: bool) -> Result<(Vec<String>
         let version: Option<(String,)> = sqlx::query_as("SELECT value FROM schema_meta WHERE key = 'persist_version'")
             .fetch_optional(&mut db).await.map_err(err)?;
         // Legacy DraftSim databases predate the marker and use this same schema.
-        if version.as_ref().is_some_and(|(v,)| v != "7" && v != "8") { return Err("Unsupported saved database version".into()); }
+        if version.as_ref().is_some_and(|(v,)| v != "7" && v != "8" && v != "9") { return Err("Unsupported saved database version".into()); }
         if verify_contents {
             let violations = sqlx::query("PRAGMA foreign_key_check").fetch_all(&mut db).await.map_err(err)?;
             if !violations.is_empty() { return Err("Backup contains broken references".into()); }
@@ -69,7 +69,18 @@ async fn read_summary(path: &Path, verify_contents: bool) -> Result<(Vec<String>
                 if invalid != 0 { return Err("Invalid saved data in backup".into()); }
             }
         }
-        if version.as_ref().is_some_and(|(v,)| v == "8") {
+        if version.as_ref().is_some_and(|(v,)| v == "9") {
+            // Storage v9 keeps each archived year's event records in their own table.
+            let (tables,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = 'reality_event_records'")
+                .fetch_one(&mut db).await.map_err(err)?;
+            if tables != 1 { return Err("Missing storage format 9 tables".into()); }
+            if verify_contents {
+                let (invalid,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM reality_event_records WHERE CASE WHEN json_valid(records_json) THEN json_type(records_json) NOT IN ('object', 'array') ELSE 1 END")
+                    .fetch_one(&mut db).await.map_err(err)?;
+                if invalid != 0 { return Err("Invalid event statistics in backup".into()); }
+            }
+        }
+        if version.as_ref().is_some_and(|(v,)| v == "8" || v == "9") {
             // A valid root must have all referenced fragments; never restore a
             // superficially valid database whose competitive payload is missing.
             let (tables,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('global_fragments','reality_catalog')")
@@ -617,6 +628,29 @@ mod tests {
             for invalid in [Some("{broken"), Some(""), None] {
                 sqlx::query("UPDATE global_fragments SET value_json = ?").bind(invalid).execute(&pool).await.unwrap();
                 assert!(inspect(&path).await.is_err());
+            }
+            pool.close().await;
+            std::fs::remove_dir_all(root).unwrap();
+        });
+    }
+
+    #[test]
+    fn backup_validation_accepts_storage_v9_and_checks_event_records() {
+        tauri::async_runtime::block_on(async {
+            let root = std::env::temp_dir().join(format!("draftsim-v9-validation-{}", now()));
+            std::fs::create_dir(&root).unwrap();
+            let path = root.join("fixture.db");
+            let options = sqlx::sqlite::SqliteConnectOptions::new().filename(&path).create_if_missing(true);
+            let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+            sqlx::query("CREATE TABLE schema_meta (key TEXT, value TEXT); CREATE TABLE meta_config (value TEXT); CREATE TABLE global_state (store_key TEXT, state_json TEXT); CREATE TABLE realities (name TEXT, year INTEGER, season_json TEXT); CREATE TABLE reality_history (entry_json TEXT); CREATE TABLE global_fragments (store_key TEXT, fragment_key TEXT, value_json TEXT); CREATE TABLE reality_catalog (reality_id TEXT, summary_json TEXT)").execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO schema_meta VALUES ('persist_version', '9'); INSERT INTO global_state VALUES ('save', '{\"_draftsimFragments\":[\"season\"]}'); INSERT INTO realities VALUES ('Fixture', 1, '{}'); INSERT INTO reality_history VALUES ('{\"$z\":\"deflate-raw\",\"d\":\"q1YKSs0uSixJTVGyUkosKMjMS1fSUUpNLC1KzQUA\"}'); INSERT INTO global_fragments VALUES ('save', 'season', '{}')").execute(&pool).await.unwrap();
+            // A v9 database without its event records table is not a valid backup.
+            assert!(inspect(&path).await.is_err());
+            sqlx::query("CREATE TABLE reality_event_records (reality_id TEXT, entry_id TEXT, records_json TEXT, record_count INTEGER); INSERT INTO reality_event_records VALUES ('r', 'y1', '{\"$z\":\"deflate-raw\",\"d\":\"i44FAA\"}', 1)").execute(&pool).await.unwrap();
+            assert!(inspect(&path).await.is_ok());
+            for invalid in [Some("{broken"), Some("12"), None] {
+                sqlx::query("UPDATE reality_event_records SET records_json = ?").bind(invalid).execute(&pool).await.unwrap();
+                assert!(inspect(&path).await.is_err(), "accepted invalid records: {invalid:?}");
             }
             pool.close().await;
             std::fs::remove_dir_all(root).unwrap();

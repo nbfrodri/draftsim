@@ -13,6 +13,7 @@ import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operatio
 
 import { encodeSeasonForDesktopDb } from "@/lib/recapCompression";
 import { compressStoredJson, decompressStoredJson } from "@/lib/storedJson";
+import { countPlainHistoryRows, migrateHistoryToV9, selectTextInChunks, verifyHistoryV9 } from "@/lib/historyStorageV9";
 import { setEventRecordsLoader } from "@/lib/eventRecordsAccess";
 import type { EventRecord } from "@/lib/season/eventHistory";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
@@ -237,7 +238,7 @@ async function loadDatabase(): Promise<SqlExecutor> {
       setPersistLoadStage("Checking saved database schema");
       await db.execute(SCHEMA_SQL);
       const versions = await db.select<{ value: string }[]>("SELECT value FROM schema_meta WHERE key = 'persist_version'");
-      if (!["7", String(DATABASE_VERSION)].includes(versions[0]?.value)) throw new Error("Unsupported saved database version. Update DraftSim before opening it.");
+      if (!["7", "8", String(DATABASE_VERSION)].includes(versions[0]?.value)) throw new Error("Unsupported saved database version. Update DraftSim before opening it.");
       const { invoke, Channel } = await import("@tauri-apps/api/core");
       if (versions[0]?.value === "7") {
         const existing = await db.select<{ c: number }[]>("SELECT COUNT(*) AS c FROM global_state");
@@ -257,18 +258,57 @@ async function loadDatabase(): Promise<SqlExecutor> {
           await invoke("backup_create", { name: "Before storage format 8", onProgress });
         }
       }
-      return {
+      const executor = {
         execute: (query: string, values?: unknown[]) => db.execute(query, values),
         select: <T>(query: string, values?: unknown[]) => db.select<T[]>(query, values),
         // Large values travel as raw chunks; the batch still commits in one transaction.
         batch: (statements: SqlStatement[]) => sendPersistBatch(invoke as PersistInvoke, statements),
       } satisfies SqlExecutor;
+      if (versions[0]?.value !== "7") {
+        await upgradeHistoryStorage(executor, versions[0]!.value, async () => {
+          const onProgress = new Channel<string>();
+          onProgress.onmessage = step => {
+            const stages: Record<string, string> = {
+              snapshot: "Creating recovery copy before optimizing saved history",
+              verify: "Verifying recovery copy before optimizing saved history",
+              retention: "Checking older recovery copies before optimizing saved history",
+              external: "Finishing external recovery copy before optimizing saved history",
+            };
+            if (stages[step]) setPersistLoadStage(stages[step]);
+          };
+          await invoke("backup_create", { name: "Before storage format 9", onProgress });
+        });
+      }
+      return executor;
     })().catch((error) => {
       dbPromise = null;
       throw error;
     });
   }
   return dbPromise;
+}
+
+/**
+ * Storage v9 (docs/plans/2026-10-27-history-storage-v9.md). A v8 database gets a
+ * recovery copy, then is marked v9 before any row changes, so older builds refuse
+ * it instead of misreading compressed rows. Plain rows left by an interrupted
+ * run are converted on the next launch. @internal exported for tests.
+ */
+export async function upgradeHistoryStorage(db: SqlExecutor, version: string, backup: () => Promise<void>): Promise<void> {
+  const plain = await countPlainHistoryRows(db);
+  if (version === "8") {
+    if (plain) {
+      setPersistLoadStage("Creating recovery copy before optimizing saved history");
+      await backup();
+    }
+    await db.execute("INSERT INTO schema_meta (key, value) VALUES ('persist_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(DATABASE_VERSION)]);
+  }
+  if (!plain) return;
+  await migrateHistoryToV9(db, (done, total) => setPersistLoadStage(`Optimizing saved history (${done} of ${total} years)`));
+  setPersistLoadStage("Verifying optimized history");
+  await verifyHistoryV9(db);
+  setPersistLoadStage("Compacting saved data");
+  await db.execute("VACUUM");
 }
 
 async function getMetaValue(key: string): Promise<string | null> {
@@ -956,22 +996,7 @@ async function reconcilePersistedState(
   return global;
 }
 
-/**
- * Large text crosses the WebView IPC bridge in pieces of at most this many
- * characters. One select of a long reality's history (hundreds of MB) can kill
- * the renderer at startup; writes are already chunked the same way.
- */
-export const READ_CHUNK_CHARS = 1 << 20;
-
-/** `sql` selects `substr(column, ?, ?) AS part`; its own bind values follow the two substr ones. */
-async function selectTextInChunks(db: SqlExecutor, sql: string, bindValues: unknown[], chars: number): Promise<string> {
-  const parts: string[] = [];
-  for (let start = 1; start <= chars; start += READ_CHUNK_CHARS) {
-    const rows = await db.select<{ part: string | null }>(sql, [start, READ_CHUNK_CHARS, ...bindValues]);
-    parts.push(rows[0]?.part ?? "");
-  }
-  return parts.join("");
-}
+export { READ_CHUNK_CHARS } from "./historyStorageV9";
 
 export const SELECT_HISTORY_SIZES_SQL = "SELECT entry_id, sort_order, LENGTH(entry_json) AS chars FROM reality_history WHERE reality_id = ? ORDER BY sort_order";
 export const SELECT_HISTORY_PART_SQL = "SELECT substr(entry_json, ?, ?) AS part FROM reality_history WHERE reality_id = ? AND entry_id = ?";

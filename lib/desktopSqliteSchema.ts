@@ -13,7 +13,7 @@ export const JSON_MIGRATION_FLAG = "json_migrated_v1";
  */
 export const PERSIST_VERSION = 7;
 /** Physical DB format; distinct from the Zustand state envelope. */
-export const DATABASE_VERSION = 8;
+export const DATABASE_VERSION = 9;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_meta (
