@@ -66,9 +66,10 @@ export async function migrateHistoryToV9(db: SqlExecutor, onProgress: (done: num
 }
 
 /** Reads back every history row and record set; throws if anything does not decode. */
-export async function verifyHistoryV9(db: SqlExecutor): Promise<{ rows: number; records: number }> {
+export async function verifyHistoryV9(db: SqlExecutor, onProgress: (done: number, total: number) => void = () => {}): Promise<{ rows: number; records: number }> {
 	const history = await db.select<{ reality_id: string; entry_id: string; chars: number }>("SELECT reality_id, entry_id, LENGTH(entry_json) AS chars FROM reality_history");
-	for (const row of history) {
+	for (const [i, row] of history.entries()) {
+		onProgress(i, history.length);
 		const value: unknown = JSON.parse(await decompressStoredJson(await selectTextInChunks(db, HISTORY_PART_SQL, [row.reality_id, row.entry_id], row.chars)));
 		if (value !== null && (typeof value !== "object" || Array.isArray(value))) throw invalid();
 	}

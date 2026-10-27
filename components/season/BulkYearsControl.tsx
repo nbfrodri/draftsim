@@ -157,11 +157,15 @@ export default function BulkYearsControl() {
         </div>
 
         <div id="bulk-sim-controls" hidden={!controlsOpen}>
-        {!busy && jobs[fr.id] && <div className="p-3 text-sm text-rift-goldbright" role="status">
+        {!busy && jobs[fr.id] && (jobs[fr.id].targetYear <= fr.year ? <div className="p-3 text-sm text-rift-goldbright" role="status">
+          <p>Simulation finished. Completed seasons are preserved.</p>
+          {jobs[fr.id].error && <p className="text-red-300">{jobs[fr.id].error}</p>}
+          <button type="button" className="mt-2 border border-rift-gold/50 px-3 py-2 text-rift-goldbright" onClick={() => useDraftStore.setState(s => { const next = { ...s.bulkYearJobs }; delete next[fr.id]; return { bulkYearJobs: next }; })}>Dismiss</button>
+        </div> : <div className="p-3 text-sm text-rift-goldbright" role="status">
           <p>Paused job: Continue through year {jobs[fr.id].targetYear - 1}. Completed seasons are preserved.</p>
           {jobs[fr.id].error && <p className="text-red-300">{jobs[fr.id].error}</p>}
           <button type="button" className="btn-gold mt-2 px-3 py-2" onClick={resume}>Resume simulation</button>
-        </div>}
+        </div>)}
         {bulkYearsProgress ? (
           <div className="px-3 py-3 space-y-3">
             <p className="text-[10px] text-rift-mutedbright/80 leading-relaxed">

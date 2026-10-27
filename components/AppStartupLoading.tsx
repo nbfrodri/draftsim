@@ -1,30 +1,30 @@
 "use client";
 
-import { useEffect } from "react";
-import { forcePersistReady, isPersistReady } from "@/lib/desktopStorage";
+import { useEffect, useState } from "react";
+import { forcePersistReady, getPersistLoadStage, isPersistReady, startupLoadStalled, subscribePersistLoadStage } from "@/lib/desktopStorage";
 import AppLifecycleShell from "./AppLifecycleShell";
-
-/** Last-resort unlock if async hydrate never settles (corrupt DB, hung I/O). */
-const HYDRATE_TIMEOUT_MS = 45_000;
 
 /**
  * Full-screen branded shell shown while Zustand persist rehydrates (SQLite /
- * localStorage). Matches the entry menu typography so the first paint is not
- * an empty frame or a flash of the wrong screen.
+ * localStorage). Shows the current loading step; a last-resort unlock fires only
+ * when hydration stops making progress (corrupt DB, hung I/O), never during a
+ * long upgrade that keeps reporting steps.
  */
 export default function AppStartupLoading() {
+  const [stage, setStage] = useState(getPersistLoadStage);
+  useEffect(() => subscribePersistLoadStage(setStage), []);
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const timer = setInterval(() => {
       // A long synchronous decode may finish before React unmounts this shell.
-      if (!isPersistReady()) forcePersistReady();
-    }, HYDRATE_TIMEOUT_MS);
-    return () => clearTimeout(timer);
+      if (!isPersistReady() && startupLoadStalled()) { clearInterval(timer); forcePersistReady(); }
+    }, 5_000);
+    return () => clearInterval(timer);
   }, []);
 
   return (
     <AppLifecycleShell
       ornament="Restoring your saves"
-      message="Loading…"
+      message={`${stage}…`}
       aria-label="Loading DraftSim"
     />
   );

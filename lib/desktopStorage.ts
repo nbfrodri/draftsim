@@ -64,9 +64,29 @@ export function pausePersistWrites(): () => void {
 let persistReady = false;
 const persistReadyListeners = new Set<() => void>();
 let persistLoadStage = "Reading saved data";
-/** Stage labels contain no saved payload, names or personal paths. */
-export function setPersistLoadStage(stage: string): void {
+let persistLoadProgress = { at: Date.now(), slow: false };
+const persistLoadStageListeners = new Set<(stage: string) => void>();
+/**
+ * Stage labels contain no saved payload, names or personal paths. Each call is
+ * progress for the startup watchdog; `slow` marks one long step (recovery copy,
+ * compaction) that may legitimately run for minutes without another update.
+ */
+export function setPersistLoadStage(stage: string, options?: { slow?: boolean }): void {
   persistLoadStage = stage;
+  persistLoadProgress = { at: Date.now(), slow: !!options?.slow };
+  for (const cb of persistLoadStageListeners) cb(stage);
+}
+export function getPersistLoadStage(): string { return persistLoadStage; }
+export function subscribePersistLoadStage(cb: (stage: string) => void): () => void {
+  persistLoadStageListeners.add(cb);
+  return () => { persistLoadStageListeners.delete(cb); };
+}
+
+export const STARTUP_IDLE_LIMIT_MS = 45_000;
+export const STARTUP_SLOW_STEP_LIMIT_MS = 10 * 60_000;
+/** Hydration counts as stuck only after no progress for the limit of its current step. */
+export function startupLoadStalled(now = Date.now(), progress = persistLoadProgress): boolean {
+  return now - progress.at > (progress.slow ? STARTUP_SLOW_STEP_LIMIT_MS : STARTUP_IDLE_LIMIT_MS);
 }
 
 /** Allow Zustand persist setItem calls (call once rehydration finishes). */
@@ -126,6 +146,8 @@ export function resetPersistGateForTests(): void {
   persistPauseCount = 0;
   persistReadGeneration = 0;
   persistLoadStage = "Reading saved data";
+  persistLoadProgress = { at: Date.now(), slow: false };
+  persistLoadStageListeners.clear();
   persistReady = false;
   persistReadyListeners.clear();
 }
@@ -845,16 +867,38 @@ export async function pickSavePathNative(opts: {
 /**
  * Write text to an absolute filesystem path (desktop only, no dialog).
  */
+/** Text written whole, or streamed in parts so no single string has to hold a huge file. */
+export type TextContent = string | AsyncIterable<string>;
+
+/** Write text in order; parts after the first are appended to the same file. */
+export async function writeTextContent(path: string, content: TextContent): Promise<void> {
+  const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+  if (typeof content === "string") { await writeTextFile(path, content); return; }
+  let first = true;
+  for await (const part of content) {
+    await writeTextFile(path, part, first ? undefined : { append: true });
+    first = false;
+  }
+  if (first) await writeTextFile(path, "");
+}
+
+/** Collect streamed text into a Blob (Blobs may exceed the engine's string length limit). */
+export async function textContentBlob(content: TextContent, type: string): Promise<Blob> {
+  if (typeof content === "string") return new Blob([content], { type });
+  const parts: string[] = [];
+  for await (const part of content) parts.push(part);
+  return new Blob(parts, { type });
+}
+
 export async function writeTextFileAtPathNative(
   path: string,
-  content: string,
+  content: TextContent,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isDesktop()) {
     return { ok: false, error: "Not running in desktop mode" };
   }
   try {
-    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-    await writeTextFile(path, content);
+    await writeTextContent(path, content);
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -869,14 +913,13 @@ export async function writeTextFileAtPathNative(
 export async function saveFileNative(opts: {
   defaultPath?: string;
   filters?: Array<{ name: string; extensions: string[] }>;
-  content: string;
+  content: TextContent;
 }): Promise<{ ok: boolean; error?: string }> {
   if (!isDesktop()) {
     return { ok: false, error: "Not running in desktop mode" };
   }
   try {
     const { save } = await import("@tauri-apps/plugin-dialog");
-    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
 
     const filePath = await save({
       defaultPath: opts.defaultPath,
@@ -886,7 +929,7 @@ export async function saveFileNative(opts: {
       // User cancelled.
       return { ok: false, error: "cancelled" };
     }
-    await writeTextFile(filePath, opts.content);
+    await writeTextContent(filePath, opts.content);
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

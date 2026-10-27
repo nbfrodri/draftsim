@@ -4,7 +4,7 @@ import type { EventRecord } from "./eventHistory";
 import { buildYearEventSummary } from "./simEventSummary";
 import type { Lane } from "../types";
 
-const team = { id: "t1", name: "Alpha", leagueId: "lck" as const };
+const team = { id: "t1", name: "Alpha", leagueId: "lck" as const, logoUrl: "/logos/alpha.png" };
 function player(key: string, lane: Lane, o: Partial<EventPlayer> = {}): EventPlayer {
   return {
     key, playerId: key, name: key.toUpperCase(), lane, teams: [team],
@@ -36,7 +36,7 @@ describe("buildYearEventSummary", () => {
     const e = s.events[0]!;
     expect(e).toMatchObject({ id: "s:0:lck", split: "winter", leagueId: "lck", games: 10 });
     const top = e.roles.find((r) => r.lane === "top")!;
-    expect(top.leader).toMatchObject({ id: "a", name: "A", teamName: "Alpha", leagueId: "lck" });
+    expect(top.leader).toMatchObject({ id: "a", name: "A", teamName: "Alpha", leagueId: "lck", teamId: "t1", logoUrl: "/logos/alpha.png" });
     expect(typeof top.leader!.score).toBe("number");
     expect(e.roles.find((r) => r.lane === "jungle")).toEqual({ lane: "jungle" });
     expect(e.roles.find((r) => r.lane === "mid")).toBeUndefined();

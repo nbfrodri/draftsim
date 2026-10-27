@@ -244,7 +244,7 @@ async function loadDatabase(): Promise<SqlExecutor> {
         const existing = await db.select<{ c: number }[]>("SELECT COUNT(*) AS c FROM global_state");
         if (existing[0]?.c) {
           // Preserve a coherent v7 database before any partitioned writes.
-          setPersistLoadStage("Creating recovery copy before storage upgrade");
+          setPersistLoadStage("Creating recovery copy before storage upgrade", { slow: true });
           const onProgress = new Channel<string>();
           onProgress.onmessage = step => {
             const stages: Record<string, string> = {
@@ -253,7 +253,7 @@ async function loadDatabase(): Promise<SqlExecutor> {
               retention: "Checking older recovery copies before storage upgrade",
               external: "Finishing external recovery copy before storage upgrade",
             };
-            if (stages[step]) setPersistLoadStage(stages[step]);
+            if (stages[step]) setPersistLoadStage(stages[step], { slow: true });
           };
           await invoke("backup_create", { name: "Before storage format 8", onProgress });
         }
@@ -274,7 +274,7 @@ async function loadDatabase(): Promise<SqlExecutor> {
               retention: "Checking older recovery copies before optimizing saved history",
               external: "Finishing external recovery copy before optimizing saved history",
             };
-            if (stages[step]) setPersistLoadStage(stages[step]);
+            if (stages[step]) setPersistLoadStage(stages[step], { slow: true });
           };
           await invoke("backup_create", { name: "Before storage format 9", onProgress });
         });
@@ -298,16 +298,15 @@ export async function upgradeHistoryStorage(db: SqlExecutor, version: string, ba
   const plain = await countPlainHistoryRows(db);
   if (version === "8") {
     if (plain) {
-      setPersistLoadStage("Creating recovery copy before optimizing saved history");
+      setPersistLoadStage("Creating recovery copy before optimizing saved history", { slow: true });
       await backup();
     }
     await db.execute("INSERT INTO schema_meta (key, value) VALUES ('persist_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(DATABASE_VERSION)]);
   }
   if (!plain) return;
   await migrateHistoryToV9(db, (done, total) => setPersistLoadStage(`Optimizing saved history (${done} of ${total} years)`));
-  setPersistLoadStage("Verifying optimized history");
-  await verifyHistoryV9(db);
-  setPersistLoadStage("Compacting saved data");
+  await verifyHistoryV9(db, (done, total) => setPersistLoadStage(`Verifying optimized history (${done} of ${total} years)`));
+  setPersistLoadStage("Compacting saved data", { slow: true });
   await db.execute("VACUUM");
 }
 
@@ -1007,10 +1006,11 @@ export const SELECT_SEASON_PART_SQL = "SELECT substr(season_json, ?, ?) AS part 
 
 type HistoryRow = { entry_id: string; entry_json: string; sort_order: number };
 
-async function selectHistoryRows(db: SqlExecutor, realityId: string): Promise<HistoryRow[]> {
+async function selectHistoryRows(db: SqlExecutor, realityId: string, onProgress?: (done: number, total: number) => void): Promise<HistoryRow[]> {
   const sizes = await db.select<{ entry_id: string; sort_order: number; chars: number | null }>(SELECT_HISTORY_SIZES_SQL, [realityId]);
   const rows: HistoryRow[] = [];
   for (const row of sizes) {
+    onProgress?.(rows.length, sizes.length);
     const entry_json = row.chars == null ? "null" : await decompressStoredJson(await selectTextInChunks(db, SELECT_HISTORY_PART_SQL, [realityId, row.entry_id], row.chars));
     rows.push({ entry_id: row.entry_id, sort_order: row.sort_order, entry_json });
   }
@@ -1148,7 +1148,7 @@ export async function loadPersistedStateFromDbExecutor(
     let history: unknown[] = [];
     if (activeRealityId && row.id === activeRealityId) {
       setPersistLoadStage("Reading active reality history");
-      const histRows = await selectHistoryRows(db, row.id);
+      const histRows = await selectHistoryRows(db, row.id, (done, total) => setPersistLoadStage(`Reading active reality history (${done} of ${total} years)`));
       const parsed = await parseHistoryRows(db, row.id, histRows);
       history = parsed.filter((e): e is unknown => e != null);
       historyBaselines.set(row.id, baselineFromRows(histRows, parsed));
