@@ -34,6 +34,22 @@ const REALITY_EXPORT_FILTER = {
   name: "DraftSim Reality",
   extensions: ["json"],
 };
+const REALITY_EXPORT_GZ_FILTER = {
+  name: "DraftSim Reality (compressed)",
+  extensions: ["gz"],
+};
+/** Import dialogs accept plain and compressed reality exports. */
+export const REALITY_IMPORT_FILTERS = [{ name: "DraftSim Reality", extensions: ["json", "gz"] }];
+export const realityExportFilters = (compressed: boolean) => [compressed ? REALITY_EXPORT_GZ_FILTER : REALITY_EXPORT_FILTER];
+
+const COMPRESS_EXPORTS_KEY = "draftsim-compress-exports";
+/** Desktop preference: write reality exports gzip-compressed (.json.gz). Per-device convenience only. */
+export function getCompressExports(): boolean {
+  try { return isDesktop() && localStorage.getItem(COMPRESS_EXPORTS_KEY) === "1"; } catch { return false; }
+}
+export function setCompressExports(on: boolean): void {
+  try { localStorage.setItem(COMPRESS_EXPORTS_KEY, on ? "1" : "0"); } catch { /* preference only */ }
+}
 
 type WritableFileHandle = FileSystemFileHandle & {
   queryPermission: (descriptor: {
@@ -63,9 +79,9 @@ function hasSaveFilePicker(
 }
 
 /** Safe filename for a reality JSON export. */
-export function realityExportFilename(name: string): string {
+export function realityExportFilename(name: string, compressed = false): string {
   const safe = name.replace(/[/\\:*?"<>|]/g, "_").trim() || "reality";
-  return `${safe}.draftsim-reality.json`;
+  return `${safe}.draftsim-reality.json${compressed ? ".gz" : ""}`;
 }
 
 /** Target chosen once at bulk-sim start; each year overwrites the same destination. */
@@ -83,16 +99,15 @@ export function supportsSilentRealityExportOverwrite(): boolean {
 /** One-time save location for bulk export — dialog on desktop / File System Access on web. */
 export async function pickRealityExportTarget(
   realityName: string,
+  compressed = false,
 ): Promise<
   | { ok: true; target: RealityExportTarget }
   | { ok: false; error?: string; cancelled?: boolean }
 > {
-  const filename = realityExportFilename(realityName);
-
   if (isDesktop()) {
     const res = await pickSavePathNative({
-      defaultPath: filename,
-      filters: [REALITY_EXPORT_FILTER],
+      defaultPath: realityExportFilename(realityName, compressed),
+      filters: realityExportFilters(compressed),
     });
     if (!res.ok || !res.path) {
       return {
@@ -103,6 +118,9 @@ export async function pickRealityExportTarget(
     }
     return { ok: true, target: { kind: "desktop", path: res.path } };
   }
+
+  // Browser previews always export plain JSON.
+  const filename = realityExportFilename(realityName);
 
   if (typeof window !== "undefined" && hasSaveFilePicker(window)) {
     try {

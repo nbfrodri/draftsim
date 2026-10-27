@@ -870,8 +870,49 @@ export async function pickSavePathNative(opts: {
 /** Text written whole, or streamed in parts so no single string has to hold a huge file. */
 export type TextContent = string | AsyncIterable<string>;
 
-/** Write text in order; parts after the first are appended to the same file. */
+const GZIP_WRITE_BYTES = 4 * 1024 * 1024;
+
+/** gzip text parts as they arrive, yielding compressed blocks of a few MB. */
+export async function* gzipTextParts(content: TextContent): AsyncGenerator<Uint8Array> {
+  const parts = typeof content === "string" ? [content][Symbol.iterator]() : content[Symbol.asyncIterator]();
+  const encoder = new TextEncoder();
+  const reader = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await parts.next();
+      if (next.done) controller.close();
+      else controller.enqueue(encoder.encode(next.value));
+    },
+  }).pipeThrough(new CompressionStream("gzip")).getReader();
+  let pending: Uint8Array[] = [], size = 0;
+  const flush = () => { const out = new Uint8Array(size); let at = 0; for (const p of pending) { out.set(p, at); at += p.length; } pending = []; size = 0; return out; };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    pending.push(value); size += value.length;
+    if (size >= GZIP_WRITE_BYTES) yield flush();
+  }
+  if (size) yield flush();
+}
+
+/** Text from a file's bytes: gzip (by its magic number) is inflated, anything else is UTF-8. */
+export async function decodeTextFileBytes(bytes: Uint8Array): Promise<string> {
+  if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    return new Response(new Blob([bytes as BlobPart]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+  }
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+/** Write text in order; parts after the first are appended. A `.gz` path is written gzip-compressed. */
 export async function writeTextContent(path: string, content: TextContent): Promise<void> {
+  if (path.toLowerCase().endsWith(".gz")) {
+    const { writeFile } = await import("@tauri-apps/plugin-fs");
+    let first = true;
+    for await (const block of gzipTextParts(content)) {
+      await writeFile(path, block, first ? undefined : { append: true });
+      first = false;
+    }
+    return;
+  }
   const { writeTextFile } = await import("@tauri-apps/plugin-fs");
   if (typeof content === "string") { await writeTextFile(path, content); return; }
   let first = true;
@@ -1017,7 +1058,7 @@ export async function openFileNative(opts: {
   }
   try {
     const { open } = await import("@tauri-apps/plugin-dialog");
-    const { readTextFile } = await import("@tauri-apps/plugin-fs");
+    const { readFile } = await import("@tauri-apps/plugin-fs");
 
     const result = await open({
       multiple: false,
@@ -1030,7 +1071,8 @@ export async function openFileNative(opts: {
     // result is a string (single file path) when multiple: false
     const filePath = typeof result === "string" ? result : result[0];
     if (!filePath) return { ok: false, error: "cancelled" };
-    const content = await readTextFile(filePath);
+    // Compressed (.gz) exports are recognised by content, not by name.
+    const content = await decodeTextFileBytes(await readFile(filePath));
     return { ok: true, content };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

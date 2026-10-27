@@ -277,3 +277,26 @@ describe("streamed text files", () => {
 		vi.doUnmock("@tauri-apps/plugin-fs");
 	});
 });
+
+describe("compressed reality exports", () => {
+	it("gzip-writes .gz paths in appended blocks and reads both formats back by content", async () => {
+		const writeFile = vi.fn().mockResolvedValue(undefined);
+		vi.doMock("@tauri-apps/plugin-fs", () => ({ writeFile, writeTextFile: vi.fn() }));
+		const { writeTextContent, decodeTextFileBytes } = await import("./desktopStorage");
+		const year = (i: number) => JSON.stringify({ id: `y${i}`, name: `Año ${i} 🏆`, rows: Array.from({ length: 4000 }, (_, k) => ({ k, v: (k * 7919 + i) % 1000 })) });
+		async function* parts() { yield "["; for (let i = 0; i < 6; i++) yield `${i ? "," : ""}${year(i)}`; yield "]"; }
+		let expected = "[";
+		for (let i = 0; i < 6; i++) expected += `${i ? "," : ""}${year(i)}`;
+		expected += "]";
+		await writeTextContent("out.draftsim-reality.json.gz", parts());
+		expect(writeFile.mock.calls[0]![2]).toBeUndefined();
+		for (const call of writeFile.mock.calls.slice(1)) expect(call[2]).toEqual({ append: true });
+		const blocks = writeFile.mock.calls.map(c => c[1] as Uint8Array);
+		const bytes = new Uint8Array(blocks.reduce((n, b) => n + b.length, 0));
+		let at = 0; for (const b of blocks) { bytes.set(b, at); at += b.length; }
+		expect(bytes.length).toBeLessThan(expected.length / 3);
+		expect(await decodeTextFileBytes(bytes)).toBe(expected);
+		expect(await decodeTextFileBytes(new TextEncoder().encode('{"plain":"ñ"}'))).toBe('{"plain":"ñ"}');
+		vi.doUnmock("@tauri-apps/plugin-fs");
+	});
+});

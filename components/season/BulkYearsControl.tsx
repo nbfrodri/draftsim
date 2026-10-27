@@ -8,7 +8,9 @@ import {
   clampBulkYearCount,
 } from "@/lib/season/bulkYears";
 import {
+  getCompressExports,
   pickRealityExportTarget,
+  setCompressExports,
   supportsSilentRealityExportOverwrite,
   type RealityExportTarget,
 } from "@/lib/realityExport";
@@ -50,6 +52,7 @@ export default function BulkYearsControl() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saveAfterEachYear, setSaveAfterEachYear] = useState(false);
   const [exportAfterEachYear, setExportAfterEachYear] = useState(false);
+  const [compressExport, setCompressExport] = useState(getCompressExports);
   const [exportPickBusy, setExportPickBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
@@ -89,7 +92,7 @@ export default function BulkYearsControl() {
     if (exportAfterEachYear) {
       setExportPickBusy(true);
       try {
-        const picked = await pickRealityExportTarget(fr.name);
+        const picked = await pickRealityExportTarget(fr.name, compressExport);
         if (!picked.ok) {
           if (!picked.cancelled) {
             console.warn("[bulk export] could not pick save location:", picked.error);
@@ -351,6 +354,19 @@ export default function BulkYearsControl() {
                   ) : null}
                 </span>
               </label>
+              {exportAfterEachYear && isDesktop() && (
+                <label className="ml-5 flex items-start gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={compressExport}
+                    onChange={(e) => { setCompressExport(e.target.checked); setCompressExports(e.target.checked); }}
+                    className="mt-0.5 accent-rift-gold cursor-pointer"
+                  />
+                  <span className="text-[9px] text-rift-mutedbright/80 leading-relaxed">
+                    Compress the export file (.json.gz, several times smaller; older DraftSim versions cannot import it)
+                  </span>
+                </label>
+              )}
 
               <button
                 type="button"

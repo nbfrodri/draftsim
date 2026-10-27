@@ -20,6 +20,7 @@ type ReactNode,
 } from "react";
 
 import { computeStageMvp } from "@/lib/awards";
+import { getCompressExports, realityExportFilename, realityExportFilters } from "@/lib/realityExport";
 import { flushPendingPersistWrites,isDesktop,saveFileNative,textContentBlob } from "@/lib/desktopStorage";
 import {
 computeAllProTeams,
@@ -188,9 +189,10 @@ export default function SeasonDashboard() {
       const safe = season.franchise.name.replace(/[/\\:*?"<>|]/g, "_").trim() || "reality";
       const filename = `${safe}.draftsim-reality.json`;
       if (isDesktop()) {
+        const compressed = getCompressExports();
         const res = await saveFileNative({
-          defaultPath: filename,
-          filters: [{ name: "DraftSim Reality", extensions: ["json"] }],
+          defaultPath: realityExportFilename(season.franchise.name, compressed),
+          filters: realityExportFilters(compressed),
           content: json,
         });
         if (res.ok) setSaveFeedback("Reality exported");
