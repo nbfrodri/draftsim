@@ -19,7 +19,9 @@ print('Migration and active/inactive unfinished franchises verified')
 
 if '--require-format8' in sys.argv:
     with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as db:
-        assert db.execute("select value from schema_meta where key='persist_version'").fetchone()[0] == '8'
+        # Storage format 9 keeps format 8 partitioning (plus compressed history and event records apart).
+        assert db.execute("select value from schema_meta where key='persist_version'").fetchone()[0] == '9'
+        assert db.execute("select count(*) from sqlite_master where type='table' and name='reality_event_records'").fetchone()[0] == 1
         root = json.loads(db.execute("select state_json from global_state where store_key='draftsim-store'").fetchone()[0])
         assert 'season' in root['_draftsimFragments']
         season = json.loads(db.execute("select value_json from global_fragments where store_key='draftsim-store' and fragment_key='season'").fetchone()[0])

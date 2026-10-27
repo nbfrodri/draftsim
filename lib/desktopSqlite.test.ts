@@ -1026,7 +1026,7 @@ describe("lazy-history safety and write budget", () => {
     expect(initialHistoryWrites).toBe(10000);
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0][0]).toContain("global_state");
-  });
+  }, 60_000); // The first save compresses 10000 archives; the assertion is about rewrites, not time.
 });
 
 
