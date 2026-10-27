@@ -129,8 +129,10 @@ function rosterSeed(roster: Roster): string {
 
 // Triangular roll in (−1, +1) centered on 0 — most pairs mild, a few strongly
 // + or −. Two decimals for tidy stored values.
+// `+ 0` turns -0 (Math.round of a small negative) into 0: saves round-trip
+// through JSON as 0, and stored chemistry must compare equal after reload.
 function signedRoll(rng: RNG): number {
-  return Math.round((rng() - rng()) * 100) / 100;
+  return Math.round((rng() - rng()) * 100) / 100 + 0;
 }
 
 // True when every player has an id and every teammate pair already carries a
@@ -216,7 +218,7 @@ function driftRoster(roster: Roster, fn: (cur: number) => number): Roster {
       const hasB = b.synergy[a.id] != null;
       if (!hasA && !hasB) continue;
       const cur = hasA ? a.synergy[b.id]! : b.synergy[a.id]!;
-      const next = clamp(fn(cur), -1, 1);
+      const next = clamp(fn(cur), -1, 1) + 0;
       a.synergy[b.id] = next;
       b.synergy[a.id] = next;
     }
