@@ -1,4 +1,5 @@
 import { EVENT_METRICS, type EventChampion, type EventPlayer, type EventStats } from "../eventStats";
+import { eventRecordsAvailability } from "../eventRecordsAccess";
 import type { Lane } from "../types";
 import type { EventRecord } from "./eventHistory";
 import type { SeasonHistoryEntry } from "./history";
@@ -20,6 +21,8 @@ export interface AllTimeEventCoverage {
 	recordedSeasons: number;
 	/** Legacy seasons without readable event records: unknown, not zero. */
 	unrecordedSeasons: number;
+	/** Seasons with deferred records that have not been supplied by the resolver. */
+	unloadedSeasons: number;
 	/** Seasons outside the year range (or without a known year when a range is set). */
 	excludedSeasons: number;
 	/** Event records that passed the event and region filters. */
@@ -78,9 +81,10 @@ const teamKey = (t: EventPlayer["teams"][number]) => `${t.leagueId ?? ""}|${t.na
  * Sums the final whole-event rows of archived event records (version 1 and 2 share the final shape).
  * `histories` is one list per reality; ids are only deduplicated within a list.
  * Output rows feed rankEventPlayers and the champion tables unchanged.
+ * `recordsFor` resolves records without changing the source archive used for pins.
  */
-export function aggregateAllTimeEventStats(histories: readonly (readonly SeasonHistoryEntry[])[], filters: AllTimeEventFilters): AllTimeEventStats {
-	const coverage: AllTimeEventCoverage = { seasons: 0, recordedSeasons: 0, unrecordedSeasons: 0, excludedSeasons: 0, events: 0 };
+export function aggregateAllTimeEventStats(histories: readonly (readonly SeasonHistoryEntry[])[], filters: AllTimeEventFilters, recordsFor: (entry: SeasonHistoryEntry) => EventRecord[] | undefined = entry => entry.eventRecords): AllTimeEventStats {
+	const coverage: AllTimeEventCoverage = { seasons: 0, recordedSeasons: 0, unrecordedSeasons: 0, unloadedSeasons: 0, excludedSeasons: 0, events: 0 };
 	const players = new Map<string, EventPlayer>();
 	const champions = new Map<number, EventChampion>();
 	const lanes: Record<string, Lane[]> = {};
@@ -104,7 +108,9 @@ export function aggregateAllTimeEventStats(histories: readonly (readonly SeasonH
 	inRange.sort((a, b) => (entryEventYear(a) ?? Infinity) - (entryEventYear(b) ?? Infinity) || a.archivedAt - b.archivedAt || a.id.localeCompare(b.id));
 	for (const e of inRange) {
 		coverage.seasons++;
-		const records = (e.eventRecords ?? []).filter(r => wholeEvent(r)).sort((a, b) => (a.phaseIndex ?? -1) - (b.phaseIndex ?? -1) || a.id.localeCompare(b.id));
+		const resolved = recordsFor(e);
+		if (!resolved?.length && eventRecordsAvailability(e) === "deferred") { coverage.unloadedSeasons++; continue; }
+		const records = (resolved ?? []).filter(r => wholeEvent(r)).sort((a, b) => (a.phaseIndex ?? -1) - (b.phaseIndex ?? -1) || a.id.localeCompare(b.id));
 		if (!records.length) { coverage.unrecordedSeasons++; continue; }
 		coverage.recordedSeasons++;
 		for (const r of records) {
