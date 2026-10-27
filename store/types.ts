@@ -501,7 +501,8 @@ export interface DraftStore {
   /** Export a reality as a REAL1: share code (compact import string). */
   exportRealityShareCode: (id: string) => Promise<string | null>;
   /** Restore a reality from an exported JSON string (upsert by id). */
-  importReality: (json: string) => Promise<{ ok: boolean; error?: string; id?: string }>;
+  /** Text is parsed and validated here; a LoadedReality must come from the import preview, which validated it. */
+  importReality: (json: string | LoadedReality) => Promise<{ ok: boolean; error?: string; id?: string }>;
   /** Import from a REAL1: code or raw JSON export. */
   importRealityShareCode: (code: string) => Promise<{ ok: boolean; error?: string; id?: string }>;
   /** Merge entries parsed from an imported .xlsx (upsert by id, newest

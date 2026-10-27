@@ -36,7 +36,8 @@ it("previews raw and compressed realities larger than 128 MiB", async () => {
   const code = await encodeRealityShareCode(json);
   const preview = await previewRealityImport(code, []);
   expect(preview.id).toBe("large");
-  expect(preview.json.length).toBe(json.length);
+  // The preview now carries the validated reality instead of the decoded text.
+  expect(preview.reality).toMatchObject({ id: "large", name: "Large reality", year: 1, history: [] });
   // Other export types retain their original budget.
   await expect(deflateString(json)).rejects.toThrow("128 MiB");
 }, 30_000);

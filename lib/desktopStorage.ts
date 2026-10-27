@@ -1071,6 +1071,23 @@ export async function openBinaryFileNative(opts: {
  * Open a native Open dialog and read the chosen file's contents.
  * Returns { ok: true, content } on success, { ok: false, error } on failure/cancel.
  */
+/** Open dialog returning the file's raw bytes (large or compressed files are decoded in parts). */
+export async function openFileBytesNative(opts: {
+  filters?: Array<{ name: string; extensions: string[] }>;
+}): Promise<{ ok: boolean; bytes?: Uint8Array; error?: string }> {
+  if (!isDesktop()) return { ok: false, error: "Not running in desktop mode" };
+  try {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const { readFile } = await import("@tauri-apps/plugin-fs");
+    const result = await open({ multiple: false, filters: opts.filters });
+    const filePath = typeof result === "string" ? result : result?.[0];
+    if (!filePath) return { ok: false, error: "cancelled" };
+    return { ok: true, bytes: await readFile(filePath) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function openFileNative(opts: {
   filters?: Array<{ name: string; extensions: string[] }>;
 }): Promise<{ ok: boolean; content?: string; error?: string }> {

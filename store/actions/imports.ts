@@ -47,7 +47,8 @@ importReality: async (json) => {
     await waitForDesktopOverlayPaint();
     try {
       let r: LoadedReality;
-      try { r = parseRealityImport(json); }
+      // A preview hands over a reality it has already parsed and validated (possibly in parts).
+      try { r = typeof json === "string" ? parseRealityImport(json) : json; }
       catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Invalid reality export." }; }
       const rs = r.season;
       const id = r.id;
