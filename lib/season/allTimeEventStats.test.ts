@@ -87,6 +87,42 @@ describe("aggregateAllTimeEventStats", () => {
 		expect(r.stats.players[0].games).toBe(4);
 	});
 
+	it("keeps deferred seasons unknown until records are resolved", () => {
+		const deferred = { ...entry("s2", 2), eventRecordsDeferred: { realityId: "A", count: 1 } };
+		for (const recordsFor of [undefined, () => undefined, () => []]) {
+			const r = aggregateAllTimeEventStats([[entry("old", 1), deferred]], ALL, recordsFor);
+			expect(r.coverage).toMatchObject({ seasons: 2, recordedSeasons: 0, unrecordedSeasons: 1, unloadedSeasons: 1, events: 0 });
+			expect(r.stats.games).toBe(0);
+		}
+		expect(aggregateAllTimeEventStats([[deferred]], { ...ALL, toYear: 1 }).coverage).toMatchObject({ seasons: 0, excludedSeasons: 1, unloadedSeasons: 0 });
+	});
+
+	it("aggregates resolved records like inline records, preserving filters and archive pins", () => {
+		const records = [record("winter", { players: [player("p", "top", "A")], champions: [champ(1)] }), record("worlds", { players: [player("p", "top", "B")] }, { split: undefined, leagueId: undefined, event: "worlds", phaseIndex: 4 })];
+		const e = { ...entry("s1", 1), eventRecordsDeferred: { realityId: "A", count: records.length } };
+		const loaded = new Map<SeasonHistoryEntry, EventRecord[]>([[e, records]]);
+		for (const filters of [ALL, { ...ALL, event: "worlds" as const }, { ...ALL, leagueId: "LCK" as const }]) {
+			const inline = aggregateAllTimeEventStats([[e]], filters, () => records);
+			e.eventRecords = records;
+			expect(inline).toEqual(aggregateAllTimeEventStats([[e]], filters));
+			delete e.eventRecords;
+			const resolved = aggregateAllTimeEventStats([[e]], filters, source => loaded.get(source));
+			expect(resolved).toEqual(inline);
+			expect(resolved.playerPins["p:top"].archive).toBe(e);
+		}
+	});
+
+	it("resolves same-id seasons by entry object across realities", () => {
+		const a = { ...entry("s1", 1), eventRecordsDeferred: { realityId: "A", count: 1 } };
+		const b = { ...entry("s1", 1), eventRecordsDeferred: { realityId: "B", count: 1 } };
+		const loaded = new Map<SeasonHistoryEntry, EventRecord[]>([[a, [record("a", { players: [player("p", "top", "A", { games: 2 })] })]], [b, [record("b", { players: [player("q", "top", "B", { games: 3 })] })]]]);
+		const r = aggregateAllTimeEventStats([[a], [b]], ALL, source => loaded.get(source));
+		expect(r.stats.players.map(p => [p.playerId, p.games])).toEqual([["p", 2], ["q", 3]]);
+		expect(r.playerPins["p:top"].archive).toBe(a);
+		expect(r.playerPins["q:top"].archive).toBe(b);
+		expect(r.coverage).toMatchObject({ recordedSeasons: 2, unrecordedSeasons: 0, unloadedSeasons: 0 });
+	});
+
 	it("filters by event kind, split, region and year range", () => {
 		const intl = record("i", { players: [player("pi", "top", "Intl")] }, { split: undefined, leagueId: undefined, event: "worlds" });
 		const lck = record("l", { players: [player("pl", "top", "K")] }, { split: "winter", leagueId: "LCK" });
