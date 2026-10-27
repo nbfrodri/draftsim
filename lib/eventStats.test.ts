@@ -10,7 +10,8 @@ import { validEventRecords, validEventCheckpoints } from "./eventStatsValidation
 import { ssPerformanceScore } from "./season/ssPlayers";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { SCHEMA_SQL, type PersistedStoreState } from "./desktopSqliteSchema";
-import { loadPersistedStateFromDbExecutor, savePersistedStateToDbExecutor, resetSqliteStorageForTests, type SqlExecutor } from "./desktopSqlite";
+import { loadPersistedStateFromDbExecutor, savePersistedStateToDbExecutor, resetSqliteStorageForTests, setDesktopDatabaseForTests, type SqlExecutor } from "./desktopSqlite";
+import { loadEventRecords } from "./eventRecordsAccess";
 import { buildSeasonHistoryEntry } from "./season/history";
 import { compactEncodeSeasonForPersist, decodeCompactSeason } from "./recapCompression";
 import { encodeRealityShareCode, decodeRealityShareCode } from "./realityShare";
@@ -157,12 +158,19 @@ describe("event performance", () => {
 		try {
 			resetSqliteStorageForTests();
 			await savePersistedStateToDbExecutor(executor, "draftsim-store", { season, activeRealityId: reality.id, realities: [reality] } as PersistedStoreState);
+			setDesktopDatabaseForTests(executor);
 			const loaded = (await loadPersistedStateFromDbExecutor(executor, "draftsim-store"))!;
-			expect(loaded.realities![0].history[0].eventRecords).toEqual(expected);
+			// Storage v9 keeps records out of startup; they load on demand, unchanged.
+			const archived = loaded.realities![0].history[0] as SeasonHistoryEntry;
+			expect(archived.eventRecords).toBeUndefined();
+			expect(archived.eventRecordsDeferred).toEqual({ realityId: reality.id, count: expected.length });
+			expect((await loadEventRecords([archived])).get(archived)).toEqual(expected);
 			expect(loaded.season!.tournaments[t.id].eventCheckpoints).toEqual(t.eventCheckpoints);
-			resetSqliteStorageForTests(); await savePersistedStateToDbExecutor(executor, "draftsim-store", loaded);
-			expect((await loadPersistedStateFromDbExecutor(executor, "draftsim-store"))!.realities![0].history[0].eventRecords).toEqual(expected);
-		} finally { db.close(); resetSqliteStorageForTests(); }
+			// Re-saving a deferred year must keep its stored records.
+			resetSqliteStorageForTests(); setDesktopDatabaseForTests(executor); await savePersistedStateToDbExecutor(executor, "draftsim-store", loaded);
+			const again = (await loadPersistedStateFromDbExecutor(executor, "draftsim-store"))!.realities![0].history[0] as SeasonHistoryEntry;
+			expect((await loadEventRecords([again])).get(again)).toEqual(expected);
+		} finally { db.close(); resetSqliteStorageForTests(); setDesktopDatabaseForTests(null); }
 	});
 	it("keeps completed-stage KDA through a desktop save so a later archive retains KDA totals", async () => {
 		const season = makeAuditSeason("Event KDA restart");

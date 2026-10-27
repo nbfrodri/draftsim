@@ -22,6 +22,7 @@ import TeamNameLink from "../team/TeamNameLink";
 import ChipRow from "../ChipRow";
 import SplitIcon from "../season/SplitIcon";
 import EventIdentityIcon from "../tournament/EventIdentityIcon";
+import { useEventRecords } from "./useEventRecords";
 
 const segment = "inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold";
 const segmentState = (on: boolean) => on ? "border-rift-gold/50 bg-rift-gold/10 text-rift-goldbright" : "border-rift-line/50 text-rift-mutedbright hover:border-rift-gold/40 hover:text-rift-goldbright";
@@ -67,11 +68,14 @@ function Body({ entries }: { entries: readonly SeasonHistoryEntry[] }) {
 		}
 		return { histories: loaded, skipped };
 	}, [scope, entries, realities]);
+	const scopedEntries = useMemo(() => scope === "current" ? entries : histories.flat(), [scope, entries, histories]);
+	const { state, retry } = useEventRecords(scopedEntries);
+	const records = state.status === "ready" ? state.records : null;
 	const years = useMemo(() => allTimeEventYears(histories), [histories]);
 	const filters = useMemo<AllTimeEventFilters>(() => ({ event, leagueId, fromYear: from ? Number(from) : null, toYear: to ? Number(to) : null }), [event, leagueId, from, to]);
-	const data = useMemo(() => aggregateAllTimeEventStats(histories, filters), [histories, filters]);
-	const ranked = useMemo(() => rankEventPlayers(data.stats.players, lane), [data.stats.players, lane]);
-	const { coverage } = data;
+	const data = useMemo(() => records ? aggregateAllTimeEventStats(histories, filters, entry => records.get(entry)) : null, [histories, filters, records]);
+	const ranked = useMemo(() => data ? rankEventPlayers(data.stats.players, lane) : [], [data, lane]);
+	const coverage = data?.coverage;
 	const yearOptions = (blank: string) => [{ value: "", label: blank }, ...years.map(y => ({ value: String(y), label: `Year ${y}` }))];
 	const rows = limit === "all" ? ranked : ranked.slice(0, 10);
 	const domestic = event === "all" || event === "domestic" || event === "winter" || event === "spring" || event === "summer";
@@ -87,10 +91,17 @@ function Body({ entries }: { entries: readonly SeasonHistoryEntry[] }) {
 			if (!["all", "domestic", "winter", "spring", "summer"].includes(v)) setLeagueId("all");
 		}} options={EVENT_OPTIONS.map(option => ({ ...option, icon: option.value === "winter" || option.value === "spring" || option.value === "summer" ? <SplitIcon split={option.value} size={16} /> : <EventIdentityIcon identity={option.value === "first-stand" || option.value === "msi" || option.value === "worlds" || option.value === "global-cup" ? { event: option.value } : {}} size={16} /> }))} />
 		{domestic && <ChipRow label="Region" value={leagueId} onChange={v => setLeagueId(v as LeagueId | "all")} options={[{ value: "all", label: "All regions" }, ...LEAGUE_IDS.map(l => ({ value: l, label: l, icon: <RegionMark league={l} size={14} /> }))]} />}
+		{state.status === "loading" && <p role="status" className="text-xs text-rift-mutedbright">Loading event statistics…</p>}
+		{state.status === "error" && <div className="text-xs text-rift-mutedbright">
+			<p role="alert">Could not load event statistics.</p>
+			<button type="button" onClick={retry} className="mt-2 border border-rift-gold/50 px-3 py-2 text-rift-goldbright focus-visible:outline focus-visible:outline-2 focus-visible:outline-rift-gold">Retry</button>
+		</div>}
+		{data && coverage && <>
 		<p role="status" className="text-[11px] leading-relaxed text-rift-mutedbright">
 			{plural(coverage.events, "event")} from {plural(coverage.recordedSeasons, "season")} · {plural(data.stats.games, "completed game")}.{" "}
 			<span className={coverage.unrecordedSeasons ? "text-rift-goldbright" : ""}>Not recorded: {coverage.unrecordedSeasons} of {plural(coverage.seasons, "season")}</span>
 			{coverage.unrecordedSeasons > 0 && " (older archives without event statistics; unknown, not counted as zero)"}.
+			{coverage.unloadedSeasons > 0 && ` ${plural(coverage.unloadedSeasons, "season")} with event statistics not loaded yet.`}
 			{coverage.excludedSeasons > 0 && ` ${plural(coverage.excludedSeasons, "season")} outside the year range.`}
 			{leagueId !== "all" && " A region filter covers domestic events only."}
 			{scope === "all" && ` Only realities with history loaded in memory are included${skipped ? ` (${plural(skipped, "reality", "realities")} not loaded yet; open them in the Hall to include them)` : ""}.`}
@@ -114,5 +125,6 @@ function Body({ entries }: { entries: readonly SeasonHistoryEntry[] }) {
 		</tr>)}</tbody></table>{!ranked.length && <p className="px-3 py-5 text-xs text-rift-mutedbright">No identified participants with recorded games in this role for these filters.</p>}</div>
 		<p className="text-[11px] text-rift-mutedbright">Event performance only, summed per player and role across the selected events with the same score and qualification rules as single events. Unknown evidence is not zero.</p>
 		<EventChampionTables stats={data.stats} champions={champions} lanes={data.lanes} filters={champFilters} onFilterChange={patch => setChampFilters(c => ({ ...c, ...patch }))} />
+		</>}
 	</div>;
 }

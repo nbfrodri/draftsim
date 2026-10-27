@@ -12,6 +12,10 @@ import { advanceOperationProgress, recordOperationSuccess } from "@/lib/operatio
  */
 
 import { encodeSeasonForDesktopDb } from "@/lib/recapCompression";
+import { compressStoredJson, decompressStoredJson } from "@/lib/storedJson";
+import { countPlainHistoryRows, migrateHistoryToV9, selectTextInChunks, verifyHistoryV9 } from "@/lib/historyStorageV9";
+import { setEventRecordsLoader } from "@/lib/eventRecordsAccess";
+import type { EventRecord } from "@/lib/season/eventHistory";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 import type { SeasonState } from "@/lib/season/types";
 import type { SavedReality } from "@/store/draftStore";
@@ -24,6 +28,7 @@ META_CONFIG_KEY,
 PERSIST_VERSION,
 SCHEMA_SQL,
 UPDATE_REALITY_HISTORY_ORDER_SQL,
+UPSERT_EVENT_RECORDS_SQL,
 UPSERT_REALITY_HISTORY_SQL,
 mergePersistedState,
 parseMetaConfigJson,
@@ -213,7 +218,8 @@ export async function getDesktopDatabase(): Promise<SqlExecutor> {
 }
 
 async function loadDatabase(): Promise<SqlExecutor> {
-  if (!isDesktop()) {
+  // A database injected for tests is used as is; otherwise only desktop opens one.
+  if (!dbPromise && !isDesktop()) {
     throw new Error("SQLite storage is desktop-only");
   }
   if (!dbPromise) {
@@ -232,7 +238,7 @@ async function loadDatabase(): Promise<SqlExecutor> {
       setPersistLoadStage("Checking saved database schema");
       await db.execute(SCHEMA_SQL);
       const versions = await db.select<{ value: string }[]>("SELECT value FROM schema_meta WHERE key = 'persist_version'");
-      if (!["7", String(DATABASE_VERSION)].includes(versions[0]?.value)) throw new Error("Unsupported saved database version. Update DraftSim before opening it.");
+      if (!["7", "8", String(DATABASE_VERSION)].includes(versions[0]?.value)) throw new Error("Unsupported saved database version. Update DraftSim before opening it.");
       const { invoke, Channel } = await import("@tauri-apps/api/core");
       if (versions[0]?.value === "7") {
         const existing = await db.select<{ c: number }[]>("SELECT COUNT(*) AS c FROM global_state");
@@ -252,18 +258,57 @@ async function loadDatabase(): Promise<SqlExecutor> {
           await invoke("backup_create", { name: "Before storage format 8", onProgress });
         }
       }
-      return {
+      const executor = {
         execute: (query: string, values?: unknown[]) => db.execute(query, values),
         select: <T>(query: string, values?: unknown[]) => db.select<T[]>(query, values),
         // Large values travel as raw chunks; the batch still commits in one transaction.
         batch: (statements: SqlStatement[]) => sendPersistBatch(invoke as PersistInvoke, statements),
       } satisfies SqlExecutor;
+      if (versions[0]?.value !== "7") {
+        await upgradeHistoryStorage(executor, versions[0]!.value, async () => {
+          const onProgress = new Channel<string>();
+          onProgress.onmessage = step => {
+            const stages: Record<string, string> = {
+              snapshot: "Creating recovery copy before optimizing saved history",
+              verify: "Verifying recovery copy before optimizing saved history",
+              retention: "Checking older recovery copies before optimizing saved history",
+              external: "Finishing external recovery copy before optimizing saved history",
+            };
+            if (stages[step]) setPersistLoadStage(stages[step]);
+          };
+          await invoke("backup_create", { name: "Before storage format 9", onProgress });
+        });
+      }
+      return executor;
     })().catch((error) => {
       dbPromise = null;
       throw error;
     });
   }
   return dbPromise;
+}
+
+/**
+ * Storage v9 (docs/plans/2026-10-27-history-storage-v9.md). A v8 database gets a
+ * recovery copy, then is marked v9 before any row changes, so older builds refuse
+ * it instead of misreading compressed rows. Plain rows left by an interrupted
+ * run are converted on the next launch. @internal exported for tests.
+ */
+export async function upgradeHistoryStorage(db: SqlExecutor, version: string, backup: () => Promise<void>): Promise<void> {
+  const plain = await countPlainHistoryRows(db);
+  if (version === "8") {
+    if (plain) {
+      setPersistLoadStage("Creating recovery copy before optimizing saved history");
+      await backup();
+    }
+    await db.execute("INSERT INTO schema_meta (key, value) VALUES ('persist_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(DATABASE_VERSION)]);
+  }
+  if (!plain) return;
+  await migrateHistoryToV9(db, (done, total) => setPersistLoadStage(`Optimizing saved history (${done} of ${total} years)`));
+  setPersistLoadStage("Verifying optimized history");
+  await verifyHistoryV9(db);
+  setPersistLoadStage("Compacting saved data");
+  await db.execute("VACUUM");
 }
 
 async function getMetaValue(key: string): Promise<string | null> {
@@ -506,6 +551,7 @@ export async function deleteRealityFromDb(realityId: string): Promise<void> {
   const db = await loadDatabase();
   await serializeDbWrite(db, () => atomicWrite(db, async (writer) => {
     forgetHistoryBaseline(writer, realityId);
+    await writer.execute("DELETE FROM reality_event_records WHERE reality_id = ?", [realityId]);
     await writer.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
     await writer.execute("DELETE FROM realities WHERE id = ?", [realityId]);
     loadedHistoryRealityIds.delete(realityId);
@@ -779,12 +825,20 @@ export async function syncRealityHistory(
     const saved = baseline?.get(entry.id);
     // A repeated id is always written so the last occurrence wins, as before.
     if (!saved || saved.entry !== entry || next.has(entry.id)) {
+      // Event records live in their own table (storage v9); a deferred marker
+      // means they are already stored and were never loaded, so keep them.
+      const { eventRecords, eventRecordsDeferred, ...row } = entry;
       await db.execute(UPSERT_REALITY_HISTORY_SQL, [
         realityId,
         entry.id,
-        encodeWithSaveDiagnostic("history-encode", () => JSON.stringify(entry)),
+        await compressStoredJson(encodeWithSaveDiagnostic("history-encode", () => JSON.stringify(row))),
         i,
       ]);
+      if (eventRecords?.length) {
+        await db.execute(UPSERT_EVENT_RECORDS_SQL, [realityId, entry.id, await compressStoredJson(JSON.stringify(eventRecords)), eventRecords.length]);
+      } else if (!eventRecordsDeferred) {
+        await db.execute("DELETE FROM reality_event_records WHERE reality_id = ? AND entry_id = ?", [realityId, entry.id]);
+      }
     } else if (saved.index !== i) {
       await db.execute(UPDATE_REALITY_HISTORY_ORDER_SQL, [i, realityId, entry.id]);
     }
@@ -793,11 +847,16 @@ export async function syncRealityHistory(
   transaction?.staged.set(realityId, next);
 
   if (history.length === 0) {
+    await db.execute("DELETE FROM reality_event_records WHERE reality_id = ?", [realityId]);
     await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [realityId]);
     return;
   }
 
   const placeholders = history.map(() => "?").join(", ");
+  await db.execute(
+    `DELETE FROM reality_event_records WHERE reality_id = ? AND entry_id NOT IN (${placeholders})`,
+    [realityId, ...history.map((e) => e.id)],
+  );
   await db.execute(
     `DELETE FROM reality_history WHERE reality_id = ? AND entry_id NOT IN (${placeholders})`,
     [realityId, ...history.map((e) => e.id)],
@@ -815,6 +874,7 @@ export async function syncRemovedRealities(
 
   if (keepIds.length === 0) {
     forgetHistoryBaseline(db);
+    await db.execute("DELETE FROM reality_event_records");
     await db.execute("DELETE FROM reality_history");
     await db.execute("DELETE FROM realities");
     loadedHistoryRealityIds.clear();
@@ -824,6 +884,7 @@ export async function syncRemovedRealities(
   for (const row of existing) {
     if (!keep.has(row.id)) {
       forgetHistoryBaseline(db, row.id);
+      await db.execute("DELETE FROM reality_event_records WHERE reality_id = ?", [row.id]);
       await db.execute("DELETE FROM reality_history WHERE reality_id = ?", [row.id]);
       await db.execute("DELETE FROM realities WHERE id = ?", [row.id]);
       loadedHistoryRealityIds.delete(row.id);
@@ -935,22 +996,7 @@ async function reconcilePersistedState(
   return global;
 }
 
-/**
- * Large text crosses the WebView IPC bridge in pieces of at most this many
- * characters. One select of a long reality's history (hundreds of MB) can kill
- * the renderer at startup; writes are already chunked the same way.
- */
-export const READ_CHUNK_CHARS = 1 << 20;
-
-/** `sql` selects `substr(column, ?, ?) AS part`; its own bind values follow the two substr ones. */
-async function selectTextInChunks(db: SqlExecutor, sql: string, bindValues: unknown[], chars: number): Promise<string> {
-  const parts: string[] = [];
-  for (let start = 1; start <= chars; start += READ_CHUNK_CHARS) {
-    const rows = await db.select<{ part: string | null }>(sql, [start, READ_CHUNK_CHARS, ...bindValues]);
-    parts.push(rows[0]?.part ?? "");
-  }
-  return parts.join("");
-}
+export { READ_CHUNK_CHARS } from "./historyStorageV9";
 
 export const SELECT_HISTORY_SIZES_SQL = "SELECT entry_id, sort_order, LENGTH(entry_json) AS chars FROM reality_history WHERE reality_id = ? ORDER BY sort_order";
 export const SELECT_HISTORY_PART_SQL = "SELECT substr(entry_json, ?, ?) AS part FROM reality_history WHERE reality_id = ? AND entry_id = ?";
@@ -965,11 +1011,52 @@ async function selectHistoryRows(db: SqlExecutor, realityId: string): Promise<Hi
   const sizes = await db.select<{ entry_id: string; sort_order: number; chars: number | null }>(SELECT_HISTORY_SIZES_SQL, [realityId]);
   const rows: HistoryRow[] = [];
   for (const row of sizes) {
-    const entry_json = row.chars == null ? "null" : await selectTextInChunks(db, SELECT_HISTORY_PART_SQL, [realityId, row.entry_id], row.chars);
+    const entry_json = row.chars == null ? "null" : await decompressStoredJson(await selectTextInChunks(db, SELECT_HISTORY_PART_SQL, [realityId, row.entry_id], row.chars));
     rows.push({ entry_id: row.entry_id, sort_order: row.sort_order, entry_json });
   }
   return rows;
 }
+
+export const SELECT_EVENT_RECORD_COUNTS_SQL = "SELECT entry_id, record_count FROM reality_event_records WHERE reality_id = ?";
+export const SELECT_EVENT_RECORDS_SIZE_SQL = "SELECT LENGTH(records_json) AS chars FROM reality_event_records WHERE reality_id = ? AND entry_id = ?";
+export const SELECT_EVENT_RECORDS_PART_SQL = "SELECT substr(records_json, ?, ?) AS part FROM reality_event_records WHERE reality_id = ? AND entry_id = ?";
+
+/** Parse history rows; years whose records stay in storage get a deferred marker, never "not recorded". */
+async function parseHistoryRows(db: SqlExecutor, realityId: string, rows: HistoryRow[]): Promise<unknown[]> {
+  const counts = new Map((await db.select<{ entry_id: string; record_count: number }>(SELECT_EVENT_RECORD_COUNTS_SQL, [realityId])).map(r => [r.entry_id, r.record_count]));
+  return rows.map((h) => {
+    let entry: unknown;
+    try {
+      entry = JSON.parse(h.entry_json);
+    } catch {
+      throw new Error("Saved history is invalid; refusing to overwrite it.");
+    }
+    const count = counts.get(h.entry_id);
+    if (count && entry && typeof entry === "object" && !(entry as SeasonHistoryEntry).eventRecords?.length) {
+      (entry as SeasonHistoryEntry).eventRecordsDeferred = { realityId, count };
+    }
+    return entry;
+  });
+}
+
+/** Event records of archived years, read in bounded parts when a view needs them. */
+export async function loadEventRecordsFromDb(realityId: string, entryIds: readonly string[]): Promise<Map<string, EventRecord[]>> {
+  const db = await loadDatabase();
+  return serializeDbWrite(db, async () => {
+    const result = new Map<string, EventRecord[]>();
+    for (const entryId of entryIds) {
+      const size = await db.select<{ chars: number | null }>(SELECT_EVENT_RECORDS_SIZE_SQL, [realityId, entryId]);
+      if (size[0]?.chars == null) continue;
+      const json = await decompressStoredJson(await selectTextInChunks(db, SELECT_EVENT_RECORDS_PART_SQL, [realityId, entryId], size[0].chars));
+      let records: unknown;
+      try { records = JSON.parse(json); } catch { throw new Error("Saved event statistics are invalid; refusing to overwrite them."); }
+      if (!Array.isArray(records)) throw new Error("Saved event statistics are invalid; refusing to overwrite them.");
+      result.set(entryId, records as EventRecord[]);
+    }
+    return result;
+  });
+}
+setEventRecordsLoader(loadEventRecordsFromDb);
 
 async function selectSeasonJson(db: SqlExecutor, realityId: string): Promise<string | null> {
   const size = await db.select<{ chars: number | null }>(SELECT_SEASON_SIZE_SQL, [realityId]);
@@ -1062,13 +1149,7 @@ export async function loadPersistedStateFromDbExecutor(
     if (activeRealityId && row.id === activeRealityId) {
       setPersistLoadStage("Reading active reality history");
       const histRows = await selectHistoryRows(db, row.id);
-      const parsed = histRows.map((h) => {
-        try {
-          return JSON.parse(h.entry_json);
-        } catch {
-          throw new Error("Saved history is invalid; refusing to overwrite it.");
-        }
-      });
+      const parsed = await parseHistoryRows(db, row.id, histRows);
       history = parsed.filter((e): e is unknown => e != null);
       historyBaselines.set(row.id, baselineFromRows(histRows, parsed));
       loadedHistoryRealityIds.add(row.id);
@@ -1124,13 +1205,9 @@ export async function loadRealityHistoryFromDb(
 ): Promise<SeasonHistoryEntry[]> {
   const db = await loadDatabase();
   // Serialized with writes so a multi-part read never sees a half-updated row.
-  const rows = await serializeDbWrite(db, () => selectHistoryRows(db, realityId));
-  const parsed = rows.map((r) => {
-    try {
-      return JSON.parse(r.entry_json) as SeasonHistoryEntry | null;
-    } catch {
-      throw new Error("Saved history is invalid; refusing to overwrite it.");
-    }
+  const { rows, parsed } = await serializeDbWrite(db, async () => {
+    const rows = await selectHistoryRows(db, realityId);
+    return { rows, parsed: await parseHistoryRows(db, realityId, rows) as (SeasonHistoryEntry | null)[] };
   });
   const history = parsed.filter((e): e is SeasonHistoryEntry => e != null);
   readHistorySources.set(history, { db, realityId, baseline: baselineFromRows(rows, parsed) });
@@ -1184,6 +1261,7 @@ export async function clearDesktopStoreFromDb(storeKey: string): Promise<void> {
     await writer.execute("DELETE FROM global_fragments WHERE store_key = ?", [storeKey]);
     await writer.execute("DELETE FROM global_state WHERE store_key = ?", [storeKey]);
     forgetHistoryBaseline(writer);
+    await writer.execute("DELETE FROM reality_event_records");
     await writer.execute("DELETE FROM reality_history");
     await writer.execute("DELETE FROM realities");
     loadedHistoryRealityIds.clear();

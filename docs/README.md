@@ -32,6 +32,8 @@ Los documentos de `plans/` y las auditorías registran objetivos y decisiones de
 
 ## Versiones
 
+- [v1.16.0: guardados mucho más pequeños y arranque más rápido (formato de almacenamiento 9)](releases/v1.16.0.md).
+
 - [v1.15.2: guardados más ligeros de la temporada en curso](releases/v1.15.2.md).
 
 - [v1.15.1: comparación de trayectorias SS rediseñada, insignia SS alineada y guardados más ligeros](releases/v1.15.1.md).

@@ -384,7 +384,9 @@ test("title playground filters teams, player winning regions, years and realitie
       if (command === "plugin:sql|load") return args.path;
       if (command === "plugin:sql|execute") return [0, 0];
       if (command === "plugin:sql|select") {
-        if (args.query?.includes("persist_version")) return [{ value: "8" }];
+        if (args.query?.includes("persist_version")) return [{ value: "9" }];
+          // Storage v9 already migrated: no plain rows left to convert.
+          if (args.query?.includes("substr(entry_json, 1, 6)")) return [];
         if (args.query?.includes("FROM reality_history")) {
           const saved = JSON.parse(localStorage.getItem("draftsim-store")!) as { state: { realities: Array<{ id: string; history: typeof entries }> } };
           // Native history reads are chunked: sizes first, then substr parts.

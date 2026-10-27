@@ -172,6 +172,11 @@ export interface SeasonHistoryRookieOfYear {
 
 export interface SeasonHistoryEntry {
   eventRecords?: EventRecord[];
+  /**
+   * In memory only: the records exist in desktop storage but were not loaded
+   * with the archive (lib/eventRecordsAccess.ts). Never means "not recorded".
+   */
+  eventRecordsDeferred?: { realityId: string; count: number };
   /** Frozen Worlds-qualification points. Absent on legacy archives, not evidence of zero. */
   championshipPoints?: ChampionshipPointsRow[];
   /** Mirrors season.id — archiving the same season upserts its entry. */

@@ -1,4 +1,4 @@
-import { markRealityHistoryLoaded, loadRealitySeasonFromDb, loadRealityHistoryFromDb, savePersistedStateToDbExecutor, SELECT_FRAGMENT_PART_SQL, SELECT_FRAGMENT_SIZES_SQL, SELECT_HISTORY_PART_SQL, SELECT_HISTORY_SIZES_SQL, SELECT_SEASON_PART_SQL, SELECT_SEASON_SIZE_SQL } from "./desktopSqlite";
+import { markRealityHistoryLoaded, loadRealitySeasonFromDb, loadRealityHistoryFromDb, savePersistedStateToDbExecutor, SELECT_FRAGMENT_PART_SQL, SELECT_FRAGMENT_SIZES_SQL, SELECT_HISTORY_PART_SQL, SELECT_HISTORY_SIZES_SQL, SELECT_SEASON_PART_SQL, SELECT_SEASON_SIZE_SQL, SELECT_EVENT_RECORD_COUNTS_SQL, SELECT_EVENT_RECORDS_PART_SQL, SELECT_EVENT_RECORDS_SIZE_SQL } from "./desktopSqlite";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { SeasonHistoryEntry } from "@/lib/season/history";
 
@@ -33,8 +33,9 @@ import {
   type SqlExecutor,
 } from "./desktopSqlite";
 import { signalCompactingDatabase, clearDesktopOperation } from "./desktopStorage";
-import { UPDATE_REALITY_HISTORY_ORDER_SQL, UPSERT_REALITY_HISTORY_SQL } from "./desktopSqliteSchema";
+import { UPDATE_REALITY_HISTORY_ORDER_SQL, UPSERT_EVENT_RECORDS_SQL, UPSERT_REALITY_HISTORY_SQL } from "./desktopSqliteSchema";
 import { getSaveDiagnostics, setSaveDiagnosticsEnabled } from "./saveDiagnostics";
+import { decompressStoredJson } from "./storedJson";
 import { setBreadcrumbInvokeForTests, setBulkBreadcrumbContext } from "./bulkBreadcrumbs";
 import {
   compactEncodeTournamentForPersist,
@@ -50,14 +51,43 @@ function historyKey(realityId: string, entryId: string): string {
   return `${realityId}\0${entryId}`;
 }
 
+/** Shared reality_event_records emulation for the hand-written SQL mocks. */
+function mockEventRecords() {
+  const rows = new Map<string, { reality_id: string; entry_id: string; records_json: string; record_count: number }>();
+  const execute = (query: string, bindValues: unknown[]): { rowsAffected: number } | undefined => {
+    if (query === UPSERT_EVENT_RECORDS_SQL) {
+      const [reality_id, entry_id, records_json, record_count] = bindValues as [string, string, string, number];
+      rows.set(historyKey(reality_id, entry_id), { reality_id, entry_id, records_json, record_count });
+      return { rowsAffected: 1 };
+    }
+    if (!query.includes("reality_event_records")) return undefined;
+    if (query === "DELETE FROM reality_event_records") rows.clear();
+    else if (query === "DELETE FROM reality_event_records WHERE reality_id = ? AND entry_id = ?") rows.delete(historyKey(bindValues[0] as string, bindValues[1] as string));
+    else if (query === "DELETE FROM reality_event_records WHERE reality_id = ?") { for (const [k, r] of [...rows]) if (r.reality_id === bindValues[0]) rows.delete(k); }
+    else if (query.includes("entry_id NOT IN")) { const [rid, ...keep] = bindValues as string[]; for (const [k, r] of [...rows]) if (r.reality_id === rid && !keep.includes(r.entry_id)) rows.delete(k); }
+    else throw new Error(`Unexpected records query: ${query}`);
+    return { rowsAffected: 0 };
+  };
+  const select = <T,>(query: string, bindValues: unknown[]): T[] | undefined => {
+    if (query === SELECT_EVENT_RECORD_COUNTS_SQL) return [...rows.values()].filter(r => r.reality_id === bindValues[0]).map(r => ({ entry_id: r.entry_id, record_count: r.record_count })) as T[];
+    if (query === SELECT_EVENT_RECORDS_SIZE_SQL) { const r = rows.get(historyKey(bindValues[0] as string, bindValues[1] as string)); return (r ? [{ chars: r.records_json.length }] : []) as T[]; }
+    if (query === SELECT_EVENT_RECORDS_PART_SQL) { const [start, length, rid, eid] = bindValues as [number, number, string, string]; const r = rows.get(historyKey(rid, eid)); return (r ? [{ part: r.records_json.slice(start - 1, start - 1 + length) }] : []) as T[]; }
+    return undefined;
+  };
+  return { rows, execute, select };
+}
+
 function createMockHistoryDb() {
   const rows = new Map<
     string,
     { reality_id: string; entry_id: string; entry_json: string; sort_order: number }
   >();
 
+  const records = mockEventRecords();
   const db: SqlExecutor = {
     async execute(query, bindValues = []) {
+      const handled = records.execute(query, bindValues);
+      if (handled) return handled;
       if (query === UPSERT_REALITY_HISTORY_SQL) {
         const [realityId, entryId, entryJson, sortOrder] = bindValues as [
           string,
@@ -114,12 +144,12 @@ function createMockHistoryDb() {
 
       throw new Error(`Unexpected query in mock history db: ${query}`);
     },
-    async select() {
-      return [];
+    async select<T>(query: string, bindValues: unknown[] = []) {
+      return records.select<T>(query, bindValues) ?? [];
     },
   };
 
-  return { db, rows };
+  return { db, rows, records: records.rows };
 }
 
 function createMockPersistDb() {
@@ -135,9 +165,12 @@ function createMockPersistDb() {
     string,
     { reality_id: string; entry_id: string; entry_json: string; sort_order: number }
   >();
+  const records = mockEventRecords();
 
   const db: SqlExecutor = {
     async execute(query, bindValues = []) {
+      const handled = records.execute(query, bindValues);
+      if (handled) return handled;
       if (query.startsWith("INSERT INTO reality_catalog")) {
         catalog.set(bindValues[0] as string, bindValues[1] as string); return { rowsAffected: 1 };
       }
@@ -263,6 +296,8 @@ function createMockPersistDb() {
     },
 
     async select<T>(query: string, bindValues: unknown[] = []): Promise<T[]> {
+      const recordRows = records.select<T>(query, bindValues);
+      if (recordRows) return recordRows;
       // Chunked large-text reads: sizes first, then substr parts (1-based, like SQLite).
       const part = (text: string | undefined) => {
         const [start, length] = bindValues as [number, number];
@@ -350,7 +385,7 @@ describe("syncRealityHistory", () => {
     await syncRealityHistory(db, "reality-1", [entry]);
 
     expect(rows.size).toBe(1);
-    expect(rows.get(historyKey("reality-1", "season-2026"))?.entry_json).toBe(
+    expect(await decompressStoredJson(rows.get(historyKey("reality-1", "season-2026"))!.entry_json)).toBe(
       JSON.stringify(entry),
     );
   });
@@ -364,7 +399,7 @@ describe("syncRealityHistory", () => {
     await syncRealityHistory(db, "reality-1", [updated, makeEntry("season-2027", "2027")]);
 
     expect(rows.size).toBe(2);
-    expect(rows.get(historyKey("reality-1", "season-2026"))?.entry_json).toBe(
+    expect(await decompressStoredJson(rows.get(historyKey("reality-1", "season-2026"))!.entry_json)).toBe(
       JSON.stringify(updated),
     );
     expect(rows.get(historyKey("reality-1", "season-2026"))?.sort_order).toBe(0);
@@ -991,7 +1026,7 @@ describe("lazy-history safety and write budget", () => {
     expect(initialHistoryWrites).toBe(10000);
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0][0]).toContain("global_state");
-  });
+  }, 60_000); // The first save compresses 10000 archives; the assertion is about rewrites, not time.
 });
 
 
@@ -1162,7 +1197,7 @@ describe("incremental history sync", () => {
     const rearchived = { ...b, name: "B rearchived" };
     await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([rearchived, a]));
     expect(upsertedIds(execute)).toEqual(["b"]);
-    expect(JSON.parse(historyRows.get(historyKey("r", "b"))!.entry_json).name).toBe("B rearchived");
+    expect(JSON.parse(await decompressStoredJson(historyRows.get(historyKey("r", "b"))!.entry_json)).name).toBe("B rearchived");
   });
 
   it("updates sort order for reordered rows without re-encoding them", async () => {
@@ -1192,7 +1227,8 @@ describe("incremental history sync", () => {
     const newer = { ...a, name: "A newer" };
     await savePersistedStateToDbExecutor(db, STORE_KEY, stateWith([newer, a]));
     expect(historyRows.size).toBe(1);
-    expect(historyRows.get(historyKey("r", "a"))).toMatchObject({ sort_order: 1, entry_json: JSON.stringify(a) });
+    expect(historyRows.get(historyKey("r", "a"))).toMatchObject({ sort_order: 1 });
+    expect(await decompressStoredJson(historyRows.get(historyKey("r", "a"))!.entry_json)).toBe(JSON.stringify(a));
   });
 
   it("does not let a failed commit make the retry skip rows that never reached the database", async () => {
@@ -1290,7 +1326,7 @@ describe("incremental history sync", () => {
     type Value = import("node:sqlite").SQLInputValue;
     const run = (query: string, values: unknown[] = []) => sqlite.prepare(query).run(...values as Value[]);
     let failNext = false;
-    let historyBytes = 0;
+    let historyWrites = 0;
     const executor: SqlExecutor = {
       execute: async (query, values = []) => ({ rowsAffected: Number(run(query, values).changes) }),
       select: async <T>(query: string, values: unknown[] = []) => sqlite.prepare(query).all(...values as Value[]) as T[],
@@ -1299,7 +1335,7 @@ describe("incremental history sync", () => {
         try {
           statements.forEach((s, i) => {
             if (failNext && i === statements.length - 1) throw new Error("injected failure");
-            if (s.query === UPSERT_REALITY_HISTORY_SQL) historyBytes += (s.bindValues[2] as string).length;
+            if (s.query === UPSERT_REALITY_HISTORY_SQL) historyWrites++;
             run(s.query, s.bindValues);
           });
           sqlite.exec("COMMIT");
@@ -1316,9 +1352,8 @@ describe("incremental history sync", () => {
         }
         await savePersistedStateToDbExecutor(executor, STORE_KEY, stateWith(history));
       }
-      const oneEntry = JSON.stringify(history[0]).length;
       // 6 new years, plus one full rewrite of 4 years after the injected failure.
-      expect(historyBytes).toBeLessThanOrEqual(oneEntry * (6 + 4));
+      expect(historyWrites).toBeLessThanOrEqual(6 + 4);
       resetSqliteStorageForTests();
       const loaded = (await loadPersistedStateFromDbExecutor(executor, STORE_KEY))!;
       expect(loaded.realities![0].history).toEqual(history);

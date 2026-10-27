@@ -134,7 +134,8 @@ describe("chunked persist_batch through the save path", () => {
   afterEach(() => { resetSqliteStorageForTests(); setDesktopDatabaseForTests(null); });
 
   const entry = (year: number): SeasonHistoryEntry => ({
-    id: `year-${year}`, archivedAt: year, name: `Year ${year} ${"é".repeat(150)}`, complete: true,
+    // Varied text stays large after compression, so history rows are still staged in chunks.
+    id: `year-${year}`, archivedAt: year, name: `Year ${year} ${"é".repeat(150)} ${Array.from({ length: 120 }, (_, i) => ((i * 7919 + year * 104729) % 46656).toString(36)).join("")}`, complete: true,
     champion: null, runnerUp: null, intlChampions: {}, splitChampions: {},
   });
   const stateWith = (history: SeasonHistoryEntry[], note = "") => ({

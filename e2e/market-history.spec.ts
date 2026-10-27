@@ -208,7 +208,9 @@ test("dormant SQLite history is shared by Timeline, records and market without o
         if (command === "plugin:sql|load") return args.path;
         if (command === "plugin:sql|execute") return [0, 0];
         if (command === "plugin:sql|select") {
-          if (args.query?.includes("persist_version")) return [{ value: "8" }];
+          if (args.query?.includes("persist_version")) return [{ value: "9" }];
+          // Storage v9 already migrated: no plain rows left to convert.
+          if (args.query?.includes("substr(entry_json, 1, 6)")) return [];
           // Native history reads are chunked: sizes first, then substr parts.
           if (args.query?.includes("LENGTH(entry_json)")) return entries.map((entry, i) => ({ entry_id: entry.id, sort_order: i, chars: JSON.stringify(entry).length }));
           if (args.query?.includes("substr(entry_json")) {
