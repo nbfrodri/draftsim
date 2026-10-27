@@ -340,6 +340,9 @@ export interface SeasonState {
   phaseIndex: number;
   // Every tournament of the season keyed by id (splits + internationals).
   tournaments: Record<string, TournamentState>;
+  // Persist-only: distinct series roster synergy maps (lib/seriesSynergyPool.ts).
+  // Present only in encoded saves; decoding restores and removes it.
+  seriesSynergyPool?: Record<string, Record<string, number>>;
   // Final placements (ordered team ids, best first) per completed split
   // per league, and per international.
   splitResults: Partial<Record<SplitId, Partial<Record<LeagueId, string[]>>>>;
