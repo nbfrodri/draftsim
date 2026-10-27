@@ -43,6 +43,7 @@ python3 - "$database" <<'PY'
 import sqlite3, sys
 with sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True) as db:
     assert db.execute("pragma integrity_check").fetchone()[0] == "ok"
-    assert db.execute("select value from schema_meta where key='persist_version'").fetchone() == ("8",)
+    assert db.execute("select value from schema_meta where key='persist_version'").fetchone() == ("9",)
+    assert db.execute("select count(*) from sqlite_master where type='table' and name='reality_event_records'").fetchone()[0] == 1
 print("First-run database verified")
 PY
