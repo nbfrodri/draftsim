@@ -1,5 +1,5 @@
 "use client";
-import { previewRealityImport, type RealityImportPreview } from "@/lib/importPreview";
+import { previewRealityImport, previewRealityImportFile, type RealityImportPreview } from "@/lib/importPreview";
 
 import { memo,useCallback,useEffect,useRef,useState } from "react";
 
@@ -8,7 +8,7 @@ compactDesktopDatabase,
 formatCompactResultMessage,
 } from "@/lib/desktopSqlite";
 import { getCompressExports, REALITY_IMPORT_FILTERS, realityExportFilename, realityExportFilters, setCompressExports } from "@/lib/realityExport";
-import { isDesktop,openFileNative,saveFileNative,textContentBlob,isDesktopOperationBlocking,signalReviewingImport,waitForDesktopOverlayPaint,clearDesktopOperation } from "@/lib/desktopStorage";
+import { isDesktop,openFileBytesNative,saveFileNative,textContentBlob,isDesktopOperationBlocking,signalReviewingImport,waitForDesktopOverlayPaint,clearDesktopOperation } from "@/lib/desktopStorage";
 import { REALITY_CODE_PREFIX } from "@/lib/realityShare";
 import { useDraftStore } from "@/store/draftStore";
 import Modal from "./Modal";
@@ -266,18 +266,21 @@ export default function RealitiesHub({ onChoose }: Props) {
     [exportRealityStream, flash, realityList, rowBusy, compressExports],
   );
 
-  const prepareImport = async (read: () => Promise<string | null>) => {
+  // Files arrive as bytes (read in parts, .json or .json.gz); share codes as text.
+  const prepareImport = async (read: () => Promise<string | Uint8Array | null>) => {
     if (isDesktopOperationBlocking()) return;
     signalReviewingImport();
     setRowBusy(true);
     try {
       await waitForDesktopOverlayPaint();
-      const text = await read();
-      if (text === null) return;
-      const plan = await previewRealityImport(text, useDraftStore.getState().realities, async stage => {
+      const input = await read();
+      if (input === null) return;
+      const onStage = async (stage: "decode" | "validate" | "summary") => {
         advanceOperationProgress(stage);
         await waitForDesktopOverlayPaint();
-      });
+      };
+      const existing = useDraftStore.getState().realities;
+      const plan = typeof input === "string" ? await previewRealityImport(input, existing, onStage) : await previewRealityImportFile(input, existing, onStage);
       previewTarget.current = useDraftStore.getState().realities.find(r => r.id === plan.id);
       setPreview(plan);
       recordOperationSuccess();
@@ -313,12 +316,12 @@ export default function RealitiesHub({ onChoose }: Props) {
   const handleImport = async () => {
     if (isDesktop()) {
       await prepareImport(async () => {
-        const res = await openFileNative({ filters: REALITY_IMPORT_FILTERS });
-        if (!res.ok || res.content == null) {
+        const res = await openFileBytesNative({ filters: REALITY_IMPORT_FILTERS });
+        if (!res.ok || res.bytes == null) {
           if (res.error && res.error !== "cancelled") throw new Error(res.error);
           return null;
         }
-        return res.content;
+        return res.bytes;
       });
       return;
     }
@@ -328,7 +331,7 @@ export default function RealitiesHub({ onChoose }: Props) {
   const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (file) await prepareImport(() => file.text());
+    if (file) await prepareImport(async () => new Uint8Array(await file.arrayBuffer()));
   };
 
   const handleOpen = useCallback(
@@ -590,7 +593,7 @@ export default function RealitiesHub({ onChoose }: Props) {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".json,application/json"
+          accept=".json,.gz,application/json,application/gzip"
           className="hidden"
           onChange={(e) => void onFilePicked(e)}
         />
@@ -627,7 +630,7 @@ export default function RealitiesHub({ onChoose }: Props) {
             flash("err", "The target reality changed. Review the import again."); setPreview(null); return;
           }
           const plan = preview; setPreview(null); setRowBusy(true);
-          void importReality(plan.json).then(res => {
+          void importReality(plan.reality).then(res => {
             if (res.ok) { flash("ok", "Reality imported"); setShareCodeInput(""); }
             else flash("err", res.error ?? "Import failed");
           }).catch(error => flash("err", String(error))).finally(() => setRowBusy(false));

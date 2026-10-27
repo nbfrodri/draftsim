@@ -35,7 +35,9 @@ try {
   await expect(page.getByRole("heading", { name: "DRAFTSIM", exact: true })).toBeVisible();
   await page.getByRole("region", { name: "Continue playing" }).getByRole("button").click();
   const save = page.getByRole("button", { name: "Save", exact: true });
-  await expect(save).toBeVisible();
+  // Opening the reality reads its season from SQLite; a cold CI runner can take longer
+  // than the 5 s expect default (it showed "Loading..." when this once failed).
+  await expect(save).toBeVisible({ timeout: 60_000 });
 
   // A modal consumes Escape; a held key must not then exit its parent page.
   await page.getByRole("button", { name: "Abandon", exact: true }).click();

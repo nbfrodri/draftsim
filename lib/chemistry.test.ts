@@ -196,3 +196,15 @@ describe("chemistry drift", () => {
     expect(a.synergy!.sup).toBeLessThanOrEqual(CHEM_TIME_TARGET);
   });
 });
+
+describe("stored chemistry survives a JSON round trip", () => {
+  it("never stores -0, so saves reload equal (was a rare flaky round-trip test)", () => {
+    for (let seed = 0; seed < 400; seed++) {
+      const roster = (["top", "jungle", "middle", "bottom", "support"] as const).map((lane, i) => p({ lane, name: `${seed}-${i}` }));
+      const assigned = assignSynergies(roster, `seed-${seed}`);
+      const values = assigned.flatMap(x => Object.values(x.synergy ?? {}));
+      expect(values.some(v => Object.is(v, -0))).toBe(false);
+      expect(JSON.parse(JSON.stringify(assigned))).toEqual(assigned);
+    }
+  });
+});
