@@ -12,7 +12,7 @@ Simulador de escritorio para Windows y Linux de **drafts, partidas, torneos y fr
 - **SS Race en directo:** titulares SS mundiales y aspirantes por rol, con logos, notas, diferencias de oro, requisitos y probabilidades estimadas. Las plazas SS se revisan al cerrar cada fase competitiva.
 - **Historial y personalización:** perfiles de jugadores y equipos, movimientos, récords, Title Playground, rosters históricos y edición de meta y plantillas.
 
-Consulta las [notas de v1.15.1](docs/releases/v1.15.1.md) para el rediseño de la comparación de trayectorias SS, la alineación de la insignia SS y los guardados más ligeros a mitad de año, y los [sistemas de juego](docs/systems.es.md) para las reglas.
+Consulta las [notas de v1.15.2](docs/releases/v1.15.2.md) para los guardados más ligeros de la temporada en curso, y los [sistemas de juego](docs/systems.es.md) para las reglas.
 
 ## Instalar en Windows
 
