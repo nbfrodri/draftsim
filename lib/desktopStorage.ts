@@ -894,12 +894,33 @@ export async function* gzipTextParts(content: TextContent): AsyncGenerator<Uint8
   if (size) yield flush();
 }
 
-/** Text from a file's bytes: gzip (by its magic number) is inflated, anything else is UTF-8. */
-export async function decodeTextFileBytes(bytes: Uint8Array): Promise<string> {
-  if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
-    return new Response(new Blob([bytes as BlobPart]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+/** Largest decompressed import: about the longest text the engine can hold anyway. */
+export const MAX_IMPORT_TEXT_BYTES = 512 * 1024 * 1024;
+
+/**
+ * Text from a file's bytes: gzip (by its magic number) is inflated, anything else is UTF-8.
+ * Imported files are untrusted, so inflation stops at `maxBytes` instead of exhausting memory.
+ */
+export async function decodeTextFileBytes(bytes: Uint8Array, maxBytes = MAX_IMPORT_TEXT_BYTES): Promise<string> {
+  if (!(bytes[0] === 0x1f && bytes[1] === 0x8b)) return new TextDecoder("utf-8").decode(bytes);
+  const reader = new Blob([bytes as BlobPart]).stream().pipeThrough(new DecompressionStream("gzip")).getReader();
+  const decoder = new TextDecoder("utf-8");
+  const chunks: string[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) throw new Error("This compressed file is too large to import.");
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return chunks.join("");
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
-  return new TextDecoder("utf-8").decode(bytes);
 }
 
 /** Write text in order; parts after the first are appended. A `.gz` path is written gzip-compressed. */

@@ -297,6 +297,8 @@ describe("compressed reality exports", () => {
 		expect(bytes.length).toBeLessThan(expected.length / 3);
 		expect(await decodeTextFileBytes(bytes)).toBe(expected);
 		expect(await decodeTextFileBytes(new TextEncoder().encode('{"plain":"ñ"}'))).toBe('{"plain":"ñ"}');
+		// Untrusted input: inflation stops at the cap instead of exhausting memory.
+		await expect(decodeTextFileBytes(bytes, 1024)).rejects.toThrow("too large to import");
 		vi.doUnmock("@tauri-apps/plugin-fs");
 	});
 });
