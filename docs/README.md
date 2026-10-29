@@ -32,6 +32,8 @@ Los documentos de `plans/` y las auditorías registran objetivos y decisiones de
 
 ## Versiones
 
+- [v1.17.3: chip SS del mismo tamaño que el resto de tiers](releases/v1.17.3.md).
+
 - [v1.17.2: ventana de simulación tras un bulk y badge SS en búsquedas e historial](releases/v1.17.2.md).
 
 - [v1.17.1: importación por partes de realities largas](releases/v1.17.1.md).
