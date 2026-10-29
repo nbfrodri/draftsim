@@ -200,14 +200,14 @@ export function SimulatingOverlay({ scope }: { scope: "match" | "all" }) {
   const progress = useDraftStore((s) => s.simProgress);
   const bulkYearsProgress = useDraftStore((s) => s.bulkYearsProgress);
   const simStartedAt = useDraftStore((s) => s.simStartedAt);
-  const feedCount = useDraftStore((s) => s.simResultsFeed.length);
   const cancelBulkYears = useDraftStore((s) => s.cancelBulkYears);
   const label = bulkYearsProgress
     ? `Simulating ${bulkYearsProgress.total} franchise years…`
     : scope === "all"
       ? "Simulating remaining matches…"
       : "Simulating match…";
-  const showResultsFeed = !!bulkYearsProgress || feedCount > 0;
+  // The feed outlives its run for the dashboard panel; only bulk years stream it here.
+  const showResultsFeed = !!bulkYearsProgress;
   const etaStartedAt = bulkYearsProgress?.startedAt ?? simStartedAt;
   const etaCompleted = bulkYearsProgress?.completed ?? progress?.done ?? 0;
   const etaTotal = bulkYearsProgress?.total ?? progress?.total ?? 0;
