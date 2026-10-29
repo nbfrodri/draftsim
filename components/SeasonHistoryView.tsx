@@ -1,6 +1,7 @@
 "use client";
 
 import ClearableSearch from "./ClearableSearch";
+import SSBadge from "./SSBadge";
 
 import { formatAggregateKda } from "@/lib/formatKda";
 import ChampionshipPointsPanel from "./season/ChampionshipPointsPanel";
@@ -4365,7 +4366,7 @@ const SearchResultRow = memo(function SearchResultRow({
     >
       {r.lane && <LaneIcon lane={r.lane} size="xs" />}
       {r.tier && (
-        r.tier === "SS" ? "SS" : <span className={`w-4 text-center border font-display text-[8px] shrink-0 ${STAGE_TIER_CLS[r.tier] ?? ""}`}>{r.tier}</span>
+        r.tier === "SS" ? <SSBadge size="xs" /> : <span className={`w-4 text-center border font-display text-[8px] shrink-0 ${STAGE_TIER_CLS[r.tier] ?? ""}`}>{r.tier}</span>
       )}
       {r.team && kind !== "teams" && (
         <TeamLogoLink
