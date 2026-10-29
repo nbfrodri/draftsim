@@ -1,6 +1,7 @@
 "use client";
 
 import ClearableSearch from "./ClearableSearch";
+import SSBadge from "./SSBadge";
 
 import { formatAggregateKda } from "@/lib/formatKda";
 import ChampionshipPointsPanel from "./season/ChampionshipPointsPanel";
@@ -788,7 +789,7 @@ function SeasonDetail({
                       {roster.players.map((p, i) => (
                         <span key={i} className="inline-flex items-center gap-1 text-[9px]">
                           <LaneIcon lane={p.lane} size="xs" />
-                          {p.tier === "SS" ? "SS" : <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>
+                          {p.tier === "SS" ? <SSBadge /> : <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>
                             {p.tier}
                           </span>}
                           <NavPlayerName
@@ -1314,7 +1315,7 @@ function HistoryRosterPlayerRow({
         } ${hasDetail ? "hover:bg-rift-gold/[0.04]" : ""}`}
       >
         <LaneIcon lane={p.lane} size="xs" className="shrink-0" />
-        {p.tier === "SS" ? "SS" : <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>
+        {p.tier === "SS" ? <SSBadge /> : <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>
           {p.tier}
         </span>}
         {p.id ? (
@@ -1337,7 +1338,7 @@ function HistoryRosterPlayerRow({
         {(p.age != null || (p.potential && p.potential !== p.tier)) && (
           <span className="text-[8px] uppercase tracking-[0.12em] text-rift-muted/55 tabular-nums">
             {p.age != null ? `${p.age}y` : ""}
-            {p.potential && p.potential !== p.tier ? <> · ↗{p.potential === "SS" ? "SS" : p.potential}</> : ""}
+            {p.potential && p.potential !== p.tier ? <> · ↗{p.potential === "SS" ? <SSBadge /> : p.potential}</> : ""}
           </span>
         )}
         <span className="ml-auto inline-flex gap-0.5 items-center shrink-0">
@@ -1611,7 +1612,7 @@ function TransferLog({
       <span className="text-rift-muted">—</span>
     );
   const tier = (t: string) => (
-    t === "SS" ? "SS" : <span className={`px-1 border font-display text-[8px] ${XFER_TIER_CLS[t] ?? ""}`}>{t}</span>
+    t === "SS" ? <SSBadge /> : <span className={`px-1 border font-display text-[8px] ${XFER_TIER_CLS[t] ?? ""}`}>{t}</span>
   );
   return (
     <div>
@@ -3131,7 +3132,7 @@ function RosterChips({
         .map((p, i) => (
           <span key={i} className="inline-flex items-center gap-1 text-[9px]">
             <LaneIcon lane={p.lane} size="xs" />
-            {p.tier === "SS" ? "SS" : <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>}
+            {p.tier === "SS" ? <SSBadge /> : <span className={`px-1 border font-display text-[8px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>}
             {p.id ? (
               <NavPlayerName
                 name={p.name ?? "—"}
@@ -3507,7 +3508,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
         {p.lane && <LaneIcon lane={p.lane} size="sm" />}
-        {p.tier && (p.tier === "SS" ? "SS" : <span className={`w-5 text-center border font-display text-[10px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>)}
+        {p.tier && (p.tier === "SS" ? <SSBadge /> : <span className={`w-5 text-center border font-display text-[10px] ${STAGE_TIER_CLS[p.tier] ?? ""}`}>{p.tier}</span>)}
         {p.tier === "SS" && <span className="text-[9px] text-rift-mutedbright">Historical tier · current ownership is shown in Live Season</span>}
         <PlayerNameLink
           playerId={id}
@@ -3685,7 +3686,7 @@ const PlayerProfileView = memo(function PlayerProfileView({
                           <TeamRef team={st.team} size={12} nested seasonId={t.seasonId} />
                         </button>
                         <LaneIcon lane={st.lane} size="xs" />
-                        {st.tier === "SS" ? "SS" : <span className={`px-1 border font-display text-[8px] flex-shrink-0 ${STAGE_TIER_CLS[st.tier] ?? ""}`}>{st.tier}</span>}
+                        {st.tier === "SS" ? <SSBadge /> : <span className={`px-1 border font-display text-[8px] flex-shrink-0 ${STAGE_TIER_CLS[st.tier] ?? ""}`}>{st.tier}</span>}
                       </span>
                     ))
                   ) : t.affiliateTeam && (t.careerStatus === "academy" || (t.careerStatus === "retired" &&
@@ -4365,7 +4366,7 @@ const SearchResultRow = memo(function SearchResultRow({
     >
       {r.lane && <LaneIcon lane={r.lane} size="xs" />}
       {r.tier && (
-        r.tier === "SS" ? "SS" : <span className={`w-4 text-center border font-display text-[8px] shrink-0 ${STAGE_TIER_CLS[r.tier] ?? ""}`}>{r.tier}</span>
+        r.tier === "SS" ? <SSBadge size="xs" /> : <span className={`w-4 text-center border font-display text-[8px] shrink-0 ${STAGE_TIER_CLS[r.tier] ?? ""}`}>{r.tier}</span>
       )}
       {r.team && kind !== "teams" && (
         <TeamLogoLink

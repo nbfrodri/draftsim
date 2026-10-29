@@ -26,6 +26,7 @@ import LaneIcon from "../LaneIcon";
 import TeamIcon from "../TeamIcon";
 import PlayerNameLink from "../player/PlayerNameLink";
 import TierChip from "./TierChip";
+import SSBadge from "../SSBadge";
 import ClearableSearch from "../ClearableSearch";
 
 const EMPTY_TEAMS: SeasonState["teams"] = [];
@@ -266,7 +267,7 @@ const SearchResults = memo(function SearchResults({
               }}
               className="font-display text-sm text-rift-goldbright"
             />
-            <TierChip tier={selected.tier} />
+            {selected.tier === "SS" ? <SSBadge size="sm" /> : <TierChip tier={selected.tier} />}
             <button
               type="button"
               onClick={() => setSelection(null)}
